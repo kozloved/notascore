@@ -1,0 +1,1 @@
+import UploadCard from '../../components/UploadCard'; export default function Dashboard(){return <main><h1>Dashboard</h1><UploadCard/></main>}

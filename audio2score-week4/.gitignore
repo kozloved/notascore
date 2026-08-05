@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+.env
+.env.local
+.venv/
+__pycache__/
+*.pyc
+*.db
+backend/uploads/*
+backend/results/*
+backend/.tmp/*
+!backend/uploads/.gitignore
+!backend/results/.gitignore
+!backend/.tmp/.gitignore
+audio2score-week4.zip

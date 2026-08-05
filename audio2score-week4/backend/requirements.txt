@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+python-multipart
+python-dotenv
+sqlalchemy
+redis
+rq
+supabase
+psycopg2-binary
+
+basic-pitch
+music21
+pretty_midi

@@ -1,0 +1,167 @@
+from dotenv import load_dotenv
+
+load_dotenv()
+
+import os
+import shutil
+from pathlib import Path
+from functools import lru_cache
+
+LOCAL_UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
+LOCAL_RESULTS_DIR = Path(os.getenv("RESULTS_DIR", "results"))
+LOCAL_TEMP_DIR = Path(os.getenv("TEMP_DIR", ".tmp"))
+
+
+class LocalStorage:
+    backend = "local"
+
+    def __init__(self):
+        LOCAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        LOCAL_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+        LOCAL_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+
+    def save_upload_file(self, local_file_path, key, content_type=None):
+        target = (LOCAL_UPLOAD_DIR / key).resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        shutil.move(
+            str(local_file_path),
+            str(target),
+        )
+
+        return str(target)
+
+    def save_text(self, key, text, content_type=None):
+        target = (LOCAL_RESULTS_DIR / key).resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        target.write_text(
+            text,
+            encoding="utf-8",
+        )
+
+        return str(target)
+
+    def get_local_audio_path(self, storage_key):
+        return Path(storage_key)
+
+    def get_result_signed_url(self, result_storage_key, expires_in=3600):
+        return None
+
+
+class SupabaseStorage:
+    backend = "supabase"
+
+    def __init__(self):
+        try:
+            from supabase import create_client
+        except ImportError as exc:
+            raise RuntimeError(
+                "The supabase package is not installed. "
+                "Run: pip install supabase"
+            ) from exc
+
+        self.url = os.getenv("SUPABASE_URL")
+        self.service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+        if not self.url or not self.service_key:
+            raise RuntimeError(
+                "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set "
+                "to use SupabaseStorage."
+            )
+
+        self.client = create_client(
+            self.url,
+            self.service_key,
+        )
+
+        self.audio_bucket = os.getenv(
+            "SUPABASE_BUCKET_AUDIO",
+            "audio-uploads",
+        )
+
+        self.results_bucket = os.getenv(
+            "SUPABASE_BUCKET_RESULTS",
+            "musicxml-exports",
+        )
+
+        LOCAL_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _bucket(self, bucket_name):
+        return self.client.storage.from_(bucket_name)
+
+    def save_upload_file(self, local_file_path, key, content_type=None):
+        options = {
+            "upsert": "true",
+        }
+
+        if content_type:
+            options["content-type"] = content_type
+
+        self._bucket(self.audio_bucket).upload(
+            key,
+            str(local_file_path),
+            options,
+        )
+
+        Path(local_file_path).unlink(missing_ok=True)
+
+        return key
+
+    def save_text(self, key, text, content_type=None):
+        temp_file = LOCAL_TEMP_DIR / Path(key).name
+
+        temp_file.write_text(
+            text,
+            encoding="utf-8",
+        )
+
+        options = {
+            "upsert": "true",
+        }
+
+        if content_type:
+            options["content-type"] = content_type
+
+        try:
+            self._bucket(self.results_bucket).upload(
+                key,
+                str(temp_file),
+                options,
+            )
+        finally:
+            temp_file.unlink(missing_ok=True)
+
+        return key
+
+    def get_local_audio_path(self, storage_key):
+        local_path = LOCAL_TEMP_DIR / f"audio-{Path(storage_key).name}"
+
+        data = self._bucket(self.audio_bucket).download(storage_key)
+
+        local_path.write_bytes(data)
+
+        return local_path
+
+    def get_result_signed_url(self, result_storage_key, expires_in=3600):
+        data = self._bucket(self.results_bucket).create_signed_url(
+            result_storage_key,
+            expires_in,
+        )
+
+        if isinstance(data, str):
+            return data
+
+        return (
+            data.get("signedURL")
+            or data.get("signed_url")
+            or data.get("signedUrl")
+        )
+
+
+@lru_cache
+def get_storage():
+    if os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_ROLE_KEY"):
+        return SupabaseStorage()
+
+    return LocalStorage()

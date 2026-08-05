@@ -1,0 +1,1 @@
+Fast=Basic Pitch CPU\nQuality=MR-MT3 Remote GPU\nQueue->Router->Engine->music21->MusicXML

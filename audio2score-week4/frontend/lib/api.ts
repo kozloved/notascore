@@ -1,0 +1,1 @@
+export async function uploadAudio(file:File){const f=new FormData();f.append('file',file);return fetch('http://localhost:8000/upload',{method:'POST',body:f});}

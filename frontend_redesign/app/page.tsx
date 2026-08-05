@@ -1,0 +1,1 @@
+export default function Home(){return <main><h1>Audio2Score Premium</h1><p>Upload audio. Get editable sheet music.</p></main>}
