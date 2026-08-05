@@ -1,0 +1,14 @@
+Project: NotaScore (notascore.com)
+
+Goal:
+Audio → Sheet Music SaaS
+
+Current priority:
+Get upload → transcription → MusicXML download working locally.
+
+Rules:
+- Do NOT perform full repository reviews.
+- Only inspect files relevant to the current task.
+- Prefer small incremental changes.
+- Explain before modifying more than 3 files.
+- Keep Basic Pitch working before adding MR-MT3.
