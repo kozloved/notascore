@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import SheetResult from "../components/SheetResult";
+import HeartbeatBackground from "../components/HeartbeatBackground";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -14,6 +15,7 @@ export default function Home() {
   const [jobId, setJobId] = useState(null);
   const [job, setJob] = useState(null);
   const [theme, setTheme] = useState("system");
+  const [bpm, setBpm] = useState(72);
 
   useEffect(() => {
     try {
@@ -162,8 +164,25 @@ export default function Home() {
 
   return (
     <main className="page">
+      <HeartbeatBackground bpm={bpm} />
       <div className="container">
         <div className="topbar">
+          <div className="bpm">
+            <label htmlFor="bpm-slider" className="bpm-label">
+              BPM
+            </label>
+            <input
+              id="bpm-slider"
+              className="bpm-slider"
+              type="range"
+              min={40}
+              max={200}
+              value={bpm}
+              onChange={(event) => setBpm(Number(event.target.value))}
+              aria-label="Background heartbeat BPM"
+            />
+            <span className="bpm-value">{bpm}</span>
+          </div>
           <div className="theme-toggle" role="group" aria-label="Theme">
             {themeOptions.map((opt) => (
               <button
