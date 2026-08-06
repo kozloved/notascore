@@ -90,17 +90,14 @@ body {
   letter-spacing: -0.02em;
   line-height: 1.05;
   display: inline-flex;
-  align-items: flex-start;
+  align-items: baseline;
   gap: 2px;
 }
 
 .wordmark .note {
   color: var(--accent);
-  font-weight: 600;
-  font-size: 0.62em;
-  line-height: 1;
-  transform: translateY(0.06em);
-  margin-left: 1px;
+  font-size: 1em;
+  line-height: inherit;
 }
 
 .tagline {
