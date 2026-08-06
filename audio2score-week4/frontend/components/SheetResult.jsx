@@ -13,6 +13,41 @@ function triggerDownload(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+async function svgToPng(svg, scale) {
+  const rect = svg.getBoundingClientRect();
+  const width = Math.ceil(rect.width) || svg.viewBox?.baseVal?.width || 800;
+  const height = Math.ceil(rect.height) || svg.viewBox?.baseVal?.height || 600;
+
+  const clone = svg.cloneNode(true);
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("width", String(width));
+  clone.setAttribute("height", String(height));
+
+  const xml = new XMLSerializer().serializeToString(clone);
+  const src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+  const img = await loadImage(src);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(width * scale);
+  canvas.height = Math.round(height * scale);
+
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  return { dataUrl: canvas.toDataURL("image/png"), w: canvas.width, h: canvas.height };
+}
+
 export default function SheetResult({ apiUrl, jobId, filename }) {
   const containerRef = useRef(null);
   const osmdRef = useRef(null);
@@ -40,12 +75,20 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
 
         containerRef.current.innerHTML = "";
         const osmd = new OpenSheetMusicDisplay(containerRef.current, {
-          backend: "canvas",
+          backend: "svg",
           autoResize: true,
           drawTitle: false,
           drawPartNames: false,
         });
         osmdRef.current = osmd;
+
+        // Hide the music21-generated credits for a cleaner preview.
+        if (osmd.EngravingRules) {
+          osmd.EngravingRules.RenderComposer = false;
+          osmd.EngravingRules.RenderTitle = false;
+          osmd.EngravingRules.RenderSubtitle = false;
+          osmd.EngravingRules.RenderLyricist = false;
+        }
 
         await osmd.load(xml);
         if (cancelled) return;
@@ -84,27 +127,25 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
     setBusy("pdf");
     setMessage("");
     try {
-      const canvases = containerRef.current?.querySelectorAll("canvas");
-      if (!canvases || canvases.length === 0) {
+      const svgs = containerRef.current?.querySelectorAll("svg");
+      if (!svgs || svgs.length === 0) {
         throw new Error("Sheet preview is not ready yet");
       }
 
       const { jsPDF } = await import("jspdf");
       let pdf = null;
 
-      canvases.forEach((canvas, index) => {
-        const w = canvas.width;
-        const h = canvas.height;
+      for (let index = 0; index < svgs.length; index += 1) {
+        const { dataUrl, w, h } = await svgToPng(svgs[index], 2);
         const orientation = w >= h ? "landscape" : "portrait";
-        const imgData = canvas.toDataURL("image/png");
 
         if (index === 0) {
           pdf = new jsPDF({ orientation, unit: "pt", format: [w, h] });
         } else {
           pdf.addPage([w, h], orientation);
         }
-        pdf.addImage(imgData, "PNG", 0, 0, w, h);
-      });
+        pdf.addImage(dataUrl, "PNG", 0, 0, w, h);
+      }
 
       pdf.save(`${stem}.pdf`);
     } catch (err) {
@@ -130,11 +171,9 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
             {message || "Could not render the sheet preview."}
           </div>
         )}
-        <div
-          ref={containerRef}
-          className="sheet-preview"
-          style={{ display: previewState === "ready" ? "block" : "none" }}
-        />
+        {/* Kept mounted and visible so OpenSheetMusicDisplay always has a
+            non-zero width to lay out against. */}
+        <div ref={containerRef} className="sheet-preview" />
       </div>
 
       <div className="formats">
