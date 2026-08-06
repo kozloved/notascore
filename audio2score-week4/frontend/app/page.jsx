@@ -96,149 +96,139 @@ export default function Home() {
     }
   };
 
+  const isUploading = uploadState === "uploading";
+  const progress = job?.progress || 0;
+  const status = job?.status || "queued";
+
   return (
-    <main style={{ padding: 40, maxWidth: 860, margin: "0 auto" }}>
-      <h1>Audio2Score MVP</h1>
-      <p>Upload audio and receive MusicXML.</p>
-
-      <section
-        style={{
-          marginTop: 24,
-          padding: 24,
-          border: "1px solid #ddd",
-          borderRadius: 10,
-          background: "#fff",
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>Week 4 Transcription Engine</h2>
-
-        {health && (
-          <p style={{ color: "#555" }}>
-            <strong>API:</strong> {health.status} | <strong>Engine:</strong>{" "}
-            {health.engine}
+    <main className="page">
+      <div className="container">
+        <header className="hero">
+          <h1 className="wordmark">
+            NotaScore
+            <span className="note" aria-hidden="true">♪</span>
+          </h1>
+          <p className="tagline">
+            AI-powered audio to sheet music. Upload a track and receive MusicXML.
           </p>
-        )}
+          {health && (
+            <span className="badge">
+              <span className="dot" />
+              API {health.status} · {health.engine} engine
+            </span>
+          )}
+        </header>
 
-        <div style={{ marginBottom: 16 }}>
+        <section className="card">
           <input
+            id="audio-file"
+            className="file-input"
             type="file"
             accept=".wav,.mp3,.m4a,.flac,audio/*"
             onChange={handleFileChange}
-            disabled={uploadState === "uploading"}
+            disabled={isUploading}
           />
-        </div>
-
-        <button
-          onClick={handleUpload}
-          disabled={!file || uploadState === "uploading"}
-          style={{
-            padding: "10px 16px",
-            borderRadius: 6,
-            border: "1px solid #222",
-            background: !file || uploadState === "uploading" ? "#eee" : "#222",
-            color: !file || uploadState === "uploading" ? "#666" : "#fff",
-            cursor:
-              !file || uploadState === "uploading" ? "not-allowed" : "pointer",
-          }}
-        >
-          {uploadState === "uploading" ? "Uploading..." : "Upload Audio"}
-        </button>
-
-        {uploadState === "success" && (
-          <p style={{ color: "green", marginTop: 16 }}>
-            Upload successful. Job queued.
-          </p>
-        )}
-
-        {uploadState === "error" && (
-          <p style={{ color: "red", marginTop: 16 }}>
-            Error: {errorMessage}
-          </p>
-        )}
-
-        {job && (
-          <div style={{ marginTop: 24 }}>
-            <h3 style={{ marginBottom: 8 }}>Job Status</h3>
-
-            <p>
-              <strong>Job ID:</strong> {job.job_id}
-            </p>
-
-            <p>
-              <strong>Status:</strong> {job.status}
-            </p>
-
-            <p>
-              <strong>Progress:</strong> {job.progress || 0}%
-            </p>
-
-            <div
-              style={{
-                width: "100%",
-                height: 8,
-                background: "#eee",
-                borderRadius: 6,
-                overflow: "hidden",
-              }}
+          <label
+            htmlFor="audio-file"
+            className={
+              "dropzone" +
+              (file ? " has-file" : "") +
+              (isUploading ? " is-disabled" : "")
+            }
+          >
+            <svg
+              className="dz-icon"
+              width="26"
+              height="26"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
             >
-              <div
-                style={{
-                  width: `${job.progress || 0}%`,
-                  height: 8,
-                  background: "#222",
-                }}
-              />
-            </div>
+              <path d="M12 16V4" />
+              <path d="m7 9 5-5 5 5" />
+              <path d="M5 20h14" />
+            </svg>
+            <span className="dz-title">
+              {file ? file.name : "Choose an audio file"}
+            </span>
+            <span className="dz-sub">WAV, MP3, M4A or FLAC · up to 25 MB</span>
+          </label>
 
-            {job.error && (
-              <p style={{ color: "red", marginTop: 12 }}>
-                Error: {job.error}
-              </p>
-            )}
+          <button
+            className="btn btn-primary"
+            onClick={handleUpload}
+            disabled={!file || isUploading}
+          >
+            {isUploading && <span className="spinner" aria-hidden="true" />}
+            {isUploading ? "Uploading…" : "Upload & Transcribe"}
+          </button>
 
-            {job.status === "completed" && job.result_available && (
-              <div style={{ marginTop: 20 }}>
-                <a
-                  href={`${API_URL}/jobs/${job.job_id}/result`}
-                  download
-                  style={{
-                    display: "inline-block",
-                    padding: "10px 16px",
-                    borderRadius: 6,
-                    background: "#0a7f2e",
-                    color: "#fff",
-                    textDecoration: "none",
-                  }}
+          {uploadState === "success" && !job?.error && (
+            <div className="alert alert-success">Upload successful — job queued.</div>
+          )}
+
+          {uploadState === "error" && (
+            <div className="alert alert-error">{errorMessage}</div>
+          )}
+
+          {job && (
+            <div className="status">
+              <div className="status-head">
+                <h2 className="status-title">Transcription</h2>
+                <span
+                  className={
+                    "chip" +
+                    (status === "completed" ? " is-completed" : "") +
+                    (status === "failed" ? " is-failed" : "")
+                  }
                 >
-                  Download MusicXML
-                </a>
-
-                <p style={{ marginTop: 10, color: "#666" }}>
-                  Week 4 output is generated by the configured transcription
-                  engine.
-                </p>
+                  {status}
+                </span>
               </div>
-            )}
 
-            <details style={{ marginTop: 20 }}>
-              <summary style={{ cursor: "pointer" }}>
-                Raw job response
-              </summary>
+              <div className="meta">
+                <span>Progress</span>
+                <strong>{progress}%</strong>
+              </div>
+              <div className="progress">
+                <div className="progress-fill" style={{ width: `${progress}%` }} />
+              </div>
 
-              <pre
-                style={{
-                  background: "#f7f7f7",
-                  padding: 16,
-                  borderRadius: 8,
-                  overflowX: "auto",
-                }}
-              >
-                {JSON.stringify(job, null, 2)}
-              </pre>
-            </details>
-          </div>
-        )}
-      </section>
+              <p className="jobid">
+                Job ID <code>{job.job_id}</code>
+              </p>
+
+              {job.error && <div className="alert alert-error">{job.error}</div>}
+
+              {status === "completed" && job.result_available && (
+                <div className="result">
+                  <a
+                    className="btn btn-success"
+                    href={`${API_URL}/jobs/${job.job_id}/result`}
+                    download
+                  >
+                    Download MusicXML
+                  </a>
+                  <p className="result-note">
+                    Generated by the configured transcription engine.
+                  </p>
+                </div>
+              )}
+
+              <details className="raw">
+                <summary>Raw job response</summary>
+                <pre>{JSON.stringify(job, null, 2)}</pre>
+              </details>
+            </div>
+          )}
+        </section>
+
+        <p className="foot">notascore.com</p>
+      </div>
     </main>
   );
 }
