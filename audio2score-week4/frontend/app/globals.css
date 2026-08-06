@@ -446,14 +446,73 @@ body {
   color: var(--text);
 }
 
-.result {
-  margin-top: 18px;
+/* Sheet preview + downloads */
+.sheet {
+  margin-top: 20px;
 }
 
-.result-note {
+.sheet-preview-wrap {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  /* Always render the score on white "paper" for readability in both themes. */
+  background: #ffffff;
+  overflow: auto;
+  max-height: 360px;
+  min-height: 120px;
+  padding: 12px;
+}
+
+.sheet-preview canvas,
+.sheet-preview svg {
+  display: block;
+  max-width: 100%;
+}
+
+.sheet-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 96px;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.sheet-status-error {
+  color: #dc2626;
+}
+
+.formats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.btn-format {
+  width: 100%;
+  margin-top: 0;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+
+.btn-format:not(:disabled):hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.spinner-dark {
+  border-color: rgba(15, 23, 42, 0.25);
+  border-top-color: #0f172a;
+}
+
+.sheet-message {
   margin: 10px 0 0;
   font-size: 0.82rem;
-  color: var(--muted);
+  color: var(--danger);
 }
 
 details.raw {
