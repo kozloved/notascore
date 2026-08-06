@@ -1,17 +1,17 @@
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 
-  --bg: #f5f6f8;
-  --bg-accent: radial-gradient(1200px 600px at 50% -10%, rgba(99, 102, 241, 0.10), transparent 60%);
+  --bg: #f6f7f9;
+  --bg-accent: radial-gradient(1200px 600px at 50% -10%, rgba(234, 88, 12, 0.10), transparent 60%);
   --surface: #ffffff;
-  --surface-2: #f8f9fb;
+  --surface-2: #f7f8fa;
   --text: #0f172a;
   --muted: #64748b;
   --border: #e6e8ee;
   --border-strong: #d3d7e0;
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-soft: rgba(79, 70, 229, 0.10);
+  --accent: #ea580c;
+  --accent-hover: #c2410c;
+  --accent-soft: rgba(234, 88, 12, 0.10);
   --success: #16a34a;
   --success-soft: rgba(22, 163, 74, 0.12);
   --danger: #dc2626;
@@ -21,19 +21,43 @@
   --radius-sm: 10px;
 }
 
+/* Dark palette shared by an explicit Dark selection and system-dark. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #0b0d12;
+  --bg-accent: radial-gradient(1200px 600px at 50% -10%, rgba(251, 146, 60, 0.14), transparent 60%);
+  --surface: #12151d;
+  --surface-2: #171b25;
+  --text: #f2f4f8;
+  --muted: #97a1b2;
+  --border: #232936;
+  --border-strong: #303748;
+  --accent: #fb923c;
+  --accent-hover: #fdba74;
+  --accent-soft: rgba(251, 146, 60, 0.14);
+  --success: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.14);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.14);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    color-scheme: dark;
+
     --bg: #0b0d12;
-    --bg-accent: radial-gradient(1200px 600px at 50% -10%, rgba(129, 140, 248, 0.14), transparent 60%);
+    --bg-accent: radial-gradient(1200px 600px at 50% -10%, rgba(251, 146, 60, 0.14), transparent 60%);
     --surface: #12151d;
     --surface-2: #171b25;
     --text: #f2f4f8;
     --muted: #97a1b2;
     --border: #232936;
     --border-strong: #303748;
-    --accent: #818cf8;
-    --accent-hover: #a5b0ff;
-    --accent-soft: rgba(129, 140, 248, 0.14);
+    --accent: #fb923c;
+    --accent-hover: #fdba74;
+    --accent-soft: rgba(251, 146, 60, 0.14);
     --success: #34d399;
     --success-soft: rgba(52, 211, 153, 0.14);
     --danger: #f87171;
@@ -77,6 +101,59 @@ body {
   max-width: 620px;
 }
 
+/* Theme selector */
+.topbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 18px;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.theme-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.theme-option:hover {
+  color: var(--text);
+}
+
+.theme-option.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.theme-option svg {
+  width: 15px;
+  height: 15px;
+}
+
+@media (max-width: 400px) {
+  .theme-option .label {
+    display: none;
+  }
+}
+
 /* Hero / wordmark */
 .hero {
   text-align: center;
@@ -95,7 +172,7 @@ body {
 }
 
 .wordmark .note {
-  color: var(--accent);
+  color: inherit;
   /* The ♪ glyph only fills part of its em box, so scale it up to roughly the
      cap height of the letters while keeping it seated on the baseline. */
   font-size: 1.42em;

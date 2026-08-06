@@ -11,6 +11,24 @@ export default function Home() {
   const [errorMessage, setErrorMessage] = useState("");
   const [jobId, setJobId] = useState(null);
   const [job, setJob] = useState(null);
+  const [theme, setTheme] = useState("system");
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("notascore-theme");
+      if (stored === "light" || stored === "dark" || stored === "system") {
+        setTheme(stored);
+      }
+    } catch {}
+  }, []);
+
+  const changeTheme = (next) => {
+    setTheme(next);
+    try {
+      localStorage.setItem("notascore-theme", next);
+    } catch {}
+    document.documentElement.setAttribute("data-theme", next);
+  };
 
   useEffect(() => {
     fetch(`${API_URL}/health`)
@@ -100,9 +118,66 @@ export default function Home() {
   const progress = job?.progress || 0;
   const status = job?.status || "queued";
 
+  const themeOptions = [
+    {
+      value: "system",
+      label: "System",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="2" y="3" width="20" height="14" rx="2" />
+          <path d="M8 21h8" />
+          <path d="M12 17v4" />
+        </svg>
+      ),
+    },
+    {
+      value: "light",
+      label: "Light",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2" />
+          <path d="M12 20v2" />
+          <path d="m4.9 4.9 1.4 1.4" />
+          <path d="m17.7 17.7 1.4 1.4" />
+          <path d="M2 12h2" />
+          <path d="M20 12h2" />
+          <path d="m6.3 17.7-1.4 1.4" />
+          <path d="m19.1 4.9-1.4 1.4" />
+        </svg>
+      ),
+    },
+    {
+      value: "dark",
+      label: "Dark",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+        </svg>
+      ),
+    },
+  ];
+
   return (
     <main className="page">
       <div className="container">
+        <div className="topbar">
+          <div className="theme-toggle" role="group" aria-label="Theme">
+            {themeOptions.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                className={"theme-option" + (theme === opt.value ? " is-active" : "")}
+                onClick={() => changeTheme(opt.value)}
+                aria-pressed={theme === opt.value}
+              >
+                {opt.icon}
+                <span className="label">{opt.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <header className="hero">
           <h1 className="wordmark">
             NotaScore
