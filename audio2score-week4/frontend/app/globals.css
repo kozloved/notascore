@@ -1,8 +1,11 @@
 :root {
   color-scheme: light;
 
-  --bg: #f6f7f9;
-  --bg-accent: radial-gradient(1200px 600px at 50% -10%, rgba(234, 88, 12, 0.10), transparent 60%);
+  --bg: #dfe7f1;
+  --bg-accent: radial-gradient(ellipse at 20% 0%, #f7f1e4 0%, transparent 55%),
+    radial-gradient(ellipse at 90% 10%, #c9d7e8 0%, transparent 45%),
+    linear-gradient(165deg, #eef3f8 0%, #d5deea 48%, #c3cfdc 100%);
+  --stave-line: rgba(16, 20, 28, 0.14);
   --surface: #ffffff;
   --surface-2: #f7f8fa;
   --text: #0f172a;
@@ -26,7 +29,10 @@
   color-scheme: dark;
 
   --bg: #0b0d12;
-  --bg-accent: radial-gradient(1200px 600px at 50% -10%, rgba(251, 146, 60, 0.14), transparent 60%);
+  --bg-accent: radial-gradient(ellipse at 20% 0%, rgba(196, 163, 90, 0.10) 0%, transparent 55%),
+    radial-gradient(ellipse at 90% 10%, rgba(80, 110, 150, 0.18) 0%, transparent 45%),
+    linear-gradient(165deg, #0e1220 0%, #0b0d12 48%, #080a0e 100%);
+  --stave-line: rgba(232, 238, 246, 0.07);
   --surface: #12151d;
   --surface-2: #171b25;
   --text: #f2f4f8;
@@ -48,7 +54,10 @@
     color-scheme: dark;
 
     --bg: #0b0d12;
-    --bg-accent: radial-gradient(1200px 600px at 50% -10%, rgba(251, 146, 60, 0.14), transparent 60%);
+    --bg-accent: radial-gradient(ellipse at 20% 0%, rgba(196, 163, 90, 0.10) 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 10%, rgba(80, 110, 150, 0.18) 0%, transparent 45%),
+      linear-gradient(165deg, #0e1220 0%, #0b0d12 48%, #080a0e 100%);
+    --stave-line: rgba(232, 238, 246, 0.07);
     --surface: #12151d;
     --surface-2: #171b25;
     --text: #f2f4f8;
@@ -77,15 +86,72 @@ body {
 }
 
 body {
+  position: relative;
   min-height: 100vh;
   background-color: var(--bg);
   background-image: var(--bg-accent);
+  background-attachment: fixed;
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
-    Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   line-height: 1.5;
+}
+
+/* Faint, edge-masked staff lines (ported from the main-branch background). */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0,
+    transparent 26px,
+    var(--stave-line) 26px,
+    var(--stave-line) 27px
+  );
+  background-size: 100% 135px;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 18%, #000 82%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 18%, #000 82%, transparent 100%);
+  animation: stave 28s linear infinite;
+}
+
+/* Soft brass glow (ported from the main-branch background). */
+body::after {
+  content: "";
+  position: fixed;
+  top: 4rem;
+  right: -6rem;
+  width: 28rem;
+  height: 28rem;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(196, 163, 90, 0.28), transparent 68%);
+  filter: blur(40px);
+  animation: pulse-soft 2.4s ease-in-out infinite;
+}
+
+@keyframes stave {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 120px 0;
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.85;
+  }
 }
 
 .page {
@@ -162,8 +228,9 @@ body {
 
 .wordmark {
   margin: 0;
-  font-size: clamp(2.4rem, 6vw, 3.25rem);
-  font-weight: 700;
+  font-family: var(--font-display), Georgia, "Times New Roman", serif;
+  font-size: clamp(2.4rem, 6vw, 3.4rem);
+  font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.05;
   display: inline-flex;
