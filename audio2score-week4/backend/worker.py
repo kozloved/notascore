@@ -17,7 +17,7 @@ if __name__ == "__main__":
 
     redis_client = Redis.from_url(REDIS_URL)
 
-    print(f"Starting Audio2Score Week 4 worker")
+    print(f"Starting NotaScore Transcription Engine worker")
     print(f"Queue: {QUEUE_NAME}")
     print(f"Redis: {REDIS_URL}")
 

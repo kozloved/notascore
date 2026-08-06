@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Audio2Score API",
+    title="NotaScore",
     lifespan=lifespan,
 )
 

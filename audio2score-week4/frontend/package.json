@@ -1,5 +1,5 @@
 {
-  "name": "audio2score-web",
+  "name": "notascore",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -7,8 +7,17 @@
     "start": "next start"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.1",
+    "@tailwindcss/postcss": "^4.3.3",
     "next": "latest",
+    "postcss": "^8.5.25",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.2",
+    "@types/react": "19.2.18",
+    "typescript": "7.0.2"
   }
 }

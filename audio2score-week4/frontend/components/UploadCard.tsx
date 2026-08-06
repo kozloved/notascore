@@ -1,1 +1,7 @@
-export default function UploadCard(){return <div><h3>Upload Audio</h3><input type='file'/></div>}
+"use client";
+
+import UploadPanel from "./UploadPanel";
+
+export default function UploadCard() {
+  return <UploadPanel />;
+}

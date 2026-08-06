@@ -14,3 +14,8 @@ backend/.tmp/*
 !backend/results/.gitignore
 !backend/.tmp/.gitignore
 audio2score-week4.zip
+
+.venvsource/
+*.wav
+frontend/AGENTS.md
+frontend/CLAUDE.md

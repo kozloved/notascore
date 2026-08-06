@@ -1,6 +1,7 @@
 
 from pathlib import Path
 from music21 import converter
+from basic_pitch import FilenameSuffix, build_icassp_2022_model_path
 from basic_pitch.inference import predict_and_save
 
 class TranscriptionError(Exception):
@@ -14,6 +15,9 @@ class BasicPitchEngine:
         out_dir = audio_path.parent / f"bp_{job_id}"
         out_dir.mkdir(exist_ok=True)
 
+        # Prefer ONNX so RQ's forked work-horse avoids CoreML/objc on macOS.
+        model_path = build_icassp_2022_model_path(FilenameSuffix.onnx)
+
         predict_and_save(
             audio_path_list=[str(audio_path)],
             output_directory=str(out_dir),
@@ -21,6 +25,7 @@ class BasicPitchEngine:
             sonify_midi=False,
             save_model_outputs=False,
             save_notes=False,
+            model_or_model_path=model_path,
         )
 
         midi_files = list(out_dir.glob("*.mid"))
