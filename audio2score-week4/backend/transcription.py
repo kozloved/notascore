@@ -20,6 +20,19 @@ DEFAULT_TEMPO = 120.0
 MIN_TEMPO = 50.0
 MAX_TEMPO = 200.0
 
+# Classic (Maelzel) metronome graduations, used to snap the *printed* tempo to a
+# conventional value.
+STANDARD_TEMPOS = (
+    40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 63, 66, 69, 72, 76, 80, 84, 88,
+    92, 96, 100, 104, 108, 112, 116, 120, 126, 132, 138, 144, 152, 160, 168,
+    176, 184, 192, 200, 208,
+)
+
+
+def snap_to_standard_tempo(bpm: float) -> int:
+    """Snap a tempo to the nearest conventional metronome value (for display)."""
+    return min(STANDARD_TEMPOS, key=lambda value: abs(value - bpm))
+
 
 def detect_tempo(audio_path) -> float:
     """Rough tempo estimate (BPM) from the audio, folded into a musical range."""
@@ -144,10 +157,10 @@ class BasicPitchEngine:
             recurse=True,
         )
 
-        # Show a clean, rounded tempo on the sheet for readability. This only
+        # Show a conventional tempo on the sheet for readability. This only
         # changes the printed marking — the precise tempo above is what drove the
         # quantization/alignment, so the notes themselves are unaffected.
-        display_bpm = int(round(bpm))
+        display_bpm = snap_to_standard_tempo(bpm)
         marks = list(score.recurse().getElementsByClass(m21tempo.MetronomeMark))
         if marks:
             for mark in marks:
