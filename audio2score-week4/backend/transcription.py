@@ -1,18 +1,19 @@
 
 from pathlib import Path
 
+import numpy as np
 from music21 import converter, tempo as m21tempo
 from basic_pitch import ICASSP_2022_MODEL_PATH
-from basic_pitch.inference import predict_and_save
+from basic_pitch.inference import predict
 
 
 class TranscriptionError(Exception):
     pass
 
 
-# Snap note starts/ends to an 8th/16th-note grid (no triplets) so the engraved
-# rhythm stays readable instead of a mess of tuplets and tied fractions.
-QUANTIZE_DIVISORS = (4, 2)
+# Allow straight (16th, via 4) and eighth-note triplets (via 3) so genuine
+# triplets survive, while an accurate tempo keeps straight passages triplet-free.
+QUANTIZE_DIVISORS = (4, 3)
 
 DEFAULT_TEMPO = 120.0
 MIN_TEMPO = 50.0
@@ -20,10 +21,7 @@ MAX_TEMPO = 200.0
 
 
 def detect_tempo(audio_path) -> float:
-    """Estimate the tempo (BPM) of the audio, folded into a musical range.
-
-    Falls back to a sensible default if estimation fails.
-    """
+    """Rough tempo estimate (BPM) from the audio, folded into a musical range."""
     try:
         import librosa
 
@@ -38,50 +36,92 @@ def detect_tempo(audio_path) -> float:
     except Exception:
         return DEFAULT_TEMPO
 
-    # Guard against NaN / non-positive values.
     if not bpm or bpm != bpm or bpm <= 0:
         return DEFAULT_TEMPO
 
-    # Fold octave errors (e.g. 47 -> 94, 220 -> 110) into a musical range.
     while bpm < MIN_TEMPO:
         bpm *= 2
     while bpm > MAX_TEMPO:
         bpm /= 2
 
-    return float(round(bpm))
+    return float(bpm)
+
+
+def refine_tempo(onsets, base_bpm: float) -> float:
+    """Refine the tempo so note onsets best line up with a beat grid.
+
+    A rough global tempo estimate can be off by a couple of BPM. Because
+    quantization snaps *absolute* note positions, that small error accumulates
+    and later notes drift off the beat. Here we search tempos near the estimate
+    (and its half/double) and pick the one that makes the onsets fall closest to
+    a sixteenth-note grid, which removes the drift.
+    """
+    onsets = np.asarray(sorted(float(o) for o in onsets), dtype=float)
+    if onsets.size < 6:
+        return round(base_bpm, 2)
+
+    onsets = onsets - onsets[0]
+    onsets = onsets[onsets > 1e-6]
+    if onsets.size < 4:
+        return round(base_bpm, 2)
+
+    best_bpm, best_err = base_bpm, float("inf")
+
+    for center in {base_bpm * 0.5, base_bpm, base_bpm * 2.0}:
+        for bpm in np.arange(center - 8.0, center + 8.0, 0.05):
+            if bpm < MIN_TEMPO or bpm > MAX_TEMPO:
+                continue
+            grid = (60.0 / bpm) / 4.0  # sixteenth-note spacing in seconds
+            ratio = onsets / grid
+            # Mean distance to the nearest grid line, as a fraction of a cell.
+            err = float(np.mean(np.abs(ratio - np.round(ratio))))
+            if err < best_err:
+                best_err, best_bpm = err, float(bpm)
+
+    return float(round(best_bpm, 2))
 
 
 class BasicPitchEngine:
     name = "basic_pitch"
 
     def transcribe(self, audio_path, job_id):
+        import pretty_midi
+
         audio_path = Path(audio_path)
         out_dir = audio_path.parent / f"bp_{job_id}"
         out_dir.mkdir(exist_ok=True)
 
-        bpm = detect_tempo(audio_path)
-
-        # Write the MIDI at the detected tempo so its beat grid lines up with
-        # the music, which makes the quantization below meaningful.
-        predict_and_save(
-            audio_path_list=[str(audio_path)],
-            output_directory=str(out_dir),
-            save_midi=True,
-            sonify_midi=False,
-            save_model_outputs=False,
-            save_notes=False,
+        # Single model inference; gives us the notes (with times in seconds).
+        _, midi_data, _ = predict(
+            str(audio_path),
             model_or_model_path=ICASSP_2022_MODEL_PATH,
-            midi_tempo=bpm,
         )
 
-        midi_files = list(out_dir.glob("*.mid"))
-        if not midi_files:
-            raise TranscriptionError("No MIDI generated")
+        onsets = [note.start for inst in midi_data.instruments for note in inst.notes]
+        if not onsets:
+            raise TranscriptionError("No notes detected")
 
-        score = converter.parse(str(midi_files[0]))
+        bpm = refine_tempo(onsets, detect_tempo(audio_path))
 
-        # Quantize both note onsets and durations to a simple grid so the
-        # notation is readable rather than full of complex tuplet rhythms.
+        # Re-emit the MIDI at the refined tempo. Note times stay in seconds, so
+        # they now map onto a beat grid that matches the music (no drift).
+        aligned = pretty_midi.PrettyMIDI(initial_tempo=bpm)
+        for inst in midi_data.instruments:
+            new_inst = pretty_midi.Instrument(
+                program=inst.program,
+                is_drum=inst.is_drum,
+                name=inst.name,
+            )
+            new_inst.notes = list(inst.notes)
+            aligned.instruments.append(new_inst)
+
+        midi_path = out_dir / f"{job_id}.mid"
+        aligned.write(str(midi_path))
+
+        score = converter.parse(str(midi_path))
+
+        # Quantize onsets AND durations. With an accurate tempo the triplet grid
+        # is only chosen for notes that genuinely fall on it.
         score.quantize(
             quarterLengthDivisors=QUANTIZE_DIVISORS,
             processOffsets=True,
@@ -90,7 +130,6 @@ class BasicPitchEngine:
             recurse=True,
         )
 
-        # Ensure the detected tempo is shown on the score.
         if not score.recurse().getElementsByClass(m21tempo.MetronomeMark):
             score.insert(0, m21tempo.MetronomeMark(number=bpm))
 
