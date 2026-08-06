@@ -92,6 +92,9 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
 
         await osmd.load(xml);
         if (cancelled) return;
+        // Engrave onto a portrait A4 page so the preview and PDF use real page
+        // geometry instead of a tightly cropped image of the notes.
+        osmd.setPageFormat("A4_P");
         osmd.render();
         setPreviewState("ready");
       } catch (err) {
@@ -133,18 +136,17 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
       }
 
       const { jsPDF } = await import("jspdf");
-      let pdf = null;
+      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
 
       for (let index = 0; index < svgs.length; index += 1) {
-        const { dataUrl, w, h } = await svgToPng(svgs[index], 2);
-        const orientation = w >= h ? "landscape" : "portrait";
-
-        if (index === 0) {
-          pdf = new jsPDF({ orientation, unit: "pt", format: [w, h] });
-        } else {
-          pdf.addPage([w, h], orientation);
+        const { dataUrl } = await svgToPng(svgs[index], 2);
+        if (index > 0) {
+          pdf.addPage("a4", "portrait");
         }
-        pdf.addImage(dataUrl, "PNG", 0, 0, w, h);
+        // Each OSMD page is already A4-proportioned, so it fills the page.
+        pdf.addImage(dataUrl, "PNG", 0, 0, pageW, pageH);
       }
 
       pdf.save(`${stem}.pdf`);
@@ -174,6 +176,9 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
         {/* Kept mounted and visible so OpenSheetMusicDisplay always has a
             non-zero width to lay out against. */}
         <div ref={containerRef} className="sheet-preview" />
+        {previewState === "ready" && (
+          <div className="sheet-fade" aria-hidden="true" />
+        )}
       </div>
 
       <div className="formats">

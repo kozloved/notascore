@@ -457,10 +457,15 @@ body {
   border-radius: var(--radius-sm);
   /* Always render the score on white "paper" for readability in both themes. */
   background: #ffffff;
-  overflow: auto;
-  max-height: 360px;
-  min-height: 120px;
-  padding: 12px;
+  /* Show the upper third of a portrait A4 page (210 x 297 -> 210 x 99). */
+  aspect-ratio: 210 / 99;
+  min-height: 140px;
+  overflow: hidden;
+}
+
+.sheet-preview {
+  width: 100%;
+  padding: 14px 14px 0;
 }
 
 .sheet-preview canvas,
@@ -469,12 +474,49 @@ body {
   max-width: 100%;
 }
 
+/* Progressive blur + fade toward the bottom so the page tapers off. */
+.sheet-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 62%;
+  pointer-events: none;
+  backdrop-filter: blur(3.5px);
+  -webkit-backdrop-filter: blur(3.5px);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 1) 62%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 1) 62%
+  );
+}
+
+.sheet-fade::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.9) 100%
+  );
+}
+
 .sheet-status {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  min-height: 96px;
+  padding: 12px;
+  text-align: center;
   color: #64748b;
   font-size: 0.9rem;
 }
