@@ -1,6 +1,7 @@
 
 from pathlib import Path
 from music21 import converter
+from basic_pitch import ICASSP_2022_MODEL_PATH
 from basic_pitch.inference import predict_and_save
 
 class TranscriptionError(Exception):
@@ -21,6 +22,7 @@ class BasicPitchEngine:
             sonify_midi=False,
             save_model_outputs=False,
             save_notes=False,
+            model_or_model_path=ICASSP_2022_MODEL_PATH,
         )
 
         midi_files = list(out_dir.glob("*.mid"))
