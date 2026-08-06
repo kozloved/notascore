@@ -1,4 +1,5 @@
 
+import statistics
 from pathlib import Path
 
 import numpy as np
@@ -114,6 +115,19 @@ class BasicPitchEngine:
             )
             new_inst.notes = list(inst.notes)
             aligned.instruments.append(new_inst)
+
+        # Basic Pitch tends to clip the final note (the audio just stops), so it
+        # ends up shorter than the rest. If the last note is shorter than the
+        # typical (median) note, stretch it to that length so the piece doesn't
+        # end on an oddly short note.
+        all_notes = [note for inst in aligned.instruments for note in inst.notes]
+        if len(all_notes) >= 3:
+            last = max(all_notes, key=lambda n: n.start)
+            typical = statistics.median(
+                n.end - n.start for n in all_notes if n is not last
+            )
+            if (last.end - last.start) < typical:
+                last.end = last.start + typical
 
         midi_path = out_dir / f"{job_id}.mid"
         aligned.write(str(midi_path))
