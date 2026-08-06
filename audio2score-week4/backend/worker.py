@@ -4,7 +4,7 @@ load_dotenv()
 
 import os
 from redis import Redis
-from rq import Worker, Connection
+from rq import Worker
 
 import database
 
@@ -17,10 +17,9 @@ if __name__ == "__main__":
 
     redis_client = Redis.from_url(REDIS_URL)
 
-    print(f"Starting NotaScore Transcription Engine worker")
+    print("Starting NotaScore Transcription Engine worker")
     print(f"Queue: {QUEUE_NAME}")
     print(f"Redis: {REDIS_URL}")
 
-    with Connection(redis_client):
-        worker = Worker([QUEUE_NAME])
-        worker.work()
+    worker = Worker([QUEUE_NAME], connection=redis_client)
+    worker.work()

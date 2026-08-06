@@ -1,0 +1,124 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks:
+      - notascore
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      REDIS_URL: redis://redis:6379
+      UPLOAD_DIR: /app/uploads
+      RESULTS_DIR: /app/results
+      TEMP_DIR: /app/.tmp
+      DATABASE_URL: sqlite:////app/data/audio2score.db
+    volumes:
+      - uploads:/app/uploads
+      - results:/app/results
+      - tmpdata:/app/.tmp
+      - dbdata:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - notascore
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    command: ["python", "worker.py"]
+    env_file:
+      - .env.production
+    environment:
+      REDIS_URL: redis://redis:6379
+      UPLOAD_DIR: /app/uploads
+      RESULTS_DIR: /app/results
+      TEMP_DIR: /app/.tmp
+      DATABASE_URL: sqlite:////app/data/audio2score.db
+    volumes:
+      - uploads:/app/uploads
+      - results:/app/results
+      - tmpdata:/app/.tmp
+      - dbdata:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    networks:
+      - notascore
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://notascore.com/api}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+    depends_on:
+      - api
+    networks:
+      - notascore
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/notascore.conf:/etc/nginx/conf.d/default.conf:ro
+      - certbot-www:/var/www/certbot:ro
+      - certbot-etc:/etc/letsencrypt:ro
+    depends_on:
+      - frontend
+      - api
+    networks:
+      - notascore
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot-www:/var/www/certbot
+      - certbot-etc:/etc/letsencrypt
+    profiles:
+      - certbot
+    entrypoint: >
+      /bin/sh -c "trap exit TERM;
+      while :; do
+        certbot renew --webroot -w /var/www/certbot --quiet;
+        sleep 12h & wait $${!};
+      done"
+
+volumes:
+  uploads:
+  results:
+  tmpdata:
+  dbdata:
+  certbot-www:
+  certbot-etc:
+
+networks:
+  notascore:
+    driver: bridge

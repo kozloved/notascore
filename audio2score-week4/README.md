@@ -2,6 +2,10 @@
 
 NotaScore AI turns uploaded audio into editable MusicXML via the NotaScore Transcription Engine.
 
+## Production deploy (Oracle)
+
+See [deploy/README.md](deploy/README.md) for Docker Compose + Nginx + Let's Encrypt on Always Free.
+
 ## What is included?
 
 - Redis Queue worker
