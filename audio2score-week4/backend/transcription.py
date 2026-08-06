@@ -144,8 +144,16 @@ class BasicPitchEngine:
             recurse=True,
         )
 
-        if not score.recurse().getElementsByClass(m21tempo.MetronomeMark):
-            score.insert(0, m21tempo.MetronomeMark(number=bpm))
+        # Show a clean, rounded tempo on the sheet for readability. This only
+        # changes the printed marking — the precise tempo above is what drove the
+        # quantization/alignment, so the notes themselves are unaffected.
+        display_bpm = int(round(bpm))
+        marks = list(score.recurse().getElementsByClass(m21tempo.MetronomeMark))
+        if marks:
+            for mark in marks:
+                mark.number = display_bpm
+        else:
+            score.insert(0, m21tempo.MetronomeMark(number=display_bpm))
 
         xml_path = out_dir / f"{job_id}.musicxml"
         score.write("musicxml", fp=str(xml_path))
