@@ -95,6 +95,9 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
         // Engrave onto a portrait A4 page so the preview and PDF use real page
         // geometry instead of a tightly cropped image of the notes.
         osmd.setPageFormat("A4_P");
+        // Slightly smaller engraving so the A4 top third shown in the preview
+        // holds a few systems (which the progressive blur then acts on).
+        osmd.zoom = 0.75;
         osmd.render();
         setPreviewState("ready");
       } catch (err) {
