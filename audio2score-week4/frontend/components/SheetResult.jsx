@@ -177,7 +177,10 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
             non-zero width to lay out against. */}
         <div ref={containerRef} className="sheet-preview" />
         {previewState === "ready" && (
-          <div className="sheet-fade" aria-hidden="true" />
+          <>
+            <div className="sheet-fade" aria-hidden="true" />
+            <div className="sheet-fade-strong" aria-hidden="true" />
+          </>
         )}
       </div>
 
