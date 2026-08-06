@@ -96,7 +96,9 @@ body {
 
 .wordmark .note {
   color: var(--accent);
-  font-size: 1em;
+  /* The ♪ glyph only fills part of its em box, so scale it up to roughly the
+     cap height of the letters while keeping it seated on the baseline. */
+  font-size: 1.42em;
   line-height: inherit;
 }
 
