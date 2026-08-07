@@ -21,3 +21,4 @@ audio2score-week4.zip
 *.wav
 frontend/AGENTS.md
 frontend/CLAUDE.md
+frontend/tsconfig.tsbuildinfo
