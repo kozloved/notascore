@@ -4,7 +4,7 @@ load_dotenv()
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from contextlib import asynccontextmanager
 from pathlib import Path
 import os
@@ -80,9 +80,15 @@ def public_job(job: dict) -> dict:
 
 @app.get("/health")
 def health():
+    # The worker always runs Basic Pitch for Fast mode; the env var only
+    # selects alternate engines when they are wired up.
+    engine = os.getenv("TRANSCRIPTION_ENGINE", "basic_pitch")
+    if engine in ("", "placeholder", "default"):
+        engine = "basic_pitch"
+
     return {
         "status": "ok",
-        "engine": os.getenv("TRANSCRIPTION_ENGINE", "placeholder"),
+        "engine": engine,
     }
 
 
@@ -231,8 +237,32 @@ def job_detail(job_id: str):
     return public_job(job)
 
 
+def _musicxml_to_midi_bytes(musicxml_text: str) -> bytes:
+    from music21 import converter
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        xml_path = Path(tmp) / "score.musicxml"
+        xml_path.write_text(musicxml_text, encoding="utf-8")
+
+        score = converter.parse(str(xml_path))
+
+        midi_path = Path(tmp) / "score.mid"
+        score.write("midi", fp=str(midi_path))
+
+        return midi_path.read_bytes()
+
+
 @app.get("/jobs/{job_id}/result")
-def job_result(job_id: str):
+def job_result(job_id: str, format: str = "musicxml"):
+    fmt = (format or "musicxml").lower()
+
+    if fmt not in ("musicxml", "midi"):
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported format. Use 'musicxml' or 'midi'.",
+        )
+
     job = db.get_job(job_id)
 
     if not job:
@@ -256,34 +286,49 @@ def job_result(job_id: str):
         )
 
     storage_backend = storage_service.get_storage()
+    stem = Path(job.get("filename") or "result").stem
 
-    original_filename = job.get("filename") or "result"
-    output_filename = f"{Path(original_filename).stem}.musicxml"
+    if storage_backend.backend == "local" and not Path(result_storage_key).exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Result file missing",
+        )
 
-    if storage_backend.backend == "local":
-        result_path = Path(result_storage_key)
-
-        if not result_path.exists():
-            raise HTTPException(
-                status_code=404,
-                detail="Result file missing",
+    if fmt == "musicxml":
+        if storage_backend.backend == "local":
+            return FileResponse(
+                path=str(Path(result_storage_key)),
+                media_type="application/vnd.recordare.musicxml+xml",
+                filename=f"{stem}.musicxml",
             )
 
-        return FileResponse(
-            path=str(result_path),
-            media_type="application/vnd.recordare.musicxml+xml",
-            filename=output_filename,
+        signed_url = storage_backend.get_result_signed_url(
+            result_storage_key,
+            expires_in=3600,
         )
 
-    signed_url = storage_backend.get_result_signed_url(
-        result_storage_key,
-        expires_in=3600,
-    )
+        if not signed_url:
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to generate download URL",
+            )
 
-    if not signed_url:
+        return RedirectResponse(signed_url)
+
+    # fmt == "midi": derive a MIDI file from the stored MusicXML on the fly.
+    try:
+        musicxml_text = storage_backend.read_result_text(result_storage_key)
+        midi_bytes = _musicxml_to_midi_bytes(musicxml_text)
+    except Exception as exc:
         raise HTTPException(
-            status_code=502,
-            detail="Failed to generate download URL",
-        )
+            status_code=500,
+            detail="Failed to generate MIDI from the transcription.",
+        ) from exc
 
-    return RedirectResponse(signed_url)
+    return Response(
+        content=midi_bytes,
+        media_type="audio/midi",
+        headers={
+            "Content-Disposition": f'attachment; filename="{stem}.mid"',
+        },
+    )

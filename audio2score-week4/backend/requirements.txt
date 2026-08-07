@@ -1,3 +1,6 @@
+# setuptools<81 keeps pkg_resources, which resampy (a basic-pitch dep) imports at runtime.
+setuptools<81
+
 fastapi
 uvicorn
 python-multipart
@@ -12,3 +15,5 @@ basic-pitch
 onnxruntime
 music21
 pretty_midi
+librosa
+numpy

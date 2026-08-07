@@ -15,6 +15,8 @@ export type Job = {
   updated_at?: string;
 };
 
+export type ResultFormat = "musicxml" | "midi";
+
 function detailMessage(data: unknown, fallback: string): string {
   if (!data || typeof data !== "object") return fallback;
   const detail = (data as { detail?: unknown }).detail;
@@ -71,6 +73,9 @@ export async function uploadAudio(
   });
 }
 
-export function resultDownloadUrl(jobId: string): string {
-  return `${API_URL}/jobs/${jobId}/result`;
+export function resultDownloadUrl(
+  jobId: string,
+  format: ResultFormat = "musicxml"
+): string {
+  return `${API_URL}/jobs/${jobId}/result?format=${format}`;
 }
