@@ -2,9 +2,9 @@
 
 NotaScore AI turns uploaded audio into editable MusicXML via the NotaScore Transcription Engine.
 
-## Production deploy (Oracle)
+## Production deploy (Cloudflare)
 
-See [deploy/README.md](deploy/README.md) for Docker Compose + Nginx + Let's Encrypt on Always Free.
+See [deploy/README.md](deploy/README.md) for Docker Compose + Nginx behind a **Cloudflare Tunnel** (recommended). Oracle Always Free is an optional origin host; TLS/DNS stay on Cloudflare.
 
 ## What is included?
 
@@ -21,30 +21,11 @@ See [deploy/README.md](deploy/README.md) for Docker Compose + Nginx + Let's Encr
 
 ```text
 audio2score-week4/
-  backend/
-    main.py
-    database.py
-    storage.py
-    job_queue.py
-    tasks.py
-    worker.py
-    transcription.py
-    requirements.txt
-    .env.example
-    scripts/
-      example_mt3.py
-    uploads/
-      .gitignore
-    results/
-      .gitignore
-    .tmp/
-      .gitignore
-  frontend/
-    app/
-      layout.jsx
-      page.jsx
-    package.json
-    .env.local.example
+  backend/          FastAPI + RQ worker + Basic Pitch
+  frontend/         Next.js (TypeScript) upload + sheet preview UI
+  nginx/            HTTP / TLS / Cloudflare origin configs
+  deploy/           Cloudflare Tunnel bootstrap + smoke tests
+  docker-compose.yml
 ```
 
 ## Start Redis

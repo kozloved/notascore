@@ -48,6 +48,9 @@ class LocalStorage:
     def get_result_signed_url(self, result_storage_key, expires_in=3600):
         return None
 
+    def read_result_text(self, result_storage_key):
+        return Path(result_storage_key).read_text(encoding="utf-8")
+
 
 class SupabaseStorage:
     backend = "supabase"
@@ -157,6 +160,14 @@ class SupabaseStorage:
             or data.get("signed_url")
             or data.get("signedUrl")
         )
+
+    def read_result_text(self, result_storage_key):
+        data = self._bucket(self.results_bucket).download(result_storage_key)
+
+        if isinstance(data, bytes):
+            return data.decode("utf-8")
+
+        return str(data)
 
 
 @lru_cache

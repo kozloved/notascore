@@ -111,6 +111,23 @@ services:
         sleep 12h & wait $${!};
       done"
 
+  # Cloudflare Tunnel: preferred production edge for notascore.com.
+  # Create a token in Zero Trust → Networks → Tunnels, then:
+  #   CLOUDFLARE_TUNNEL_TOKEN=... docker compose --profile cloudflare up -d
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles:
+      - cloudflare
+    command: tunnel --no-autoupdate run
+    # Pass --env-file .env.production so ${CLOUDFLARE_TUNNEL_TOKEN} interpolates.
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - nginx
+    networks:
+      - notascore
+
 volumes:
   uploads:
   results:

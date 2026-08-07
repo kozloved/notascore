@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { resultDownloadUrl, uploadAudio, type Job } from "../lib/api";
+import { API_URL, uploadAudio, type Job } from "../lib/api";
 import { getJob } from "../lib/jobs";
+import SheetResult from "./SheetResult";
 
 const ACCEPTED = ".wav,.mp3,.m4a,.flac,audio/*";
 
@@ -56,7 +57,7 @@ export default function UploadPanel() {
 
         setPhase("transcribing");
         timer = setTimeout(poll, 2000);
-      } catch (error) {
+      } catch {
         if (cancelled) return;
         timer = setTimeout(poll, 2000);
       }
@@ -100,6 +101,15 @@ export default function UploadPanel() {
         error instanceof Error ? error.message : "Upload failed"
       );
     }
+  };
+
+  const reset = () => {
+    setFile(null);
+    setJob(null);
+    setPhase("idle");
+    setUploadPercent(0);
+    setErrorMessage("");
+    if (inputRef.current) inputRef.current.value = "";
   };
 
   const progress =
@@ -181,7 +191,7 @@ export default function UploadPanel() {
               {job.status === "processing" &&
                 "NotaScore Transcription Engine is converting your audio…"}
               {job.status === "completed" &&
-                "Ready. Download your editable score below."}
+                "Ready. Preview your score and download below."}
               {job.status === "failed" && (job.error || "Transcription failed")}
             </p>
           )}
@@ -191,25 +201,16 @@ export default function UploadPanel() {
           )}
 
           {job?.status === "completed" && job.result_available && (
-            <div className="mt-6 flex flex-wrap gap-3">
-              <a
-                href={resultDownloadUrl(job.job_id)}
-                download
-                className="inline-flex min-h-11 items-center bg-ink px-5 text-sm font-medium text-mist transition hover:bg-score"
-              >
-                Download MusicXML
-              </a>
+            <div className="mt-6">
+              <SheetResult
+                apiUrl={API_URL}
+                jobId={job.job_id}
+                filename={job.filename}
+              />
               <button
                 type="button"
-                onClick={() => {
-                  setFile(null);
-                  setJob(null);
-                  setPhase("idle");
-                  setUploadPercent(0);
-                  setErrorMessage("");
-                  if (inputRef.current) inputRef.current.value = "";
-                }}
-                className="inline-flex min-h-11 items-center border border-ink/20 px-5 text-sm text-ink transition hover:border-ink/40"
+                onClick={reset}
+                className="mt-4 inline-flex min-h-11 items-center border border-ink/20 px-5 text-sm text-ink transition hover:border-ink/40"
               >
                 New upload
               </button>

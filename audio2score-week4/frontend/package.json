@@ -9,7 +9,9 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.112.1",
     "@tailwindcss/postcss": "^4.3.3",
+    "jspdf": "^4.2.1",
     "next": "latest",
+    "opensheetmusicdisplay": "^2.1.1",
     "postcss": "^8.5.25",
     "react": "latest",
     "react-dom": "latest",
