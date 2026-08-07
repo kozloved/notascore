@@ -1,5 +1,5 @@
 {
-  "name": "audio2score-web",
+  "name": "notascore",
   "private": true,
   "scripts": {
     "dev": "next dev",

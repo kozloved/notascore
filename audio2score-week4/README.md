@@ -1,6 +1,6 @@
-# Audio2Score — Week 4
+# NotaScore
 
-Week 4 adds a transcription engine adapter.
+NotaScore AI turns uploaded audio into editable MusicXML via the NotaScore Transcription Engine.
 
 ## Production deploy (Oracle)
 
@@ -8,14 +8,18 @@ See [deploy/README.md](deploy/README.md) for Docker Compose + Nginx + Let's Encr
 
 ## What is new in Week 4?
 
-- Redis Queue worker from Week 3 remains.
-- Storage abstraction from Week 3 remains.
-- New transcription engine system.
-- Placeholder MT3 engine by default.
-- Command-based MT3 engine option.
-- Example MT3 command script.
-- Updated worker to call the transcription engine.
-- Updated frontend to show engine info.
+See [deploy/README.md](deploy/README.md) for Docker Compose + Nginx + Let's Encrypt on Always Free.
+
+## What is included?
+
+- Redis Queue worker
+- Storage abstraction
+- Transcription engine system
+- Placeholder MT3 engine by default
+- Command-based MT3 engine option
+- Example MT3 command script
+- Worker that calls the transcription engine
+- Frontend that shows engine info
 
 ## Project Structure
 
@@ -87,7 +91,7 @@ npm run dev
 
 ## Transcription Engines
 
-Week 4 supports two engine modes.
+The NotaScore Transcription Engine supports two modes.
 
 ### Placeholder mode
 
