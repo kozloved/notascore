@@ -2,6 +2,10 @@
 
 Week 4 adds a transcription engine adapter.
 
+## Production deploy (Oracle)
+
+See [deploy/README.md](deploy/README.md) for Docker Compose + Nginx + Let's Encrypt on Always Free.
+
 ## What is new in Week 4?
 
 - Redis Queue worker from Week 3 remains.

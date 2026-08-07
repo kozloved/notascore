@@ -1,0 +1,14 @@
+.venv
+.venvsource
+__pycache__
+*.pyc
+*.db
+.env
+uploads/*
+results/*
+.tmp/*
+!uploads/.gitignore
+!results/.gitignore
+!.tmp/.gitignore
+*.wav
+.test*
