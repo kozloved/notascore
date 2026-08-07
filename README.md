@@ -15,3 +15,6 @@ Features:
 
 Status:
 MVP in development.
+
+Deploy:
+Cloudflare Tunnel in front of the Docker stack — see `audio2score-week4/deploy/README.md`.
