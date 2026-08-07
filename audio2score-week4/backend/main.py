@@ -106,7 +106,13 @@ async def upload(file: UploadFile = File(...)):
             detail="Invalid file type. Allowed types: .wav, .mp3, .m4a, .flac",
         )
 
-    if file.content_type and not file.content_type.startswith("audio/"):
+    # Browsers send audio/*; CLI tools often send application/octet-stream.
+    # Trust the allowed extension when the declared type is missing or generic.
+    content_type = (file.content_type or "").lower()
+    if content_type and not (
+        content_type.startswith("audio/")
+        or content_type in ("application/octet-stream", "binary/octet-stream")
+    ):
         raise HTTPException(
             status_code=400,
             detail="Invalid content type. Please upload an audio file.",
