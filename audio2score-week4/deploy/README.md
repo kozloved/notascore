@@ -1,96 +1,90 @@
-# Deploy NotaScore on Oracle Always Free
+# Deploy NotaScore on a local machine + Cloudflare Tunnel
 
-Stack: Nginx (TLS) → Next.js + FastAPI + Redis + RQ worker on one Ampere VM.
+Run the full stack (Nginx → Next.js + FastAPI + Redis + worker) on your Mac/PC.
+Cloudflare Tunnel exposes `https://notascore.com` without opening router ports.
 
-## 0. Oracle VM + DNS (do this first)
-
-> As of the packaging smoke check, `notascore.com` resolved to an **AWS** host (`54.149.79.189`, OpenResty parking), not an Oracle VM — SSH:22 timed out. You must create the Ampere instance and **repoint the A records** before bootstrap.
-
-1. Create an Always Free **Ampere A1** Ubuntu 22.04/24.04 instance (2–4 OCPUs, 12–24 GB RAM).
-2. Attach a public IP. In the VCN security list / NSG allow inbound **22, 80, 443**.
-3. Point DNS for `notascore.com` (replace the current AWS parking IP):
-   - `A` `@` → **Oracle** VM public IP
-   - `A` `www` → same IP
-4. Confirm SSH: `ssh ubuntu@<PUBLIC_IP>`
-5. Push this repo’s deploy packaging to `main` first (`docker-compose.yml`, Dockerfiles, `deploy/`, `nginx/`) so the VM `git clone` has it.
-
-## 1. Install Docker on the VM
-
-```bash
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-sudo usermod -aG docker "$USER"
-# log out and back in so docker works without sudo
+```text
+Browser → Cloudflare (HTTPS) → tunnel → cloudflared → nginx:80 → frontend /api
 ```
 
-## 2. Clone and configure
+## 1. Put `notascore.com` on Cloudflare
+
+1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com/).
+2. **Add a site** → enter `notascore.com`.
+3. Cloudflare shows two **nameservers**. At your domain registrar, replace the current nameservers with Cloudflare’s.
+4. Wait until the domain status is **Active** (often 5–30 minutes, sometimes longer).
+
+You do **not** need an A record to your home IP. The tunnel will create the DNS records.
+
+## 2. Create a Cloudflare Tunnel
+
+1. In Cloudflare: **Zero Trust** → **Networks** → **Tunnels** → **Create a tunnel**.
+2. Choose **Cloudflared** → name it e.g. `notascore-local` → **Save**.
+3. Copy the **tunnel token** (long string). You will put it in `.env.production`.
+4. Under **Public Hostname**, add:
+
+| Subdomain | Domain | Service |
+|-----------|--------|---------|
+| *(empty)* | notascore.com | `http://nginx:80` |
+| `www` | notascore.com | `http://nginx:80` |
+
+Use `http://nginx:80` because `cloudflared` runs inside Docker Compose on the same network as Nginx.
+
+5. SSL/TLS mode for the domain: **Full** (tunnel is encrypted; origin is HTTP inside Docker).
+
+## 3. Start the local stack
+
+On the machine that will stay on while the site is public:
 
 ```bash
-cd ~
-git clone https://github.com/kozloved/notascore.git
-cd notascore/audio2score-week4
+cd /path/to/notascore/audio2score-week4
 cp .env.production.example .env.production
-# Defaults already target https://notascore.com for CORS + NEXT_PUBLIC_API_URL
 ```
 
-## 3. Bring up the stack + TLS
+Edit `.env.production` and set:
 
-First start on HTTP (ACME needs port 80), then issue certs:
+```env
+CLOUDFLARE_TUNNEL_TOKEN=paste_token_here
+NEXT_PUBLIC_API_URL=https://notascore.com/api
+CORS_ORIGIN=https://notascore.com,https://www.notascore.com
+```
+
+Use the HTTP Nginx config (Cloudflare terminates HTTPS):
 
 ```bash
 cp nginx/notascore.http.conf nginx/notascore.conf
-docker compose up -d --build
-
-EMAIL=you@example.com ./deploy/init-tls.sh
+docker compose --env-file .env.production --profile tunnel up -d --build
 ```
 
-`init-tls.sh` requests Let's Encrypt certs for `notascore.com` + `www`, writes SSL helpers, and switches Nginx to `nginx/notascore.tls.conf`.
-
-Optional renew loop:
+Or:
 
 ```bash
-docker compose --profile certbot up -d certbot
+./deploy/start-local-tunnel.sh
+```
+
+Check:
+
+```bash
+curl -fsS http://localhost/api/health
+docker compose logs -f cloudflared
+curl -fsS https://notascore.com/api/health
 ```
 
 ## 4. Smoke test
 
 ```bash
-curl -fsS https://notascore.com/ | head
-curl -fsS https://notascore.com/api/health
-
-# CLI upload → poll → MusicXML download
-curl -fsS -F "file=@./backend/test_tone.wav;type=audio/wav" \
-  https://notascore.com/api/upload
-# then poll GET /api/jobs/<job_id> until status=completed
-# then GET /api/jobs/<job_id>/result
-
+BASE_URL=https://notascore.com/api ./deploy/smoke-test.sh
+# or open https://notascore.com and upload a short .wav
 docker compose logs -f worker
 ```
 
-Local packaging check (HTTP, before Oracle DNS/TLS):
+## 5. Ongoing updates
 
 ```bash
-cp nginx/notascore.http.conf nginx/notascore.conf
-cp .env.production.example .env.production
-# set NEXT_PUBLIC_API_URL=http://localhost/api and CORS_ORIGIN=http://localhost
-NEXT_PUBLIC_API_URL=http://localhost/api docker compose up -d --build
-curl -fsS http://localhost/api/health
-```
-
-## 5. Ongoing updates (latest pushed `main`)
-
-```bash
-cd ~/notascore/audio2score-week4
+cd /path/to/notascore/audio2score-week4
 git pull origin main
-docker compose up -d --build
+cp nginx/notascore.http.conf nginx/notascore.conf   # keep HTTP origin behind the tunnel
+docker compose --env-file .env.production --profile tunnel up -d --build
 ```
 
 ## API proxy mapping
@@ -101,12 +95,10 @@ docker compose up -d --build
 | `https://notascore.com/api/jobs/{id}` | same | `GET /jobs/{id}` |
 | `https://notascore.com/api/jobs/{id}/result` | same | `GET /jobs/{id}/result` |
 
-- Frontend build: `NEXT_PUBLIC_API_URL=https://notascore.com/api`
-- Backend CORS: `CORS_ORIGIN=https://notascore.com,https://www.notascore.com`
-
 ## Notes
 
-- Redis stays on the Docker network only (not published).
-- Uploads / results / SQLite use named Docker volumes.
-- First Basic Pitch image build on Ampere can take a long time.
-- Do **not** run MR-MT3 on this free VM (needs a separate GPU host later).
+- Keep the machine awake (disable sleep while serving) or the site goes offline.
+- Redis is Docker-network only (not published).
+- Do not commit `.env.production` (contains the tunnel token).
+- Optional: remove published `443` from Compose if you never use local TLS; port `80` is handy for local checks.
+- Oracle / Certbot path is obsolete for this setup; `init-tls.sh` is only if you later switch to port-forward + Let’s Encrypt.

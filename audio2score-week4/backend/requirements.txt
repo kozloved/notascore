@@ -9,9 +9,8 @@ sqlalchemy
 redis
 # rq<2 keeps the rq.Connection API used by worker.py.
 rq<2
-supabase
-psycopg2-binary
 
+# Local MVP storage uses disk; add supabase/psycopg2 later if needed.
 basic-pitch
 onnxruntime
 music21

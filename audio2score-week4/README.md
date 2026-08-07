@@ -2,9 +2,9 @@
 
 NotaScore AI turns uploaded audio into editable MusicXML via the NotaScore Transcription Engine.
 
-## Production deploy (Oracle)
+## Production deploy (local + Cloudflare Tunnel)
 
-See [deploy/README.md](deploy/README.md) for Docker Compose + Nginx + Let's Encrypt on Always Free.
+See [deploy/README.md](deploy/README.md) for Docker Compose on a local machine with Cloudflare Tunnel for `notascore.com`.
 
 ## What is new in Week 4?
 
