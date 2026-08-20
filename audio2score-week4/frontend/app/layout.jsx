@@ -29,7 +29,7 @@ export default function RootLayout({ children }) {
       suppressHydrationWarning
       className={`${display.variable} ${sans.variable}`}
     >
-      <body>
+      <body suppressHydrationWarning>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         {children}
       </body>
