@@ -70,6 +70,26 @@ docker compose logs -f cloudflared
 curl -fsS https://notascore.com/api/health
 ```
 
+## 502 / 1033 Host Error
+
+Cloudflare **502** or **1033 (Cloudflare Tunnel error)** on `notascore.com` means the edge is up but no healthy origin is connected. Typical causes:
+
+1. Docker Desktop / the laptop slept, or `cloudflared` is not running (`--profile tunnel` missing).
+2. Nginx sent `Connection: upgrade` on every page request (fixed in `nginx/notascore.http.conf`).
+3. Next.js bound to the Docker container hostname instead of `0.0.0.0` (fixed in the frontend image).
+4. The transcription worker OOM’d Docker Desktop (worker is now memory-capped).
+
+Recover:
+
+```bash
+cd /path/to/notascore/audio2score-week4
+./deploy/start-local-tunnel.sh
+curl -fsS http://localhost/api/health
+curl -fsS https://notascore.com/api/health
+```
+
+In Cloudflare, both apex and `www` public hostnames must point at `http://nginx:80`. SSL/TLS mode should be **Full** (not Full strict). Keep the machine awake.
+
 ## 4. Smoke test
 
 ```bash
