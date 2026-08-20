@@ -1,4 +1,20 @@
-# Deploy NotaScore on a local machine + Cloudflare Tunnel
+# Deploy NotaScore
+
+## Oracle Cloud (recommended for production)
+
+Always-on **Oracle Always Free** VM — no laptop, no tunnel connector.
+
+**[deploy/oracle/README.md](oracle/README.md)** — full OCI setup (VM, firewall, DNS, bootstrap).
+
+Quick start on the VM:
+
+```bash
+MODE=cloudflare DOMAIN=notascore.com ./deploy/oracle/bootstrap.sh
+```
+
+---
+
+## Local machine + Cloudflare Tunnel
 
 Run the full stack (Nginx → Next.js + FastAPI + Redis + worker) on your Mac/PC.
 Cloudflare Tunnel exposes `https://notascore.com` without opening router ports.
@@ -101,4 +117,4 @@ docker compose --env-file .env.production --profile tunnel up -d --build
 - Redis is Docker-network only (not published).
 - Do not commit `.env.production` (contains the tunnel token).
 - Optional: remove published `443` from Compose if you never use local TLS; port `80` is handy for local checks.
-- Oracle / Certbot path is obsolete for this setup; `init-tls.sh` is only if you later switch to port-forward + Let’s Encrypt.
+- For Oracle + Let's Encrypt on the VM, use `deploy/oracle/bootstrap.sh` with `MODE=letsencrypt` or `deploy/init-tls.sh`.
