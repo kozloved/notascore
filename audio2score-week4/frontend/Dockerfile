@@ -19,8 +19,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    PORT=3000 \
-    HOSTNAME=0.0.0.0
+    PORT=3000
 
 RUN groupadd --system --gid 1001 nodejs \
     && useradd --system --uid 1001 --gid nodejs nextjs
@@ -32,4 +31,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 USER nextjs
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+# Docker overwrites the HOSTNAME env var with the container id. Next.js binds
+# to that value, so nginx cannot reach port 3000 and Cloudflare returns 502.
+CMD ["sh", "-c", "HOSTNAME=0.0.0.0 exec node server.js"]

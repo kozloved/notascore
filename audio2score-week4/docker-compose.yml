@@ -45,6 +45,9 @@ services:
       context: ./backend
     restart: unless-stopped
     command: ["python", "worker.py"]
+    # Basic Pitch can eat several GB. Cap it so the worker cannot OOM
+    # Docker Desktop and take down nginx/cloudflared (Cloudflare 502).
+    mem_limit: 4g
     env_file:
       - .env.production
     environment:
@@ -75,9 +78,23 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      HOSTNAME: 0.0.0.0
+    # Docker overwrites HOSTNAME with the container id; force the listen address.
+    command: ["sh", "-c", "HOSTNAME=0.0.0.0 exec node server.js"]
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - notascore
 
@@ -91,8 +108,16 @@ services:
       - certbot-www:/var/www/certbot:ro
       - certbot-etc:/etc/letsencrypt:ro
     depends_on:
-      - frontend
-      - api
+      frontend:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/api/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     networks:
       - notascore
 
@@ -101,13 +126,15 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
+    # http2 is more reliable than QUIC on some home NATs (QUIC flaps → 502).
+    command: ["tunnel", "--no-autoupdate", "--protocol", "http2", "run"]
     env_file:
       - .env.production
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
-      - nginx
+      nginx:
+        condition: service_healthy
     networks:
       - notascore
     profiles:
