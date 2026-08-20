@@ -99,15 +99,24 @@ body {
   line-height: 1.5;
 }
 
-/* Animated ECG / heartbeat staff lines are drawn on a canvas by the
-   HeartbeatBackground component. */
-.heartbeat-bg {
+/* Faint, edge-masked staff lines (ported from the main-branch background). */
+body::before {
+  content: "";
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%);
-  mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%);
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0,
+    transparent 26px,
+    var(--stave-line) 26px,
+    var(--stave-line) 27px
+  );
+  background-size: 100% 135px;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 18%, #000 82%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 18%, #000 82%, transparent 100%);
+  animation: stave 28s linear infinite;
 }
 
 /* Soft brass glow (ported from the main-branch background). */
@@ -124,6 +133,15 @@ body::after {
   background: radial-gradient(circle, rgba(196, 163, 90, 0.28), transparent 68%);
   filter: blur(40px);
   animation: pulse-soft 2.4s ease-in-out infinite;
+}
+
+@keyframes stave {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 120px 0;
+  }
 }
 
 @keyframes pulse-soft {
@@ -149,75 +167,11 @@ body::after {
   max-width: 620px;
 }
 
-/* Top controls */
+/* Theme selector */
 .topbar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-end;
   margin-bottom: 18px;
-}
-
-.bpm {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-
-.bpm-label {
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  color: var(--muted);
-}
-
-.bpm-value {
-  min-width: 3ch;
-  text-align: right;
-  font-size: 0.78rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
-}
-
-.bpm-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 108px;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--border-strong);
-  outline: none;
-  cursor: pointer;
-}
-
-.bpm-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
-  background: var(--accent);
-  border: 2px solid var(--surface);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-}
-
-.bpm-slider::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
-  background: var(--accent);
-  border: 2px solid var(--surface);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-}
-
-.bpm-slider:focus-visible {
-  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .theme-toggle {
