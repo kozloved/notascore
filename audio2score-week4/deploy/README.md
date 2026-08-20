@@ -70,9 +70,9 @@ docker compose logs -f cloudflared
 curl -fsS https://notascore.com/api/health
 ```
 
-## 502 Host Error
+## 502 / 1033 Host Error
 
-Cloudflare **502** on `notascore.com` means the tunnel is up at the edge, but the origin on your machine did not answer. Typical causes:
+Cloudflare **502** or **1033 (Cloudflare Tunnel error)** on `notascore.com` means the edge is up but no healthy origin is connected. Typical causes:
 
 1. Docker Desktop / the laptop slept, or `cloudflared` is not running (`--profile tunnel` missing).
 2. Nginx sent `Connection: upgrade` on every page request (fixed in `nginx/notascore.http.conf`).
