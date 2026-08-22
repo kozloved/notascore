@@ -1,10 +1,24 @@
 "use client";
 
-import { supabase } from "../lib/supabase";
+import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 export default function AuthButton() {
   async function login() {
-    await supabase.auth.signInWithOAuth({ provider: "google" });
+    if (!isSupabaseConfigured) {
+      window.alert(
+        "Sign-in is not configured yet. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, then rebuild the frontend."
+      );
+      return;
+    }
+
+    const redirectTo = `${window.location.origin}/login`;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo },
+    });
+    if (error) {
+      window.alert(error.message);
+    }
   }
 
   return (
