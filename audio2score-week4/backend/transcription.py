@@ -1,11 +1,9 @@
-
+import os
 import statistics
 from pathlib import Path
 
 import numpy as np
 from music21 import converter, tempo as m21tempo
-from basic_pitch import ICASSP_2022_MODEL_PATH
-from basic_pitch.inference import predict
 
 
 class TranscriptionError(Exception):
@@ -32,6 +30,27 @@ STANDARD_TEMPOS = (
 def snap_to_standard_tempo(bpm: float) -> int:
     """Snap a tempo to the nearest conventional metronome value (for display)."""
     return min(STANDARD_TEMPOS, key=lambda value: abs(value - bpm))
+
+
+def _env_enabled(name: str, *, default: bool = True) -> bool:
+    default_str = "1" if default else "0"
+    return os.getenv(name, default_str).lower() in ("1", "true", "yes")
+
+
+def _use_midi_cleaner() -> bool:
+    return _env_enabled("TRANSCRIPTION_USE_CLEANER", default=False)
+
+
+def _use_normalizer() -> bool:
+    return _env_enabled("TRANSCRIPTION_USE_NORMALIZER", default=True)
+
+
+def _use_beat_tracker() -> bool:
+    return _env_enabled("TRANSCRIPTION_USE_BEAT_TRACKER", default=True)
+
+
+def _use_piano_analyzer() -> bool:
+    return _env_enabled("TRANSCRIPTION_USE_PIANO_ANALYZER", default=True)
 
 
 def detect_tempo(audio_path) -> float:
@@ -62,14 +81,7 @@ def detect_tempo(audio_path) -> float:
 
 
 def refine_tempo(onsets, base_bpm: float) -> float:
-    """Refine the tempo so note onsets best line up with a beat grid.
-
-    A rough global tempo estimate can be off by a couple of BPM. Because
-    quantization snaps *absolute* note positions, that small error accumulates
-    and later notes drift off the beat. Here we search tempos near the estimate
-    (and its half/double) and pick the one that makes the onsets fall closest to
-    a sixteenth-note grid, which removes the drift.
-    """
+    """Refine the tempo so note onsets best line up with a beat grid."""
     onsets = np.asarray(sorted(float(o) for o in onsets), dtype=float)
     if onsets.size < 6:
         return round(base_bpm, 2)
@@ -85,14 +97,27 @@ def refine_tempo(onsets, base_bpm: float) -> float:
         for bpm in np.arange(center - 8.0, center + 8.0, 0.05):
             if bpm < MIN_TEMPO or bpm > MAX_TEMPO:
                 continue
-            grid = (60.0 / bpm) / 4.0  # sixteenth-note spacing in seconds
+            grid = (60.0 / bpm) / 4.0
             ratio = onsets / grid
-            # Mean distance to the nearest grid line, as a fraction of a cell.
             err = float(np.mean(np.abs(ratio - np.round(ratio))))
             if err < best_err:
                 best_err, best_bpm = err, float(bpm)
 
     return float(round(best_bpm, 2))
+
+
+def _estimate_tempo(audio_path: Path, onsets: list[float]) -> float:
+    """Seed tempo from beat tracker when enabled, else librosa on file."""
+    if _use_beat_tracker():
+        from audio_engine.beat_tracker import BeatTracker
+        from audio_engine.normalizer import AudioNormalizer
+
+        normalized = AudioNormalizer().normalize(audio_path)
+        seed = BeatTracker().track(normalized).bpm_at(0.0)
+    else:
+        seed = detect_tempo(audio_path)
+
+    return refine_tempo(onsets, seed)
 
 
 class BasicPitchEngine:
@@ -101,39 +126,90 @@ class BasicPitchEngine:
     def transcribe(self, audio_path, job_id):
         import pretty_midi
 
+        from adapters.basic_pitch_backend import BasicPitchBackend
+        from audio_engine.instrument_classifier import InstrumentClassifier
+        from audio_engine.normalizer import AudioNormalizer
+        from audio_engine.piano_analyzer import PianoAudioAnalyzer
+        from mir.midi_cleaner import MIDICleaner
+        from mir.types import InstrumentKind
+
         audio_path = Path(audio_path)
         out_dir = audio_path.parent / f"bp_{job_id}"
         out_dir.mkdir(exist_ok=True)
 
-        # Single model inference; gives us the notes (with times in seconds).
-        _, midi_data, _ = predict(
-            str(audio_path),
-            model_or_model_path=ICASSP_2022_MODEL_PATH,
-        )
+        transcribe_path = audio_path
+        normalized = None
+        instrument = InstrumentKind.UNKNOWN
 
-        onsets = [note.start for inst in midi_data.instruments for note in inst.notes]
+        if _use_normalizer() or _use_piano_analyzer():
+            normalizer = AudioNormalizer()
+            normalized = normalizer.normalize(audio_path)
+            if _use_normalizer():
+                transcribe_path = normalizer.write_wav(
+                    normalized, out_dir / f"{job_id}_norm.wav"
+                )
+            if _use_piano_analyzer():
+                prediction = InstrumentClassifier().classify(normalized)
+                instrument = prediction.instrument
+
+        backend = BasicPitchBackend()
+        note_events = backend.transcribe_notes(transcribe_path)
+        raw_count = len(note_events)
+
+        if _use_midi_cleaner():
+            note_events = MIDICleaner().clean(note_events)
+            print(
+                f"[MIDICleaner] notes {raw_count} → {len(note_events)} "
+                f"(job={job_id})"
+            )
+        elif os.getenv("TRANSCRIPTION_SHADOW_CLEANER", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        ):
+            shadowed = MIDICleaner().clean(note_events)
+            print(
+                f"[MIDICleaner shadow] would change notes "
+                f"{raw_count} → {len(shadowed)} (job={job_id})"
+            )
+
+        if (
+            _use_piano_analyzer()
+            and normalized is not None
+            and instrument == InstrumentKind.PIANO
+        ):
+            piano = PianoAudioAnalyzer().analyze(normalized, note_events)
+            note_events = piano.notes
+            print(
+                f"[PianoAnalyzer] refined velocities for {len(note_events)} notes "
+                f"(job={job_id})"
+            )
+
+        onsets = [n.start_time for n in note_events]
         if not onsets:
             raise TranscriptionError("No notes detected")
 
-        bpm = refine_tempo(onsets, detect_tempo(audio_path))
+        bpm = _estimate_tempo(audio_path, onsets)
+        print(
+            f"[EnhancedLegacy] instrument={instrument.value} tempo={bpm:.1f} "
+            f"notes={len(note_events)} normalizer={_use_normalizer()} "
+            f"beat_tracker={_use_beat_tracker()} (job={job_id})"
+        )
 
-        # Re-emit the MIDI at the refined tempo. Note times stay in seconds, so
-        # they now map onto a beat grid that matches the music (no drift).
         aligned = pretty_midi.PrettyMIDI(initial_tempo=bpm)
-        for inst in midi_data.instruments:
-            new_inst = pretty_midi.Instrument(
-                program=inst.program,
-                is_drum=inst.is_drum,
-                name=inst.name,
+        inst = pretty_midi.Instrument(program=0)
+        for n in note_events:
+            inst.notes.append(
+                pretty_midi.Note(
+                    velocity=n.velocity,
+                    pitch=n.pitch,
+                    start=n.start_time,
+                    end=n.end_time,
+                )
             )
-            new_inst.notes = list(inst.notes)
-            aligned.instruments.append(new_inst)
+        aligned.instruments.append(inst)
 
-        # Basic Pitch tends to clip the final note (the audio just stops), so it
-        # ends up shorter than the rest. If the last note is shorter than the
-        # typical (median) note, stretch it to that length so the piece doesn't
-        # end on an oddly short note.
-        all_notes = [note for inst in aligned.instruments for note in inst.notes]
+        all_notes = list(inst.notes)
         if len(all_notes) >= 3:
             last = max(all_notes, key=lambda n: n.start)
             typical = statistics.median(
@@ -146,9 +222,6 @@ class BasicPitchEngine:
         aligned.write(str(midi_path))
 
         score = converter.parse(str(midi_path))
-
-        # Quantize onsets AND durations. With an accurate tempo the triplet grid
-        # is only chosen for notes that genuinely fall on it.
         score.quantize(
             quarterLengthDivisors=QUANTIZE_DIVISORS,
             processOffsets=True,
@@ -157,9 +230,6 @@ class BasicPitchEngine:
             recurse=True,
         )
 
-        # Show a conventional tempo on the sheet for readability. This only
-        # changes the printed marking — the precise tempo above is what drove the
-        # quantization/alignment, so the notes themselves are unaffected.
         display_bpm = snap_to_standard_tempo(bpm)
         marks = list(score.recurse().getElementsByClass(m21tempo.MetronomeMark))
         if marks:
@@ -174,5 +244,33 @@ class BasicPitchEngine:
         return xml_path.read_text(encoding="utf-8")
 
 
+class FallbackEngine:
+    """Run understanding pipeline with legacy fallback on failure."""
+
+    name = "understanding"
+
+    def __init__(self, primary, fallback):
+        self.primary = primary
+        self.fallback = fallback
+
+    def transcribe(self, audio_path, job_id):
+        try:
+            return self.primary.transcribe(audio_path, job_id)
+        except Exception as exc:
+            print(
+                f"[PipelineFallback] understanding failed ({exc!s}), "
+                f"using legacy (job={job_id})"
+            )
+            return self.fallback.transcribe(audio_path, job_id)
+
+
 def get_engine():
+    pipeline = os.getenv("TRANSCRIPTION_PIPELINE", "understanding").lower()
+    if pipeline == "understanding":
+        from mir.pipeline import UnderstandingPipeline
+
+        primary = UnderstandingPipeline()
+        if _env_enabled("TRANSCRIPTION_PIPELINE_FALLBACK", default=True):
+            return FallbackEngine(primary, BasicPitchEngine())
+        return primary
     return BasicPitchEngine()

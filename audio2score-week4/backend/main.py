@@ -17,7 +17,10 @@ import job_queue as queue_service
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 RESULTS_DIR = Path(os.getenv("RESULTS_DIR", "results"))
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "25"))
-CORS_ORIGIN = os.getenv("CORS_ORIGIN", "http://localhost:3000")
+CORS_ORIGIN = os.getenv(
+    "CORS_ORIGIN",
+    "http://localhost:3000,http://127.0.0.1:3000",
+)
 
 ALLOWED_EXTENSIONS = {
     ".wav",
@@ -82,7 +85,15 @@ def public_job(job: dict) -> dict:
 def health():
     return {
         "status": "ok",
-        "engine": os.getenv("TRANSCRIPTION_ENGINE", "placeholder"),
+        "engine": os.getenv("TRANSCRIPTION_ENGINE", "basic_pitch"),
+        "pipeline": os.getenv("TRANSCRIPTION_PIPELINE", "legacy"),
+        "backend": os.getenv("TRANSCRIPTION_BACKEND", "basic_pitch"),
+        "use_cleaner": os.getenv("TRANSCRIPTION_USE_CLEANER", "0"),
+        "use_normalizer": os.getenv("TRANSCRIPTION_USE_NORMALIZER", "1"),
+        "use_beat_tracker": os.getenv("TRANSCRIPTION_USE_BEAT_TRACKER", "1"),
+        "use_piano_analyzer": os.getenv("TRANSCRIPTION_USE_PIANO_ANALYZER", "1"),
+        "use_mir_layers": os.getenv("TRANSCRIPTION_USE_MIR_LAYERS", "1"),
+        "pipeline_fallback": os.getenv("TRANSCRIPTION_PIPELINE_FALLBACK", "1"),
     }
 
 

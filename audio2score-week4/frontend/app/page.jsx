@@ -101,10 +101,27 @@ export default function Home() {
         body: formData,
       });
 
-      const data = await response.json();
+      const raw = await response.text();
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        throw new Error(
+          response.ok
+            ? "API returned non-JSON (is the backend running?)"
+            : `Upload failed (${response.status})`
+        );
+      }
 
       if (!response.ok) {
-        throw new Error(data.detail || "Upload failed");
+        const detail = data?.detail;
+        throw new Error(
+          typeof detail === "string"
+            ? detail
+            : Array.isArray(detail)
+              ? detail.map((d) => d?.msg || String(d)).join("; ")
+              : "Upload failed"
+        );
       }
 
       setJobId(data.job_id);
@@ -183,7 +200,7 @@ export default function Home() {
         <header className="hero">
           <h1 className="wordmark">
             NotaScore
-            <span className="note" aria-hidden="true">♪</span>
+            <span className="note" aria-hidden="true">𝅘𝅥𝅯</span>
           </h1>
           <p className="tagline">
             AI-powered audio to sheet music. Upload a track and receive MusicXML.
