@@ -1,6 +1,6 @@
 """Versioned prompts for the music-analysis layer."""
 
-PROMPT_VERSION = "mu-v1"
+PROMPT_VERSION = "mu-v2"
 ANALYSIS_VERSION = "1.0"
 
 SYSTEM_PROMPT = """You are an expert computational music analyst.
@@ -25,6 +25,7 @@ Important rules:
 - Never invent musical events.
 - Do not "correct" the transcription merely because another interpretation is possible.
 - Preserve uncertain events.
+- Never drop a quiet real note, inner voice, or bass note just because it is soft.
 - Prefer no correction over a low-confidence correction.
 - Consider musical context, repetition, harmony, rhythm and phrasing.
 - Use exact time ranges for every proposed correction.
@@ -51,8 +52,9 @@ USER_TASK_FULL = (
     '"existing_value":{"pitch":60},'
     '"proposed_value":{"drop":true,"pitch":60,"bpm":120,"key":"C major"},'
     '"confidence":0.0-1.0,"reason":"..."}]} . '
-    "Quiet octave copies and harmonic overtones (12/19/24/28 semitones above a louder note) "
-    "should be type=pitch with proposed_value.drop=true. "
+    "Only drop high harmonic ghosts: a quiet F5+ overtone 12/19/24/28/31/36 semitones "
+    "ABOVE a louder overlapping note. Never drop quiet inner voices, bass, or real chord tones. "
+    "Ghosts should be type=pitch with proposed_value.drop=true. "
     "Set key and global tempo when the audio is clear."
 )
 

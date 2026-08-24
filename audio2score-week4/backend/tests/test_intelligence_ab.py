@@ -43,13 +43,13 @@ CASES = [
         predicted=[
             _n(60, 0.0, 0.8),
             _n(64, 0.0, 0.8),
-            _n(72, 0.0, 0.4, vel=18, conf=0.12),
+            _n(88, 0.0, 0.4, vel=18, conf=0.12),
         ],
         correction=Correction(
             type="pitch",
             time_start=0.0,
             time_end=0.4,
-            existing_value={"pitch": 72},
+            existing_value={"pitch": 88},
             proposed_value={"drop": True},
             confidence=0.99,
             reason="quiet octave ghost",

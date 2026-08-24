@@ -10,6 +10,11 @@ ALLOWED_TYPES = {"instrument", "pitch", "timing", "voice", "meter", "tempo", "ha
 ALLOWED_METERS = {"4/4", "3/4", "2/4", "6/8", "2/2", "5/4", "12/8"}
 PIANO_MIN = 21
 PIANO_MAX = 108
+# Harmonic series above a fundamental: octave, 12th, 2 octaves, 17th, 19th, 3 octaves.
+HARMONIC_GHOST_INTERVALS = {12, 19, 24, 28, 31, 36}
+GHOST_MIN_PITCH = 77  # F5+: twitter/overtone extras, not inner voices or bass
+GHOST_MAX_STRENGTH_RATIO = 0.60
+GHOST_TIME_PAD_SEC = 0.08
 
 
 class MusicalCorrectionValidator:
@@ -84,6 +89,8 @@ class MusicalCorrectionValidator:
             return "window too wide"
         if corr.requires_deep_analysis and not allow_deep:
             return "needs deep analysis"
+        if _is_drop(corr) and not _is_harmonic_ghost_drop(corr, notes):
+            return "not a harmonic ghost"
         if corr.final_confidence < self.cfg.auto_apply_threshold:
             return "below auto-apply threshold"
         if corr.type == "pitch":
@@ -153,17 +160,75 @@ def _window_transcription_confidence(
     return _clamp(sum(n.confidence for n in windowed) / len(windowed))
 
 
+def _note_strength(note: NoteEvent) -> float:
+    if 0.0 < note.confidence < 1.0:
+        return float(note.confidence)
+    return max(int(note.velocity), 1) / 127.0
+
+
+def _notes_overlap(a: NoteEvent, b: NoteEvent, pad: float = GHOST_TIME_PAD_SEC) -> bool:
+    return min(a.end_time, b.end_time) + pad > max(a.start_time, b.start_time)
+
+
+def _target_drop_pitch(corr: Correction) -> int | None:
+    raw = corr.existing_value.get("pitch")
+    if raw is None:
+        raw = (corr.proposed_value or {}).get("pitch")
+    if raw is None:
+        return None
+    return int(raw)
+
+
+def _matching_drop_notes(corr: Correction, notes: list[NoteEvent]) -> list[NoteEvent]:
+    pitch = _target_drop_pitch(corr)
+    matched = [
+        n
+        for n in notes
+        if n.start_time >= corr.time_start - GHOST_TIME_PAD_SEC
+        and n.start_time <= corr.time_end + GHOST_TIME_PAD_SEC
+        and (pitch is None or int(n.pitch) == pitch)
+    ]
+    if pitch is None:
+        return []
+    return matched
+
+
+def _is_overtone_ghost(ghost: NoteEvent, notes: list[NoteEvent]) -> bool:
+    """True only for a quiet high harmonic of a louder overlapping note."""
+    if int(ghost.pitch) < GHOST_MIN_PITCH:
+        return False
+    ghost_strength = _note_strength(ghost)
+    parents = []
+    covered = False
+    for other in notes:
+        if other is ghost:
+            continue
+        if _notes_overlap(ghost, other):
+            covered = True
+        interval = int(ghost.pitch) - int(other.pitch)
+        if interval not in HARMONIC_GHOST_INTERVALS:
+            continue
+        if not _notes_overlap(ghost, other):
+            continue
+        parent_strength = _note_strength(other)
+        if parent_strength <= ghost_strength:
+            continue
+        if ghost_strength / max(parent_strength, 1e-9) >= GHOST_MAX_STRENGTH_RATIO:
+            continue
+        parents.append(other)
+    return bool(parents) and covered
+
+
+def _is_harmonic_ghost_drop(corr: Correction, notes: list[NoteEvent]) -> bool:
+    matched = _matching_drop_notes(corr, notes)
+    if not matched:
+        return False
+    return all(_is_overtone_ghost(note, notes) for note in matched)
+
+
 def _musical_consistency(corr: Correction, notes: list[NoteEvent]) -> float:
     if corr.type == "pitch" and _is_drop(corr):
-        existing = int(corr.existing_value.get("pitch") or corr.proposed_value.get("pitch") or 0)
-        harmonic_intervals = {12, 19, 24, 28, 31, 36}
-        neighbors = [
-            n
-            for n in notes
-            if abs(n.start_time - corr.time_start) <= 0.08
-            and abs(n.pitch - existing) in harmonic_intervals
-        ]
-        return 0.9 if neighbors else 0.45
+        return 0.9 if _is_harmonic_ghost_drop(corr, notes) else 0.2
     if corr.type == "tempo":
         return 0.7
     if corr.type == "meter":

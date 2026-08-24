@@ -132,7 +132,7 @@ def test_validator_rejects_low_confidence_and_applies_octave_drop():
         max_audio_seconds=30,
     )
     notes = _notes_simple() + [
-        NoteEvent(pitch=72, start_time=0.0, end_time=0.4, velocity=15, confidence=0.15),
+        NoteEvent(pitch=88, start_time=0.0, end_time=0.4, velocity=15, confidence=0.15),
     ]
     weak = Correction(
         type="pitch",
@@ -147,7 +147,7 @@ def test_validator_rejects_low_confidence_and_applies_octave_drop():
         type="pitch",
         time_start=0.0,
         time_end=0.4,
-        existing_value={"pitch": 72},
+        existing_value={"pitch": 88},
         proposed_value={"drop": True},
         confidence=0.99,
         reason="quiet octave ghost",
@@ -159,7 +159,7 @@ def test_validator_rejects_low_confidence_and_applies_octave_drop():
     assert any(c is drop or c.proposed_value.get("drop") for c in accepted)
     assert any(c.confidence == 0.4 for c in rejected)
     patched = apply_note_patches(notes, accepted)
-    assert all(n.pitch != 72 for n in patched)
+    assert all(n.pitch != 88 for n in patched)
 
 
 def test_estimate_cost_flash_lite_audio_is_cheap():
@@ -207,7 +207,7 @@ def test_layer_applies_validated_drop(tmp_path, monkeypatch):
     for key, value in _cfg(tmp_path).items():
         monkeypatch.setenv(key, value)
     notes = _notes_simple() + [
-        NoteEvent(pitch=72, start_time=0.0, end_time=0.4, velocity=15, confidence=0.15),
+        NoteEvent(pitch=88, start_time=0.0, end_time=0.4, velocity=15, confidence=0.15),
     ]
     tempo = _tempo()
     events = notes_to_events(notes, tempo, instrument=InstrumentKind.PIANO)
@@ -216,7 +216,7 @@ def test_layer_applies_validated_drop(tmp_path, monkeypatch):
         type="pitch",
         time_start=0.0,
         time_end=0.4,
-        existing_value={"pitch": 72},
+        existing_value={"pitch": 88},
         proposed_value={"drop": True},
         confidence=0.99,
         reason="quiet octave ghost",
@@ -241,7 +241,7 @@ def test_layer_applies_validated_drop(tmp_path, monkeypatch):
     )
     assert result.skipped is False
     assert result.applied >= 1
-    assert all(n.pitch != 72 for n in result.notes)
+    assert all(n.pitch != 88 for n in result.notes)
 
 
 def test_layer_applies_ghost_drop_tempo_and_key(tmp_path, monkeypatch):
@@ -249,7 +249,7 @@ def test_layer_applies_ghost_drop_tempo_and_key(tmp_path, monkeypatch):
         monkeypatch.setenv(key, value)
     monkeypatch.setenv("GEMINI_AUTO_APPLY_THRESHOLD", "0.55")
     notes = _notes_simple() + [
-        NoteEvent(pitch=72, start_time=0.0, end_time=0.4, velocity=18, confidence=0.2),
+        NoteEvent(pitch=88, start_time=0.0, end_time=0.4, velocity=18, confidence=0.2),
     ]
     tempo = _tempo()
     events = notes_to_events(notes, tempo, instrument=InstrumentKind.PIANO)
@@ -261,7 +261,7 @@ def test_layer_applies_ghost_drop_tempo_and_key(tmp_path, monkeypatch):
                 type="pitch",
                 time_start=0.0,
                 time_end=0.4,
-                existing_value={"pitch": 72},
+                existing_value={"pitch": 88},
                 proposed_value={"drop": True},
                 confidence=0.9,
                 reason="octave ghost",
@@ -298,7 +298,7 @@ def test_layer_applies_ghost_drop_tempo_and_key(tmp_path, monkeypatch):
         service=GeminiMusicAnalysisService(cfg, provider=_FakeProvider(analysis=analysis), cache=AnalysisCache(cfg)),
     )
     assert result.applied >= 3
-    assert all(n.pitch != 72 for n in result.notes)
+    assert all(n.pitch != 88 for n in result.notes)
     assert result.meta.key_hint == "C major"
     assert result.meta.display_tempo_bpm == 96
     assert abs(result.tempo_map.bpm_at(0.0) - 96) < 0.01
@@ -338,15 +338,15 @@ def test_validator_applies_medium_ghost_and_second_drop():
     notes = _notes_simple() + [
         NoteEvent(pitch=69, start_time=1.0, end_time=1.4, velocity=70, confidence=0.8),
         NoteEvent(pitch=71, start_time=1.4, end_time=1.8, velocity=70, confidence=0.8),
-        NoteEvent(pitch=72, start_time=0.0, end_time=0.4, velocity=18, confidence=0.2),
+        NoteEvent(pitch=88, start_time=0.0, end_time=0.4, velocity=18, confidence=0.2),
         NoteEvent(pitch=84, start_time=0.0, end_time=0.3, velocity=16, confidence=0.18),
     ]
     medium = Correction(
         type="pitch",
         time_start=0.0,
         time_end=0.4,
-        existing_value={"pitch": 72},
-        proposed_value={"drop": True, "pitch": 72},
+        existing_value={"pitch": 88},
+        proposed_value={"drop": True, "pitch": 88},
         confidence=0.65,
         reason="octave ghost",
     )
@@ -365,8 +365,95 @@ def test_validator_applies_medium_ghost_and_second_drop():
     )
     assert all(c.final_confidence >= 0.55 for c in accepted)
     dropped = {c.proposed_value.get("pitch") for c in accepted if c.proposed_value.get("drop")}
-    assert dropped == {72, 84}
+    assert dropped == {88, 84}
     assert rejected == []
+
+
+def _validator_cfg(**overrides):
+    from intelligence.config import GeminiConfig
+    from pathlib import Path
+
+    values = dict(
+        api_key="x",
+        provider="gemini",
+        enabled=True,
+        audio_input=False,
+        deep_analysis=False,
+        midi_validation=True,
+        structure_analysis=True,
+        default_model="gemini-2.5-flash",
+        reasoning_model="gemini-2.5-flash",
+        auto_apply_threshold=0.55,
+        deep_analysis_threshold=0.6,
+        manual_review_threshold=0.75,
+        max_drop_fraction=0.25,
+        cache_ttl_seconds=60,
+        cache_dir=Path("/tmp/gemini-test-cache"),
+        timeout_seconds=10,
+        max_audio_seconds=30,
+    )
+    values.update(overrides)
+    return GeminiConfig(**values)
+
+
+def test_validator_keeps_quiet_real_notes_and_only_drops_high_ghosts():
+    notes = _notes_simple() + [
+        NoteEvent(pitch=36, start_time=0.0, end_time=0.5, velocity=40, confidence=0.35),
+        NoteEvent(pitch=48, start_time=0.0, end_time=0.5, velocity=70, confidence=0.8),
+        NoteEvent(pitch=59, start_time=0.0, end_time=0.5, velocity=58, confidence=0.46),
+        NoteEvent(pitch=60, start_time=0.0, end_time=0.5, velocity=59, confidence=0.46),
+        NoteEvent(pitch=88, start_time=0.0, end_time=0.4, velocity=20, confidence=0.18),
+    ]
+    quiet_bass = Correction(
+        type="pitch",
+        time_start=0.0,
+        time_end=0.5,
+        existing_value={"pitch": 36},
+        proposed_value={"drop": True, "pitch": 36},
+        confidence=0.95,
+        reason="quiet C2",
+    )
+    quiet_inner = Correction(
+        type="pitch",
+        time_start=0.0,
+        time_end=0.5,
+        existing_value={"pitch": 60},
+        proposed_value={"drop": True, "pitch": 60},
+        confidence=0.95,
+        reason="quiet C4 doubling",
+    )
+    quiet_third = Correction(
+        type="pitch",
+        time_start=0.0,
+        time_end=0.5,
+        existing_value={"pitch": 59},
+        proposed_value={"drop": True, "pitch": 59},
+        confidence=0.95,
+        reason="quiet B3 doubling",
+    )
+    high_ghost = Correction(
+        type="pitch",
+        time_start=0.0,
+        time_end=0.4,
+        existing_value={"pitch": 88},
+        proposed_value={"drop": True, "pitch": 88},
+        confidence=0.95,
+        reason="E6 overtone",
+    )
+    accepted, rejected = MusicalCorrectionValidator(_validator_cfg()).validate(
+        [quiet_bass, quiet_inner, quiet_third, high_ghost],
+        notes,
+        audio_feature_confidence=0.85,
+    )
+    dropped = {
+        c.proposed_value.get("pitch") for c in accepted if c.proposed_value.get("drop")
+    }
+    reject_pitches = {
+        c.proposed_value.get("pitch") for c in rejected if c.proposed_value.get("drop")
+    }
+    assert dropped == {88}
+    assert reject_pitches == {36, 60, 59}
+    assert all("not a harmonic ghost" in (c.reason or "") for c in rejected)
 
 
 def test_pitch_patch_without_target_does_not_retune_the_window():
