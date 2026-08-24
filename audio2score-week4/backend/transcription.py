@@ -104,13 +104,16 @@ def refine_tempo(onsets, base_bpm: float) -> float:
 
     best_bpm, best_err = base_bpm, float("inf")
 
-    for center in {base_bpm * 0.5, base_bpm, base_bpm * 2.0}:
+    for factor in (0.5, 2.0 / 3.0, 0.8, 1.0, 1.25, 1.5, 2.0):
+        center = base_bpm * factor
         for bpm in np.arange(center - 8.0, center + 8.0, 0.05):
             if bpm < MIN_TEMPO or bpm > MAX_TEMPO:
                 continue
-            grid = (60.0 / bpm) / 4.0
-            ratio = onsets / grid
-            err = float(np.mean(np.abs(ratio - np.round(ratio))))
+            quarter = 60.0 / bpm
+            sixteenth = quarter / 4.0
+            err16 = float(np.mean(np.abs(onsets / sixteenth - np.round(onsets / sixteenth))))
+            errq = float(np.mean(np.abs(onsets / quarter - np.round(onsets / quarter))))
+            err = err16 + 0.5 * errq + 0.002 * abs(bpm - base_bpm) / max(base_bpm, 1.0)
             if err < best_err:
                 best_err, best_bpm = err, float(bpm)
 
@@ -124,7 +127,10 @@ def _estimate_tempo(audio_path: Path, onsets: list[float]) -> float:
         from audio_engine.normalizer import AudioNormalizer
 
         normalized = AudioNormalizer().normalize(audio_path)
-        seed = BeatTracker().track(normalized).bpm_at(0.0)
+        tracker = BeatTracker()
+        seed = tracker.track(normalized).bpm_at(0.0)
+        if tracker.last_source == "madmom":
+            return round(seed, 2)
     else:
         seed = detect_tempo(audio_path)
 

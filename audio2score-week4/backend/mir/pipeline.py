@@ -118,7 +118,7 @@ class UnderstandingPipeline:
             )
 
         onsets = [n.start_time for n in notes]
-        tempo_map = self._build_tempo_map(normalized, audio_path, onsets)
+        tempo_map, meter = self._build_tempo_map(normalized, audio_path, onsets)
         bpm = tempo_map.bpm_at(0.0)
 
         chords = self.chord_detector.detect(notes)
@@ -144,6 +144,7 @@ class UnderstandingPipeline:
             prediction.instrument,
             segments,
             display_bpm=snap_to_standard_tempo(bpm),
+            time_sig_hint=meter,
         )
 
         def _rebuild(next_notes, next_tempo, next_role):
@@ -185,7 +186,8 @@ class UnderstandingPipeline:
 
         print(
             f"[Understanding] instrument={prediction.instrument.value} "
-            f"tempo={bpm:.1f} tempo_points={len(tempo_map.points)} "
+            f"tempo={bpm:.1f} meter={meta.time_sig_hint or '-'} "
+            f"tempo_points={len(tempo_map.points)} "
             f"events={len(events)} mir_layers={self.use_mir_layers} "
             f"(job={job_id})"
         )
@@ -302,14 +304,22 @@ class UnderstandingPipeline:
             fallback_bpm=bpm,
         )
 
-    def _build_tempo_map(self, normalized, audio_path, onsets: list[float]) -> TempoMap:
+    def _build_tempo_map(
+        self, normalized, audio_path, onsets: list[float]
+    ) -> tuple[TempoMap, str | None]:
         if _use_beat_tracker():
             tracked = self.beat_tracker.track_stable(normalized)
+            meter = self.beat_tracker.last_time_signature
+            source = self.beat_tracker.last_source
             seed = tracked.bpm_at(0.0)
+            # madmom already owns the beat grid; MIDI-onset refine was for librosa
+            # octave errors and can pull a good map toward 76/90 on sparse notes.
+            if source == "madmom":
+                return tracked, meter
             refined = refine_tempo(onsets, seed)
-            return align_tempo_map(tracked, refined)
+            return align_tempo_map(tracked, refined), meter
         seed = detect_tempo(audio_path)
-        return constant_tempo_map(refine_tempo(onsets, seed))
+        return constant_tempo_map(refine_tempo(onsets, seed)), None
 
     @staticmethod
     def notes_from_events(events: list[MusicalEvent], bpm: float) -> list[NoteEvent]:

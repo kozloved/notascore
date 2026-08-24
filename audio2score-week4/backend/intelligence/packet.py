@@ -171,6 +171,7 @@ def build_analysis_packet(
     sample_rate: int = 0,
     pedal_events: list[tuple[float, int]] | None = None,
     instrument_candidates: list[dict] | None = None,
+    time_sig_hint: str | None = None,
 ) -> MusicalAnalysisPacket:
     rows, truncated = _note_summaries(notes)
     conf = _confidence_summary(notes)
@@ -191,7 +192,8 @@ def build_analysis_packet(
             prev_bpm = pt.bpm
     beat_times = [round(pt.time_sec, 3) for pt in tempo_points[:MAX_BEATS]]
     downbeats = beat_times[::4][:24]
-    ts = estimate_time_signature(events) if events else "4/4"
+    ts = time_sig_hint or (estimate_time_signature(events) if events else "4/4")
+    ts_conf = 0.9 if time_sig_hint else 0.7
     key = estimate_key(events)
     chord_rows = []
     for ch in (chords or [])[:MAX_CHORDS]:
@@ -239,7 +241,7 @@ def build_analysis_packet(
             else 0.0,
             "tempo_changes": changes[:16],
         },
-        meter={"time_signature_candidates": [{"name": ts, "confidence": 0.7}]},
+        meter={"time_signature_candidates": [{"name": ts, "confidence": ts_conf}]},
         beats={"beat_times": beat_times, "downbeat_times": downbeats},
         musical_features={
             "key_candidates": [{"name": key, "confidence": 0.6}] if key else [],

@@ -57,6 +57,11 @@ class InstrumentClassifier:
             )
 
         scores = self._scores(feats)
+        tags = self._audioset_prior(audio)
+        if tags is not None:
+            for kind, score in tags.scores.items():
+                if kind in scores:
+                    scores[kind] = 0.7 * float(scores[kind]) + 0.3 * float(score)
         best = max(scores, key=scores.get)
         if (
             best == InstrumentKind.GUITAR
@@ -158,6 +163,15 @@ class InstrumentClassifier:
             decay=decay,
             f0_mod=f0_mod,
         )
+
+    @staticmethod
+    def _audioset_prior(audio: NormalizedAudio):
+        try:
+            from audio_engine.audioset_tagger import tag_audio
+
+            return tag_audio(audio)
+        except Exception:
+            return None
 
     @staticmethod
     def _is_simple_tone(feats: _Features) -> bool:

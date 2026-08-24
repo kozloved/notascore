@@ -121,6 +121,7 @@ def public_job(job: dict) -> dict:
 def health():
     from adapters.basic_pitch_backend import basic_pitch_settings
     from adapters.mt3_backend import mt3_status
+    from audio_engine.beat_tracker import beat_status
     from intelligence.config import gemini_status
 
     bp = basic_pitch_settings()
@@ -140,6 +141,7 @@ def health():
         "basic_pitch": bp,
         "quality": quality,
         "gemini": gemini,
+        "beat": beat_status(),
         "modes": {
             "fast": True,
             "quality": quality["available"],

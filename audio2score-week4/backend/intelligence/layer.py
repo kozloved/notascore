@@ -119,6 +119,7 @@ def _enhance(
         duration_seconds=duration,
         sample_rate=sample_rate,
         pedal_events=pedal_events,
+        time_sig_hint=meta.time_sig_hint,
     )
     audio_hash = ""
     if normalized is not None:
