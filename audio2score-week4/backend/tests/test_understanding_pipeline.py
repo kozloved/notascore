@@ -40,7 +40,10 @@ def test_understanding_pipeline_produces_musicxml(mock_transcribe, tmp_path, mon
     sf.write(str(audio), 0.2 * np.sin(2 * np.pi * 440 * t), sr)
 
     xml = UnderstandingPipeline().transcribe(audio, "understanding-test")
-    assert "score-partwise" in xml.lower() or "<?xml" in xml
+    lower = xml.lower()
+    assert "score-partwise" in lower or "<?xml" in xml
+    assert "<rest" in lower
+    assert "<staves>2</staves>" in lower
     raw_midi = tmp_path / "bp_understanding-test" / "understanding-test.raw.mid"
     score_midi = tmp_path / "bp_understanding-test" / "understanding-test.score.mid"
     assert raw_midi.exists()

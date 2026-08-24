@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from mir.types import Hand, MusicalEvent
+
+CHORD_START_WINDOW = 0.08
+CHORD_DURATION_RATIO = 0.5
+
+
+def _is_chord_mate(a: MusicalEvent, b: MusicalEvent) -> bool:
+    if abs(a.start_beat - b.start_beat) > CHORD_START_WINDOW:
+        return False
+    short, long = sorted((a.duration_beats, b.duration_beats))
+    return short >= long * CHORD_DURATION_RATIO
 
 
 class VoiceSeparator:
-    """Assign voice numbers to avoid cross-voice collisions on one staff."""
+    """Assign voice numbers: chords share a voice, held overlaps get a new one."""
 
     def separate(self, events: list[MusicalEvent]) -> list[MusicalEvent]:
         by_hand: dict[Hand, list[MusicalEvent]] = {}
@@ -16,32 +28,25 @@ class VoiceSeparator:
         result: list[MusicalEvent] = []
         for hand, group in by_hand.items():
             group.sort(key=lambda e: (e.start_beat, e.pitch))
-            active: list[tuple[float, int]] = []
-            voice_counter = 0
+            active: list[MusicalEvent] = []
             for ev in group:
-                active = [(end, v) for end, v in active if end > ev.start_beat]
-                used = {v for _, v in active}
-                voice = 0
-                while voice in used:
-                    voice += 1
-                if voice > voice_counter:
-                    voice_counter = voice
-                end_beat = ev.start_beat + ev.duration_beats
-                active.append((end_beat, voice))
-                result.append(
-                    MusicalEvent(
-                        pitch=ev.pitch,
-                        start_beat=ev.start_beat,
-                        duration_beats=ev.duration_beats,
-                        velocity=ev.velocity,
-                        instrument=ev.instrument,
-                        voice=voice,
-                        hand=hand,
-                        phrase_id=ev.phrase_id,
-                        articulation=ev.articulation,
-                        dynamic=ev.dynamic,
-                        confidence=ev.confidence,
-                        source_backend=ev.source_backend,
-                    )
+                active = [
+                    a
+                    for a in active
+                    if a.start_beat + a.duration_beats > ev.start_beat + 1e-6
+                ]
+                used = {a.voice for a in active}
+                chord_voice = next(
+                    (a.voice for a in active if _is_chord_mate(a, ev)),
+                    None,
                 )
+                if chord_voice is not None:
+                    voice = chord_voice
+                else:
+                    voice = 0
+                    while voice in used:
+                        voice += 1
+                assigned = replace(ev, hand=hand, voice=voice)
+                active.append(assigned)
+                result.append(assigned)
         return sorted(result, key=lambda e: (e.hand.value, e.start_beat, e.pitch))

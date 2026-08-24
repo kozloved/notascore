@@ -97,6 +97,16 @@ Understanding jobs no longer collapse BeatTracker to a single BPM. The pipeline:
 4. Writes DAW MIDI in **original seconds** plus a tempo track.
 5. Inserts extra metronome marks on the score when tempo actually changes.
 
+## Phase 5 — Score writing (implemented)
+
+Notation builds a **piano grand staff** from CMR events instead of a MIDI round-trip:
+
+- RH treble + LH bass, braced together, barlines aligned
+- Same-attack notes become chords; held overlaps become extra voices
+- Events snap to a 16th / triplet grid; rests fill empty beats and measures
+- Time signature defaults to 4/4 unless another meter is clearly better
+- Quantized score MIDI is written from that score (DAW MIDI is unchanged)
+
 ## How to enable MIDICleaner safely
 
 1. Keep `TRANSCRIPTION_PIPELINE=legacy`.
