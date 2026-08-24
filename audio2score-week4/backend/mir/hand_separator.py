@@ -70,7 +70,21 @@ class HandSeparator:
         path, confidences = self._viterbi(frames)
         assigned = self._apply(frames, path, confidences)
         by_id = {id(src): out for src, out in assigned}
-        return [by_id.get(id(ev), ev) for ev in events]
+        result: list[MusicalEvent] = []
+        for ev in events:
+            out = by_id.get(id(ev), ev)
+            # Named MIDI tracks already carry LEFT/RIGHT; keep them.
+            if ev.hand in (Hand.LEFT, Hand.RIGHT):
+                result.append(
+                    copy_event(
+                        out,
+                        hand=ev.hand,
+                        hand_confidence=max(ev.hand_confidence, 0.95),
+                    )
+                )
+            else:
+                result.append(out)
+        return result
 
     def _cluster(self, events: list[MusicalEvent]) -> list[list[MusicalEvent]]:
         ordered = sorted(events, key=lambda e: (e.start_beat, e.pitch))

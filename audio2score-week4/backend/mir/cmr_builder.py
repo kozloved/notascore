@@ -54,7 +54,7 @@ def notes_to_events(
                 duration_beats=duration,
                 velocity=note.velocity,
                 instrument=instrument,
-                hand=Hand.UNKNOWN,
+                hand=note.hand if note.hand is not None else Hand.UNKNOWN,
                 confidence=note.confidence,
                 source_backend=note.source_backend or source_backend,
                 note_id=note.note_id,
@@ -73,12 +73,17 @@ def build_score_meta(
     segments,
     display_bpm: int = 120,
     instrument_confidence: float = 0.8,
+    time_sig_hint: str | None = None,
+    key_hint: str | None = None,
 ) -> ScoreMeta:
     from mir.types import InstrumentPrediction, InstrumentCharacteristics
 
     return ScoreMeta(
         display_tempo_bpm=display_bpm,
         segments=list(segments),
+        tempo_map=tempo_map,
+        time_sig_hint=time_sig_hint,
+        key_hint=key_hint,
         instrument_prediction=InstrumentPrediction(
             instrument=instrument,
             confidence=instrument_confidence,

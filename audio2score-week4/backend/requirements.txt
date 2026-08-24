@@ -19,3 +19,11 @@ librosa
 soundfile
 numpy
 pytest
+# Beat / downbeat (meter). PyPI 0.16.1 breaks on Python 3.11 + modern NumPy.
+# Cython is required to build madmom from git.
+Cython
+madmom @ git+https://github.com/CPJKU/madmom.git
+# Optional AudioSet instrument tagging (not beat tracking):
+#   pip install tensorflow-hub          # YAMNet
+#   pip install panns-inference         # PANNs CNN14 (PyTorch, ~300MB weights)
+

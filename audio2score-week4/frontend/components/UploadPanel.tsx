@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { resultDownloadUrl, uploadAudio, type Job } from "../lib/api";
+import { uploadAudio, type Job, type TranscriptionMode } from "../lib/api";
 import { getJob } from "../lib/jobs";
+import SheetResult from "./SheetResult";
 
-const ACCEPTED = ".wav,.mp3,.m4a,.flac,audio/*";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const ACCEPTED = ".wav,.mp3,.m4a,.flac,.mid,.midi,audio/*,audio/midi";
 
 function statusLabel(status?: string) {
   switch (status) {
@@ -30,6 +32,24 @@ export default function UploadPanel() {
   >("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [job, setJob] = useState<Job | null>(null);
+  const [mode, setMode] = useState<TranscriptionMode>("fast");
+  const [qualityAvailable, setQualityAvailable] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("notascore-mode");
+      if (stored === "fast" || stored === "quality") {
+        setMode(stored);
+      }
+    } catch {}
+    fetch(`${API_URL}/health`)
+      .then(async (response) => {
+        if (!response.ok) return;
+        const data = await response.json();
+        setQualityAvailable(Boolean(data?.quality?.available));
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!job?.job_id) return;
@@ -82,6 +102,17 @@ export default function UploadPanel() {
     }
   };
 
+  const isMidiFile = Boolean(file && /\.midi?$/i.test(file.name));
+  const qualityBlocked = isMidiFile || !qualityAvailable;
+  const effectiveMode: TranscriptionMode = qualityBlocked ? "fast" : mode;
+
+  const changeMode = (next: TranscriptionMode) => {
+    setMode(next);
+    try {
+      localStorage.setItem("notascore-mode", next);
+    } catch {}
+  };
+
   const handleUpload = async () => {
     if (!file || phase === "uploading" || phase === "transcribing") return;
 
@@ -91,7 +122,7 @@ export default function UploadPanel() {
     setJob(null);
 
     try {
-      const created = await uploadAudio(file, setUploadPercent);
+      const created = await uploadAudio(file, setUploadPercent, effectiveMode);
       setJob(created);
       setPhase("transcribing");
     } catch (error) {
@@ -124,6 +155,50 @@ export default function UploadPanel() {
         disabled={busy}
       />
 
+      <div className="mb-4 grid grid-cols-2 gap-2 rounded-md border border-ink/15 bg-white/40 p-1">
+        <button
+          type="button"
+          onClick={() => changeMode("fast")}
+          disabled={busy}
+          aria-pressed={effectiveMode === "fast"}
+          className={
+            "rounded px-3 py-2 text-sm font-medium transition " +
+            (effectiveMode === "fast"
+              ? "bg-ink text-mist"
+              : "text-slate hover:text-ink")
+          }
+        >
+          Fast
+          <span className="mt-0.5 block text-[0.65rem] font-normal uppercase tracking-wide opacity-80">
+            Basic Pitch
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => changeMode("quality")}
+          disabled={busy || qualityBlocked}
+          aria-pressed={effectiveMode === "quality"}
+          className={
+            "rounded px-3 py-2 text-sm font-medium transition " +
+            (effectiveMode === "quality"
+              ? "bg-ink text-mist"
+              : "text-slate hover:text-ink disabled:cursor-not-allowed disabled:opacity-40")
+          }
+        >
+          Quality
+          <span className="mt-0.5 block text-[0.65rem] font-normal uppercase tracking-wide opacity-80">
+            MR-MT3
+          </span>
+        </button>
+      </div>
+      <p className="mb-5 text-xs text-slate">
+        {isMidiFile
+          ? "MIDI files skip note detection — the score is written from the file."
+          : qualityAvailable
+            ? "Fast runs Basic Pitch here. Quality sends audio to an MR-MT3 GPU worker."
+            : "Quality needs a remote MT3 worker (MT3_ENDPOINT or MT3_TRANSCRIBE_COMMAND)."}
+      </p>
+
       <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
         <button
           type="button"
@@ -134,10 +209,10 @@ export default function UploadPanel() {
           {file ? (
             <span className="block truncate font-medium">{file.name}</span>
           ) : (
-            <span className="text-slate">Choose audio file</span>
+            <span className="text-slate">Choose audio or MIDI file</span>
           )}
           <span className="mt-0.5 block text-xs text-slate">
-            WAV, MP3, M4A, or FLAC
+            WAV, MP3, M4A, FLAC, or MIDI
           </span>
         </button>
 
@@ -191,14 +266,12 @@ export default function UploadPanel() {
           )}
 
           {job?.status === "completed" && job.result_available && (
-            <div className="mt-6 flex flex-wrap gap-3">
-              <a
-                href={resultDownloadUrl(job.job_id)}
-                download
-                className="inline-flex min-h-11 items-center bg-ink px-5 text-sm font-medium text-mist transition hover:bg-score"
-              >
-                Download MusicXML
-              </a>
+            <div className="mt-6">
+              <SheetResult
+                apiUrl={API_URL}
+                jobId={job.job_id}
+                filename={job.filename}
+              />
               <button
                 type="button"
                 onClick={() => {
@@ -209,7 +282,7 @@ export default function UploadPanel() {
                   setErrorMessage("");
                   if (inputRef.current) inputRef.current.value = "";
                 }}
-                className="inline-flex min-h-11 items-center border border-ink/20 px-5 text-sm text-ink transition hover:border-ink/40"
+                className="mt-4 inline-flex min-h-11 items-center border border-ink/20 px-5 text-sm text-ink transition hover:border-ink/40"
               >
                 New upload
               </button>

@@ -74,6 +74,7 @@ class NoteEvent:
     end_time: float
     velocity: int = 64
     confidence: float = 1.0
+    hand: Hand = Hand.UNKNOWN
     note_id: str = ""
     source_backend: str = "unknown"
     original_start_time: Optional[float] = None
@@ -122,11 +123,15 @@ class TempoPoint:
 class TempoMap:
     points: list[TempoPoint] = field(default_factory=list)
 
+    def sorted_points(self) -> list[TempoPoint]:
+        return sorted(self.points, key=lambda p: p.time_sec)
+
     def bpm_at(self, time_sec: float) -> float:
-        if not self.points:
+        points = self.sorted_points()
+        if not points:
             return 120.0
-        best = self.points[0]
-        for pt in self.points:
+        best = points[0]
+        for pt in points:
             if pt.time_sec <= time_sec:
                 best = pt
             else:
@@ -134,12 +139,13 @@ class TempoMap:
         return best.bpm
 
     def seconds_to_beats(self, time_sec: float) -> float:
-        if not self.points:
+        points = self.sorted_points()
+        if not points:
             return time_sec * (120.0 / 60.0)
         beat = 0.0
         prev_t = 0.0
-        prev_bpm = self.points[0].bpm
-        for pt in self.points:
+        prev_bpm = points[0].bpm
+        for pt in points:
             if pt.time_sec >= time_sec:
                 dt = time_sec - prev_t
                 beat += dt * (prev_bpm / 60.0)
@@ -151,6 +157,33 @@ class TempoMap:
         dt = time_sec - prev_t
         beat += dt * (prev_bpm / 60.0)
         return beat
+
+    def beats_to_seconds(self, beat: float) -> float:
+        points = self.sorted_points()
+        if not points:
+            return beat * (60.0 / 120.0)
+        prev_t = 0.0
+        prev_beat = 0.0
+        prev_bpm = max(points[0].bpm, 1e-6)
+        for pt in points:
+            if pt.time_sec > prev_t:
+                interval_beats = (pt.time_sec - prev_t) * (prev_bpm / 60.0)
+                if prev_beat + interval_beats >= beat:
+                    return prev_t + (beat - prev_beat) * (60.0 / prev_bpm)
+                prev_beat += interval_beats
+                prev_t = pt.time_sec
+            prev_bpm = max(pt.bpm, 1e-6)
+        return prev_t + (beat - prev_beat) * (60.0 / prev_bpm)
+
+    def median_bpm(self) -> float:
+        points = self.sorted_points()
+        if not points:
+            return 120.0
+        bpms = sorted(p.bpm for p in points)
+        mid = len(bpms) // 2
+        if len(bpms) % 2:
+            return float(bpms[mid])
+        return float(bpms[mid - 1] + bpms[mid]) / 2.0
 
 
 @dataclass
@@ -206,4 +239,5 @@ class ScoreMeta:
     instrument_prediction: Optional[InstrumentPrediction] = None
     segments: list[AudioSegment] = field(default_factory=list)
     display_tempo_bpm: int = 120
+    tempo_map: Optional[TempoMap] = None
     extra: dict[str, Any] = field(default_factory=dict)

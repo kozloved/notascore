@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { resultDownloadUrl, type Job } from "../../../lib/api";
+
+import SheetResult from "../../../components/SheetResult";
+import { API_URL, type Job } from "../../../lib/api";
 import { getJob } from "../../../lib/jobs";
 
 export default function ResultPage() {
@@ -61,13 +63,11 @@ export default function ResultPage() {
             </p>
             {job.error && <p className="text-red-700">{job.error}</p>}
             {job.status === "completed" && job.result_available && (
-              <a
-                href={resultDownloadUrl(job.job_id)}
-                download
-                className="mt-4 inline-flex min-h-11 items-center bg-ink px-5 text-sm font-medium text-mist transition hover:bg-score"
-              >
-                Download MusicXML
-              </a>
+              <SheetResult
+                apiUrl={API_URL}
+                jobId={job.job_id}
+                filename={job.filename}
+              />
             )}
           </div>
         )}

@@ -36,7 +36,7 @@ class VoiceSeparator:
             by_hand.setdefault(ev.hand, []).append(ev)
 
         result: list[MusicalEvent] = []
-        for hand, group in by_hand.items():
+        for _hand, group in by_hand.items():
             result.extend(self._separate_hand(group))
         return sorted(
             result,

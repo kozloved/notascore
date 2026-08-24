@@ -26,15 +26,15 @@ def test_real_octave_doubling_kept():
     assert all(d.action != CleaningAction.SUPPRESS for d in report if "octave" in d.reason)
 
 
-def test_false_octave_ghost_flagged_not_deleted_by_default():
+def test_false_octave_ghost_flagged_when_not_dropping():
     notes = [
         NoteEvent(pitch=60, start_time=0.0, end_time=1.0, velocity=90, confidence=0.95),
         NoteEvent(pitch=72, start_time=0.01, end_time=0.20, velocity=25, confidence=0.2),
     ]
-    cleaned, report = MIDICleaner().clean_with_report(notes)
+    cleaned, report = MIDICleaner(drop_octave_ghosts=False).clean_with_report(notes)
     pitches = {n.pitch for n in cleaned}
     assert 60 in pitches
-    assert 72 in pitches  # default: do not destroy
+    assert 72 in pitches
     assert any(d.reason == "octave_ghost_candidate" for d in report)
 
 

@@ -14,6 +14,7 @@ export default function Home() {
   const [jobId, setJobId] = useState(null);
   const [job, setJob] = useState(null);
   const [theme, setTheme] = useState("system");
+  const [mode, setMode] = useState("fast");
 
   useEffect(() => {
     try {
@@ -21,8 +22,19 @@ export default function Home() {
       if (stored === "light" || stored === "dark" || stored === "system") {
         setTheme(stored);
       }
+      const storedMode = localStorage.getItem("notascore-mode");
+      if (storedMode === "fast" || storedMode === "quality") {
+        setMode(storedMode);
+      }
     } catch {}
   }, []);
+
+  const changeMode = (next) => {
+    setMode(next);
+    try {
+      localStorage.setItem("notascore-mode", next);
+    } catch {}
+  };
 
   const changeTheme = (next) => {
     setTheme(next);
@@ -63,11 +75,11 @@ export default function Home() {
           }
         }
 
-        if (attempts < 120) {
+        if (attempts < 360) {
           timer = setTimeout(poll, 2000);
         }
       } catch (error) {
-        if (attempts < 120) {
+        if (attempts < 360) {
           timer = setTimeout(poll, 2000);
         }
       }
@@ -84,11 +96,17 @@ export default function Home() {
     setFile(event.target.files[0]);
   };
 
+  const isMidiFile = Boolean(file && /\.midi?$/i.test(file.name));
+  const qualityAvailable = Boolean(health?.quality?.available);
+  const qualityBlocked = isMidiFile || !qualityAvailable;
+  const effectiveMode = qualityBlocked ? "fast" : mode;
+
   const handleUpload = async () => {
     if (!file) return;
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("mode", effectiveMode);
 
     setUploadState("uploading");
     setErrorMessage("");
@@ -203,12 +221,17 @@ export default function Home() {
             <span className="note" aria-hidden="true">𝅘𝅥𝅯</span>
           </h1>
           <p className="tagline">
-            AI-powered audio to sheet music. Upload a track and receive MusicXML.
+            AI-powered audio to sheet music. Upload a track or MIDI file and receive MusicXML.
           </p>
           {health && (
             <span className="badge">
               <span className="dot" />
-              API {health.status} · {health.engine} engine
+              API {health.status} · {health.pipeline || health.engine}
+              {health.quality
+                ? health.quality.available
+                  ? " · Quality ready"
+                  : " · Quality offline"
+                : ""}
             </span>
           )}
         </header>
@@ -218,7 +241,7 @@ export default function Home() {
             id="audio-file"
             className="file-input"
             type="file"
-            accept=".wav,.mp3,.m4a,.flac,audio/*"
+            accept=".wav,.mp3,.m4a,.flac,.mid,.midi,audio/*,audio/midi"
             onChange={handleFileChange}
             disabled={isUploading}
           />
@@ -247,10 +270,42 @@ export default function Home() {
               <path d="M5 20h14" />
             </svg>
             <span className="dz-title">
-              {file ? file.name : "Choose an audio file"}
+              {file ? file.name : "Choose an audio or MIDI file"}
             </span>
-            <span className="dz-sub">WAV, MP3, M4A or FLAC · up to 25 MB</span>
+            <span className="dz-sub">WAV, MP3, M4A, FLAC or MIDI · up to 25 MB</span>
           </label>
+
+          <div className="mode-block">
+            <div className="mode-toggle" role="group" aria-label="Transcription mode">
+              <button
+                type="button"
+                className={"mode-option" + (effectiveMode === "fast" ? " is-active" : "")}
+                onClick={() => changeMode("fast")}
+                disabled={isUploading}
+                aria-pressed={effectiveMode === "fast"}
+              >
+                <span>Fast</span>
+                <span className="mode-kicker">Basic Pitch</span>
+              </button>
+              <button
+                type="button"
+                className={"mode-option" + (effectiveMode === "quality" ? " is-active" : "")}
+                onClick={() => changeMode("quality")}
+                disabled={isUploading || qualityBlocked}
+                aria-pressed={effectiveMode === "quality"}
+              >
+                <span>Quality</span>
+                <span className="mode-kicker">MR-MT3</span>
+              </button>
+            </div>
+            <p className="mode-hint">
+              {isMidiFile
+                ? "MIDI files skip note detection — the score is written from the file."
+                : qualityAvailable
+                  ? "Fast runs Basic Pitch on this machine. Quality sends audio to an MR-MT3 GPU worker."
+                  : "Quality needs a remote MT3 worker (set MT3_ENDPOINT or MT3_TRANSCRIBE_COMMAND)."}
+            </p>
+          </div>
 
           <button
             className="btn btn-primary"

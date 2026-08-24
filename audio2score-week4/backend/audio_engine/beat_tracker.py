@@ -2,19 +2,182 @@
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 from audio_engine.normalizer import NormalizedAudio
 from mir.types import TempoMap, TempoPoint
 
+MIN_BPM = 50.0
+MAX_BPM = 200.0
+
+
+def _recompute_beats(points: list[TempoPoint]) -> list[TempoPoint]:
+    if not points:
+        return []
+    ordered = sorted(points, key=lambda p: p.time_sec)
+    out: list[TempoPoint] = []
+    beat = 0.0
+    prev_t = 0.0
+    prev_bpm = ordered[0].bpm
+    for pt in ordered:
+        if pt.time_sec > prev_t:
+            beat += (pt.time_sec - prev_t) * (prev_bpm / 60.0)
+        out.append(
+            TempoPoint(
+                time_sec=pt.time_sec,
+                beat=beat,
+                bpm=pt.bpm,
+                confidence=pt.confidence,
+            )
+        )
+        prev_t = pt.time_sec
+        prev_bpm = pt.bpm
+    return out
+
+
+def stabilize_tempo_map(
+    tempo_map: TempoMap,
+    *,
+    min_change_ratio: float = 0.08,
+    min_hold_sec: float = 2.0,
+    median_window: int = 8,
+) -> TempoMap:
+    """Merge per-beat jitter into real tempo regions."""
+    points = tempo_map.sorted_points()
+    if not points:
+        return TempoMap(
+            points=[TempoPoint(time_sec=0.0, beat=0.0, bpm=120.0, confidence=0.5)]
+        )
+    if len(points) == 1:
+        pt = points[0]
+        if pt.time_sec <= 1e-6:
+            return TempoMap(points=list(points))
+        return TempoMap(
+            points=_recompute_beats(
+                [TempoPoint(0.0, 0.0, pt.bpm, pt.confidence), pt]
+            )
+        )
+
+    bpms = np.array([p.bpm for p in points], dtype=float)
+    half = max(1, median_window // 2)
+    smoothed = np.empty_like(bpms)
+    for i in range(len(bpms)):
+        lo = max(0, i - half)
+        hi = min(len(bpms), i + half + 1)
+        smoothed[i] = float(np.median(bpms[lo:hi]))
+
+    regions: list[TempoPoint] = []
+    start_idx = 0
+    region_bpm = float(smoothed[0])
+    for i in range(1, len(points)):
+        held = points[i].time_sec - points[start_idx].time_sec >= min_hold_sec
+        changed = abs(float(smoothed[i]) - region_bpm) / max(region_bpm, 1e-6) >= min_change_ratio
+        if changed and held:
+            regions.append(
+                TempoPoint(
+                    time_sec=points[start_idx].time_sec,
+                    beat=0.0,
+                    bpm=region_bpm,
+                    confidence=float(
+                        np.mean([p.confidence for p in points[start_idx:i]])
+                    ),
+                )
+            )
+            start_idx = i
+            region_bpm = float(smoothed[i])
+        else:
+            region_bpm = float(np.median(smoothed[start_idx : i + 1]))
+    regions.append(
+        TempoPoint(
+            time_sec=points[start_idx].time_sec,
+            beat=0.0,
+            bpm=region_bpm,
+            confidence=float(np.mean([p.confidence for p in points[start_idx:]])),
+        )
+    )
+
+    if regions[0].time_sec > 1e-6:
+        regions.insert(
+            0,
+            TempoPoint(
+                time_sec=0.0,
+                beat=0.0,
+                bpm=regions[0].bpm,
+                confidence=regions[0].confidence,
+            ),
+        )
+    else:
+        regions[0] = TempoPoint(
+            time_sec=0.0,
+            beat=0.0,
+            bpm=regions[0].bpm,
+            confidence=regions[0].confidence,
+        )
+
+    return TempoMap(points=_recompute_beats(regions))
+
+
+def scale_tempo_map(tempo_map: TempoMap, factor: float) -> TempoMap:
+    """Scale every region BPM (keeps relative ritardandi/accelerandi)."""
+    if factor <= 0 or abs(factor - 1.0) < 1e-9:
+        return TempoMap(points=_recompute_beats(tempo_map.sorted_points()))
+    scaled: list[TempoPoint] = []
+    for pt in tempo_map.sorted_points():
+        bpm = float(pt.bpm) * factor
+        bpm = min(MAX_BPM, max(MIN_BPM, bpm))
+        scaled.append(
+            TempoPoint(
+                time_sec=pt.time_sec,
+                beat=0.0,
+                bpm=bpm,
+                confidence=pt.confidence,
+            )
+        )
+    return TempoMap(points=_recompute_beats(scaled))
+
 
 class BeatTracker:
-    """Build TempoMap from audio (supports local tempo via beat intervals)."""
+    """Build TempoMap from audio (madmom downbeats when available, else librosa)."""
 
     def __init__(self, default_bpm: float = 120.0):
         self.default_bpm = default_bpm
+        self.last_source = "librosa"
+        self.last_time_signature: str | None = None
 
     def track(self, audio: NormalizedAudio) -> TempoMap:
+        result_map, meter, source = self._track_with_meter(audio)
+        self.last_source = source
+        self.last_time_signature = meter
+        return result_map
+
+    def track_stable(self, audio: NormalizedAudio) -> TempoMap:
+        tracked = stabilize_tempo_map(self.track(audio))
+        return tracked
+
+    def _track_with_meter(
+        self, audio: NormalizedAudio
+    ) -> tuple[TempoMap, str | None, str]:
+        backend = os.getenv("BEAT_TRACKER_BACKEND", "madmom").strip().lower()
+        if backend != "librosa":
+            from audio_engine.madmom_beats import track_downbeats
+
+            madmom_result = track_downbeats(audio)
+            if madmom_result is not None:
+                print(
+                    f"[BeatTracker] madmom bpm={madmom_result.bpm:.1f} "
+                    f"meter={madmom_result.time_signature} "
+                    f"beats={len(madmom_result.beat_times)}"
+                )
+                return (
+                    madmom_result.tempo_map,
+                    madmom_result.time_signature,
+                    "madmom",
+                )
+        return self._track_librosa(audio), None, "librosa"
+
+    def _track_librosa(self, audio: NormalizedAudio) -> TempoMap:
         import librosa
 
         y = audio.samples
@@ -45,7 +208,7 @@ class BeatTracker:
             tempo_global /= 2
 
         try:
-            tempo_dynamic, beats = librosa.beat.beat_track(
+            _tempo_dynamic, beats = librosa.beat.beat_track(
                 y=y, sr=sr, units="time", bpm=tempo_global
             )
             beat_times = np.atleast_1d(beats)
@@ -78,3 +241,36 @@ class BeatTracker:
                     )
 
         return TempoMap(points=points)
+
+
+def constant_tempo_map(bpm: float, confidence: float = 0.9) -> TempoMap:
+    return TempoMap(
+        points=[
+            TempoPoint(
+                time_sec=0.0,
+                beat=0.0,
+                bpm=float(bpm) if bpm else 120.0,
+                confidence=confidence,
+            )
+        ]
+    )
+
+
+def align_tempo_map(tempo_map: TempoMap, target_bpm: float) -> TempoMap:
+    """Scale a map so time 0 matches an onset-refined global BPM."""
+    seed = tempo_map.bpm_at(0.0)
+    if seed <= 1e-6 or target_bpm <= 0:
+        return tempo_map
+    return scale_tempo_map(tempo_map, float(target_bpm) / seed)
+
+
+def beat_status() -> dict:
+    from audio_engine.audioset_tagger import audioset_status
+    from audio_engine.madmom_beats import madmom_available
+
+    backend = os.getenv("BEAT_TRACKER_BACKEND", "madmom").strip().lower()
+    return {
+        "backend": backend or "madmom",
+        "madmom_available": madmom_available(),
+        "audioset": audioset_status(),
+    }

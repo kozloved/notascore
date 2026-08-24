@@ -11,6 +11,25 @@ class PhraseDetector:
     def __init__(self, gap_beats: float = 1.0):
         self.gap_beats = gap_beats
 
+    def assign(self, events: list[MusicalEvent]) -> list[MusicalEvent]:
+        """Label phrases from gaps in beat time (tempo-map safe)."""
+        if not events:
+            return []
+        ordered = sorted(events, key=lambda e: e.start_beat)
+        phrase_id = 0
+        mapping: dict[tuple[int, float], int] = {}
+        prev_end = ordered[0].start_beat
+        for ev in ordered:
+            if ev.start_beat - prev_end > self.gap_beats:
+                phrase_id += 1
+            mapping[(ev.pitch, round(ev.start_beat, 4))] = phrase_id
+            prev_end = max(prev_end, ev.start_beat + ev.duration_beats)
+        result: list[MusicalEvent] = []
+        for ev in events:
+            pid = mapping.get((ev.pitch, round(ev.start_beat, 4)), 0)
+            result.append(copy_event(ev, phrase_id=pid))
+        return result
+
     def detect_from_notes(self, notes: list[NoteEvent], bpm: float = 120.0) -> dict[tuple[int, float], int]:
         if not notes:
             return {}

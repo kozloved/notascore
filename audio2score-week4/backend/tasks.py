@@ -33,7 +33,10 @@ def process_job(job_id: str):
 
         db.update_job(job_id, progress=20)
 
-        engine = transcription_service.get_engine()
+        engine = transcription_service.get_engine(
+            mode=job.get("mode") or "fast",
+            filename=job.get("filename") or str(audio_local_path),
+        )
 
         db.update_job(job_id, progress=35)
 
@@ -51,6 +54,19 @@ def process_job(job_id: str):
             musicxml_text,
             content_type="application/vnd.recordare.musicxml+xml",
         )
+
+        from mir.raw_midi import job_raw_midi_path, job_score_midi_path
+
+        for midi_path, key in (
+            (job_raw_midi_path(audio_local_path, job_id), f"{job_id}.raw.mid"),
+            (job_score_midi_path(audio_local_path, job_id), f"{job_id}.score.mid"),
+        ):
+            if midi_path.exists():
+                storage_backend.save_local_file(
+                    midi_path,
+                    key,
+                    content_type="audio/midi",
+                )
 
         db.update_job(
             job_id,

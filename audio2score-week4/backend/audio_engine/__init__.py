@@ -7,6 +7,7 @@ from audio_engine.onset_detector import OnsetDetector
 from audio_engine.pitch_extractor import PitchExtractor
 from audio_engine.polyphonic_decoder import PolyphonicDecoder
 from audio_engine.beat_tracker import BeatTracker
+from audio_engine.madmom_beats import madmom_available
 from audio_engine.piano_analyzer import PianoAudioAnalyzer
 from audio_engine.chord_detector import ChordDetector
 from audio_engine.role_separator import MelodyAccompanimentSeparator
@@ -20,6 +21,7 @@ __all__ = [
     "PitchExtractor",
     "PolyphonicDecoder",
     "BeatTracker",
+    "madmom_available",
     "PianoAudioAnalyzer",
     "ChordDetector",
     "MelodyAccompanimentSeparator",

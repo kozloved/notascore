@@ -16,7 +16,7 @@ cd "$APP_DIR/backend"
 if [ ! -x .venv/bin/python ]; then
   "$PYTHON_BIN" -m venv .venv
 fi
-.venv/bin/python -m pip install --upgrade pip wheel
+.venv/bin/python -m pip install --upgrade pip wheel Cython
 .venv/bin/pip install -r requirements.txt
 [ -f .env ] || cp .env.example .env
 

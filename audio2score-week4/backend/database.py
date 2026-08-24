@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from sqlalchemy import create_engine, Column, String, Integer
+from sqlalchemy import create_engine, Column, String, Integer, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime, timezone
 import os
@@ -46,10 +46,25 @@ class Job(Base):
     error = Column(String, nullable=True)
     created_at = Column(String, nullable=True)
     updated_at = Column(String, nullable=True)
+    mode = Column(String, default="fast")
 
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _ensure_job_mode_column()
+
+
+def _ensure_job_mode_column():
+    """create_all does not add columns to an existing jobs table."""
+    inspector = inspect(engine)
+    if "jobs" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("jobs")}
+    if "mode" in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE jobs ADD COLUMN mode VARCHAR DEFAULT 'fast'"))
+        conn.execute(text("UPDATE jobs SET mode = 'fast' WHERE mode IS NULL"))
 
 
 def row_to_dict(row):

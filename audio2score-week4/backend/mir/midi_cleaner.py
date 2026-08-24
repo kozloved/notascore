@@ -1,12 +1,13 @@
 """Clean raw note lists before notation.
 
 Destructive edits are classified KEEP / SUPPRESS / UNCERTAIN with a reason.
-Octave doubling is kept by default; octave ghosts are flagged, not auto-deleted.
+Production default drops quiet octave ghosts; similar-strength doubling is kept.
 """
 
 from __future__ import annotations
 
 from dataclasses import replace
+import statistics
 
 from mir.models import CleaningAction, CleaningDecision
 from mir.types import NoteEvent
@@ -25,9 +26,13 @@ class MIDICleaner:
         low_confidence: float = 0.45,
         preserve_uncertain: bool = True,
         suppress_octave_ghosts: bool = False,
-        octave_window_sec: float = 0.04,
+        octave_window_sec: float = 0.05,
         octave_duration_ratio: float = 0.55,
         octave_velocity_ratio: float = 0.38,
+        octave_keep_ratio: float = 0.6,
+        drop_octave_ghosts: bool = True,
+        trim_overlaps: bool = True,
+        stretch_final_note: bool = True,
         shadow_mode: bool = False,
     ):
         self.merge_threshold_sec = merge_threshold_sec
@@ -41,6 +46,10 @@ class MIDICleaner:
         self.octave_window_sec = octave_window_sec
         self.octave_duration_ratio = octave_duration_ratio
         self.octave_velocity_ratio = octave_velocity_ratio
+        self.octave_keep_ratio = octave_keep_ratio
+        self.drop_octave_ghosts = drop_octave_ghosts
+        self.trim_overlaps = trim_overlaps
+        self.stretch_final_note = stretch_final_note
         self.shadow_mode = shadow_mode
 
     def clean(self, notes: list[NoteEvent]) -> list[NoteEvent]:
@@ -73,11 +82,22 @@ class MIDICleaner:
 
         kept, merge_decisions = self._merge_duplicates(kept)
         decisions.extend(merge_decisions)
+
+        if self.drop_octave_ghosts and not self.shadow_mode:
+            kept, ghost_decisions = self._drop_octave_ghosts_with_report(kept)
+            decisions.extend(ghost_decisions)
+
+        if self.trim_overlaps:
+            kept = self._trim_same_pitch_overlaps(kept)
+
         kept = self._snap_chord_starts(kept)
         kept = self._correct_drift(kept)
+        if self.stretch_final_note:
+            kept = self._stretch_short_final_note(kept)
+
         octave_decisions = self._classify_octaves(kept)
         decisions.extend(octave_decisions)
-        if self.suppress_octave_ghosts and not self.shadow_mode:
+        if self.suppress_octave_ghosts and not self.drop_octave_ghosts and not self.shadow_mode:
             suppress_ids = {
                 d.note_id
                 for d in octave_decisions
@@ -150,15 +170,17 @@ class MIDICleaner:
                             },
                         )
                     )
-                    cur = NoteEvent(
-                        pitch=pitch,
+                    cur = replace(
+                        cur,
                         start_time=min(cur.start_time, nxt.start_time),
                         end_time=max(cur.end_time, nxt.end_time),
                         velocity=max(cur.velocity, nxt.velocity),
                         confidence=max(cur.confidence, nxt.confidence),
-                        note_id=cur.note_id,
-                        source_backend=cur.source_backend,
-                        original_start_time=cur.original_start_time,
+                        original_start_time=(
+                            cur.original_start_time
+                            if cur.original_start_time is not None
+                            else cur.start_time
+                        ),
                         original_end_time=max(
                             cur.original_end_time or cur.end_time,
                             nxt.original_end_time or nxt.end_time,
@@ -169,6 +191,123 @@ class MIDICleaner:
                     cur = nxt
             merged.append(cur)
         return merged, decisions
+
+    @staticmethod
+    def _strength(note: NoteEvent) -> float:
+        if 0.0 < note.confidence < 1.0:
+            return float(note.confidence)
+        return max(int(note.velocity), 1) / 127.0
+
+    def _drop_octave_ghosts(self, notes: list[NoteEvent]) -> list[NoteEvent]:
+        kept, _ = self._drop_octave_ghosts_with_report(notes)
+        return kept
+
+    def _drop_octave_ghosts_with_report(
+        self, notes: list[NoteEvent]
+    ) -> tuple[list[NoteEvent], list[CleaningDecision]]:
+        """Drop quieter ±12/±24 copies that start with a stronger note.
+
+        Similar-strength octaves (real doubled piano writing) are kept.
+        A note is never dropped if it is the only remaining pitch covering
+        its time span.
+        """
+        if len(notes) < 2:
+            return notes, []
+
+        keep = [True] * len(notes)
+        order = sorted(
+            range(len(notes)),
+            key=lambda i: (-self._strength(notes[i]), notes[i].start_time, notes[i].pitch),
+        )
+
+        for i in order:
+            if not keep[i]:
+                continue
+            a = notes[i]
+            sa = self._strength(a)
+            for j in order:
+                if i == j or not keep[j]:
+                    continue
+                b = notes[j]
+                interval = abs(int(a.pitch) - int(b.pitch))
+                if interval not in (12, 24):
+                    continue
+                if abs(a.start_time - b.start_time) > self.octave_window_sec:
+                    continue
+                overlap = min(a.end_time, b.end_time) - max(a.start_time, b.start_time)
+                if overlap <= 0:
+                    continue
+                sb = self._strength(b)
+                if sa < sb:
+                    continue
+                if sb / max(sa, 1e-9) >= self.octave_keep_ratio:
+                    continue
+
+                still_covered = any(
+                    k != j
+                    and keep[k]
+                    and min(notes[k].end_time, b.end_time)
+                    - max(notes[k].start_time, b.start_time)
+                    > 0
+                    for k in range(len(notes))
+                )
+                if not still_covered:
+                    continue
+                keep[j] = False
+
+        decisions: list[CleaningDecision] = []
+        kept: list[NoteEvent] = []
+        for idx, n in enumerate(notes):
+            if keep[idx]:
+                kept.append(n)
+                continue
+            decisions.append(
+                CleaningDecision(
+                    note_id=n.note_id,
+                    pitch=n.pitch,
+                    start_time=n.start_time,
+                    action=CleaningAction.SUPPRESS,
+                    reason="octave_ghost",
+                    evidence={"strength": self._strength(n)},
+                )
+            )
+        return kept, decisions
+
+    def _trim_same_pitch_overlaps(self, notes: list[NoteEvent]) -> list[NoteEvent]:
+        """Piano cannot retrigger the same key while it is still down."""
+        by_pitch: dict[int, list[NoteEvent]] = {}
+        for n in notes:
+            by_pitch.setdefault(int(n.pitch), []).append(n)
+
+        trimmed: list[NoteEvent] = []
+        for group in by_pitch.values():
+            group.sort(key=lambda n: n.start_time)
+            current: list[NoteEvent] = []
+            for n in group:
+                if current and n.start_time < current[-1].end_time:
+                    prev = current[-1]
+                    current[-1] = replace(
+                        prev,
+                        end_time=max(prev.start_time + 0.01, n.start_time),
+                    )
+                current.append(n)
+            trimmed.extend(current)
+        return trimmed
+
+    def _stretch_short_final_note(self, notes: list[NoteEvent]) -> list[NoteEvent]:
+        if len(notes) < 3:
+            return notes
+        last = max(notes, key=lambda n: n.start_time)
+        others = [n.duration for n in notes if n is not last]
+        if not others:
+            return notes
+        typical = statistics.median(others)
+        if last.duration >= typical:
+            return notes
+        return [
+            replace(n, end_time=n.start_time + typical) if n is last else n
+            for n in notes
+        ]
 
     def _snap_chord_starts(self, notes: list[NoteEvent]) -> list[NoteEvent]:
         if len(notes) < 2:

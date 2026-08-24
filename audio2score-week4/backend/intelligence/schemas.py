@@ -1,0 +1,324 @@
+"""Typed schemas for the analysis packet and Gemini JSON output."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+
+def _as_dict(obj: Any) -> Any:
+    if hasattr(obj, "to_dict"):
+        return obj.to_dict()
+    if isinstance(obj, list):
+        return [_as_dict(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: _as_dict(v) for k, v in obj.items()}
+    return obj
+
+
+@dataclass
+class AudioMetadata:
+    duration_seconds: float = 0.0
+    sample_rate: int = 0
+    channels: int = 1
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class MidiNoteSummary:
+    pitch: int
+    start: float
+    duration: float
+    velocity: int
+    confidence: float
+    hand: str = "unknown"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class MusicalAnalysisPacket:
+    job_id: str
+    audio_metadata: AudioMetadata
+    transcription: dict[str, Any]
+    tempo: dict[str, Any]
+    meter: dict[str, Any]
+    beats: dict[str, Any]
+    musical_features: dict[str, Any]
+    uncertainties: dict[str, Any]
+    piano: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "job_id": self.job_id,
+            "audio_metadata": self.audio_metadata.to_dict(),
+            "transcription": self.transcription,
+            "tempo": self.tempo,
+            "meter": self.meter,
+            "beats": self.beats,
+            "musical_features": self.musical_features,
+            "uncertainties": self.uncertainties,
+            "piano": self.piano,
+        }
+
+
+ALLOWED_TYPES_ALIASES = {
+    "remove_note": "pitch",
+    "delete_note": "pitch",
+    "drop_note": "pitch",
+    "drop": "pitch",
+    "note_removal": "pitch",
+    "update_note": "pitch",
+    "change_note": "pitch",
+    "change_pitch": "pitch",
+    "note_change": "pitch",
+    "extend_note": "timing",
+    "note_modification": "pitch",
+    "modify_note": "pitch",
+    "set_tempo": "tempo",
+    "bpm": "tempo",
+    "tempo": "tempo",
+    "set_key": "key",
+    "tonality": "key",
+    "key": "key",
+    "key_signature": "key",
+    "timing": "timing",
+}
+
+_DROP_TYPE_ALIASES = {
+    "remove_note",
+    "delete_note",
+    "drop_note",
+    "drop",
+    "note_removal",
+}
+
+_CONFIDENCE_WORDS = {
+    "very high": 0.95,
+    "high": 0.9,
+    "medium": 0.65,
+    "moderate": 0.65,
+    "low": 0.35,
+    "very low": 0.2,
+}
+
+
+def _as_float(value: Any, default: float = 0.0) -> float:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().lower()
+    if text in _CONFIDENCE_WORDS:
+        return _CONFIDENCE_WORDS[text]
+    try:
+        return float(text)
+    except ValueError:
+        return default
+
+
+def _first_note_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, list) and value and isinstance(value[0], dict):
+        return dict(value[0])
+    return {}
+
+
+@dataclass
+class Correction:
+    type: str
+    time_start: float
+    time_end: float
+    existing_value: dict[str, Any]
+    proposed_value: dict[str, Any]
+    confidence: float
+    reason: str
+    requires_deep_analysis: bool = False
+    final_confidence: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> Correction:
+        existing = dict(raw.get("existing_value") or {})
+        proposed = dict(raw.get("proposed_value") or {})
+        original = _first_note_dict(
+            raw.get("original_notes") or raw.get("existing_notes")
+        )
+        corrected_raw = raw.get("corrected_notes")
+        if original:
+            existing = {**original, **existing}
+        if isinstance(corrected_raw, list) and not corrected_raw:
+            proposed = {**proposed, "drop": True, "pitch": existing.get("pitch")}
+        else:
+            corrected = _first_note_dict(corrected_raw or raw.get("proposed_notes"))
+            if corrected:
+                proposed = {**corrected, **proposed}
+                start = _as_float(corrected.get("start"), _as_float(raw.get("time_start")))
+                duration = _as_float(corrected.get("duration"))
+                if duration and "end_time" not in proposed:
+                    proposed["start_time"] = start
+                    proposed["end_time"] = start + duration
+                    proposed["pitch"] = corrected.get("pitch", existing.get("pitch"))
+        raw_type = str(raw.get("type") or raw.get("action") or "pitch").strip().lower()
+        ctype = ALLOWED_TYPES_ALIASES.get(raw_type, raw_type)
+        if (
+            raw_type in _DROP_TYPE_ALIASES
+            or proposed.get("drop")
+            or raw.get("action") in {"delete", "remove"}
+        ):
+            ctype = "pitch"
+            target_pitch = existing.get("pitch") or proposed.get("pitch")
+            if target_pitch is not None:
+                proposed["drop"] = True
+                proposed.setdefault("pitch", target_pitch)
+        elif ctype == "key" or proposed.get("key") or raw.get("key"):
+            ctype = "key"
+            proposed.setdefault("key", raw.get("key") or proposed.get("key"))
+        elif ctype == "tempo" or proposed.get("bpm") or proposed.get("global_bpm"):
+            ctype = "tempo"
+            proposed.setdefault(
+                "bpm",
+                proposed.get("bpm") or proposed.get("global_bpm") or raw.get("bpm"),
+            )
+        elif (
+            existing.get("pitch") is not None
+            and proposed.get("pitch") is not None
+            and int(existing.get("pitch") or 0) != int(proposed.get("pitch") or 0)
+        ):
+            ctype = "pitch"
+        elif proposed.get("end_time") or proposed.get("duration"):
+            if ctype not in {"tempo", "meter", "instrument", "hand", "voice", "key"}:
+                ctype = "timing"
+        if raw.get("confidence") in (None, "") and (
+            original
+            or proposed.get("drop")
+            or proposed.get("pitch")
+            or proposed.get("bpm")
+            or proposed.get("key")
+        ):
+            confidence = 0.85
+        else:
+            confidence = _as_float(raw.get("confidence"))
+        return cls(
+            type=ctype,
+            time_start=_as_float(raw.get("time_start") or existing.get("start")),
+            time_end=_as_float(raw.get("time_end")),
+            existing_value=existing,
+            proposed_value=proposed,
+            confidence=confidence,
+            reason=str(raw.get("reason") or ""),
+            requires_deep_analysis=bool(raw.get("requires_deep_analysis")),
+            final_confidence=_as_float(raw.get("final_confidence")),
+        )
+
+
+@dataclass
+class GeminiAnalysis:
+    overall_confidence: float = 0.0
+    instrument_analysis: dict[str, Any] = field(default_factory=dict)
+    musical_structure: dict[str, Any] = field(default_factory=dict)
+    tempo_analysis: dict[str, Any] = field(default_factory=dict)
+    meter_analysis: dict[str, Any] = field(default_factory=dict)
+    transcription_validation: dict[str, Any] = field(default_factory=dict)
+    corrections: list[Correction] = field(default_factory=list)
+    model: str = ""
+    cache_hit: bool = False
+    raw: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["corrections"] = [c.to_dict() for c in self.corrections]
+        return payload
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any], model: str = "") -> GeminiAnalysis:
+        corrections = [
+            Correction.from_dict(item)
+            for item in (raw.get("corrections") or [])
+            if isinstance(item, dict)
+        ]
+        corrections.extend(_meta_corrections_from_analysis(raw))
+        return cls(
+            overall_confidence=_as_float(raw.get("overall_confidence")),
+            instrument_analysis=dict(raw.get("instrument_analysis") or {}),
+            musical_structure=dict(raw.get("musical_structure") or {}),
+            tempo_analysis=dict(raw.get("tempo_analysis") or {}),
+            meter_analysis=dict(raw.get("meter_analysis") or {}),
+            transcription_validation=dict(
+                raw.get("transcription_validation") or {}
+            ),
+            corrections=corrections,
+            model=model or str(raw.get("model") or ""),
+            cache_hit=bool(raw.get("cache_hit")),
+            raw=raw,
+        )
+
+
+def _meta_corrections_from_analysis(raw: dict[str, Any]) -> list[Correction]:
+    extra: list[Correction] = []
+    seen_types = {
+        str(item.get("type") or "")
+        for item in (raw.get("corrections") or [])
+        if isinstance(item, dict)
+    }
+    conf = raw.get("overall_confidence")
+    structure = raw.get("musical_structure") or {}
+    tempo_info = raw.get("tempo_analysis") or raw.get("tempo") or {}
+    meter_info = raw.get("meter_analysis") or raw.get("meter") or {}
+    key = (
+        raw.get("key")
+        or structure.get("key")
+        or structure.get("tonality")
+        or (raw.get("key_analysis") or {}).get("key")
+    )
+    bpm = (
+        tempo_info.get("global_bpm")
+        or tempo_info.get("bpm")
+        or raw.get("global_bpm")
+    )
+    meter = meter_info.get("time_signature") or meter_info.get("meter")
+    if key and "key" not in seen_types:
+        extra.append(
+            Correction.from_dict(
+                {
+                    "type": "key",
+                    "proposed_value": {"key": key},
+                    "confidence": conf,
+                    "reason": "analysis key",
+                }
+            )
+        )
+    if bpm is not None and "tempo" not in seen_types:
+        extra.append(
+            Correction.from_dict(
+                {
+                    "type": "tempo",
+                    "proposed_value": {"bpm": bpm},
+                    "confidence": conf,
+                    "reason": "analysis tempo",
+                }
+            )
+        )
+    if meter and "meter" not in seen_types:
+        extra.append(
+            Correction.from_dict(
+                {
+                    "type": "meter",
+                    "proposed_value": {"time_signature": meter},
+                    "confidence": conf,
+                    "reason": "analysis meter",
+                }
+            )
+        )
+    return extra
+
+
+EMPTY_ANALYSIS = GeminiAnalysis()
