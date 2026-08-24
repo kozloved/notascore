@@ -304,6 +304,34 @@ def test_layer_applies_ghost_drop_tempo_and_key(tmp_path, monkeypatch):
     assert abs(result.tempo_map.bpm_at(0.0) - 96) < 0.01
 
 
+def test_pitch_patch_without_target_does_not_retune_the_window():
+    notes = _notes_simple()
+    stray = Correction(
+        type="pitch",
+        time_start=0.0,
+        time_end=0.6,
+        existing_value={},
+        proposed_value={"pitch": 52},
+        confidence=0.95,
+        reason="missing E3",
+    )
+    ghost = Correction(
+        type="pitch",
+        time_start=0.0,
+        time_end=0.5,
+        existing_value={},
+        proposed_value={"drop": True, "pitch": 72},
+        confidence=0.95,
+        reason="overtone",
+    )
+    notes_with_ghost = notes + [
+        NoteEvent(pitch=72, start_time=0.0, end_time=0.4, velocity=20, confidence=0.2)
+    ]
+    patched = apply_note_patches(notes_with_ghost, [stray, ghost])
+    assert {n.pitch for n in notes}.issubset({n.pitch for n in patched})
+    assert all(n.pitch != 72 for n in patched)
+
+
 def test_cache_avoids_second_provider_call(tmp_path, monkeypatch):
     for key, value in _cfg(tmp_path).items():
         monkeypatch.setenv(key, value)

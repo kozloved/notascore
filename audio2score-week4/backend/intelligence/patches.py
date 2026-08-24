@@ -118,8 +118,12 @@ def _matches_note(note: NoteEvent, corr: Correction) -> bool:
     if note.start_time < corr.time_start - 0.06 or note.start_time > corr.time_end + 0.06:
         return False
     existing_pitch = corr.existing_value.get("pitch")
+    proposed = corr.proposed_value or {}
     if existing_pitch is None:
-        return True
+        proposed_pitch = proposed.get("pitch")
+        if proposed.get("drop") or proposed.get("action") == "delete":
+            return proposed_pitch is None or int(note.pitch) == int(proposed_pitch)
+        return False
     return int(note.pitch) == int(existing_pitch)
 
 
