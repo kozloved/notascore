@@ -29,14 +29,14 @@ def test_hand_separator():
     assert Hand.RIGHT in hands
 
 
-def test_voice_separator_assigns_voices():
+def test_voice_separator_chords_share_a_voice():
     events = [
         MusicalEvent(pitch=60, start_beat=0.0, duration_beats=1.0, hand=Hand.RIGHT),
         MusicalEvent(pitch=64, start_beat=0.0, duration_beats=1.0, hand=Hand.RIGHT),
     ]
     voiced = VoiceSeparator().separate(events)
     voices = {e.voice for e in voiced}
-    assert len(voices) >= 2
+    assert len(voices) == 1
 
 
 def test_dynamics_extractor():

@@ -264,12 +264,18 @@ class FallbackEngine:
             return self.fallback.transcribe(audio_path, job_id)
 
 
-def get_engine():
+def get_engine(mode: str | None = None):
+    """Return the production engine.
+
+    Fast and Quality both feed UnderstandingPipeline. They differ only at the
+    transcription adapter. Quality does not enable the MT3 stub until it exists.
+    """
+    mode = (mode or os.getenv("TRANSCRIPTION_MODE", "fast")).lower()
     pipeline = os.getenv("TRANSCRIPTION_PIPELINE", "understanding").lower()
     if pipeline == "understanding":
         from mir.pipeline import UnderstandingPipeline
 
-        primary = UnderstandingPipeline()
+        primary = UnderstandingPipeline(mode=mode)
         if _env_enabled("TRANSCRIPTION_PIPELINE_FALLBACK", default=True):
             return FallbackEngine(primary, BasicPitchEngine())
         return primary

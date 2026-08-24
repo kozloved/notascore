@@ -86,7 +86,8 @@ def health():
     return {
         "status": "ok",
         "engine": os.getenv("TRANSCRIPTION_ENGINE", "basic_pitch"),
-        "pipeline": os.getenv("TRANSCRIPTION_PIPELINE", "legacy"),
+        "pipeline": os.getenv("TRANSCRIPTION_PIPELINE", "understanding"),
+        "mode": os.getenv("TRANSCRIPTION_MODE", "fast"),
         "backend": os.getenv("TRANSCRIPTION_BACKEND", "basic_pitch"),
         "use_cleaner": os.getenv("TRANSCRIPTION_USE_CLEANER", "0"),
         "use_normalizer": os.getenv("TRANSCRIPTION_USE_NORMALIZER", "1"),

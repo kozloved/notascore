@@ -1,17 +1,34 @@
-"""Write MusicXML from MusicalEvent[] (source-agnostic)."""
+"""Write MusicXML from a NotationPlan (music21 is an export library)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pretty_midi
-from music21 import converter, note as m21note, stream, tempo as m21tempo
+from music21 import (
+    articulations,
+    chord as m21chord,
+    clef as m21clef,
+    dynamics as m21dyn,
+    key as m21key,
+    layout,
+    meter as m21meter,
+    note as m21note,
+    stream,
+    tempo as m21tempo,
+    tie as m21tie,
+)
 
+from mir.models import NotationPlan, PlannedNote, PlannedRest
 from mir.types import Hand, MusicalEvent, ScoreMeta
+from notation_engine.plan import NotationPlanner
 
 
 class NotationWriter:
-    """Convert CMR events to MusicXML via music21."""
+    """Convert CMR events / a NotationPlan to MusicXML via music21."""
+
+    def __init__(self):
+        self.planner = NotationPlanner()
 
     def write_musicxml(
         self,
@@ -21,31 +38,18 @@ class NotationWriter:
         audio_path: Path,
         quantize_divisors: tuple[int, ...] = (4, 3),
         fallback_bpm: float = 120.0,
+        structure=None,
     ) -> str:
-        out_dir = audio_path.parent / f"bp_{job_id}"
+        out_dir = Path(audio_path).parent / f"bp_{job_id}"
         out_dir.mkdir(exist_ok=True)
 
         bpm = meta.display_tempo_bpm or int(fallback_bpm)
-        midi_path = self._events_to_midi(events, bpm, out_dir / f"{job_id}.mid")
+        self._events_to_midi(events, bpm, out_dir / f"{job_id}.mid")
 
-        score = converter.parse(str(midi_path))
-        score.quantize(
-            quarterLengthDivisors=quantize_divisors,
-            processOffsets=True,
-            processDurations=True,
-            inPlace=True,
-            recurse=True,
+        plan, _decisions = self.planner.build(
+            events, meta=meta, structure=structure, fallback_bpm=fallback_bpm
         )
-
-        marks = list(score.recurse().getElementsByClass(m21tempo.MetronomeMark))
-        if marks:
-            for mark in marks:
-                mark.number = bpm
-        else:
-            score.insert(0, m21tempo.MetronomeMark(number=bpm))
-
-        self._apply_dynamics(score, events)
-        self._apply_articulations(score, events)
+        score = self.score_from_plan(plan)
 
         xml_path = out_dir / f"{job_id}.musicxml"
         score.write("musicxml", fp=str(xml_path))
@@ -66,6 +70,96 @@ class NotationWriter:
         s.insert(0, part)
         return s
 
+    def write_from_plan(self, plan: NotationPlan) -> stream.Score:
+        return self.score_from_plan(plan)
+
+    def score_from_plan(self, plan: NotationPlan) -> stream.Score:
+        score = stream.Score()
+        score.insert(0, m21tempo.MetronomeMark(number=plan.tempo_bpm))
+
+        n_staves = 0
+        for measure in plan.measures:
+            for staff in measure.staves:
+                n_staves = max(n_staves, staff.staff_id + 1)
+        n_staves = max(1, n_staves)
+
+        parts: list[stream.Part] = []
+        for sid in range(n_staves):
+            part = stream.Part(id=f"P{sid + 1}")
+            name = "Right Hand" if sid == 0 else "Left Hand"
+            if n_staves == 1:
+                name = "Music"
+            part.partName = name
+            part.partAbbreviation = "RH" if sid == 0 else "LH"
+            parts.append(part)
+            score.insert(0, part)
+
+        if n_staves >= 2:
+            group = layout.StaffGroup(
+                parts[:2],
+                name="Piano",
+                abbreviation="Pno.",
+                symbol="brace",
+            )
+            score.insert(0, group)
+
+        for mi, measure_plan in enumerate(plan.measures):
+            by_staff = {s.staff_id: s for s in measure_plan.staves}
+            for sid, part in enumerate(parts):
+                staff = by_staff.get(sid)
+                m = stream.Measure(number=measure_plan.number)
+                m.duration.quarterLength = measure_plan.duration_beats
+                if mi == 0:
+                    clef_name = staff.clef if staff else ("treble" if sid == 0 else "bass")
+                    m.insert(0, self._clef(clef_name))
+                    m.insert(0, m21meter.TimeSignature(plan.time_signature))
+                    try:
+                        m.insert(0, m21key.Key(plan.key_signature))
+                    except Exception:
+                        m.insert(0, m21key.Key("C"))
+                if staff is None:
+                    rest_voice = stream.Voice(id="1")
+                    rest_voice.append(
+                        m21note.Rest(quarterLength=measure_plan.duration_beats)
+                    )
+                    m.insert(0, rest_voice)
+                else:
+                    for vplan in staff.voices:
+                        voice = stream.Voice(id=str(vplan.voice_id + 1))
+                        for el in vplan.elements:
+                            voice.append(self._element_to_m21(el))
+                        m.insert(0, voice)
+                part.append(m)
+
+        return score
+
+    def _element_to_m21(self, el):
+        if isinstance(el, PlannedRest):
+            return m21note.Rest(quarterLength=float(el.duration_q))
+        if len(el.pitches) == 1:
+            n = m21note.Note(midi=int(el.pitches[0]))
+        else:
+            n = m21chord.Chord([int(p) for p in el.pitches])
+        n.quarterLength = float(el.duration_q)
+        try:
+            n.volume.velocity = int(el.velocity)
+        except Exception:
+            pass
+        if el.tie:
+            n.tie = m21tie.Tie(el.tie)
+        if "staccato" in el.articulations:
+            n.articulations.append(articulations.Staccato())
+        if "legato" in el.articulations:
+            n.articulations.append(articulations.Tenuto())
+        if el.dynamic in ("p", "pp", "mp", "mf", "f", "ff", "fff"):
+            n.expressions.append(m21dyn.Dynamic(el.dynamic))
+        return n
+
+    def _clef(self, name: str):
+        if name == "bass":
+            return m21clef.BassClef()
+        return m21clef.TrebleClef()
+
     def _events_to_midi(
         self, events: list[MusicalEvent], bpm: float, path: Path
     ) -> Path:
@@ -75,7 +169,7 @@ class NotationWriter:
         spb = 60.0 / bpm
 
         for ev in events:
-            inst = lh if ev.hand.value == "left" else rh
+            inst = lh if ev.hand == Hand.LEFT else rh
             inst.notes.append(
                 pretty_midi.Note(
                     velocity=ev.velocity,
@@ -104,31 +198,3 @@ class NotationWriter:
 
         midi.write(str(path))
         return path
-
-    def _apply_dynamics(self, score, events: list[MusicalEvent]) -> None:
-        from music21 import dynamics as m21dyn
-
-        dynamic_map = {e.pitch: e.dynamic for e in events if e.dynamic}
-        for el in score.recurse().notes:
-            if hasattr(el, "pitch") and el.pitch.midi in dynamic_map:
-                mark = dynamic_map[el.pitch.midi]
-                if mark in ("p", "pp", "mp", "mf", "f", "ff"):
-                    el.expressions.append(m21dyn.Dynamic(mark))
-
-    def _apply_articulations(self, score, events: list[MusicalEvent]) -> None:
-        from music21 import articulations
-
-        art_map = {
-            (e.pitch, round(e.start_beat, 3)): e.articulation
-            for e in events
-            if e.articulation
-        }
-        for el in score.recurse().notes:
-            if not hasattr(el, "pitch"):
-                continue
-            key = (el.pitch.midi, round(float(el.offset), 3))
-            art = art_map.get(key)
-            if art == "staccato":
-                el.articulations.append(articulations.Staccato())
-            elif art == "legato":
-                el.articulations.append(articulations.Tenuto())

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mir.types import MusicalEvent
+from mir.types import MusicalEvent, copy_event
 
 VELOCITY_TO_DYNAMIC = [
     (24, "pp"),
@@ -26,20 +26,5 @@ class DynamicsExtractor:
                     break
             else:
                 dynamic = "fff"
-            result.append(
-                MusicalEvent(
-                    pitch=ev.pitch,
-                    start_beat=ev.start_beat,
-                    duration_beats=ev.duration_beats,
-                    velocity=ev.velocity,
-                    instrument=ev.instrument,
-                    voice=ev.voice,
-                    hand=ev.hand,
-                    phrase_id=ev.phrase_id,
-                    articulation=ev.articulation,
-                    dynamic=dynamic,
-                    confidence=ev.confidence,
-                    source_backend=ev.source_backend,
-                )
-            )
+            result.append(copy_event(ev, dynamic=dynamic))
         return result

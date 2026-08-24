@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any, Optional
 
@@ -20,6 +20,7 @@ class Hand(str, Enum):
     LEFT = "left"
     RIGHT = "right"
     UNKNOWN = "unknown"
+    AMBIGUOUS = "ambiguous"
 
 
 @dataclass
@@ -73,10 +74,40 @@ class NoteEvent:
     end_time: float
     velocity: int = 64
     confidence: float = 1.0
+    note_id: str = ""
+    source_backend: str = "unknown"
+    original_start_time: Optional[float] = None
+    original_end_time: Optional[float] = None
 
     @property
     def duration(self) -> float:
         return max(0.0, self.end_time - self.start_time)
+
+    def ensure_ids(self, index: int) -> "NoteEvent":
+        """Fill note_id and original timestamps if missing."""
+        note_id = self.note_id or f"n{index:04d}"
+        orig_start = (
+            self.original_start_time
+            if self.original_start_time is not None
+            else self.start_time
+        )
+        orig_end = (
+            self.original_end_time
+            if self.original_end_time is not None
+            else self.end_time
+        )
+        if (
+            self.note_id == note_id
+            and self.original_start_time == orig_start
+            and self.original_end_time == orig_end
+        ):
+            return self
+        return replace(
+            self,
+            note_id=note_id,
+            original_start_time=orig_start,
+            original_end_time=orig_end,
+        )
 
 
 @dataclass
@@ -154,6 +185,18 @@ class MusicalEvent:
     dynamic: Optional[str] = None
     confidence: float = 1.0
     source_backend: str = "unknown"
+    note_id: str = ""
+    start_time_sec: Optional[float] = None
+    end_time_sec: Optional[float] = None
+    hand_confidence: float = 1.0
+    voice_confidence: float = 1.0
+    role: Optional[str] = None
+    cleaning_status: str = "keep"
+
+
+def copy_event(event: MusicalEvent, **changes: Any) -> MusicalEvent:
+    """Copy a MusicalEvent without dropping newly added provenance fields."""
+    return replace(event, **changes)
 
 
 @dataclass
