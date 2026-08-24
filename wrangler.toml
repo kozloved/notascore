@@ -1,0 +1,12 @@
+# Cloudflare Workers Builds looks for this at the repo root.
+# The live app is FastAPI + Next.js behind a Cloudflare Tunnel
+# (see audio2score-week4/deploy/README.md), not this Worker.
+# Without a Wrangler config, the GitHub check "Workers Builds: notascore"
+# fails in 0 seconds on every commit, including main.
+#
+# `name` must match the Worker connected in the Cloudflare dashboard.
+
+name = "notascore"
+main = "cloudflare/worker.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
