@@ -90,7 +90,7 @@ class BasicPitchBackend:
 
         if note_events:
             notes: list[NoteEvent] = []
-            for item in note_events:
+            for i, item in enumerate(note_events):
                 start_time, end_time, pitch, amplitude = (
                     item[0],
                     item[1],
@@ -107,6 +107,10 @@ class BasicPitchBackend:
                         end_time=float(end_time),
                         velocity=vel,
                         confidence=float(confidence),
+                        note_id=f"n{i:04d}",
+                        source_backend=self.name,
+                        original_start_time=float(start_time),
+                        original_end_time=float(end_time),
                     )
                 )
             return notes
@@ -125,6 +129,10 @@ class BasicPitchBackend:
                         end_time=float(note.end),
                         velocity=vel,
                         confidence=vel / 127.0,
+                        note_id=f"n{len(notes):04d}",
+                        source_backend=self.name,
+                        original_start_time=float(note.start),
+                        original_end_time=float(note.end),
                     )
                 )
         return notes

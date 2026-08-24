@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mir.types import MusicalEvent, NoteEvent
+from mir.types import MusicalEvent, NoteEvent, copy_event
 
 
 class PhraseDetector:
@@ -27,22 +27,7 @@ class PhraseDetector:
         result: list[MusicalEvent] = []
         for ev in events:
             pid = mapping.get((ev.pitch, round(ev.start_beat, 4)), 0)
-            result.append(
-                MusicalEvent(
-                    pitch=ev.pitch,
-                    start_beat=ev.start_beat,
-                    duration_beats=ev.duration_beats,
-                    velocity=ev.velocity,
-                    instrument=ev.instrument,
-                    voice=ev.voice,
-                    hand=ev.hand,
-                    phrase_id=pid,
-                    articulation=ev.articulation,
-                    dynamic=ev.dynamic,
-                    confidence=ev.confidence,
-                    source_backend=ev.source_backend,
-                )
-            )
+            result.append(copy_event(ev, phrase_id=pid))
         return result
 
     def detect_from_notes(self, notes: list[NoteEvent], bpm: float = 120.0) -> dict[tuple[int, float], int]:
@@ -66,20 +51,5 @@ class PhraseDetector:
         for ev in events:
             t_sec = ev.start_beat * spb
             pid = mapping.get((ev.pitch, round(t_sec, 4)))
-            result.append(
-                MusicalEvent(
-                    pitch=ev.pitch,
-                    start_beat=ev.start_beat,
-                    duration_beats=ev.duration_beats,
-                    velocity=ev.velocity,
-                    instrument=ev.instrument,
-                    voice=ev.voice,
-                    hand=ev.hand,
-                    phrase_id=pid,
-                    articulation=ev.articulation,
-                    dynamic=ev.dynamic,
-                    confidence=ev.confidence,
-                    source_backend=ev.source_backend,
-                )
-            )
+            result.append(copy_event(ev, phrase_id=pid))
         return result

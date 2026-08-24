@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -46,12 +46,9 @@ class PianoAudioAnalyzer:
             attack = float(onset_env[frame]) / max(max_env, 1e-8) if onset_env.size else 0.5
             vel = int(min(127, max(20, 30 + attack * 90)))
             refined.append(
-                NoteEvent(
-                    pitch=note.pitch,
-                    start_time=note.start_time,
-                    end_time=note.end_time,
+                replace(
+                    note,
                     velocity=vel,
-                    confidence=note.confidence,
                 )
             )
 

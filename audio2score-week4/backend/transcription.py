@@ -338,13 +338,13 @@ def get_engine(mode: str | None = None, filename: str | None = None):
                 "Set MT3_ENDPOINT or MT3_TRANSCRIBE_COMMAND."
             )
         # Quality never falls back to Fast / Basic Pitch.
-        return UnderstandingPipeline(backend_name=MT3Backend.name)
+        return UnderstandingPipeline(backend_name=MT3Backend.name, mode="quality")
 
     pipeline = os.getenv("TRANSCRIPTION_PIPELINE", "understanding").lower()
     if pipeline == "understanding":
         from mir.pipeline import UnderstandingPipeline
 
-        primary = UnderstandingPipeline()
+        primary = UnderstandingPipeline(mode=resolved)
         if _env_enabled("TRANSCRIPTION_PIPELINE_FALLBACK", default=True):
             return FallbackEngine(primary, BasicPitchEngine())
         return primary

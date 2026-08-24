@@ -1,4 +1,4 @@
-"""Music Understanding pipeline orchestrator."""
+"""Music Understanding pipeline orchestrator (canonical path)."""
 
 from __future__ import annotations
 
@@ -19,15 +19,25 @@ from audio_engine.normalizer import AudioNormalizer
 from audio_engine.piano_analyzer import PianoAudioAnalyzer
 from audio_engine.role_separator import MelodyAccompanimentSeparator
 from audio_engine.segmenter import AudioSegmenter
-from mir.phrase_detector import PhraseDetector
 from mir.articulation import ArticulationDetector
 from mir.cmr_builder import build_score_meta, notes_to_events
+from mir.debug import PipelineDebug
 from mir.dynamics import DynamicsExtractor
 from mir.hand_separator import HandSeparator
+from mir.meter import MeterEstimator
 from mir.midi_cleaner import MIDICleaner
 from mir.midi_ingest import ingest_midi, is_midi_path
+from mir.models import (
+    CleaningAction,
+    MusicalStructure,
+    PedalObservation,
+    RawPerformance,
+    TempoObservation,
+    TranscriptionResult,
+)
+from mir.phrase_detector import PhraseDetector
 from mir.raw_midi import job_raw_midi_path, write_job_raw_midi
-from mir.types import MusicalEvent, NoteEvent, TempoMap
+from mir.types import InstrumentKind, MusicalEvent, NoteEvent, TempoMap
 from mir.voice_separator import VoiceSeparator
 from notation_engine.writer import NotationWriter
 from transcription import (
@@ -52,7 +62,7 @@ def get_backend(name: str | None = None):
 
 
 class UnderstandingPipeline:
-    """Audio → CMR → MIR → MusicXML."""
+    """Audio → RawPerformance → MusicalStructure → NotationPlan → MusicXML."""
 
     name = "understanding"
 
@@ -60,8 +70,10 @@ class UnderstandingPipeline:
         self,
         use_mir_layers: bool | None = None,
         backend_name: str | None = None,
+        mode: str = "fast",
     ):
         self.backend_name = backend_name
+        self.mode = mode
         self.normalizer = AudioNormalizer()
         self.classifier = InstrumentClassifier()
         self.segmenter = AudioSegmenter()
@@ -74,11 +86,14 @@ class UnderstandingPipeline:
         self.dynamics = DynamicsExtractor()
         self.articulation = ArticulationDetector()
         self.phrase_detector = PhraseDetector()
+        self.meter_estimator = MeterEstimator()
         self.notation = NotationWriter()
         self.beat_tracker = BeatTracker()
         if use_mir_layers is None:
             use_mir_layers = _env_enabled("TRANSCRIPTION_USE_MIR_LAYERS", default=True)
         self.use_mir_layers = use_mir_layers
+        self.last_debug: PipelineDebug | None = None
+        self.last_structure: MusicalStructure | None = None
 
     def transcribe(self, audio_path: str | Path, job_id: str) -> str:
         audio_path = Path(audio_path)
@@ -96,22 +111,37 @@ class UnderstandingPipeline:
         )
 
         backend = get_backend(self.backend_name)
-        notes = backend.transcribe_notes(transcribe_path)
+        notes = [
+            n.ensure_ids(i)
+            for i, n in enumerate(backend.transcribe_notes(transcribe_path))
+        ]
         raw_count = len(notes)
+        transcription = TranscriptionResult(
+            notes=list(notes),
+            backend=backend.name,
+            audio_path=str(transcribe_path),
+        )
 
         if not notes:
             raise TranscriptionError("No notes detected")
 
-        notes = self.cleaner.clean(notes)
+        notes, clean_decisions = self.cleaner.clean_with_report(notes)
         print(
             f"[MIDICleaner] notes {raw_count} → {len(notes)} (job={job_id})"
         )
 
         pedal_events: list[tuple[float, int]] = []
+        pedal_obs: list[PedalObservation] = []
         if _should_analyze_piano(prediction.instrument):
             piano = self.piano_analyzer.analyze(normalized, notes)
             notes = piano.notes
             pedal_events = [(p.time_sec, p.value) for p in piano.pedal_events]
+            pedal_obs = [
+                PedalObservation(
+                    time_sec=p.time_sec, value=p.value, confidence=p.confidence
+                )
+                for p in piano.pedal_events
+            ]
             print(
                 f"[PianoAnalyzer] refined velocities for {len(notes)} notes "
                 f"pedal={len(pedal_events)} (job={job_id})"
@@ -120,6 +150,18 @@ class UnderstandingPipeline:
         onsets = [n.start_time for n in notes]
         tempo_map, meter = self._build_tempo_map(normalized, audio_path, onsets)
         bpm = tempo_map.bpm_at(0.0)
+
+        RawPerformance(
+            notes=list(transcription.notes),
+            pedal_events=pedal_obs,
+            tempo_observations=[
+                TempoObservation(
+                    time_sec=0.0, bpm=bpm, confidence=0.9, source="beat_refine"
+                )
+            ],
+            source_backend=backend.name,
+            source_path=str(audio_path),
+        )
 
         chords = self.chord_detector.detect(notes)
         role = self.role_separator.separate(notes)
@@ -131,20 +173,44 @@ class UnderstandingPipeline:
             instrument=prediction.instrument,
             source_backend=backend.name,
         )
+        events = self._apply_mir_layers(events)
 
-        if self.use_mir_layers:
-            events = self.hand_separator.separate(events)
-            events = self.voice_separator.separate(events)
-            events = self.dynamics.extract(events)
-            events = self.articulation.detect(events)
-            events = self.phrase_detector.assign(events)
+        meter_hyps = self.meter_estimator.estimate(events)
+        selected_meter = meter_hyps[0]
+        structure = MusicalStructure(
+            events=events,
+            tempo_map=tempo_map,
+            meter_hypotheses=meter_hyps,
+            selected_meter=selected_meter,
+            instrument=prediction.instrument,
+            instrument_confidence=prediction.confidence,
+            instrument_prediction=prediction,
+            segments=list(segments),
+            extra={"chords": [c.name for c in chords[:12]]},
+        )
+        self.last_structure = structure
 
         meta = build_score_meta(
             tempo_map,
             prediction.instrument,
             segments,
             display_bpm=snap_to_standard_tempo(bpm),
-            time_sig_hint=meter,
+            instrument_confidence=prediction.confidence,
+            time_sig_hint=meter or selected_meter.time_signature,
+        )
+
+        self._write_debug(
+            job_id=job_id,
+            out_dir=out_dir,
+            backend_name=backend.name,
+            raw_count=raw_count,
+            notes=notes,
+            clean_decisions=clean_decisions,
+            prediction=prediction,
+            bpm=bpm,
+            selected_meter=selected_meter,
+            events=events,
+            role=role,
         )
 
         def _rebuild(next_notes, next_tempo, next_role):
@@ -155,13 +221,7 @@ class UnderstandingPipeline:
                 instrument=prediction.instrument,
                 source_backend=backend.name,
             )
-            if self.use_mir_layers:
-                rebuilt = self.hand_separator.separate(rebuilt)
-                rebuilt = self.voice_separator.separate(rebuilt)
-                rebuilt = self.dynamics.extract(rebuilt)
-                rebuilt = self.articulation.detect(rebuilt)
-                rebuilt = self.phrase_detector.assign(rebuilt)
-            return rebuilt
+            return self._apply_mir_layers(rebuilt)
 
         from intelligence.layer import maybe_enhance
 
@@ -209,17 +269,16 @@ class UnderstandingPipeline:
             audio_path=audio_path,
             quantize_divisors=QUANTIZE_DIVISORS,
             fallback_bpm=bpm,
+            structure=structure,
         )
 
     def transcribe_midi(self, midi_path: str | Path, job_id: str) -> str:
         """CMR entry for an uploaded MIDI file (no Basic Pitch)."""
         import shutil
 
-        from mir.types import InstrumentKind
-
         midi_path = Path(midi_path)
         ingested = ingest_midi(midi_path)
-        notes = ingested.notes
+        notes = [n.ensure_ids(i) for i, n in enumerate(ingested.notes)]
         tempo_map = ingested.tempo_map
         bpm = tempo_map.bpm_at(0.0)
 
@@ -237,19 +296,28 @@ class UnderstandingPipeline:
             instrument=InstrumentKind.PIANO,
             source_backend="midi",
         )
-        if self.use_mir_layers:
-            events = self.hand_separator.separate(events)
-            events = self.voice_separator.separate(events)
-            events = self.dynamics.extract(events)
-            events = self.articulation.detect(events)
-            events = self.phrase_detector.assign(events)
+        events = self._apply_mir_layers(events)
+
+        meter_hyps = self.meter_estimator.estimate(events)
+        selected_meter = meter_hyps[0]
+        structure = MusicalStructure(
+            events=events,
+            tempo_map=tempo_map,
+            meter_hypotheses=meter_hyps,
+            selected_meter=selected_meter,
+            instrument=InstrumentKind.PIANO,
+            instrument_confidence=0.9,
+            extra={"source": "midi"},
+        )
+        self.last_structure = structure
 
         meta = build_score_meta(
             tempo_map,
             InstrumentKind.PIANO,
             [],
             display_bpm=snap_to_standard_tempo(bpm),
-            time_sig_hint=ingested.time_sig_hint,
+            instrument_confidence=0.9,
+            time_sig_hint=ingested.time_sig_hint or selected_meter.time_signature,
         )
         from intelligence.layer import maybe_enhance
         from mir.types import InstrumentPrediction
@@ -264,13 +332,7 @@ class UnderstandingPipeline:
                 instrument=InstrumentKind.PIANO,
                 source_backend="midi",
             )
-            if self.use_mir_layers:
-                rebuilt = self.hand_separator.separate(rebuilt)
-                rebuilt = self.voice_separator.separate(rebuilt)
-                rebuilt = self.dynamics.extract(rebuilt)
-                rebuilt = self.articulation.detect(rebuilt)
-                rebuilt = self.phrase_detector.assign(rebuilt)
-            return rebuilt
+            return self._apply_mir_layers(rebuilt)
 
         enhanced = maybe_enhance(
             job_id=job_id,
@@ -302,7 +364,80 @@ class UnderstandingPipeline:
             audio_path=midi_path,
             quantize_divisors=QUANTIZE_DIVISORS,
             fallback_bpm=bpm,
+            structure=structure,
         )
+
+    def _apply_mir_layers(self, events: list[MusicalEvent]) -> list[MusicalEvent]:
+        if not self.use_mir_layers:
+            return events
+        events = self.hand_separator.separate(events)
+        events = self.voice_separator.separate(events)
+        events = self.dynamics.extract(events)
+        events = self.articulation.detect(events)
+        return self.phrase_detector.assign(events)
+
+    def _write_debug(
+        self,
+        *,
+        job_id: str,
+        out_dir: Path,
+        backend_name: str,
+        raw_count: int,
+        notes: list[NoteEvent],
+        clean_decisions,
+        prediction,
+        bpm: float,
+        selected_meter,
+        events: list[MusicalEvent],
+        role,
+    ) -> None:
+        hand_counts = {"left": 0, "right": 0, "unknown": 0, "ambiguous": 0}
+        voice_counts: dict[str, int] = {}
+        for ev in events:
+            hand_counts[ev.hand.value] = hand_counts.get(ev.hand.value, 0) + 1
+            key = f"{ev.hand.value}:{ev.voice}"
+            voice_counts[key] = voice_counts.get(key, 0) + 1
+
+        debug = PipelineDebug(
+            job_id=job_id,
+            pipeline="understanding",
+            transcription_mode=self.mode,
+            source_backend=backend_name,
+            raw_note_count=raw_count,
+            cleaned_note_count=len(notes),
+            removed_notes=[
+                {
+                    "note_id": d.note_id,
+                    "pitch": d.pitch,
+                    "action": d.action.value,
+                    "reason": d.reason,
+                    "evidence": d.evidence,
+                }
+                for d in clean_decisions
+                if d.action == CleaningAction.SUPPRESS
+            ],
+            uncertain_notes=[
+                {
+                    "note_id": d.note_id,
+                    "pitch": d.pitch,
+                    "reason": d.reason,
+                    "evidence": d.evidence,
+                }
+                for d in clean_decisions
+                if d.action == CleaningAction.UNCERTAIN
+            ],
+            detected_instrument=prediction.instrument.value,
+            instrument_confidence=prediction.confidence,
+            tempo_hypotheses=[{"bpm": bpm, "source": "beat_refine"}],
+            selected_tempo_bpm=bpm,
+            selected_meter=selected_meter.time_signature,
+            meter_confidence=selected_meter.confidence,
+            hand_assignments=hand_counts,
+            voice_assignments=voice_counts,
+            extra={"role_confidence": role.confidence},
+        )
+        self.last_debug = debug
+        debug.write_json(out_dir / f"{job_id}.debug.json")
 
     def _build_tempo_map(
         self, normalized, audio_path, onsets: list[float]
@@ -332,6 +467,9 @@ class UnderstandingPipeline:
                 end_time=(e.start_beat + e.duration_beats) * spb,
                 velocity=e.velocity,
                 confidence=e.confidence,
+                note_id=e.note_id,
+                source_backend=e.source_backend,
+                hand=e.hand,
             )
             for e in events
         ]

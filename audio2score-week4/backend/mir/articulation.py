@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mir.types import MusicalEvent
+from mir.types import MusicalEvent, copy_event
 
 QUARTER_BEAT = 1.0
 STACCATO_MAX = 0.35
@@ -32,20 +32,5 @@ class ArticulationDetector:
         result: list[MusicalEvent] = []
         for ev in events:
             art = articulation_map.get((ev.pitch, ev.start_beat))
-            result.append(
-                MusicalEvent(
-                    pitch=ev.pitch,
-                    start_beat=ev.start_beat,
-                    duration_beats=ev.duration_beats,
-                    velocity=ev.velocity,
-                    instrument=ev.instrument,
-                    voice=ev.voice,
-                    hand=ev.hand,
-                    phrase_id=ev.phrase_id,
-                    articulation=art,
-                    dynamic=ev.dynamic,
-                    confidence=ev.confidence,
-                    source_backend=ev.source_backend,
-                )
-            )
+            result.append(copy_event(ev, articulation=art))
         return result

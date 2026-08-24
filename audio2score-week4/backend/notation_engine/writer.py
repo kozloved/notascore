@@ -1,4 +1,8 @@
-"""Write MusicXML from MusicalEvent[] (source-agnostic)."""
+"""Write MusicXML from MusicalEvent[] (source-agnostic).
+
+Production export uses grand-staff build_score. NotationPlan export is kept
+for voice-preservation tests and future plan-driven writing.
+"""
 
 from __future__ import annotations
 
@@ -17,10 +21,13 @@ from music21 import (
     note as m21note,
     stream,
     tempo as m21tempo,
+    tie as m21tie,
 )
 
+from mir.models import NotationPlan, PlannedRest
 from mir.types import Hand, MusicalEvent, ScoreMeta, TempoMap
 from notation_engine.meter import bar_length, estimate_key, estimate_time_signature
+from notation_engine.plan import NotationPlanner
 from notation_engine.quantize import quantize_events
 
 CHORD_START_WINDOW = 0.08
@@ -30,6 +37,9 @@ CHORD_DURATION_RATIO = 0.5
 class NotationWriter:
     """Convert CMR events to a piano grand-staff MusicXML score."""
 
+    def __init__(self):
+        self.planner = NotationPlanner()
+
     def write_musicxml(
         self,
         events: list[MusicalEvent],
@@ -38,8 +48,9 @@ class NotationWriter:
         audio_path: Path,
         quantize_divisors: tuple[int, ...] = (4, 3),
         fallback_bpm: float = 120.0,
+        structure=None,
     ) -> str:
-        out_dir = audio_path.parent / f"bp_{job_id}"
+        out_dir = Path(audio_path).parent / f"bp_{job_id}"
         out_dir.mkdir(exist_ok=True)
 
         try:
@@ -65,6 +76,96 @@ class NotationWriter:
     ) -> stream.Score:
         """Build a music21 score without writing files (tests)."""
         return self.build_score(events, meta, quantize_divisors=quantize_divisors)
+
+    def write_from_plan(self, plan: NotationPlan) -> stream.Score:
+        return self.score_from_plan(plan)
+
+    def score_from_plan(self, plan: NotationPlan) -> stream.Score:
+        score = stream.Score()
+        score.insert(0, m21tempo.MetronomeMark(number=plan.tempo_bpm))
+
+        n_staves = 0
+        for measure in plan.measures:
+            for staff in measure.staves:
+                n_staves = max(n_staves, staff.staff_id + 1)
+        n_staves = max(1, n_staves)
+
+        parts: list[stream.Part] = []
+        for sid in range(n_staves):
+            part = stream.Part(id=f"P{sid + 1}")
+            name = "Right Hand" if sid == 0 else "Left Hand"
+            if n_staves == 1:
+                name = "Music"
+            part.partName = name
+            part.partAbbreviation = "RH" if sid == 0 else "LH"
+            parts.append(part)
+            score.insert(0, part)
+
+        if n_staves >= 2:
+            group = layout.StaffGroup(
+                parts[:2],
+                name="Piano",
+                abbreviation="Pno.",
+                symbol="brace",
+            )
+            score.insert(0, group)
+
+        for mi, measure_plan in enumerate(plan.measures):
+            by_staff = {s.staff_id: s for s in measure_plan.staves}
+            for sid, part in enumerate(parts):
+                staff = by_staff.get(sid)
+                m = stream.Measure(number=measure_plan.number)
+                m.duration.quarterLength = measure_plan.duration_beats
+                if mi == 0:
+                    clef_name = staff.clef if staff else ("treble" if sid == 0 else "bass")
+                    m.insert(0, self._clef(clef_name))
+                    m.insert(0, meter.TimeSignature(plan.time_signature))
+                    try:
+                        m.insert(0, m21key.Key(plan.key_signature))
+                    except Exception:
+                        m.insert(0, m21key.Key("C"))
+                if staff is None:
+                    rest_voice = stream.Voice(id="1")
+                    rest_voice.append(
+                        m21note.Rest(quarterLength=measure_plan.duration_beats)
+                    )
+                    m.insert(0, rest_voice)
+                else:
+                    for vplan in staff.voices:
+                        voice = stream.Voice(id=str(vplan.voice_id + 1))
+                        for el in vplan.elements:
+                            voice.append(self._element_to_m21(el))
+                        m.insert(0, voice)
+                part.append(m)
+
+        return score
+
+    def _element_to_m21(self, el):
+        if isinstance(el, PlannedRest):
+            return m21note.Rest(quarterLength=float(el.duration_q))
+        if len(el.pitches) == 1:
+            n = m21note.Note(midi=int(el.pitches[0]))
+        else:
+            n = m21chord.Chord([int(p) for p in el.pitches])
+        n.quarterLength = float(el.duration_q)
+        try:
+            n.volume.velocity = int(el.velocity)
+        except Exception:
+            pass
+        if el.tie:
+            n.tie = m21tie.Tie(el.tie)
+        if "staccato" in el.articulations:
+            n.articulations.append(articulations.Staccato())
+        if "legato" in el.articulations:
+            n.articulations.append(articulations.Tenuto())
+        if el.dynamic in ("p", "pp", "mp", "mf", "f", "ff", "fff"):
+            n.expressions.append(m21dyn.Dynamic(el.dynamic))
+        return n
+
+    def _clef(self, name: str):
+        if name == "bass":
+            return clef.BassClef()
+        return clef.TrebleClef()
 
     def build_score(
         self,

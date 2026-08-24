@@ -20,21 +20,32 @@ def notes_to_events(
     instrument: InstrumentKind = InstrumentKind.PIANO,
     source_backend: str = "unknown",
 ) -> list[MusicalEvent]:
-    melody_pitches = {n.pitch for n in role.melody_notes} if role else set()
-    bass_pitches = {n.pitch for n in role.bass_notes} if role else set()
+    melody_keys = set()
+    bass_keys = set()
+    accomp_keys = set()
+    if role:
+        melody_keys = {
+            (n.pitch, round(n.start_time, 4)) for n in role.melody_notes
+        }
+        bass_keys = {(n.pitch, round(n.start_time, 4)) for n in role.bass_notes}
+        accomp_keys = {
+            (n.pitch, round(n.start_time, 4)) for n in role.accompaniment_notes
+        }
 
     events: list[MusicalEvent] = []
-    for note in notes:
+    for i, note in enumerate(notes):
+        note = note.ensure_ids(i)
         start_beat = tempo_map.seconds_to_beats(note.start_time)
         end_beat = tempo_map.seconds_to_beats(note.end_time)
         duration = max(0.01, end_beat - start_beat)
-
-        hand = note.hand
-        if hand == Hand.UNKNOWN:
-            if note.pitch in melody_pitches:
-                hand = Hand.RIGHT
-            elif note.pitch in bass_pitches:
-                hand = Hand.LEFT
+        key = (note.pitch, round(note.start_time, 4))
+        role_name = None
+        if key in melody_keys:
+            role_name = "melody"
+        elif key in bass_keys:
+            role_name = "bass"
+        elif key in accomp_keys:
+            role_name = "accompaniment"
 
         events.append(
             MusicalEvent(
@@ -43,9 +54,13 @@ def notes_to_events(
                 duration_beats=duration,
                 velocity=note.velocity,
                 instrument=instrument,
-                hand=hand,
+                hand=note.hand if note.hand is not None else Hand.UNKNOWN,
                 confidence=note.confidence,
-                source_backend=source_backend,
+                source_backend=note.source_backend or source_backend,
+                note_id=note.note_id,
+                start_time_sec=note.start_time,
+                end_time_sec=note.end_time,
+                role=role_name,
             )
         )
 
@@ -57,6 +72,7 @@ def build_score_meta(
     instrument: InstrumentKind,
     segments,
     display_bpm: int = 120,
+    instrument_confidence: float = 0.8,
     time_sig_hint: str | None = None,
     key_hint: str | None = None,
 ) -> ScoreMeta:
@@ -70,7 +86,7 @@ def build_score_meta(
         key_hint=key_hint,
         instrument_prediction=InstrumentPrediction(
             instrument=instrument,
-            confidence=0.8,
+            confidence=instrument_confidence,
             characteristics=InstrumentCharacteristics(),
         ),
     )
