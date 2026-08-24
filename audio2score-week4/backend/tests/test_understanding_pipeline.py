@@ -42,7 +42,9 @@ def test_understanding_pipeline_produces_musicxml(mock_transcribe, tmp_path, mon
     xml = UnderstandingPipeline().transcribe(audio, "understanding-test")
     assert "score-partwise" in xml.lower() or "<?xml" in xml
     raw_midi = tmp_path / "bp_understanding-test" / "understanding-test.raw.mid"
+    score_midi = tmp_path / "bp_understanding-test" / "understanding-test.score.mid"
     assert raw_midi.exists()
+    assert score_midi.exists()
 
 
 @patch("adapters.basic_pitch_backend.BasicPitchBackend.transcribe_notes")

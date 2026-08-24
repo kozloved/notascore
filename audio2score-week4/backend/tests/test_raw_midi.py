@@ -31,3 +31,21 @@ def test_write_job_raw_midi_path(tmp_path):
     path = write_job_raw_midi(audio, "job-1", notes, bpm=120)
     assert path == tmp_path / "bp_job-1" / "job-1.raw.mid"
     assert path.exists()
+
+
+def test_write_notes_splits_hands_and_pedal(tmp_path):
+    notes = [
+        NoteEvent(pitch=48, start_time=0.0, end_time=0.5, velocity=70, confidence=0.6),
+        NoteEvent(pitch=72, start_time=0.0, end_time=0.5, velocity=80, confidence=0.7),
+    ]
+    path = write_notes_to_midi(
+        notes,
+        tmp_path / "hands.mid",
+        bpm=120,
+        pedal_events=[(0.1, 127), (0.4, 0)],
+    )
+    midi = pretty_midi.PrettyMIDI(str(path))
+    names = {inst.name for inst in midi.instruments}
+    assert "RH" in names and "LH" in names
+    ccs = [cc for inst in midi.instruments for cc in inst.control_changes]
+    assert any(cc.number == 64 and cc.value == 127 for cc in ccs)

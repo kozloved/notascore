@@ -49,6 +49,7 @@ class NotationWriter:
 
         xml_path = out_dir / f"{job_id}.musicxml"
         score.write("musicxml", fp=str(xml_path))
+        score.write("midi", fp=str(out_dir / f"{job_id}.score.mid"))
         return xml_path.read_text(encoding="utf-8")
 
     def write_from_events_direct(

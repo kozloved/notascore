@@ -29,6 +29,7 @@ from transcription import (
     TranscriptionError,
     _env_enabled,
     _estimate_tempo,
+    _should_analyze_piano,
     snap_to_standard_tempo,
 )
 
@@ -89,17 +90,18 @@ class UnderstandingPipeline:
             f"[MIDICleaner] notes {raw_count} → {len(notes)} (job={job_id})"
         )
 
-        if prediction.instrument == InstrumentKind.PIANO:
+        pedal_events: list[tuple[float, int]] = []
+        if _should_analyze_piano(prediction.instrument):
             piano = self.piano_analyzer.analyze(normalized, notes)
             notes = piano.notes
+            pedal_events = [(p.time_sec, p.value) for p in piano.pedal_events]
             print(
                 f"[PianoAnalyzer] refined velocities for {len(notes)} notes "
-                f"(job={job_id})"
+                f"pedal={len(pedal_events)} (job={job_id})"
             )
 
         onsets = [n.start_time for n in notes]
         bpm = _estimate_tempo(audio_path, onsets)
-        write_job_raw_midi(audio_path, job_id, notes, bpm=bpm)
         from mir.types import TempoPoint
 
         tempo_map = TempoMap(
@@ -137,6 +139,23 @@ class UnderstandingPipeline:
             f"tempo={bpm:.1f} events={len(events)} mir_layers={self.use_mir_layers} "
             f"(job={job_id})"
         )
+
+        if events:
+            write_job_raw_midi(
+                audio_path,
+                job_id,
+                events=events,
+                bpm=bpm,
+                pedal_events=pedal_events,
+            )
+        else:
+            write_job_raw_midi(
+                audio_path,
+                job_id,
+                notes,
+                bpm=bpm,
+                pedal_events=pedal_events,
+            )
 
         return self.notation.write_musicxml(
             events,

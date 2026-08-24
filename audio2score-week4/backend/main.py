@@ -331,7 +331,9 @@ def job_result(job_id: str, format: str = "musicxml"):
         return RedirectResponse(signed_url)
 
     if fmt == "midi":
-        raw_bytes = _load_raw_midi_bytes(storage_backend, job_id, result_storage_key)
+        raw_bytes = _load_sidecar_midi_bytes(
+            storage_backend, job_id, result_storage_key, f"{job_id}.raw.mid"
+        )
         if raw_bytes:
             return Response(
                 content=raw_bytes,
@@ -342,7 +344,20 @@ def job_result(job_id: str, format: str = "musicxml"):
             )
         # Older jobs: fall back to score MIDI derived from MusicXML.
 
-    # fmt == "midi_score" (or raw MIDI missing): derive from stored MusicXML.
+    if fmt == "midi_score":
+        score_bytes = _load_sidecar_midi_bytes(
+            storage_backend, job_id, result_storage_key, f"{job_id}.score.mid"
+        )
+        if score_bytes:
+            return Response(
+                content=score_bytes,
+                media_type="audio/midi",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{stem}.score.mid"',
+                },
+            )
+
+    # fmt == "midi_score" (or sidecars missing): derive from stored MusicXML.
     try:
         musicxml_text = storage_backend.read_result_text(result_storage_key)
         midi_bytes = _musicxml_to_midi_bytes(musicxml_text)
@@ -362,14 +377,15 @@ def job_result(job_id: str, format: str = "musicxml"):
     )
 
 
-def _load_raw_midi_bytes(storage_backend, job_id: str, result_storage_key: str):
-    raw_key = f"{job_id}.raw.mid"
+def _load_sidecar_midi_bytes(
+    storage_backend, job_id: str, result_storage_key: str, filename: str
+):
     try:
         if storage_backend.backend == "local":
-            raw_path = Path(result_storage_key).with_name(raw_key)
-            if raw_path.exists():
-                return raw_path.read_bytes()
+            midi_path = Path(result_storage_key).with_name(filename)
+            if midi_path.exists():
+                return midi_path.read_bytes()
             return None
-        return storage_backend.read_result_bytes(raw_key)
+        return storage_backend.read_result_bytes(filename)
     except Exception:
         return None
