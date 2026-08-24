@@ -1,0 +1,131 @@
+{
+  "cases": [
+    {
+      "id": "c_major_quarters",
+      "category": "melody_simple",
+      "path": "corpus/melody_simple/c_major_quarters",
+      "ci": true
+    },
+    {
+      "id": "g_major_eighths",
+      "category": "melody_simple",
+      "path": "corpus/melody_simple/g_major_eighths",
+      "ci": true
+    },
+    {
+      "id": "melody_and_bass",
+      "category": "piano_simple",
+      "path": "corpus/piano_simple/melody_and_bass",
+      "ci": true
+    },
+    {
+      "id": "c_major_block_chords",
+      "category": "piano_chords",
+      "path": "corpus/piano_chords/c_major_block_chords",
+      "ci": true
+    },
+    {
+      "id": "octave_doubling",
+      "category": "piano_chords",
+      "path": "corpus/piano_chords/octave_doubling",
+      "ci": true
+    },
+    {
+      "id": "two_hand_scale",
+      "category": "piano_two_hands",
+      "path": "corpus/piano_two_hands/two_hand_scale",
+      "ci": true
+    },
+    {
+      "id": "middle_register",
+      "category": "piano_two_hands",
+      "path": "corpus/piano_two_hands/middle_register",
+      "ci": true
+    },
+    {
+      "id": "hand_crossing",
+      "category": "piano_two_hands",
+      "path": "corpus/piano_two_hands/hand_crossing",
+      "ci": true
+    },
+    {
+      "id": "polyphonic_rh",
+      "category": "piano_two_hands",
+      "path": "corpus/piano_two_hands/polyphonic_rh",
+      "ci": true
+    },
+    {
+      "id": "quarters",
+      "category": "rhythm",
+      "path": "corpus/rhythm/quarters",
+      "ci": true
+    },
+    {
+      "id": "eighths",
+      "category": "rhythm",
+      "path": "corpus/rhythm/eighths",
+      "ci": true
+    },
+    {
+      "id": "sixteenths",
+      "category": "rhythm",
+      "path": "corpus/rhythm/sixteenths",
+      "ci": true
+    },
+    {
+      "id": "dotted",
+      "category": "rhythm",
+      "path": "corpus/rhythm/dotted",
+      "ci": true
+    },
+    {
+      "id": "triplets",
+      "category": "rhythm",
+      "path": "corpus/rhythm/triplets",
+      "ci": true
+    },
+    {
+      "id": "syncopation",
+      "category": "rhythm",
+      "path": "corpus/rhythm/syncopation",
+      "ci": true
+    },
+    {
+      "id": "waltz_3_4",
+      "category": "rhythm",
+      "path": "corpus/rhythm/waltz_3_4",
+      "ci": true
+    },
+    {
+      "id": "compound_6_8",
+      "category": "rhythm",
+      "path": "corpus/rhythm/compound_6_8",
+      "ci": true
+    },
+    {
+      "id": "midi_rh_lh_tracks",
+      "category": "midi_ingest",
+      "path": "corpus/midi_ingest/midi_rh_lh_tracks",
+      "ci": true
+    },
+    {
+      "id": "midi_3_4",
+      "category": "midi_ingest",
+      "path": "corpus/midi_ingest/midi_3_4",
+      "ci": true
+    },
+    {
+      "id": "midi_6_8",
+      "category": "midi_ingest",
+      "path": "corpus/midi_ingest/midi_6_8",
+      "ci": true
+    },
+    {
+      "id": "midi_chords_and_melody",
+      "category": "midi_ingest",
+      "path": "corpus/midi_ingest/midi_chords_and_melody",
+      "ci": true
+    }
+  ],
+  "count": 21
+}

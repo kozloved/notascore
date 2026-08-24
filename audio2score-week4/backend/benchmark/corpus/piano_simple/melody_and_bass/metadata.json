@@ -1,0 +1,24 @@
+{
+  "id": "melody_and_bass",
+  "category": "piano_simple",
+  "description": "Obvious RH melody over LH whole-note bass.",
+  "tempo_bpm": 120,
+  "time_signature": "4/4",
+  "key": "C",
+  "ci": true,
+  "generation": {
+    "kind": "synthetic_midi",
+    "seed": 0,
+    "sample_rate": 22050,
+    "copyrighted": false,
+    "source": "benchmark.fixtures.catalog"
+  },
+  "expected": {
+    "meter": "4/4",
+    "key": "C",
+    "voice_count_rh": 1,
+    "keep_all_octaves": false,
+    "notation_plan_required": true,
+    "check_hands": true
+  }
+}
