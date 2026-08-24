@@ -107,6 +107,16 @@ Notation builds a **piano grand staff** from CMR events instead of a MIDI round-
 - Time signature defaults to 4/4 unless another meter is clearly better
 - Quantized score MIDI is written from that score (DAW MIDI is unchanged)
 
+## Phase 6 — Piano / guitar classifier (implemented)
+
+Instrument classification no longer treats a plain sine as voice or guitar.
+
+- Simple stable tones → `unknown` (piano analysis still runs)
+- Polyphonic decaying chords with bass energy → piano
+- Bright, fast-decaying plucked clips → guitar, only with a clear margin
+- Vibrato + monophonic harmonic tone → voice; noise bursts → drums
+- Close piano vs guitar scores keep piano (Fast mode default)
+
 ## How to enable MIDICleaner safely
 
 1. Keep `TRANSCRIPTION_PIPELINE=legacy`.
