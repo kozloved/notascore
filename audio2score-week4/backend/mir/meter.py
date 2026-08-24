@@ -17,6 +17,42 @@ SUPPORTED_METERS = (
 )
 
 
+def meter_from_time_signature(
+    time_signature: str,
+    *,
+    confidence: float = 0.9,
+    source: str = "meta_hint",
+) -> MeterHypothesis:
+    """Build a MeterHypothesis from an explicit time-signature string."""
+    ts = (time_signature or "4/4").strip()
+    for name, num, den, mql in SUPPORTED_METERS:
+        if name == ts:
+            return MeterHypothesis(
+                time_signature=name,
+                numerator=num,
+                denominator=den,
+                measure_quarter_length=mql,
+                score=confidence,
+                confidence=confidence,
+                evidence={"source": source},
+            )
+    try:
+        num_s, den_s = ts.split("/", 1)
+        num, den = int(num_s), int(den_s)
+        mql = (float(num) * 4.0) / float(den)
+    except (ValueError, ZeroDivisionError):
+        return meter_from_time_signature("4/4", confidence=0.2, source="invalid_hint")
+    return MeterHypothesis(
+        time_signature=ts,
+        numerator=num,
+        denominator=den,
+        measure_quarter_length=mql,
+        score=confidence,
+        confidence=confidence,
+        evidence={"source": source},
+    )
+
+
 class MeterEstimator:
     """Score meter candidates globally. Do not pick a meter from one bar."""
 

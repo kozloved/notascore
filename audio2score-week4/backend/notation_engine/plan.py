@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from mir.meter import MeterEstimator
+from mir.meter import MeterEstimator, meter_from_time_signature
 from mir.models import (
     MeterHypothesis,
     MusicalStructure,
@@ -16,8 +16,25 @@ from mir.models import (
     PlannedVoice,
     staff_for_hand,
 )
-from mir.quantizer import MeasureQuantizer
-from mir.types import Hand, MusicalEvent, ScoreMeta
+from mir.quantizer import MeasureQuantizer, VOICE_SUM_TOLERANCE
+from mir.types import Hand, InstrumentKind, MusicalEvent, ScoreMeta
+from notation_engine.meter import estimate_key
+
+CHORD_DURATION_RATIO = 0.5
+REST_CANDIDATES = (
+    4.0,
+    3.0,
+    2.0,
+    1.5,
+    1.0,
+    0.75,
+    2.0 / 3.0,
+    0.5,
+    0.375,
+    1.0 / 3.0,
+    0.25,
+    0.125,
+)
 
 
 class NotationPlanner:
@@ -34,18 +51,12 @@ class NotationPlanner:
         structure: MusicalStructure | None = None,
         fallback_bpm: float = 120.0,
     ) -> tuple[NotationPlan, list[dict]]:
-        if structure and structure.selected_meter:
-            meter = structure.selected_meter
-        else:
-            meter = self.meter_estimator.select(events)
-
+        meter = self._resolve_meter(events, meta, structure)
         quantized, decisions = self.quantizer.quantize(events, meter)
         bpm = (meta.display_tempo_bpm if meta else None) or int(fallback_bpm)
-        key_name = "C"
-        if structure and structure.selected_key:
-            key_name = structure.selected_key.name
+        key_name = self._resolve_key(quantized, meta, structure)
 
-        pianoish = self._use_grand_staff(quantized, structure)
+        pianoish = self._use_grand_staff(quantized, structure, meta)
         end_beat = 0.0
         if quantized:
             end_beat = max(e.start_beat + e.duration_beats for e in quantized)
@@ -77,14 +88,52 @@ class NotationPlanner:
         )
         return plan, decisions
 
+    def _resolve_meter(
+        self,
+        events: list[MusicalEvent],
+        meta: ScoreMeta | None,
+        structure: MusicalStructure | None,
+    ) -> MeterHypothesis:
+        hint = meta.time_sig_hint if meta else None
+        if hint:
+            if structure:
+                for hyp in structure.meter_hypotheses:
+                    if hyp.time_signature == hint:
+                        return hyp
+            return meter_from_time_signature(hint, source="meta_time_sig_hint")
+        if structure and structure.selected_meter:
+            return structure.selected_meter
+        return self.meter_estimator.select(events)
+
+    def _resolve_key(
+        self,
+        events: list[MusicalEvent],
+        meta: ScoreMeta | None,
+        structure: MusicalStructure | None,
+    ) -> str:
+        if meta and meta.key_hint:
+            return meta.key_hint
+        if structure and structure.selected_key:
+            return structure.selected_key.name
+        return estimate_key(events) or "C"
+
     def _use_grand_staff(
-        self, events: list[MusicalEvent], structure: MusicalStructure | None
+        self,
+        events: list[MusicalEvent],
+        structure: MusicalStructure | None,
+        meta: ScoreMeta | None = None,
     ) -> bool:
         hands = {e.hand for e in events}
         if Hand.LEFT in hands or Hand.RIGHT in hands:
             return True
-        if structure and structure.instrument.value == "piano":
+        if structure and structure.instrument == InstrumentKind.PIANO:
             return True
+        pred = meta.instrument_prediction if meta else None
+        if pred is not None and pred.instrument == InstrumentKind.PIANO:
+            return True
+        for ev in events:
+            if ev.instrument == InstrumentKind.PIANO:
+                return True
         return False
 
     def _build_measure(
@@ -105,6 +154,9 @@ class NotationPlanner:
                 continue
             local_start = max(0.0, ev.start_beat - start)
             local_end = min(mql, ev_end - start)
+            dur = local_end - local_start
+            if dur <= 1e-8:
+                continue
             tie = None
             if ev.start_beat < start - 1e-8 and ev_end > end + 1e-8:
                 tie = "continue"
@@ -112,7 +164,7 @@ class NotationPlanner:
                 tie = "stop"
             elif ev_end > end + 1e-8:
                 tie = "start"
-            inside.append((ev, local_start, max(0.125, local_end - local_start), tie))
+            inside.append((ev, local_start, dur, tie))
 
         staff_ids = [0, 1] if pianoish else [0]
         staves: list[PlannedStaff] = []
@@ -133,7 +185,7 @@ class NotationPlanner:
                 planned_voices.append(
                     PlannedVoice(
                         voice_id=vid,
-                        elements=self._fill_voice(items, mql),
+                        elements=self._fill_voice(items, mql, voice_id=vid),
                     )
                 )
             staves.append(
@@ -163,19 +215,14 @@ class NotationPlanner:
             return "bass" if median < 53 else "treble"
         return "treble" if median > 67 else "bass"
 
-    def _fill_voice(self, items: list, mql: float) -> list:
+    def _fill_voice(self, items: list, mql: float, voice_id: int = 0) -> list:
         if not items:
-            return [PlannedRest(start_q=0.0, duration_q=mql, voice=0)]
+            return [PlannedRest(start_q=0.0, duration_q=mql, voice=voice_id)]
 
-        # Chord-group same onset + same duration in this voice.
         items = sorted(items, key=lambda it: (it[1], it[0].pitch))
         chords: list[list] = []
         for item in items:
-            if (
-                chords
-                and abs(chords[-1][0][1] - item[1]) < 1e-6
-                and abs(chords[-1][0][2] - item[2]) < 1e-6
-            ):
+            if chords and self._same_chord(chords[-1][0], item):
                 chords[-1].append(item)
             else:
                 chords.append([item])
@@ -185,11 +232,32 @@ class NotationPlanner:
         voice_id = items[0][0].voice
         for group in chords:
             start = group[0][1]
-            dur = group[0][2]
+            dur = max(it[2] for it in group)
+            if start < cursor - 1e-8:
+                # Same-onset leftovers with incompatible duration: fold into the
+                # previous chord rather than overlapping the voice timeline.
+                prev = next(
+                    (
+                        el
+                        for el in reversed(elements)
+                        if isinstance(el, PlannedNote)
+                    ),
+                    None,
+                )
+                if prev is not None and abs(prev.start_q - start) < 1e-6:
+                    extra = sorted({it[0].pitch for it in group})
+                    prev.pitches = sorted(set(prev.pitches) | set(extra))
+                    prev.duration_q = max(prev.duration_q, dur)
+                    cursor = max(cursor, start + prev.duration_q)
+                    continue
+                start = cursor
             if start > cursor + 1e-8:
                 gap = start - cursor
                 elements.extend(self._rests(cursor, gap, voice_id))
                 cursor = start
+            dur = min(dur, max(0.0, mql - start))
+            if dur <= 1e-8:
+                continue
             pitches = sorted({it[0].pitch for it in group})
             ties = {it[3] for it in group if it[3]}
             tie = None
@@ -221,35 +289,76 @@ class NotationPlanner:
         if cursor < mql - 1e-8:
             elements.extend(self._rests(cursor, mql - cursor, voice_id))
 
-        self._assert_sum(elements, mql)
+        self._assert_sum(elements, mql, voice_id)
         return elements
 
+    def _same_chord(self, seed: tuple, item: tuple) -> bool:
+        seed_ev, seed_start, seed_dur, _ = seed
+        ev, start, dur, _ = item
+        if ev.voice != seed_ev.voice:
+            return False
+        if staff_for_hand(ev.hand, ev.pitch) != staff_for_hand(seed_ev.hand, seed_ev.pitch):
+            return False
+        if abs(start - seed_start) > 1e-6:
+            return False
+        return self._compatible_duration(seed_dur, dur)
+
+    @staticmethod
+    def _compatible_duration(a: float, b: float) -> bool:
+        short, long = sorted((a, b))
+        if long <= 1e-9:
+            return True
+        return short >= long * CHORD_DURATION_RATIO - 1e-9
+
     def _rests(self, start: float, duration: float, voice: int) -> list[PlannedRest]:
-        parts = []
+        parts: list[PlannedRest] = []
         remaining = duration
         cursor = start
-        for d in (4.0, 2.0, 1.0, 0.5, 0.25, 0.125):
+        if remaining <= 1e-8:
+            return parts
+        for d in REST_CANDIDATES:
             while remaining >= d - 1e-9:
                 parts.append(PlannedRest(start_q=cursor, duration_q=d, voice=voice))
                 cursor += d
                 remaining -= d
         if remaining > 1e-6:
-            parts.append(
-                PlannedRest(start_q=cursor, duration_q=max(0.125, remaining), voice=voice)
-            )
+            parts.append(PlannedRest(start_q=cursor, duration_q=remaining, voice=voice))
         return parts
 
-    def _assert_sum(self, elements: list, mql: float) -> None:
-        total = sum(
-            getattr(el, "duration_q", 0.0) for el in elements
-        )
-        # Tiny float slop only; planner may slightly overfill from rest rounding.
-        if total > mql + 0.13:
-            # Trim last rest if needed.
+    def _assert_sum(self, elements: list, mql: float, voice_id: int = 0) -> None:
+        self._repair_sum(elements, mql, voice_id)
+        total = sum(getattr(el, "duration_q", 0.0) for el in elements)
+        if abs(total - mql) > VOICE_SUM_TOLERANCE:
+            raise ValueError(
+                f"voice {voice_id} elements sum to {total:.4f}, "
+                f"expected measure duration {mql:.4f}"
+            )
+
+    def _repair_sum(self, elements: list, mql: float, voice_id: int) -> None:
+        if not elements:
+            elements.append(PlannedRest(start_q=0.0, duration_q=mql, voice=voice_id))
+            return
+        total = sum(el.duration_q for el in elements)
+        if abs(total - mql) <= 1e-6:
+            return
+        if total > mql:
+            extra = total - mql
             for el in reversed(elements):
-                if isinstance(el, PlannedRest) and total > mql:
-                    extra = total - mql
-                    if el.duration_q > extra:
-                        el.duration_q -= extra
-                        total -= extra
-                        break
+                if extra <= 1e-9:
+                    break
+                if isinstance(el, PlannedRest):
+                    shrink = min(el.duration_q, extra)
+                    el.duration_q -= shrink
+                    extra -= shrink
+                elif el.duration_q > extra:
+                    el.duration_q -= extra
+                    extra = 0.0
+            elements[:] = [el for el in elements if el.duration_q > 1e-8]
+            return
+        gap = mql - total
+        last = elements[-1]
+        last_end = last.start_q + last.duration_q
+        if isinstance(last, PlannedRest):
+            last.duration_q += gap
+        else:
+            elements.extend(self._rests(last_end, gap, voice_id))

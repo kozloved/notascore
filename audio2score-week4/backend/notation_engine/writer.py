@@ -1,7 +1,11 @@
 """Write MusicXML from MusicalEvent[] (source-agnostic).
 
-Production export uses grand-staff build_score. NotationPlan export is kept
-for voice-preservation tests and future plan-driven writing.
+Production export:
+
+    MusicalEvents → MusicalStructure → NotationPlanner → NotationPlan
+    → score_from_plan() → MusicXML
+
+Legacy build_score() remains as a fallback if the planner raises.
 """
 
 from __future__ import annotations
@@ -39,6 +43,23 @@ class NotationWriter:
 
     def __init__(self):
         self.planner = NotationPlanner()
+        self.last_plan: NotationPlan | None = None
+        self.last_quantization_decisions: list[dict] = []
+        self.last_fallback_used: bool = False
+        self.last_fallback_error: str | None = None
+
+    def notation_debug_payload(self) -> dict:
+        plan = self.last_plan
+        return {
+            "notation_path": (
+                "legacy_build_score" if self.last_fallback_used else "notation_plan"
+            ),
+            "notation_fallback_error": self.last_fallback_error,
+            "fallback_used": self.last_fallback_used,
+            "time_signature": plan.time_signature if plan else None,
+            "measure_count": len(plan.measures) if plan else 0,
+            "quantization_decisions": list(self.last_quantization_decisions),
+        }
 
     def write_musicxml(
         self,
@@ -54,11 +75,18 @@ class NotationWriter:
         out_dir.mkdir(exist_ok=True)
 
         try:
-            score = self.build_score(
-                events, meta, quantize_divisors=quantize_divisors, fallback_bpm=fallback_bpm
+            score = self._score_via_plan_or_legacy(
+                events,
+                meta,
+                quantize_divisors=quantize_divisors,
+                fallback_bpm=fallback_bpm,
+                structure=structure,
             )
         except Exception as exc:
             print(f"[Notation] grand staff failed ({exc!s}), MIDI round-trip")
+            if not self.last_fallback_used:
+                self.last_fallback_used = True
+                self.last_fallback_error = f"{type(exc).__name__}: {exc}"
             score = self._score_via_midi(
                 events, meta, out_dir / f"{job_id}.mid", quantize_divisors, fallback_bpm
             )
@@ -73,16 +101,69 @@ class NotationWriter:
         events: list[MusicalEvent],
         meta: ScoreMeta,
         quantize_divisors: tuple[int, ...] = (4, 3),
+        structure=None,
     ) -> stream.Score:
-        """Build a music21 score without writing files (tests)."""
-        return self.build_score(events, meta, quantize_divisors=quantize_divisors)
+        """Build a music21 score without writing files (tests / production path)."""
+        return self._score_via_plan_or_legacy(
+            events,
+            meta,
+            quantize_divisors=quantize_divisors,
+            fallback_bpm=float(meta.display_tempo_bpm or 120),
+            structure=structure,
+        )
+
+    def _score_via_plan_or_legacy(
+        self,
+        events: list[MusicalEvent],
+        meta: ScoreMeta,
+        *,
+        quantize_divisors: tuple[int, ...],
+        fallback_bpm: float,
+        structure=None,
+    ) -> stream.Score:
+        self.last_plan = None
+        self.last_quantization_decisions = []
+        self.last_fallback_used = False
+        self.last_fallback_error = None
+        try:
+            plan, decisions = self.planner.build(
+                events,
+                meta=meta,
+                structure=structure,
+                fallback_bpm=fallback_bpm,
+            )
+            score = self.score_from_plan(plan, meta=meta)
+            self.last_plan = plan
+            self.last_quantization_decisions = decisions
+            print(
+                f"[Notation] NotationPlan "
+                f"({plan.time_signature}, {len(plan.measures)} measures, "
+                f"{len(decisions)} quantized events)"
+            )
+            return score
+        except Exception as exc:
+            reason = f"{type(exc).__name__}: {exc}"
+            print(f"[Notation] NotationPlanner failed ({reason}); falling back to legacy build_score")
+            self.last_fallback_used = True
+            self.last_fallback_error = reason
+            return self.build_score(
+                events,
+                meta,
+                quantize_divisors=quantize_divisors,
+                fallback_bpm=fallback_bpm,
+            )
 
     def write_from_plan(self, plan: NotationPlan) -> stream.Score:
         return self.score_from_plan(plan)
 
-    def score_from_plan(self, plan: NotationPlan) -> stream.Score:
+    def score_from_plan(
+        self, plan: NotationPlan, meta: ScoreMeta | None = None
+    ) -> stream.Score:
         score = stream.Score()
-        score.insert(0, m21tempo.MetronomeMark(number=plan.tempo_bpm))
+        md = m21meta.Metadata()
+        md.movementName = None
+        md.composer = None
+        score.insert(0, md)
 
         n_staves = 0
         for measure in plan.measures:
@@ -90,14 +171,12 @@ class NotationWriter:
                 n_staves = max(n_staves, staff.staff_id + 1)
         n_staves = max(1, n_staves)
 
-        parts: list[stream.Part] = []
+        parts: list[stream.PartStaff] = []
         for sid in range(n_staves):
-            part = stream.Part(id=f"P{sid + 1}")
-            name = "Right Hand" if sid == 0 else "Left Hand"
-            if n_staves == 1:
-                name = "Music"
-            part.partName = name
-            part.partAbbreviation = "RH" if sid == 0 else "LH"
+            part = stream.PartStaff(id=f"P1-Staff{sid + 1}")
+            part.partName = "Piano" if n_staves >= 2 else "Music"
+            part.partAbbreviation = "Pno." if n_staves >= 2 else "Mus."
+            part.insert(0, instrument.Piano())
             parts.append(part)
             score.insert(0, part)
 
@@ -107,6 +186,7 @@ class NotationWriter:
                 name="Piano",
                 abbreviation="Pno.",
                 symbol="brace",
+                barTogether=True,
             )
             score.insert(0, group)
 
@@ -138,6 +218,14 @@ class NotationWriter:
                         m.insert(0, voice)
                 part.append(m)
 
+        bpm = int(plan.tempo_bpm)
+        if meta and meta.display_tempo_bpm:
+            bpm = int(meta.display_tempo_bpm)
+        # Metronome marks must live in a measure. A score-level mark survives
+        # in memory but music21 omits it from MusicXML, so OSMD never draws BPM.
+        self._insert_metronome_at_beat(score, 0.0, bpm)
+        if meta is not None:
+            self._apply_tempo_map(score, meta)
         return score
 
     def _element_to_m21(self, el):
