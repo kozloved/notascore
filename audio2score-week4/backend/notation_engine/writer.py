@@ -382,6 +382,8 @@ class NotationWriter:
 
 
 def _staff_for(ev: MusicalEvent) -> str:
+    # UNKNOWN/AMBIGUOUS keep that label on the event. Staff placement here is
+    # only a temporary fallback so MusicXML still has a staff.
     if ev.hand == Hand.LEFT:
         return "lh"
     if ev.hand == Hand.RIGHT:

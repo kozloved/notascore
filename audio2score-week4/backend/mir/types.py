@@ -75,6 +75,7 @@ class NoteEvent:
     velocity: int = 64
     confidence: float = 1.0
     hand: Hand = Hand.UNKNOWN
+    hand_locked: bool = False
     note_id: str = ""
     source_backend: str = "unknown"
     original_start_time: Optional[float] = None
@@ -225,6 +226,7 @@ class MusicalEvent:
     voice_confidence: float = 1.0
     role: Optional[str] = None
     cleaning_status: str = "keep"
+    hand_locked: bool = False
 
 
 def copy_event(event: MusicalEvent, **changes: Any) -> MusicalEvent:
