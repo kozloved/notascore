@@ -121,7 +121,7 @@ class UnderstandingPipeline:
         tempo_map = self._build_tempo_map(normalized, audio_path, onsets)
         bpm = tempo_map.bpm_at(0.0)
 
-        self.chord_detector.detect(notes)
+        chords = self.chord_detector.detect(notes)
         role = self.role_separator.separate(notes)
 
         events = notes_to_events(
@@ -145,6 +145,43 @@ class UnderstandingPipeline:
             segments,
             display_bpm=snap_to_standard_tempo(bpm),
         )
+
+        def _rebuild(next_notes, next_tempo, next_role):
+            rebuilt = notes_to_events(
+                next_notes,
+                next_tempo,
+                role=next_role,
+                instrument=prediction.instrument,
+                source_backend=backend.name,
+            )
+            if self.use_mir_layers:
+                rebuilt = self.hand_separator.separate(rebuilt)
+                rebuilt = self.voice_separator.separate(rebuilt)
+                rebuilt = self.dynamics.extract(rebuilt)
+                rebuilt = self.articulation.detect(rebuilt)
+                rebuilt = self.phrase_detector.assign(rebuilt)
+            return rebuilt
+
+        from intelligence.layer import maybe_enhance
+
+        enhanced = maybe_enhance(
+            job_id=job_id,
+            notes=notes,
+            events=events,
+            meta=meta,
+            tempo_map=tempo_map,
+            prediction=prediction,
+            chords=chords,
+            normalized=normalized,
+            pedal_events=pedal_events,
+            role=role,
+            rebuild_events=_rebuild,
+        )
+        notes = enhanced.notes
+        events = enhanced.events
+        meta = enhanced.meta
+        tempo_map = enhanced.tempo_map
+        bpm = tempo_map.bpm_at(0.0)
 
         print(
             f"[Understanding] instrument={prediction.instrument.value} "
@@ -212,6 +249,45 @@ class UnderstandingPipeline:
             display_bpm=snap_to_standard_tempo(bpm),
             time_sig_hint=ingested.time_sig_hint,
         )
+        from intelligence.layer import maybe_enhance
+        from mir.types import InstrumentPrediction
+
+        midi_pred = InstrumentPrediction(instrument=InstrumentKind.PIANO, confidence=0.9)
+
+        def _rebuild(next_notes, next_tempo, next_role):
+            rebuilt = notes_to_events(
+                next_notes,
+                next_tempo,
+                role=next_role,
+                instrument=InstrumentKind.PIANO,
+                source_backend="midi",
+            )
+            if self.use_mir_layers:
+                rebuilt = self.hand_separator.separate(rebuilt)
+                rebuilt = self.voice_separator.separate(rebuilt)
+                rebuilt = self.dynamics.extract(rebuilt)
+                rebuilt = self.articulation.detect(rebuilt)
+                rebuilt = self.phrase_detector.assign(rebuilt)
+            return rebuilt
+
+        enhanced = maybe_enhance(
+            job_id=job_id,
+            notes=notes,
+            events=events,
+            meta=meta,
+            tempo_map=tempo_map,
+            prediction=midi_pred,
+            chords=None,
+            normalized=None,
+            pedal_events=ingested.pedal_events if hasattr(ingested, "pedal_events") else None,
+            role=role,
+            rebuild_events=_rebuild,
+        )
+        notes = enhanced.notes
+        events = enhanced.events
+        meta = enhanced.meta
+        tempo_map = enhanced.tempo_map
+        bpm = tempo_map.bpm_at(0.0)
         print(
             f"[MidiIngest] notes={len(notes)} tempo={bpm:.1f} "
             f"tempo_points={len(tempo_map.points)} events={len(events)} "

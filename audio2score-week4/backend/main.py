@@ -121,9 +121,11 @@ def public_job(job: dict) -> dict:
 def health():
     from adapters.basic_pitch_backend import basic_pitch_settings
     from adapters.mt3_backend import mt3_status
+    from intelligence.config import gemini_status
 
     bp = basic_pitch_settings()
     quality = mt3_status()
+    gemini = gemini_status()
     return {
         "status": "ok",
         "engine": os.getenv("TRANSCRIPTION_ENGINE", "basic_pitch"),
@@ -137,6 +139,7 @@ def health():
         "pipeline_fallback": os.getenv("TRANSCRIPTION_PIPELINE_FALLBACK", "1"),
         "basic_pitch": bp,
         "quality": quality,
+        "gemini": gemini,
         "modes": {
             "fast": True,
             "quality": quality["available"],

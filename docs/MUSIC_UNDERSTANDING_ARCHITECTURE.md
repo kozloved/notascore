@@ -195,6 +195,22 @@ cd audio2score-week4/backend
 
 **MT3 / Quality** after CMR + cleaner + tempo map are stable (Phase 8).
 
+## Phase 9 — Gemini music intelligence (optional)
+
+Gemini is **not** a transcription engine. Fast still uses Basic Pitch; Quality still uses MT3. When `ENABLE_GEMINI_MUSIC_ANALYSIS=1` and `GEMINI_API_KEY` is set, the understanding pipeline builds a compact analysis packet (notes, tempo, meter, chords, uncertainties) and asks Gemini for structured JSON corrections. A validator applies only high-confidence, non-destructive patches. If Gemini is down, the job still completes.
+
+**Models (Aug 2026 Developer API pricing):**
+
+| Role | Default ID | Why |
+|---|---|---|
+| Default | `gemini-2.5-flash-lite` | Cheapest audio+JSON path: $0.10/1M text in, $0.30/1M audio in, $0.40/1M out. Audio ≈ 32 tokens/s. |
+| Escalation | `gemini-2.5-flash` | Stronger reasoning on uncertain windows only: $0.30 text / $1.00 audio in, $2.50 out. |
+| Optional upgrade | `gemini-3.5-flash-lite` | Same audio input rate as 2.5-lite, but $2.50 out (≈6×). Better JSON, not cheaper. |
+| Avoid as default | `gemini-3.6-flash` | Current Google audio-example model; $1.50 / $7.50. |
+| Avoid for this job | OpenAI `gpt-4o-mini-audio` | ~$10/1M audio tokens. |
+
+Override with `GEMINI_DEFAULT_MODEL` / `GEMINI_REASONING_MODEL`. Deep escalation stays off until `ENABLE_GEMINI_DEEP_ANALYSIS=1`.
+
 ## Quality metrics
 
 - Pitch / onset F-measure (50 ms tolerance)

@@ -205,6 +205,8 @@ def test_health_includes_quality(monkeypatch):
     assert payload["quality"]["available"] is False
     assert payload["modes"]["fast"] is True
     assert payload["modes"]["quality"] is False
+    assert payload["gemini"]["enabled"] is False
+    assert payload["gemini"]["default_model"] == "gemini-2.5-flash-lite"
 
 
 def test_quality_upload_rejected_when_unconfigured(tmp_path, monkeypatch):
