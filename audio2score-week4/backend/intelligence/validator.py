@@ -6,7 +6,7 @@ from intelligence.config import GeminiConfig
 from intelligence.schemas import Correction
 from mir.types import NoteEvent
 
-ALLOWED_TYPES = {"instrument", "pitch", "timing", "voice", "meter", "tempo", "hand"}
+ALLOWED_TYPES = {"instrument", "pitch", "timing", "voice", "meter", "tempo", "hand", "key"}
 ALLOWED_METERS = {"4/4", "3/4", "2/4", "6/8", "2/2", "5/4", "12/8"}
 PIANO_MIN = 21
 PIANO_MAX = 108
@@ -118,6 +118,10 @@ class MusicalCorrectionValidator:
             ).lower()
             if name not in {"piano", "guitar", "voice", "drums", "strings", "unknown"}:
                 return "instrument not allowed"
+        if corr.type == "key":
+            key = str(corr.proposed_value.get("key") or "").strip()
+            if not _valid_key(key):
+                return "key not allowed"
         if not notes and corr.type in {"pitch", "timing"}:
             return "no notes to patch"
         return None
@@ -151,20 +155,29 @@ def _window_transcription_confidence(
 
 def _musical_consistency(corr: Correction, notes: list[NoteEvent]) -> float:
     if corr.type == "pitch" and _is_drop(corr):
-        existing = int(corr.existing_value.get("pitch") or 0)
+        existing = int(corr.existing_value.get("pitch") or corr.proposed_value.get("pitch") or 0)
+        harmonic_intervals = {12, 19, 24, 28, 31, 36}
         neighbors = [
             n
             for n in notes
             if abs(n.start_time - corr.time_start) <= 0.08
-            and abs(n.pitch - existing) in (12, 24)
+            and abs(n.pitch - existing) in harmonic_intervals
         ]
         return 0.9 if neighbors else 0.45
     if corr.type == "tempo":
         return 0.7
     if corr.type == "meter":
         return 0.65
+    if corr.type == "key":
+        return 0.7
     if corr.type == "hand":
         return 0.6
     if corr.type == "instrument":
         return 0.55
     return 0.5
+
+
+def _valid_key(key: str) -> bool:
+    import re
+
+    return bool(re.fullmatch(r"[A-Ga-g][#b]?\s*(major|minor|maj|min|m)?", key.strip()))

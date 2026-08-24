@@ -166,7 +166,7 @@ def _enhance(
         ]
     if not cfg.structure_analysis:
         analysis.corrections = [
-            c for c in analysis.corrections if c.type not in {"meter", "tempo"}
+            c for c in analysis.corrections if c.type not in {"meter", "tempo", "key"}
         ]
 
     audio_conf = float(prediction.confidence) if prediction else 0.5
@@ -202,6 +202,8 @@ def _enhance(
         "route": route.reason,
         "cache_hit": analysis.cache_hit,
         "overall_confidence": analysis.overall_confidence,
+        "key": patched_meta.key_hint,
+        "tempo_bpm": patched_meta.display_tempo_bpm,
         "corrections": [c.to_dict() for c in accepted],
     }
     patched_meta = replace(patched_meta, extra=extra)

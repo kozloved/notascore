@@ -244,6 +244,66 @@ def test_layer_applies_validated_drop(tmp_path, monkeypatch):
     assert all(n.pitch != 72 for n in result.notes)
 
 
+def test_layer_applies_ghost_drop_tempo_and_key(tmp_path, monkeypatch):
+    for key, value in _cfg(tmp_path).items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("GEMINI_AUTO_APPLY_THRESHOLD", "0.70")
+    notes = _notes_simple() + [
+        NoteEvent(pitch=72, start_time=0.0, end_time=0.4, velocity=18, confidence=0.2),
+    ]
+    tempo = _tempo()
+    events = notes_to_events(notes, tempo, instrument=InstrumentKind.PIANO)
+    cfg = gemini_config()
+    analysis = GeminiAnalysis(
+        overall_confidence=0.88,
+        corrections=[
+            Correction(
+                type="pitch",
+                time_start=0.0,
+                time_end=0.4,
+                existing_value={"pitch": 72},
+                proposed_value={"drop": True},
+                confidence=0.9,
+                reason="octave ghost",
+            ),
+            Correction(
+                type="tempo",
+                time_start=0.0,
+                time_end=0.0,
+                existing_value={},
+                proposed_value={"bpm": 96},
+                confidence=0.9,
+                reason="audio tempo",
+            ),
+            Correction(
+                type="key",
+                time_start=0.0,
+                time_end=0.0,
+                existing_value={},
+                proposed_value={"key": "C major"},
+                confidence=0.9,
+                reason="audio key",
+            ),
+        ],
+        model="gemini-2.5-flash",
+    )
+    result = maybe_enhance(
+        job_id="meta",
+        notes=notes,
+        events=events,
+        meta=ScoreMeta(),
+        tempo_map=tempo,
+        prediction=InstrumentPrediction(instrument=InstrumentKind.PIANO, confidence=0.9),
+        cfg=cfg,
+        service=GeminiMusicAnalysisService(cfg, provider=_FakeProvider(analysis=analysis), cache=AnalysisCache(cfg)),
+    )
+    assert result.applied >= 3
+    assert all(n.pitch != 72 for n in result.notes)
+    assert result.meta.key_hint == "C major"
+    assert result.meta.display_tempo_bpm == 96
+    assert abs(result.tempo_map.bpm_at(0.0) - 96) < 0.01
+
+
 def test_cache_avoids_second_provider_call(tmp_path, monkeypatch):
     for key, value in _cfg(tmp_path).items():
         monkeypatch.setenv(key, value)

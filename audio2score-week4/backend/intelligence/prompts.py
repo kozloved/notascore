@@ -39,7 +39,21 @@ Return ONLY JSON matching the required schema. No markdown.
 USER_TASK_FULL = (
     "Analyse the musical analysis packet. "
     "If audio is attached, use it as the ground-truth performance. "
-    "Propose corrections only at high confidence."
+    "Propose corrections only at high confidence. "
+    "Return JSON with this shape: "
+    '{"overall_confidence":0.0-1.0,'
+    '"key":"C major",'
+    '"tempo_analysis":{"global_bpm":120},'
+    '"meter_analysis":{"time_signature":"4/4"},'
+    '"corrections":[{'
+    '"type":"pitch|timing|tempo|key|meter",'
+    '"time_start":0.0,"time_end":0.0,'
+    '"existing_value":{"pitch":60},'
+    '"proposed_value":{"drop":true,"pitch":60,"bpm":120,"key":"C major"},'
+    '"confidence":0.0-1.0,"reason":"..."}]} . '
+    "Quiet octave copies and harmonic overtones (12/19/24/28 semitones above a louder note) "
+    "should be type=pitch with proposed_value.drop=true. "
+    "Set key and global tempo when the audio is clear."
 )
 
 USER_TASK_REGIONS = (

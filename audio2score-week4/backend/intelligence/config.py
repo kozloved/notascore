@@ -119,7 +119,7 @@ def gemini_config() -> GeminiConfig:
         reasoning_model=_env_str(
             "GEMINI_REASONING_MODEL", DEFAULT_REASONING_MODEL
         ),
-        auto_apply_threshold=_env_float("GEMINI_AUTO_APPLY_THRESHOLD", 0.90),
+        auto_apply_threshold=_env_float("GEMINI_AUTO_APPLY_THRESHOLD", 0.70),
         deep_analysis_threshold=_env_float(
             "GEMINI_DEEP_ANALYSIS_THRESHOLD", 0.60
         ),

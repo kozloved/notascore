@@ -111,3 +111,21 @@ def test_correction_normalizes_flash_note_objects_and_word_confidence():
     assert retune.type == "pitch"
     assert retune.proposed_value.get("pitch") == 69
     assert retune.existing_value.get("pitch") == 71
+
+
+def test_analysis_harvests_key_and_tempo_fields():
+    from intelligence.schemas import GeminiAnalysis
+
+    parsed = GeminiAnalysis.from_dict(
+        {
+            "overall_confidence": 0.88,
+            "key": "C major",
+            "tempo_analysis": {"global_bpm": 96},
+            "meter_analysis": {"time_signature": "3/4"},
+            "corrections": [],
+        }
+    )
+    types = {c.type: c for c in parsed.corrections}
+    assert types["key"].proposed_value["key"] == "C major"
+    assert types["tempo"].proposed_value["bpm"] == 96
+    assert types["meter"].proposed_value["time_signature"] == "3/4"

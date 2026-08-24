@@ -71,6 +71,10 @@ def apply_meta_patches(
         proposed = corr.proposed_value or {}
         if corr.type == "meter" and proposed.get("time_signature"):
             meta = replace(meta, time_sig_hint=str(proposed["time_signature"]))
+        if corr.type == "key":
+            key = proposed.get("key") or proposed.get("tonality")
+            if key:
+                meta = replace(meta, key_hint=str(key))
         if corr.type == "tempo":
             bpm = proposed.get("bpm") or proposed.get("global_bpm")
             if bpm is None:
@@ -107,9 +111,6 @@ def apply_meta_patches(
                     confidence=max(pred.confidence, corr.final_confidence),
                 ),
             )
-        key = proposed.get("key")
-        if key:
-            meta = replace(meta, key_hint=str(key))
     return meta, tempo
 
 
