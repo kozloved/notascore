@@ -1,0 +1,132 @@
+{
+  "notes": [
+    {
+      "pitch": 48,
+      "start_beat": 0.0,
+      "duration_beats": 2.0,
+      "start_time": 0.0,
+      "end_time": 1.0,
+      "velocity": 82,
+      "hand": "left",
+      "voice": 0,
+      "role": "bass",
+      "keep": true
+    },
+    {
+      "pitch": 60,
+      "start_beat": 0.0,
+      "duration_beats": 2.0,
+      "start_time": 0.0,
+      "end_time": 1.0,
+      "velocity": 80,
+      "hand": "left",
+      "voice": 0,
+      "role": "bass",
+      "keep": true
+    },
+    {
+      "pitch": 64,
+      "start_beat": 0.0,
+      "duration_beats": 2.0,
+      "start_time": 0.0,
+      "end_time": 1.0,
+      "velocity": 78,
+      "hand": "right",
+      "voice": 0,
+      "role": null,
+      "keep": true
+    },
+    {
+      "pitch": 67,
+      "start_beat": 0.0,
+      "duration_beats": 2.0,
+      "start_time": 0.0,
+      "end_time": 1.0,
+      "velocity": 76,
+      "hand": "right",
+      "voice": 0,
+      "role": null,
+      "keep": true
+    },
+    {
+      "pitch": 72,
+      "start_beat": 2.0,
+      "duration_beats": 2.0,
+      "start_time": 1.0,
+      "end_time": 2.0,
+      "velocity": 80,
+      "hand": "right",
+      "voice": 0,
+      "role": "melody",
+      "keep": true
+    },
+    {
+      "pitch": 84,
+      "start_beat": 2.0,
+      "duration_beats": 2.0,
+      "start_time": 1.0,
+      "end_time": 2.0,
+      "velocity": 78,
+      "hand": "right",
+      "voice": 0,
+      "role": "melody",
+      "keep": true
+    }
+  ],
+  "expected": {
+    "meter": "4/4",
+    "key": "C",
+    "voice_count_rh": null,
+    "keep_all_octaves": true,
+    "notation_plan_required": true,
+    "check_hands": false
+  },
+  "expected_hands": {
+    "48": "left",
+    "60": "left",
+    "64": "right",
+    "67": "right",
+    "72": "right",
+    "84": "right"
+  },
+  "expected_meter": "4/4",
+  "expected_key": "C",
+  "expected_voice_assignments": [
+    {
+      "pitch": 48,
+      "start_beat": 0.0,
+      "voice": 0,
+      "hand": "left"
+    },
+    {
+      "pitch": 60,
+      "start_beat": 0.0,
+      "voice": 0,
+      "hand": "left"
+    },
+    {
+      "pitch": 64,
+      "start_beat": 0.0,
+      "voice": 0,
+      "hand": "right"
+    },
+    {
+      "pitch": 67,
+      "start_beat": 0.0,
+      "voice": 0,
+      "hand": "right"
+    },
+    {
+      "pitch": 72,
+      "start_beat": 2.0,
+      "voice": 0,
+      "hand": "right"
+    },
+    {
+      "pitch": 84,
+      "start_beat": 2.0,
+      "voice": 0,
+      "hand": "right"
+    }
+  ]
+}

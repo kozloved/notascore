@@ -1,0 +1,1656 @@
+{
+  "timestamp": "2026-08-24T19:13:33Z",
+  "git": "9cc1afe",
+  "mode": "midi",
+  "mode_label": "MIDI ingest",
+  "case_count": 21,
+  "passed": 21,
+  "failed": 0,
+  "skipped": 0,
+  "fallback_count": 0,
+  "regressions": [],
+  "baseline_git": null,
+  "cases": [
+    {
+      "id": "c_major_quarters",
+      "category": "melody_simple",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 8,
+        "notes_after": 8,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 8
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 8,
+        "correct": 8,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "right->right": 8
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 2,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 2,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 8,
+        "events_after_cleaning": 8,
+        "event_count_structure": 8,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 0,
+          "right": 7,
+          "unknown": 0,
+          "ambiguous": 1
+        },
+        "voice_count": 1,
+        "measure_count": 2
+      }
+    },
+    {
+      "id": "g_major_eighths",
+      "category": "melody_simple",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 8,
+        "notes_after": 8,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 8
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 8,
+        "correct": 8,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "right->right": 8
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 1,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 1,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 8,
+        "events_after_cleaning": 8,
+        "event_count_structure": 8,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 0,
+          "right": 8,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 1
+      }
+    },
+    {
+      "id": "midi_3_4",
+      "category": "midi_ingest",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 4,
+        "notes_after": 4,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 4
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 4,
+        "correct": 4,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "right->right": 3,
+          "left->left": 1
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "3/4",
+        "expected": "3/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 1,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 0,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 4,
+        "events_after_cleaning": 4,
+        "event_count_structure": 4,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 1,
+          "right": 3,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 1
+      }
+    },
+    {
+      "id": "midi_6_8",
+      "category": "midi_ingest",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 8,
+        "notes_after": 8,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 8,
+          "octave_doubling": 1
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 8,
+        "correct": 8,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "left->left": 2,
+          "right->right": 6
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "6/8",
+        "expected": "6/8",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 1,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 2,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 8,
+        "events_after_cleaning": 8,
+        "event_count_structure": 8,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 2,
+          "right": 6,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 1
+      }
+    },
+    {
+      "id": "midi_chords_and_melody",
+      "category": "midi_ingest",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 8,
+        "notes_after": 8,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 8,
+          "octave_relation_uncertain": 1,
+          "octave_doubling": 1
+        }
+      },
+      "hands": {
+        "accuracy": 0.625,
+        "total": 8,
+        "correct": 5,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "right->left": 3,
+          "right->right": 4,
+          "left->left": 1
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 2,
+        "expected_count_rh": 2,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 1,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 1,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 8,
+        "events_after_cleaning": 8,
+        "event_count_structure": 8,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 4,
+          "right": 4,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 2,
+        "measure_count": 1
+      }
+    },
+    {
+      "id": "midi_rh_lh_tracks",
+      "category": "midi_ingest",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 3,
+        "notes_after": 3,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 3
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 3,
+        "correct": 3,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "right->right": 2,
+          "left->left": 1
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 1,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 3,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 3,
+        "events_after_cleaning": 3,
+        "event_count_structure": 3,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 1,
+          "right": 2,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 1
+      }
+    },
+    {
+      "id": "c_major_block_chords",
+      "category": "piano_chords",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 16,
+        "notes_after": 16,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 16,
+          "octave_doubling": 1
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 16,
+        "correct": 16,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "right->right": 12,
+          "left->left": 4
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 1,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 0,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 16,
+        "events_after_cleaning": 16,
+        "event_count_structure": 16,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 4,
+          "right": 12,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 1
+      }
+    },
+    {
+      "id": "octave_doubling",
+      "category": "piano_chords",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 6,
+        "notes_after": 6,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 6,
+          "octave_doubling": 2
+        }
+      },
+      "hands": {
+        "accuracy": 0.6666666666666666,
+        "total": 6,
+        "correct": 4,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "left->left": 2,
+          "right->left": 2,
+          "right->right": 2
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 2,
+        "expected_count_rh": null,
+        "continuity_ok": null,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 1,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 4,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 6,
+        "events_after_cleaning": 6,
+        "event_count_structure": 6,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 4,
+          "right": 2,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 2,
+        "measure_count": 1
+      }
+    },
+    {
+      "id": "melody_and_bass",
+      "category": "piano_simple",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 5,
+        "notes_after": 5,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 5
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 5,
+        "correct": 5,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "right->right": 4,
+          "left->left": 1
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 1,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 0,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 5,
+        "events_after_cleaning": 5,
+        "event_count_structure": 5,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 1,
+          "right": 4,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 1
+      }
+    },
+    {
+      "id": "hand_crossing",
+      "category": "piano_two_hands",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 12,
+        "notes_after": 12,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 12
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 12,
+        "correct": 12,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "left->left": 6,
+          "right->right": 6
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 2,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 2,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 12,
+        "events_after_cleaning": 12,
+        "event_count_structure": 12,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 6,
+          "right": 6,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 2
+      }
+    },
+    {
+      "id": "middle_register",
+      "category": "piano_two_hands",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 8,
+        "notes_after": 8,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 8
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 8,
+        "correct": 8,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "left->left": 3,
+          "right->right": 5
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 2,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 2,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 8,
+        "events_after_cleaning": 8,
+        "event_count_structure": 8,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 3,
+          "right": 5,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 2
+      }
+    },
+    {
+      "id": "polyphonic_rh",
+      "category": "piano_two_hands",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 6,
+        "notes_after": 6,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 6,
+          "octave_doubling": 1
+        }
+      },
+      "hands": {
+        "accuracy": 0.8333333333333334,
+        "total": 6,
+        "correct": 5,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "right->left": 1,
+          "right->right": 4,
+          "left->left": 1
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 2,
+        "expected_count_rh": 2,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 1,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 0,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 6,
+        "events_after_cleaning": 6,
+        "event_count_structure": 6,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 2,
+          "right": 4,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 2,
+        "measure_count": 1
+      }
+    },
+    {
+      "id": "two_hand_scale",
+      "category": "piano_two_hands",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 16,
+        "notes_after": 16,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 16
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 16,
+        "correct": 16,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "left->left": 8,
+          "right->right": 8
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 2,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 16,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 16,
+        "events_after_cleaning": 16,
+        "event_count_structure": 16,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 8,
+          "right": 8,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 2
+      }
+    },
+    {
+      "id": "compound_6_8",
+      "category": "rhythm",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 16,
+        "notes_after": 16,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 16
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 16,
+        "correct": 16,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "left->left": 4,
+          "right->right": 12
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "6/8",
+        "expected": "6/8",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 2,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 0,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 16,
+        "events_after_cleaning": 16,
+        "event_count_structure": 16,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 4,
+          "right": 12,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 2
+      }
+    },
+    {
+      "id": "dotted",
+      "category": "rhythm",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 6,
+        "notes_after": 6,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 6
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 6,
+        "correct": 6,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "right->right": 6
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 1,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 1,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 6,
+        "events_after_cleaning": 6,
+        "event_count_structure": 6,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 0,
+          "right": 6,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 1
+      }
+    },
+    {
+      "id": "eighths",
+      "category": "rhythm",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 16,
+        "notes_after": 16,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 16
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 16,
+        "correct": 16,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "right->right": 16
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 2,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 2,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 16,
+        "events_after_cleaning": 16,
+        "event_count_structure": 16,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 0,
+          "right": 16,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 2
+      }
+    },
+    {
+      "id": "quarters",
+      "category": "rhythm",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 8,
+        "notes_after": 8,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 8
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 8,
+        "correct": 8,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "right->right": 8
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 2,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 2,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 8,
+        "events_after_cleaning": 8,
+        "event_count_structure": 8,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 0,
+          "right": 8,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 2
+      }
+    },
+    {
+      "id": "sixteenths",
+      "category": "rhythm",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 16,
+        "notes_after": 16,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 16
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 16,
+        "correct": 16,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "right->right": 16
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 1,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 1,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 16,
+        "events_after_cleaning": 16,
+        "event_count_structure": 16,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 0,
+          "right": 16,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 1
+      }
+    },
+    {
+      "id": "syncopation",
+      "category": "rhythm",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 5,
+        "notes_after": 5,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 5
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 5,
+        "correct": 5,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "right->right": 5
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 1,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 1,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 5,
+        "events_after_cleaning": 5,
+        "event_count_structure": 5,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 0,
+          "right": 5,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 1
+      }
+    },
+    {
+      "id": "triplets",
+      "category": "rhythm",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.3789545454545504,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 8,
+        "notes_after": 8,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 8
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 8,
+        "correct": 8,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "right->right": 8
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "4/4",
+        "expected": "4/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 1,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 5,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 8,
+        "events_after_cleaning": 8,
+        "event_count_structure": 8,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 0,
+          "right": 8,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 1
+      }
+    },
+    {
+      "id": "waltz_3_4",
+      "category": "rhythm",
+      "mode": "midi",
+      "mode_label": "MIDI ingest",
+      "passed": true,
+      "skipped": false,
+      "skip_reason": null,
+      "flags": [],
+      "transcription": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "onset_error_ms": 0.0014999999999737446,
+        "pitch_accuracy": 1.0
+      },
+      "cleaning": {
+        "notes_before": 8,
+        "notes_after": 8,
+        "notes_removed": 0,
+        "false_removals": 0,
+        "duplicates_removed": 0,
+        "octave_removals": 0,
+        "reasons": {
+          "duration_ok": 8
+        }
+      },
+      "hands": {
+        "accuracy": 1.0,
+        "total": 8,
+        "correct": 8,
+        "ambiguous": 0,
+        "unknown": 0,
+        "confusion": {
+          "left->left": 2,
+          "right->right": 6
+        }
+      },
+      "voices": {
+        "predicted_count_rh": 1,
+        "expected_count_rh": 1,
+        "continuity_ok": true,
+        "accidental_merges": 0
+      },
+      "meter": {
+        "selected": "3/4",
+        "expected": "3/4",
+        "correct": true
+      },
+      "notation": {
+        "plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "measure_count": 2,
+        "measure_valid": true,
+        "voice_sum_ok": true,
+        "tie_count": 0,
+        "rest_count": 2,
+        "tuplet_count": 0,
+        "complexity": 0.0,
+        "xml_valid": true,
+        "xml_errors": []
+      },
+      "counts": {
+        "events_before_cleaning": 8,
+        "events_after_cleaning": 8,
+        "event_count_structure": 8,
+        "hand_assignments": {},
+        "production_hands": {
+          "left": 2,
+          "right": 6,
+          "unknown": 0,
+          "ambiguous": 0
+        },
+        "voice_count": 1,
+        "measure_count": 2
+      }
+    }
+  ],
+  "extra_modes": [],
+  "ok": true
+}

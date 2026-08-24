@@ -1,0 +1,35 @@
+name: Benchmark CI
+
+# Fast synthetic subset only. Does not call the Quality GPU worker.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  midi-benchmark:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: audio2score-week4/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt httpx
+      - name: Notation / hands / voices / MIDI ingest tests
+        run: |
+          python -m pytest -q \
+            tests/test_regression_benchmark.py \
+            tests/test_canonical_benchmark.py \
+            tests/test_hand_separator.py \
+            tests/test_voice_preservation.py \
+            tests/test_notation_plan_production.py \
+            tests/test_midi_ingest.py \
+            tests/test_meter_quantizer.py
+      - name: MIDI benchmark subset
+        run: python -m benchmark.runner --mode midi --subset ci

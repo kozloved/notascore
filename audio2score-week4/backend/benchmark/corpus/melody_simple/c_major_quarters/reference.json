@@ -1,0 +1,170 @@
+{
+  "notes": [
+    {
+      "pitch": 60,
+      "start_beat": 0.0,
+      "duration_beats": 1.0,
+      "start_time": 0.0,
+      "end_time": 0.5,
+      "velocity": 80,
+      "hand": "right",
+      "voice": 0,
+      "role": "melody",
+      "keep": true
+    },
+    {
+      "pitch": 62,
+      "start_beat": 1.0,
+      "duration_beats": 1.0,
+      "start_time": 0.5,
+      "end_time": 1.0,
+      "velocity": 80,
+      "hand": "right",
+      "voice": 0,
+      "role": "melody",
+      "keep": true
+    },
+    {
+      "pitch": 64,
+      "start_beat": 2.0,
+      "duration_beats": 1.0,
+      "start_time": 1.0,
+      "end_time": 1.5,
+      "velocity": 80,
+      "hand": "right",
+      "voice": 0,
+      "role": "melody",
+      "keep": true
+    },
+    {
+      "pitch": 65,
+      "start_beat": 3.0,
+      "duration_beats": 1.0,
+      "start_time": 1.5,
+      "end_time": 2.0,
+      "velocity": 80,
+      "hand": "right",
+      "voice": 0,
+      "role": "melody",
+      "keep": true
+    },
+    {
+      "pitch": 67,
+      "start_beat": 4.0,
+      "duration_beats": 1.0,
+      "start_time": 2.0,
+      "end_time": 2.5,
+      "velocity": 80,
+      "hand": "right",
+      "voice": 0,
+      "role": "melody",
+      "keep": true
+    },
+    {
+      "pitch": 69,
+      "start_beat": 5.0,
+      "duration_beats": 1.0,
+      "start_time": 2.5,
+      "end_time": 3.0,
+      "velocity": 80,
+      "hand": "right",
+      "voice": 0,
+      "role": "melody",
+      "keep": true
+    },
+    {
+      "pitch": 71,
+      "start_beat": 6.0,
+      "duration_beats": 1.0,
+      "start_time": 3.0,
+      "end_time": 3.5,
+      "velocity": 80,
+      "hand": "right",
+      "voice": 0,
+      "role": "melody",
+      "keep": true
+    },
+    {
+      "pitch": 72,
+      "start_beat": 7.0,
+      "duration_beats": 1.0,
+      "start_time": 3.5,
+      "end_time": 4.0,
+      "velocity": 80,
+      "hand": "right",
+      "voice": 0,
+      "role": "melody",
+      "keep": true
+    }
+  ],
+  "expected": {
+    "meter": "4/4",
+    "key": "C",
+    "voice_count_rh": 1,
+    "keep_all_octaves": false,
+    "notation_plan_required": true,
+    "check_hands": true
+  },
+  "expected_hands": {
+    "60": "right",
+    "62": "right",
+    "64": "right",
+    "65": "right",
+    "67": "right",
+    "69": "right",
+    "71": "right",
+    "72": "right"
+  },
+  "expected_meter": "4/4",
+  "expected_key": "C",
+  "expected_voice_assignments": [
+    {
+      "pitch": 60,
+      "start_beat": 0.0,
+      "voice": 0,
+      "hand": "right"
+    },
+    {
+      "pitch": 62,
+      "start_beat": 1.0,
+      "voice": 0,
+      "hand": "right"
+    },
+    {
+      "pitch": 64,
+      "start_beat": 2.0,
+      "voice": 0,
+      "hand": "right"
+    },
+    {
+      "pitch": 65,
+      "start_beat": 3.0,
+      "voice": 0,
+      "hand": "right"
+    },
+    {
+      "pitch": 67,
+      "start_beat": 4.0,
+      "voice": 0,
+      "hand": "right"
+    },
+    {
+      "pitch": 69,
+      "start_beat": 5.0,
+      "voice": 0,
+      "hand": "right"
+    },
+    {
+      "pitch": 71,
+      "start_beat": 6.0,
+      "voice": 0,
+      "hand": "right"
+    },
+    {
+      "pitch": 72,
+      "start_beat": 7.0,
+      "voice": 0,
+      "hand": "right"
+    }
+  ]
+}

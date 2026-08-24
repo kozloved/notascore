@@ -1,0 +1,24 @@
+{
+  "id": "midi_6_8",
+  "category": "midi_ingest",
+  "description": "MIDI file with an explicit 6/8 time signature.",
+  "tempo_bpm": 120,
+  "time_signature": "6/8",
+  "key": "C",
+  "ci": true,
+  "generation": {
+    "kind": "synthetic_midi",
+    "seed": 0,
+    "sample_rate": 22050,
+    "copyrighted": false,
+    "source": "benchmark.fixtures.catalog"
+  },
+  "expected": {
+    "meter": "6/8",
+    "key": "C",
+    "voice_count_rh": 1,
+    "keep_all_octaves": false,
+    "notation_plan_required": true,
+    "check_hands": true
+  }
+}
