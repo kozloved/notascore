@@ -60,9 +60,9 @@ def test_parse_mode():
 
 
 def test_mt3_unconfigured_raises(tmp_path, monkeypatch):
-    monkeypatch.delenv("MT3_ENDPOINT", raising=False)
-    monkeypatch.delenv("MT3_TRANSCRIBE_COMMAND", raising=False)
-    monkeypatch.delenv("MT3_API_KEY", raising=False)
+    monkeypatch.setenv("MT3_ENDPOINT", "")
+    monkeypatch.setenv("MT3_TRANSCRIBE_COMMAND", "")
+    monkeypatch.setenv("MT3_API_KEY", "")
     assert mt3_available() is False
     assert mt3_status()["available"] is False
     with pytest.raises(TranscriptionError, match="not configured"):
@@ -132,8 +132,8 @@ def test_get_engine_quality_no_fallback(monkeypatch):
 
 
 def test_get_engine_quality_unconfigured(monkeypatch):
-    monkeypatch.delenv("MT3_ENDPOINT", raising=False)
-    monkeypatch.delenv("MT3_TRANSCRIBE_COMMAND", raising=False)
+    monkeypatch.setenv("MT3_ENDPOINT", "")
+    monkeypatch.setenv("MT3_TRANSCRIBE_COMMAND", "")
     with pytest.raises(TranscriptionError, match="not configured"):
         get_engine(mode="quality")
 
@@ -145,8 +145,8 @@ def test_get_engine_fast_still_fallback(monkeypatch):
 
 
 def test_midi_ignores_quality_and_skips_mt3(tmp_path, monkeypatch):
-    monkeypatch.delenv("MT3_ENDPOINT", raising=False)
-    monkeypatch.delenv("MT3_TRANSCRIBE_COMMAND", raising=False)
+    monkeypatch.setenv("MT3_ENDPOINT", "")
+    monkeypatch.setenv("MT3_TRANSCRIBE_COMMAND", "")
     midi = pretty_midi.PrettyMIDI(initial_tempo=100)
     inst = pretty_midi.Instrument(program=0, name="RH")
     inst.notes.append(pretty_midi.Note(velocity=80, pitch=72, start=0.0, end=0.5))
@@ -194,9 +194,12 @@ def test_queue_timeout_quality_uses_mt3_budget(monkeypatch):
 
 
 def test_health_includes_quality(monkeypatch):
+    from main import health
+
     monkeypatch.delenv("MT3_ENDPOINT", raising=False)
     monkeypatch.delenv("MT3_TRANSCRIBE_COMMAND", raising=False)
-    from main import health
+    monkeypatch.setenv("MT3_ENDPOINT", "")
+    monkeypatch.setenv("MT3_TRANSCRIBE_COMMAND", "")
 
     payload = health()
     assert payload["quality"]["available"] is False
@@ -210,8 +213,8 @@ def test_quality_upload_rejected_when_unconfigured(tmp_path, monkeypatch):
 
     import main as app_main
 
-    monkeypatch.delenv("MT3_ENDPOINT", raising=False)
-    monkeypatch.delenv("MT3_TRANSCRIBE_COMMAND", raising=False)
+    monkeypatch.setenv("MT3_ENDPOINT", "")
+    monkeypatch.setenv("MT3_TRANSCRIBE_COMMAND", "")
     monkeypatch.setattr(app_main.queue_service, "enqueue_job", lambda *a, **k: None)
     wav = tmp_path / "a.wav"
     wav.write_bytes(b"RIFF")
