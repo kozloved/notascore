@@ -47,6 +47,8 @@ def notes_to_events(
         elif key in accomp_keys:
             role_name = "accompaniment"
 
+        # Roles stay on `role` only. Never convert melody/bass into a hand.
+        # Incoming note.hand is a hint (or a lock if hand_locked is set).
         events.append(
             MusicalEvent(
                 pitch=note.pitch,
@@ -55,6 +57,7 @@ def notes_to_events(
                 velocity=note.velocity,
                 instrument=instrument,
                 hand=note.hand if note.hand is not None else Hand.UNKNOWN,
+                hand_locked=bool(getattr(note, "hand_locked", False)),
                 confidence=note.confidence,
                 source_backend=note.source_backend or source_backend,
                 note_id=note.note_id,

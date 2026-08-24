@@ -434,7 +434,28 @@ class UnderstandingPipeline:
             meter_confidence=selected_meter.confidence,
             hand_assignments=hand_counts,
             voice_assignments=voice_counts,
-            extra={"role_confidence": role.confidence},
+            extra={
+                "role_confidence": role.confidence,
+                **(
+                    {
+                        "hand_decisions": [
+                            {
+                                "note_id": d.note_id,
+                                "pitch": d.pitch,
+                                "start_beat": d.start_beat,
+                                "selected": d.selected,
+                                "confidence": d.confidence,
+                                "competing_hand": d.competing_hand,
+                                "competing_cost_delta": d.competing_cost_delta,
+                                "factors": d.factors,
+                            }
+                            for d in self.hand_separator.last_decisions
+                        ]
+                    }
+                    if _env_enabled("TRANSCRIPTION_DEBUG_HANDS", default=False)
+                    else {}
+                ),
+            },
         )
         self.last_debug = debug
         debug.write_json(out_dir / f"{job_id}.debug.json")
