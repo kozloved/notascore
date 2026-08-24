@@ -73,6 +73,7 @@ class NoteEvent:
     end_time: float
     velocity: int = 64
     confidence: float = 1.0
+    hand: Hand = Hand.UNKNOWN
 
     @property
     def duration(self) -> float:

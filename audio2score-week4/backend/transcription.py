@@ -133,6 +133,14 @@ class BasicPitchEngine:
     name = "basic_pitch"
 
     def transcribe(self, audio_path, job_id):
+        from mir.midi_ingest import is_midi_path
+
+        audio_path = Path(audio_path)
+        if is_midi_path(audio_path):
+            from mir.pipeline import UnderstandingPipeline
+
+            return UnderstandingPipeline().transcribe(audio_path, job_id)
+
         import pretty_midi
 
         from adapters.basic_pitch_backend import BasicPitchBackend
@@ -271,6 +279,10 @@ class FallbackEngine:
         self.fallback = fallback
 
     def transcribe(self, audio_path, job_id):
+        from mir.midi_ingest import is_midi_path
+
+        if is_midi_path(audio_path):
+            return self.primary.transcribe(audio_path, job_id)
         try:
             return self.primary.transcribe(audio_path, job_id)
         except Exception as exc:

@@ -22,11 +22,21 @@ CORS_ORIGIN = os.getenv(
     "http://localhost:3000,http://127.0.0.1:3000",
 )
 
-ALLOWED_EXTENSIONS = {
+ALLOWED_AUDIO_EXTENSIONS = {
     ".wav",
     ".mp3",
     ".m4a",
     ".flac",
+}
+ALLOWED_MIDI_EXTENSIONS = {".mid", ".midi"}
+ALLOWED_EXTENSIONS = ALLOWED_AUDIO_EXTENSIONS | ALLOWED_MIDI_EXTENSIONS
+MIDI_CONTENT_TYPES = {
+    "audio/midi",
+    "audio/mid",
+    "audio/x-midi",
+    "audio/sp-midi",
+    "application/midi",
+    "application/x-midi",
 }
 
 
@@ -112,23 +122,25 @@ async def upload(file: UploadFile = File(...)):
     if not is_allowed_filename(file.filename):
         raise HTTPException(
             status_code=400,
-            detail="Invalid file type. Allowed types: .wav, .mp3, .m4a, .flac",
+            detail="Invalid file type. Allowed types: .wav, .mp3, .m4a, .flac, .mid, .midi",
         )
 
-    # Browsers send audio/*; CLI tools often send application/octet-stream.
+    # Browsers send audio/* or audio/midi; CLI tools often send application/octet-stream.
     # Trust the allowed extension when the declared type is missing or generic.
     content_type = (file.content_type or "").lower()
+    suffix = Path(file.filename).suffix.lower()
+    midi_upload = suffix in ALLOWED_MIDI_EXTENSIONS
     if content_type and not (
         content_type.startswith("audio/")
         or content_type in ("application/octet-stream", "binary/octet-stream")
+        or (midi_upload and content_type in MIDI_CONTENT_TYPES)
     ):
         raise HTTPException(
             status_code=400,
-            detail="Invalid content type. Please upload an audio file.",
+            detail="Invalid content type. Please upload an audio or MIDI file.",
         )
 
     job_id = str(uuid.uuid4())
-    suffix = Path(file.filename).suffix.lower()
 
     temp_path = storage_service.LOCAL_TEMP_DIR / f"{job_id}.part"
 

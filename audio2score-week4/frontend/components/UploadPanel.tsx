@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { resultDownloadUrl, uploadAudio, type Job } from "../lib/api";
 import { getJob } from "../lib/jobs";
 
-const ACCEPTED = ".wav,.mp3,.m4a,.flac,audio/*";
+const ACCEPTED = ".wav,.mp3,.m4a,.flac,.mid,.midi,audio/*,audio/midi";
 
 function statusLabel(status?: string) {
   switch (status) {
@@ -134,10 +134,10 @@ export default function UploadPanel() {
           {file ? (
             <span className="block truncate font-medium">{file.name}</span>
           ) : (
-            <span className="text-slate">Choose audio file</span>
+            <span className="text-slate">Choose audio or MIDI file</span>
           )}
           <span className="mt-0.5 block text-xs text-slate">
-            WAV, MP3, M4A, or FLAC
+            WAV, MP3, M4A, FLAC, or MIDI
           </span>
         </button>
 

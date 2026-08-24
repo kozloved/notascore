@@ -117,6 +117,15 @@ Instrument classification no longer treats a plain sine as voice or guitar.
 - Vibrato + monophonic harmonic tone → voice; noise bursts → drums
 - Close piano vs guitar scores keep piano (Fast mode default)
 
+## Phase 7 — MIDI-file ingest (implemented)
+
+Uploaded `.mid` / `.midi` files join at CMR (no Basic Pitch):
+
+- Notes, tempo map, time signature, and sustain CC64 come from the file
+- RH/LH track names are kept; otherwise HandSeparator splits the piano
+- Drum tracks are skipped
+- The original file is the raw DAW MIDI download; score MIDI / MusicXML use the grand-staff writer
+
 ## How to enable MIDICleaner safely
 
 1. Keep `TRANSCRIPTION_PIPELINE=legacy`.

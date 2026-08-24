@@ -203,7 +203,7 @@ export default function Home() {
             <span className="note" aria-hidden="true">𝅘𝅥𝅯</span>
           </h1>
           <p className="tagline">
-            AI-powered audio to sheet music. Upload a track and receive MusicXML.
+            AI-powered audio to sheet music. Upload a track or MIDI file and receive MusicXML.
           </p>
           {health && (
             <span className="badge">
@@ -218,7 +218,7 @@ export default function Home() {
             id="audio-file"
             className="file-input"
             type="file"
-            accept=".wav,.mp3,.m4a,.flac,audio/*"
+            accept=".wav,.mp3,.m4a,.flac,.mid,.midi,audio/*,audio/midi"
             onChange={handleFileChange}
             disabled={isUploading}
           />
@@ -247,9 +247,9 @@ export default function Home() {
               <path d="M5 20h14" />
             </svg>
             <span className="dz-title">
-              {file ? file.name : "Choose an audio file"}
+              {file ? file.name : "Choose an audio or MIDI file"}
             </span>
-            <span className="dz-sub">WAV, MP3, M4A or FLAC · up to 25 MB</span>
+            <span className="dz-sub">WAV, MP3, M4A, FLAC or MIDI · up to 25 MB</span>
           </label>
 
           <button

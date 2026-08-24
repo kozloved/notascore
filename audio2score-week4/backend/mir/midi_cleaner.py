@@ -62,8 +62,8 @@ class MIDICleaner:
             cur = group[0]
             for nxt in group[1:]:
                 if abs(nxt.start_time - cur.start_time) <= self.merge_threshold_sec:
-                    cur = NoteEvent(
-                        pitch=pitch,
+                    cur = replace(
+                        cur,
                         start_time=min(cur.start_time, nxt.start_time),
                         end_time=max(cur.end_time, nxt.end_time),
                         velocity=max(cur.velocity, nxt.velocity),
