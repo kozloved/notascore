@@ -7,7 +7,7 @@ from pathlib import Path
 import pretty_midi
 from music21 import converter, note as m21note, stream, tempo as m21tempo
 
-from mir.types import Hand, MusicalEvent, ScoreMeta
+from mir.types import MusicalEvent, ScoreMeta, TempoMap
 
 
 class NotationWriter:
@@ -44,6 +44,7 @@ class NotationWriter:
         else:
             score.insert(0, m21tempo.MetronomeMark(number=bpm))
 
+        self._apply_tempo_map(score, meta)
         self._apply_dynamics(score, events)
         self._apply_articulations(score, events)
 
@@ -65,6 +66,7 @@ class NotationWriter:
             n.quarterLength = max(0.25, ev.duration_beats)
             part.insert(ev.start_beat, n)
         s.insert(0, part)
+        self._apply_tempo_map(s, meta)
         return s
 
     def _events_to_midi(
@@ -105,6 +107,26 @@ class NotationWriter:
 
         midi.write(str(path))
         return path
+
+    def _apply_tempo_map(self, score, meta: ScoreMeta) -> None:
+        tempo_map: TempoMap | None = meta.tempo_map
+        if tempo_map is None or len(tempo_map.sorted_points()) < 2:
+            return
+        from transcription import snap_to_standard_tempo
+
+        target = score.parts[0] if getattr(score, "parts", None) else score
+        last_bpm = float(meta.display_tempo_bpm or 120)
+        for pt in tempo_map.sorted_points():
+            if pt.time_sec <= 1e-6:
+                continue
+            snapped = float(snap_to_standard_tempo(pt.bpm))
+            if abs(snapped - last_bpm) / max(last_bpm, 1.0) < 0.08:
+                continue
+            offset = tempo_map.seconds_to_beats(pt.time_sec)
+            if offset <= 0:
+                continue
+            target.insert(offset, m21tempo.MetronomeMark(number=int(snapped)))
+            last_bpm = snapped
 
     def _apply_dynamics(self, score, events: list[MusicalEvent]) -> None:
         from music21 import dynamics as m21dyn

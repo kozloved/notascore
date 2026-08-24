@@ -62,6 +62,7 @@ def build_score_meta(
     return ScoreMeta(
         display_tempo_bpm=display_bpm,
         segments=list(segments),
+        tempo_map=tempo_map,
         instrument_prediction=InstrumentPrediction(
             instrument=instrument,
             confidence=0.8,

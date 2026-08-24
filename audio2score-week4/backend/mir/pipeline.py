@@ -8,6 +8,11 @@ from pathlib import Path
 from adapters.basic_pitch_backend import BasicPitchBackend
 from adapters.classical_dsp_backend import ClassicalDspBackend
 from adapters.mt3_backend import MT3Backend
+from audio_engine.beat_tracker import (
+    BeatTracker,
+    align_tempo_map,
+    constant_tempo_map,
+)
 from audio_engine.chord_detector import ChordDetector
 from audio_engine.instrument_classifier import InstrumentClassifier
 from audio_engine.normalizer import AudioNormalizer
@@ -21,15 +26,17 @@ from mir.dynamics import DynamicsExtractor
 from mir.hand_separator import HandSeparator
 from mir.midi_cleaner import MIDICleaner
 from mir.raw_midi import write_job_raw_midi
-from mir.types import InstrumentKind, MusicalEvent, NoteEvent, ScoreMeta, TempoMap
+from mir.types import MusicalEvent, NoteEvent, TempoMap
 from mir.voice_separator import VoiceSeparator
 from notation_engine.writer import NotationWriter
 from transcription import (
     QUANTIZE_DIVISORS,
     TranscriptionError,
     _env_enabled,
-    _estimate_tempo,
     _should_analyze_piano,
+    _use_beat_tracker,
+    detect_tempo,
+    refine_tempo,
     snap_to_standard_tempo,
 )
 
@@ -62,6 +69,7 @@ class UnderstandingPipeline:
         self.articulation = ArticulationDetector()
         self.phrase_detector = PhraseDetector()
         self.notation = NotationWriter()
+        self.beat_tracker = BeatTracker()
         if use_mir_layers is None:
             use_mir_layers = _env_enabled("TRANSCRIPTION_USE_MIR_LAYERS", default=True)
         self.use_mir_layers = use_mir_layers
@@ -101,12 +109,8 @@ class UnderstandingPipeline:
             )
 
         onsets = [n.start_time for n in notes]
-        bpm = _estimate_tempo(audio_path, onsets)
-        from mir.types import TempoPoint
-
-        tempo_map = TempoMap(
-            points=[TempoPoint(time_sec=0.0, beat=0.0, bpm=bpm, confidence=0.9)]
-        )
+        tempo_map = self._build_tempo_map(normalized, audio_path, onsets)
+        bpm = tempo_map.bpm_at(0.0)
 
         self.chord_detector.detect(notes)
         role = self.role_separator.separate(notes)
@@ -124,8 +128,7 @@ class UnderstandingPipeline:
             events = self.voice_separator.separate(events)
             events = self.dynamics.extract(events)
             events = self.articulation.detect(events)
-            phrase_map = self.phrase_detector.detect_from_notes(notes, bpm=bpm)
-            events = self.phrase_detector.apply(events, phrase_map, bpm=bpm)
+            events = self.phrase_detector.assign(events)
 
         meta = build_score_meta(
             tempo_map,
@@ -136,26 +139,20 @@ class UnderstandingPipeline:
 
         print(
             f"[Understanding] instrument={prediction.instrument.value} "
-            f"tempo={bpm:.1f} events={len(events)} mir_layers={self.use_mir_layers} "
+            f"tempo={bpm:.1f} tempo_points={len(tempo_map.points)} "
+            f"events={len(events)} mir_layers={self.use_mir_layers} "
             f"(job={job_id})"
         )
 
-        if events:
-            write_job_raw_midi(
-                audio_path,
-                job_id,
-                events=events,
-                bpm=bpm,
-                pedal_events=pedal_events,
-            )
-        else:
-            write_job_raw_midi(
-                audio_path,
-                job_id,
-                notes,
-                bpm=bpm,
-                pedal_events=pedal_events,
-            )
+        write_job_raw_midi(
+            audio_path,
+            job_id,
+            notes,
+            bpm=bpm,
+            events=events if events else None,
+            pedal_events=pedal_events,
+            tempo_map=tempo_map,
+        )
 
         return self.notation.write_musicxml(
             events,
@@ -165,6 +162,15 @@ class UnderstandingPipeline:
             quantize_divisors=QUANTIZE_DIVISORS,
             fallback_bpm=bpm,
         )
+
+    def _build_tempo_map(self, normalized, audio_path, onsets: list[float]) -> TempoMap:
+        if _use_beat_tracker():
+            tracked = self.beat_tracker.track_stable(normalized)
+            seed = tracked.bpm_at(0.0)
+            refined = refine_tempo(onsets, seed)
+            return align_tempo_map(tracked, refined)
+        seed = detect_tempo(audio_path)
+        return constant_tempo_map(refine_tempo(onsets, seed))
 
     @staticmethod
     def notes_from_events(events: list[MusicalEvent], bpm: float) -> list[NoteEvent]:

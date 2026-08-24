@@ -73,7 +73,8 @@ so production jobs fall back to enhanced legacy if the full MIR path fails.
 
 ```
 Audio → Normalizer → Classifier → Basic Pitch → MIDICleaner → PianoAnalyzer
-     → CMR (beats) → Hand/Voice/Dynamics/Articulation/Phrases → Notation → MusicXML
+     → BeatTracker TempoMap → CMR → Hand/Voice/Dynamics/Articulation/Phrases
+     → Notation → MusicXML + DAW MIDI (tempo track) + score MIDI
 ```
 
 **Validate before/after deploy:**
@@ -85,6 +86,16 @@ cd audio2score-week4/backend
 ```
 
 **Rollback:** set `TRANSCRIPTION_PIPELINE=legacy` and restart worker.
+
+## Phase 4 — Tempo map (implemented)
+
+Understanding jobs no longer collapse BeatTracker to a single BPM. The pipeline:
+
+1. Tracks beats, then **stabilizes** per-beat jitter into regions (≈8% change held ≥2s).
+2. Scales the whole map so time 0 matches onset-refined global tempo.
+3. Converts notes → CMR beats with `TempoMap.seconds_to_beats`.
+4. Writes DAW MIDI in **original seconds** plus a tempo track.
+5. Inserts extra metronome marks on the score when tempo actually changes.
 
 ## How to enable MIDICleaner safely
 
