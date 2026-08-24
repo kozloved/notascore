@@ -129,7 +129,7 @@ def gemini_config() -> GeminiConfig:
         max_drop_fraction=_env_float("GEMINI_MAX_DROP_FRACTION", 0.15),
         cache_ttl_seconds=_env_int("GEMINI_CACHE_TTL_SECONDS", 7 * 24 * 3600),
         cache_dir=cache_root / "gemini-cache",
-        timeout_seconds=_env_int("GEMINI_TIMEOUT_SECONDS", 60),
+        timeout_seconds=_env_int("GEMINI_TIMEOUT_SECONDS", 180),
         max_audio_seconds=_env_float("GEMINI_MAX_AUDIO_SECONDS", 60.0),
     )
 

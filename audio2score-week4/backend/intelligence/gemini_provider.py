@@ -129,10 +129,46 @@ def _parse_json_object(text: str) -> dict[str, Any]:
         if text.lower().startswith("json"):
             text = text[4:]
         text = text.strip()
+    payload: Any = None
     try:
         payload = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("Gemini did not return JSON") from exc
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                payload = json.loads(text[start : end + 1])
+            except json.JSONDecodeError:
+                payload = None
+        if payload is None:
+            raise RuntimeError("Gemini did not return JSON") from None
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Gemini did not return JSON") from exc
+    if isinstance(payload, list):
+        payload = _object_from_list(payload)
+    if not isinstance(payload, dict):
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                payload = json.loads(text[start : end + 1])
+            except json.JSONDecodeError:
+                payload = None
     if not isinstance(payload, dict):
         raise RuntimeError("Gemini JSON was not an object")
+    return payload
+
+
+def _object_from_list(payload: list) -> dict[str, Any] | list:
+    if payload and all(isinstance(item, dict) for item in payload):
+        looks_like_corrections = any(
+            "type" in item and "overall_confidence" not in item for item in payload
+        )
+        if looks_like_corrections:
+            return {"corrections": payload, "overall_confidence": 0.0}
+    if len(payload) == 1 and isinstance(payload[0], dict):
+        return payload[0]
     return payload

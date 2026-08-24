@@ -65,3 +65,16 @@ def test_gemini_provider_parses_json_candidate(tmp_path, monkeypatch):
     )
     assert analysis.overall_confidence == 0.81
     assert usage["prompt_tokens"] == 200
+
+
+def test_parse_json_object_accepts_array_and_fenced_text():
+    from intelligence.gemini_provider import _parse_json_object
+
+    wrapped = _parse_json_object('```json\n[{"overall_confidence": 0.5}]\n```')
+    assert wrapped["overall_confidence"] == 0.5
+    listed = _parse_json_object(
+        json.dumps([{"type": "pitch", "time_start": 0, "time_end": 0.2, "confidence": 0.9}])
+    )
+    assert listed["corrections"][0]["type"] == "pitch"
+    noisy = _parse_json_object('prefix {"overall_confidence": 0.4, "corrections": []} trailing')
+    assert noisy["overall_confidence"] == 0.4

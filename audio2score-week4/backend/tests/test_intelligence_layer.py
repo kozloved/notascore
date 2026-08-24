@@ -289,3 +289,36 @@ def test_provider_failure_does_not_break_pipeline(tmp_path, monkeypatch):
     )
     assert result.notes == notes
     assert result.applied == 0
+    assert result.skipped is True
+    assert result.meta.extra.get("gemini", {}).get("skipped") is True
+
+
+def test_audio_timeout_retries_json_only(tmp_path, monkeypatch):
+    import numpy as np
+    from audio_engine.normalizer import NormalizedAudio
+
+    for key, value in _cfg(tmp_path, ENABLE_GEMINI_AUDIO_INPUT="1").items():
+        monkeypatch.setenv(key, value)
+    cfg = gemini_config()
+    calls = {"audio": 0, "json": 0}
+
+    class TimeoutThenOk(_FakeProvider):
+        def analyse(self, packet, *, model, audio_bytes, audio_mime, task):
+            if audio_bytes:
+                calls["audio"] += 1
+                raise TimeoutError("The read operation timed out")
+            calls["json"] += 1
+            return (
+                GeminiAnalysis(overall_confidence=0.77, model=model),
+                {"prompt_tokens": 10, "output_tokens": 5},
+            )
+
+    service = GeminiMusicAnalysisService(cfg, provider=TimeoutThenOk())
+    audio = NormalizedAudio(
+        samples=np.zeros(2205, dtype=np.float32),
+        sample_rate=22050,
+    )
+    out = service.analyse_music(_packet(), job_id="timeout", normalized=audio)
+    assert calls["audio"] == 1
+    assert calls["json"] == 1
+    assert out.overall_confidence == 0.77

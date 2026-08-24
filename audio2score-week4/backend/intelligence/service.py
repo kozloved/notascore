@@ -13,7 +13,7 @@ from intelligence.gemini_provider import GeminiProvider
 from intelligence.packet import packet_for_regions
 from intelligence.provider import MusicAnalysisProvider
 from intelligence.router import MusicalAnalysisRouter, RouteDecision
-from intelligence.schemas import EMPTY_ANALYSIS, GeminiAnalysis, MusicalAnalysisPacket
+from intelligence.schemas import GeminiAnalysis, MusicalAnalysisPacket
 from audio_engine.normalizer import NormalizedAudio
 
 
@@ -135,26 +135,28 @@ class GeminiMusicAnalysisService:
                 audio_hash = hash_bytes(audio_bytes)
 
         started = time.perf_counter()
+        send_audio = bool(audio_bytes) and self.cfg.audio_input
         try:
-            analysis, usage = self.provider.analyse(
+            analysis, usage, used_audio = self._call_provider(
                 packet,
-                model=model_name,
-                audio_bytes=audio_bytes if self.cfg.audio_input else None,
-                audio_mime="audio/wav",
+                model_name=model_name,
+                audio_bytes=audio_bytes if send_audio else None,
                 task=task,
             )
         except Exception as exc:
             print(f"[Gemini] analysis failed ({exc}); continuing without patches")
-            return EMPTY_ANALYSIS
+            failed = GeminiAnalysis(raw={"_error": str(exc)[:400]})
+            return failed
 
         latency_ms = (time.perf_counter() - started) * 1000.0
         text_chars = len(json.dumps(packet_dict))
         output_tokens = int(usage.get("output_tokens") or 0)
         prompt_tokens = int(usage.get("prompt_tokens") or 0) or None
+        billed_audio = audio_seconds if used_audio else 0.0
         input_tokens, cost = estimate_cost(
             model_name,
             text_chars=text_chars,
-            audio_seconds=audio_seconds if self.cfg.audio_input else 0.0,
+            audio_seconds=billed_audio,
             output_tokens=output_tokens,
             prompt_tokens=prompt_tokens,
         )
@@ -165,8 +167,8 @@ class GeminiMusicAnalysisService:
         self._log_cost(
             job_id=job_id or packet.job_id,
             model=model_name,
-            input_type="audio+json" if audio_bytes else "json",
-            audio_duration=audio_seconds,
+            input_type="audio+json" if used_audio else "json",
+            audio_duration=billed_audio,
             text_chars=text_chars,
             output_tokens=output_tokens,
             latency_ms=latency_ms,
@@ -175,6 +177,36 @@ class GeminiMusicAnalysisService:
         )
         analysis.model = model_name
         return analysis
+
+    def _call_provider(
+        self,
+        packet: MusicalAnalysisPacket,
+        *,
+        model_name: str,
+        audio_bytes: bytes | None,
+        task: str,
+    ) -> tuple[GeminiAnalysis, dict, bool]:
+        try:
+            analysis, usage = self.provider.analyse(
+                packet,
+                model=model_name,
+                audio_bytes=audio_bytes,
+                audio_mime="audio/wav",
+                task=task,
+            )
+            return analysis, usage, bool(audio_bytes)
+        except Exception as exc:
+            if audio_bytes and "timed out" in str(exc).lower():
+                print("[Gemini] audio call timed out; retrying JSON-only")
+                analysis, usage = self.provider.analyse(
+                    packet,
+                    model=model_name,
+                    audio_bytes=None,
+                    audio_mime="audio/wav",
+                    task=task,
+                )
+                return analysis, usage, False
+            raise
 
     def _log_cost(
         self,

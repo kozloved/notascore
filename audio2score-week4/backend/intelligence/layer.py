@@ -127,6 +127,24 @@ def _enhance(
     lite = service.analyse_music(
         packet, job_id=job_id, normalized=normalized, audio_hash=audio_hash
     )
+    if lite.raw.get("_error"):
+        extra = dict(meta.extra or {})
+        extra["gemini"] = {
+            "error": lite.raw.get("_error"),
+            "applied": 0,
+            "rejected": 0,
+            "skipped": True,
+        }
+        return EnhancementResult(
+            notes=notes,
+            events=events,
+            meta=replace(meta, extra=extra),
+            tempo_map=tempo_map,
+            analysis=lite,
+            applied=0,
+            rejected=0,
+            skipped=True,
+        )
     route = service.route(packet, lite)
     analysis = lite
     allow_deep = False

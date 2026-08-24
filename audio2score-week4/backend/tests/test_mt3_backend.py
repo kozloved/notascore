@@ -200,6 +200,9 @@ def test_health_includes_quality(monkeypatch):
     monkeypatch.delenv("MT3_TRANSCRIBE_COMMAND", raising=False)
     monkeypatch.setenv("MT3_ENDPOINT", "")
     monkeypatch.setenv("MT3_TRANSCRIBE_COMMAND", "")
+    monkeypatch.setenv("ENABLE_GEMINI_MUSIC_ANALYSIS", "0")
+    monkeypatch.setenv("GEMINI_ENABLED", "0")
+    monkeypatch.setenv("GEMINI_API_KEY", "")
 
     payload = health()
     assert payload["quality"]["available"] is False
