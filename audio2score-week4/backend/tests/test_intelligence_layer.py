@@ -336,6 +336,8 @@ def test_validator_applies_medium_ghost_and_second_drop():
         max_audio_seconds=30,
     )
     notes = _notes_simple() + [
+        NoteEvent(pitch=69, start_time=1.0, end_time=1.4, velocity=70, confidence=0.8),
+        NoteEvent(pitch=71, start_time=1.4, end_time=1.8, velocity=70, confidence=0.8),
         NoteEvent(pitch=72, start_time=0.0, end_time=0.4, velocity=18, confidence=0.2),
         NoteEvent(pitch=84, start_time=0.0, end_time=0.3, velocity=16, confidence=0.18),
     ]
