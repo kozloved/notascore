@@ -14,10 +14,9 @@ See [deploy/README.md](deploy/README.md) for Docker Compose + Nginx + Let's Encr
 
 - Redis Queue worker
 - Storage abstraction
-- Transcription engine system
-- Placeholder MT3 engine by default
-- Command-based MT3 engine option
-- Example MT3 command script
+- Fast (Basic Pitch) and Quality (MR-MT3) transcription
+- Per-job Fast / Quality toggle on upload
+- Dummy MT3 MIDI command + HTTP contract scripts
 - Worker that calls the transcription engine
 - Frontend that shows engine info
 
@@ -89,48 +88,38 @@ cp .env.local.example .env.local
 npm run dev
 ```
 
-## Transcription Engines
+## Transcription modes
 
-The NotaScore Transcription Engine supports two modes.
+Jobs choose **Fast** or **Quality** at upload (`mode=fast|quality`). MIDI files skip note detection and ignore the mode.
 
-### Placeholder mode
+### Fast (default)
 
-This is the default.
+Basic Pitch on this machine. Same cleaner → CMR → grand-staff path as before.
+
+### Quality (MR-MT3)
+
+Quality never falls back to Fast. Configure a GPU worker **or** a command that writes **MIDI** (not MusicXML):
 
 ```env
-TRANSCRIPTION_ENGINE=placeholder
+MT3_ENDPOINT=http://127.0.0.1:8090/transcribe
+MT3_API_KEY=
+MT3_TIMEOUT_SECONDS=300
 ```
 
-It generates placeholder MusicXML.
+The worker must accept `POST` with multipart field `file` and respond with MIDI bytes (`audio/midi`) or JSON `{"midi_base64":"..."}`.
 
-### Command mode
-
-Use this when you have a real MT3 command or script.
+Alternatively:
 
 ```env
-TRANSCRIPTION_ENGINE=command
 MT3_TRANSCRIBE_COMMAND=python scripts/example_mt3.py {input} {output}
 MT3_TIMEOUT_SECONDS=300
 ```
 
-The command must:
-
-1. Read the input audio file from `{input}`.
-2. Write MusicXML output to `{output}`.
-
-## Example MT3 Script
-
-An example command script is included:
+`{output}` is a `.mid` path. Dummy helpers:
 
 ```text
 backend/scripts/example_mt3.py
+backend/scripts/example_mt3_http.py
 ```
 
-To test it, set:
-
-```env
-TRANSCRIPTION_ENGINE=command
-MT3_TRANSCRIBE_COMMAND=python scripts/example_mt3.py {input} {output}
-```
-
-Then restart the API and worker.
+`GET /health` includes `quality.available`. The UI greys out Quality until a worker is configured.

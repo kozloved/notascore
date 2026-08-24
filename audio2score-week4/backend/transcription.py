@@ -17,6 +17,8 @@ QUANTIZE_DIVISORS = (4, 3)
 DEFAULT_TEMPO = 120.0
 MIN_TEMPO = 50.0
 MAX_TEMPO = 200.0
+ALLOWED_MODES = ("fast", "quality")
+DEFAULT_FAST_QUEUE_TIMEOUT = 600
 
 # Classic (Maelzel) metronome graduations, used to snap the *printed* tempo to a
 # conventional value.
@@ -293,7 +295,45 @@ class FallbackEngine:
             return self.fallback.transcribe(audio_path, job_id)
 
 
-def get_engine():
+def parse_transcription_mode(mode: str | None) -> str:
+    """Return 'fast' or 'quality'. Invalid values raise ValueError."""
+    value = (mode or "fast").strip().lower()
+    if value not in ALLOWED_MODES:
+        raise ValueError("Invalid transcription mode. Use 'fast' or 'quality'.")
+    return value
+
+
+def queue_timeout_for_mode(mode: str) -> int:
+    """RQ job_timeout: Quality waits on a remote GPU, so it needs more room."""
+    resolved = parse_transcription_mode(mode)
+    if resolved != "quality":
+        return DEFAULT_FAST_QUEUE_TIMEOUT
+    from adapters.mt3_backend import mt3_settings
+
+    return max(900, int(mt3_settings()["timeout"]) + 120)
+
+
+def get_engine(mode: str | None = None, filename: str | None = None):
+    from mir.midi_ingest import is_midi_path
+
+    if filename and is_midi_path(filename):
+        from mir.pipeline import UnderstandingPipeline
+
+        return UnderstandingPipeline()
+
+    resolved = parse_transcription_mode(mode)
+    if resolved == "quality":
+        from adapters.mt3_backend import MT3Backend, mt3_available
+        from mir.pipeline import UnderstandingPipeline
+
+        if not mt3_available():
+            raise TranscriptionError(
+                "Quality mode (MT3) is not configured. "
+                "Set MT3_ENDPOINT or MT3_TRANSCRIBE_COMMAND."
+            )
+        # Quality never falls back to Fast / Basic Pitch.
+        return UnderstandingPipeline(backend_name=MT3Backend.name)
+
     pipeline = os.getenv("TRANSCRIPTION_PIPELINE", "understanding").lower()
     if pipeline == "understanding":
         from mir.pipeline import UnderstandingPipeline

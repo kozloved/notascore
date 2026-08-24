@@ -19,10 +19,10 @@ task_queue = Queue(
 )
 
 
-def enqueue_job(job_id: str):
+def enqueue_job(job_id: str, job_timeout: int | None = None):
     return task_queue.enqueue(
         process_job,
         job_id,
-        job_timeout=600,
+        job_timeout=job_timeout or 600,
         result_ttl=86400,
     )

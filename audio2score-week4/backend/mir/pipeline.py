@@ -56,7 +56,12 @@ class UnderstandingPipeline:
 
     name = "understanding"
 
-    def __init__(self, use_mir_layers: bool | None = None):
+    def __init__(
+        self,
+        use_mir_layers: bool | None = None,
+        backend_name: str | None = None,
+    ):
+        self.backend_name = backend_name
         self.normalizer = AudioNormalizer()
         self.classifier = InstrumentClassifier()
         self.segmenter = AudioSegmenter()
@@ -90,7 +95,7 @@ class UnderstandingPipeline:
             normalized, out_dir / f"{job_id}_norm.wav"
         )
 
-        backend = get_backend()
+        backend = get_backend(self.backend_name)
         notes = backend.transcribe_notes(transcribe_path)
         raw_count = len(notes)
 

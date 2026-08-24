@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from contextlib import asynccontextmanager
@@ -85,6 +85,7 @@ def public_job(job: dict) -> dict:
         "size_bytes": job.get("size_bytes"),
         "progress": job.get("progress", 0),
         "error": job.get("error"),
+        "mode": job.get("mode") or "fast",
         "result_available": bool(job.get("result_storage_key")),
         "created_at": job.get("created_at"),
         "updated_at": job.get("updated_at"),
@@ -94,8 +95,10 @@ def public_job(job: dict) -> dict:
 @app.get("/health")
 def health():
     from adapters.basic_pitch_backend import basic_pitch_settings
+    from adapters.mt3_backend import mt3_status
 
     bp = basic_pitch_settings()
+    quality = mt3_status()
     return {
         "status": "ok",
         "engine": os.getenv("TRANSCRIPTION_ENGINE", "basic_pitch"),
@@ -108,11 +111,19 @@ def health():
         "use_mir_layers": os.getenv("TRANSCRIPTION_USE_MIR_LAYERS", "1"),
         "pipeline_fallback": os.getenv("TRANSCRIPTION_PIPELINE_FALLBACK", "1"),
         "basic_pitch": bp,
+        "quality": quality,
+        "modes": {
+            "fast": True,
+            "quality": quality["available"],
+        },
     }
 
 
 @app.post("/upload", status_code=202)
-async def upload(file: UploadFile = File(...)):
+async def upload(
+    file: UploadFile = File(...),
+    mode: str = Form("fast"),
+):
     if not file.filename:
         raise HTTPException(
             status_code=400,
@@ -125,11 +136,29 @@ async def upload(file: UploadFile = File(...)):
             detail="Invalid file type. Allowed types: .wav, .mp3, .m4a, .flac, .mid, .midi",
         )
 
+    from transcription import parse_transcription_mode, queue_timeout_for_mode
+
+    try:
+        resolved_mode = parse_transcription_mode(mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     # Browsers send audio/* or audio/midi; CLI tools often send application/octet-stream.
     # Trust the allowed extension when the declared type is missing or generic.
     content_type = (file.content_type or "").lower()
     suffix = Path(file.filename).suffix.lower()
     midi_upload = suffix in ALLOWED_MIDI_EXTENSIONS
+    if resolved_mode == "quality" and not midi_upload:
+        from adapters.mt3_backend import mt3_available
+
+        if not mt3_available():
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Quality mode is not configured. "
+                    "Set MT3_ENDPOINT or MT3_TRANSCRIBE_COMMAND."
+                ),
+            )
     if content_type and not (
         content_type.startswith("audio/")
         or content_type in ("application/octet-stream", "binary/octet-stream")
@@ -218,12 +247,16 @@ async def upload(file: UploadFile = File(...)):
         "error": None,
         "created_at": now,
         "updated_at": now,
+        "mode": resolved_mode,
     }
 
     db.create_job(job)
 
     try:
-        queue_service.enqueue_job(job_id)
+        queue_service.enqueue_job(
+            job_id,
+            job_timeout=queue_timeout_for_mode(resolved_mode),
+        )
     except Exception as exc:
         db.update_job(
             job_id,

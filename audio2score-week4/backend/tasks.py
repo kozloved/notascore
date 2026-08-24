@@ -33,7 +33,10 @@ def process_job(job_id: str):
 
         db.update_job(job_id, progress=20)
 
-        engine = transcription_service.get_engine()
+        engine = transcription_service.get_engine(
+            mode=job.get("mode") or "fast",
+            filename=job.get("filename") or str(audio_local_path),
+        )
 
         db.update_job(job_id, progress=35)
 

@@ -24,7 +24,7 @@ audio2score-week4/backend/
   audio_engine/       # Audio Intelligence Layer
   mir/                # Common Musical Representation + MIDI Intelligence
   notation_engine/    # MusicXML from MusicalEvent[]
-  adapters/           # Basic Pitch, MT3 (future), classical DSP
+  adapters/           # Basic Pitch, MT3 (Quality), classical DSP
   transcription.py    # Facade: legacy | understanding pipeline
   benchmark/          # Metrics, fixtures, before/after harness
 ```
@@ -39,7 +39,11 @@ All backends emit `MusicalEvent[]` + `TempoMap` + `ScoreMeta`. Notation never im
 |----------|--------|---------|
 | `TRANSCRIPTION_PIPELINE` | `legacy` \| `understanding` | `understanding` |
 | `TRANSCRIPTION_PIPELINE_FALLBACK` | `0` \| `1` | `1` |
-| `TRANSCRIPTION_BACKEND` | `basic_pitch` \| `classical_dsp` \| `mt3` | `basic_pitch` |
+| `TRANSCRIPTION_BACKEND` | `basic_pitch` \| `classical_dsp` \| `mt3` | `basic_pitch` (Fast default) |
+| `MT3_ENDPOINT` | URL | empty — Quality HTTP worker (`POST` audio → MIDI) |
+| `MT3_API_KEY` | string | empty — optional Bearer / X-API-Key |
+| `MT3_TRANSCRIBE_COMMAND` | command with `{input}` `{output}` | empty — Quality CLI that writes MIDI |
+| `MT3_TIMEOUT_SECONDS` | int | `300` |
 | `TRANSCRIPTION_USE_CLEANER` | `0` \| `1` | `0` |
 | `TRANSCRIPTION_SHADOW_CLEANER` | `0` \| `1` | `0` |
 | `TRANSCRIPTION_USE_NORMALIZER` | `0` \| `1` | `1` |
@@ -126,6 +130,37 @@ Uploaded `.mid` / `.midi` files join at CMR (no Basic Pitch):
 - Drum tracks are skipped
 - The original file is the raw DAW MIDI download; score MIDI / MusicXML use the grand-staff writer
 
+## Phase 8 — Quality / MT3 (implemented)
+
+Per-job **Fast** vs **Quality**. Notation, cleaner, tempo map, and grand staff stay the same; only the note detector changes.
+
+| Mode | Detector | Fallback |
+|------|----------|----------|
+| Fast (default) | Basic Pitch on CPU | understanding → enhanced legacy |
+| Quality | MR-MT3 via `MT3_ENDPOINT` or `MT3_TRANSCRIBE_COMMAND` | **none** — never substitutes Basic Pitch |
+| MIDI upload | file ingest at CMR | mode is ignored |
+
+Quality is available when `MT3_ENDPOINT` or `MT3_TRANSCRIBE_COMMAND` is set. The GPU worker contract:
+
+```
+POST {MT3_ENDPOINT}
+  multipart field `file` = audio
+  optional Authorization: Bearer {MT3_API_KEY}
+200 audio/midi            (MIDI bytes)
+or 200 application/json   {"midi_base64": "<base64 MIDI>"}
+```
+
+`{output}` from `MT3_TRANSCRIBE_COMMAND` must be MIDI, not MusicXML. Dummy local wiring:
+
+```bash
+MT3_TRANSCRIBE_COMMAND=python scripts/example_mt3.py {input} {output}
+# or
+MT3_ENDPOINT=http://127.0.0.1:8090/transcribe
+python scripts/example_mt3_http.py
+```
+
+Upload form field `mode=fast|quality`. `/health` exposes `quality.available`.
+
 ## How to enable MIDICleaner safely
 
 1. Keep `TRANSCRIPTION_PIPELINE=legacy`.
@@ -155,7 +190,7 @@ cd audio2score-week4/backend
 - Reference MIDI F1 (when available) ≥ legacy
 - Score readability rubric + OSMD smoke pass
 
-**MT3** only after CMR + cleaner + tempo map are stable.
+**MT3 / Quality** after CMR + cleaner + tempo map are stable (Phase 8).
 
 ## Quality metrics
 
@@ -170,4 +205,4 @@ cd audio2score-week4/backend
 1. Characterization tests before algorithm swaps
 2. Shadow mode until metrics beat baseline
 3. One module at a time
-4. MT3 only after CMR + cleaner + tempo map are stable
+4. MT3 / Quality after CMR + cleaner + tempo map are stable
