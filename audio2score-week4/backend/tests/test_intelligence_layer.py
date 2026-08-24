@@ -456,6 +456,45 @@ def test_validator_keeps_quiet_real_notes_and_only_drops_high_ghosts():
     assert all("not a harmonic ghost" in (c.reason or "") for c in rejected)
 
 
+def test_validator_rejects_pitch_rewrites_of_real_notes():
+    notes = _notes_simple()
+    rewrite = Correction(
+        type="pitch",
+        time_start=0.0,
+        time_end=0.5,
+        existing_value={"pitch": 64},
+        proposed_value={"pitch": 59},
+        confidence=0.99,
+        reason="reharmonize",
+    )
+    accepted, rejected = MusicalCorrectionValidator(_validator_cfg()).validate(
+        [rewrite], notes, audio_feature_confidence=0.9
+    )
+    assert accepted == []
+    assert rejected[0].proposed_value.get("pitch") == 59
+    assert "pitch rewrite not allowed" in (rejected[0].reason or "")
+
+
+def test_validator_drops_high_ghost_even_when_only_moderately_quieter():
+    notes = _notes_simple() + [
+        NoteEvent(pitch=88, start_time=0.0, end_time=0.4, velocity=59, confidence=0.47),
+    ]
+    drop = Correction(
+        type="pitch",
+        time_start=0.0,
+        time_end=0.4,
+        existing_value={"pitch": 88},
+        proposed_value={"drop": True, "pitch": 88},
+        confidence=0.98,
+        reason="E6 overtone",
+    )
+    accepted, rejected = MusicalCorrectionValidator(_validator_cfg()).validate(
+        [drop], notes, audio_feature_confidence=0.85
+    )
+    assert rejected == []
+    assert accepted[0].proposed_value.get("pitch") == 88
+
+
 def test_pitch_patch_without_target_does_not_retune_the_window():
     notes = _notes_simple()
     stray = Correction(

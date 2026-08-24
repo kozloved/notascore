@@ -13,7 +13,7 @@ PIANO_MAX = 108
 # Harmonic series above a fundamental: octave, 12th, 2 octaves, 17th, 19th, 3 octaves.
 HARMONIC_GHOST_INTERVALS = {12, 19, 24, 28, 31, 36}
 GHOST_MIN_PITCH = 77  # F5+: twitter/overtone extras, not inner voices or bass
-GHOST_MAX_STRENGTH_RATIO = 0.60
+GHOST_MAX_STRENGTH_RATIO = 0.95
 GHOST_TIME_PAD_SEC = 0.08
 
 
@@ -91,6 +91,8 @@ class MusicalCorrectionValidator:
             return "needs deep analysis"
         if _is_drop(corr) and not _is_harmonic_ghost_drop(corr, notes):
             return "not a harmonic ghost"
+        if corr.type == "pitch" and not _is_drop(corr):
+            return "pitch rewrite not allowed"
         if corr.final_confidence < self.cfg.auto_apply_threshold:
             return "below auto-apply threshold"
         if corr.type == "pitch":
