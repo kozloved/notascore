@@ -1,11 +1,12 @@
 # NotaScore benchmark
 
-- timestamp: `2026-08-24T19:14:24Z`
-- git: `9cc1afe`
+- timestamp: `2026-08-24T19:15:20Z`
+- git: `7bb1319`
 - mode: **MIDI ingest** (`midi`)
 - cases: 21 (pass 21, fail 0, skip 0)
 - fallback count: 0
 - regressions vs baseline: 0
+- baseline git: `7bb1319`
 
 ## Results
 

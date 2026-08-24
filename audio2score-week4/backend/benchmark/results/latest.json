@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-08-24T19:14:24Z",
-  "git": "9cc1afe",
+  "timestamp": "2026-08-24T19:15:20Z",
+  "git": "7bb1319",
   "mode": "midi",
   "mode_label": "MIDI ingest",
   "case_count": 21,
@@ -9,7 +9,7 @@
   "skipped": 0,
   "fallback_count": 0,
   "regressions": [],
-  "baseline_git": null,
+  "baseline_git": "7bb1319",
   "cases": [
     {
       "id": "c_major_quarters",
