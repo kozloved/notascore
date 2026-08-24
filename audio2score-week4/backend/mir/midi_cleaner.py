@@ -16,17 +16,25 @@ class MIDICleaner:
         min_duration_sec: float = 0.04,
         chord_window_sec: float = 0.05,
         timing_drift_sec: float = 0.015,
+        octave_window_sec: float = 0.05,
+        octave_keep_ratio: float = 0.6,
+        drop_octave_ghosts: bool = True,
     ):
         self.merge_threshold_sec = merge_threshold_sec
         self.min_duration_sec = min_duration_sec
         self.chord_window_sec = chord_window_sec
         self.timing_drift_sec = timing_drift_sec
+        self.octave_window_sec = octave_window_sec
+        self.octave_keep_ratio = octave_keep_ratio
+        self.drop_octave_ghosts = drop_octave_ghosts
 
     def clean(self, notes: list[NoteEvent]) -> list[NoteEvent]:
         if not notes:
             return []
         notes = self._remove_micro_notes(notes)
         notes = self._merge_duplicates(notes)
+        if self.drop_octave_ghosts:
+            notes = self._drop_octave_ghosts(notes)
         notes = self._snap_chord_starts(notes)
         notes = self._correct_drift(notes)
         return sorted(notes, key=lambda n: (n.start_time, n.pitch))
@@ -57,6 +65,65 @@ class MIDICleaner:
                     cur = nxt
             merged.append(cur)
         return merged
+
+    @staticmethod
+    def _strength(note: NoteEvent) -> float:
+        if 0.0 < note.confidence < 1.0:
+            return float(note.confidence)
+        return max(int(note.velocity), 1) / 127.0
+
+    def _drop_octave_ghosts(self, notes: list[NoteEvent]) -> list[NoteEvent]:
+        """Drop quieter ±12/±24 copies that start with a stronger note.
+
+        Similar-strength octaves (real doubled piano writing) are kept.
+        A note is never dropped if it is the only remaining pitch covering
+        its time span.
+        """
+        if len(notes) < 2:
+            return notes
+
+        keep = [True] * len(notes)
+        order = sorted(
+            range(len(notes)),
+            key=lambda i: (-self._strength(notes[i]), notes[i].start_time, notes[i].pitch),
+        )
+
+        for i in order:
+            if not keep[i]:
+                continue
+            a = notes[i]
+            sa = self._strength(a)
+            for j in order:
+                if i == j or not keep[j]:
+                    continue
+                b = notes[j]
+                interval = abs(int(a.pitch) - int(b.pitch))
+                if interval not in (12, 24):
+                    continue
+                if abs(a.start_time - b.start_time) > self.octave_window_sec:
+                    continue
+                overlap = min(a.end_time, b.end_time) - max(a.start_time, b.start_time)
+                if overlap <= 0:
+                    continue
+                sb = self._strength(b)
+                if sa < sb:
+                    continue
+                if sb / max(sa, 1e-9) >= self.octave_keep_ratio:
+                    continue
+
+                still_covered = any(
+                    k != j
+                    and keep[k]
+                    and min(notes[k].end_time, b.end_time)
+                    - max(notes[k].start_time, b.start_time)
+                    > 0
+                    for k in range(len(notes))
+                )
+                if not still_covered:
+                    continue
+                keep[j] = False
+
+        return [n for idx, n in enumerate(notes) if keep[idx]]
 
     def _snap_chord_starts(self, notes: list[NoteEvent]) -> list[NoteEvent]:
         """Align near-simultaneous notes to a common onset (e.g. C/E/G at 0.500)."""
