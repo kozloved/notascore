@@ -103,6 +103,44 @@ def test_quantize_prefers_sixteenths_over_triplets():
     assert abs(snap_to_grid(1.0) - 1.0) < 1e-9
     assert abs(snap_to_grid(0.5) - 0.5) < 1e-9
     assert abs(snap_to_grid(0.26) - 0.25) < 1e-9
+    assert abs(snap_to_grid(1.0 / 3.0) - (1.0 / 3.0)) < 1e-9
+
+
+def test_quantize_melody_c_pickup_becomes_quarters():
+    """melody_c_major.wav is C4–C5 quarters at 100 BPM with a 0.19s lead-in."""
+    from notation_engine.quantize import quantize_events
+
+    bpm = 100.0
+    starts_sec = [0.196, 0.802, 1.405, 1.999, 2.602, 3.183, 3.810, 4.391]
+    durs_sec = [0.513, 0.510, 0.510, 0.510, 0.510, 0.535, 0.499, 0.545]
+    pitches = [60, 62, 64, 65, 67, 69, 71, 72]
+    events = [
+        MusicalEvent(
+            pitch=p,
+            start_beat=t * bpm / 60.0,
+            duration_beats=d * bpm / 60.0,
+            velocity=80,
+            hand=Hand.RIGHT,
+        )
+        for p, t, d in zip(pitches, starts_sec, durs_sec)
+    ]
+    quantized = quantize_events(events)
+    assert [e.pitch for e in quantized] == pitches
+    assert [round(e.start_beat, 6) for e in quantized] == [float(i) for i in range(8)]
+    assert all(abs(e.duration_beats - 1.0) < 1e-9 for e in quantized)
+
+
+def test_quantize_does_not_chop_held_bass():
+    from notation_engine.quantize import quantize_events
+
+    events = [
+        MusicalEvent(pitch=48, start_beat=0.0, duration_beats=4.0, hand=Hand.LEFT),
+        MusicalEvent(pitch=72, start_beat=0.0, duration_beats=1.0, hand=Hand.RIGHT),
+        MusicalEvent(pitch=74, start_beat=1.0, duration_beats=1.0, hand=Hand.RIGHT),
+    ]
+    quantized = quantize_events(events)
+    bass = next(e for e in quantized if e.pitch == 48)
+    assert abs(bass.duration_beats - 4.0) < 1e-9
 
 
 def test_estimate_time_signature_defaults_to_four_four():
