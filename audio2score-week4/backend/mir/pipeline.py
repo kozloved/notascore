@@ -262,7 +262,7 @@ class UnderstandingPipeline:
             tempo_map=tempo_map,
         )
 
-        return self.notation.write_musicxml(
+        xml = self.notation.write_musicxml(
             events,
             meta,
             job_id=job_id,
@@ -271,6 +271,8 @@ class UnderstandingPipeline:
             fallback_bpm=bpm,
             structure=structure,
         )
+        self._attach_notation_debug(job_id, out_dir)
+        return xml
 
     def transcribe_midi(self, midi_path: str | Path, job_id: str) -> str:
         """CMR entry for an uploaded MIDI file (no Basic Pitch)."""
@@ -357,7 +359,7 @@ class UnderstandingPipeline:
             f"tempo_points={len(tempo_map.points)} events={len(events)} "
             f"(job={job_id})"
         )
-        return self.notation.write_musicxml(
+        xml = self.notation.write_musicxml(
             events,
             meta,
             job_id=job_id,
@@ -366,6 +368,31 @@ class UnderstandingPipeline:
             fallback_bpm=bpm,
             structure=structure,
         )
+        self._attach_notation_debug(job_id, out_dir)
+        return xml
+
+    def _attach_notation_debug(self, job_id: str, out_dir: Path) -> None:
+        payload = self.notation.notation_debug_payload()
+        if self.last_debug is None:
+            self.last_debug = PipelineDebug(job_id=job_id, pipeline="understanding")
+        self.last_debug.fallback_used = bool(payload.get("fallback_used"))
+        self.last_debug.quantization_decisions = list(
+            payload.get("quantization_decisions") or []
+        )
+        extra = dict(self.last_debug.extra)
+        extra["notation_path"] = payload.get("notation_path")
+        extra["notation_fallback_error"] = payload.get("notation_fallback_error")
+        extra["notation_time_signature"] = payload.get("time_signature")
+        extra["notation_measure_count"] = payload.get("measure_count")
+        self.last_debug.extra = extra
+        if payload.get("fallback_used"):
+            print(
+                "[Notation] debug: fallback to legacy build_score "
+                f"({payload.get('notation_fallback_error')})"
+            )
+        out_dir = Path(out_dir)
+        out_dir.mkdir(exist_ok=True)
+        self.last_debug.write_json(out_dir / f"{job_id}.debug.json")
 
     def _apply_mir_layers(self, events: list[MusicalEvent]) -> list[MusicalEvent]:
         if not self.use_mir_layers:
