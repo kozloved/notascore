@@ -17,6 +17,7 @@ See [deploy/README.md](deploy/README.md) for Docker Compose + Nginx + Let's Encr
 - Fast (Basic Pitch) and Quality (MR-MT3) transcription
 - Per-job Fast / Quality toggle on upload
 - Dummy MT3 MIDI command + HTTP contract scripts
+- Real MR-MT3 GPU worker (`gpu-worker/`) for Quality mode
 - Worker that calls the transcription engine
 - Frontend that shows engine info
 
@@ -123,3 +124,5 @@ backend/scripts/example_mt3_http.py
 ```
 
 `GET /health` includes `quality.available`. The UI greys out Quality until a worker is configured.
+
+To run **real** MR-MT3, put `gpu-worker/` on an RTX 4000 Ada (20 GB) or similar and set `MT3_ENDPOINT` to its `/transcribe` URL. See [gpu-worker/README.md](gpu-worker/README.md).

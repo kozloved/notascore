@@ -159,6 +159,9 @@ MT3_ENDPOINT=http://127.0.0.1:8090/transcribe
 python scripts/example_mt3_http.py
 ```
 
+Real GPU worker (MR-MT3 via `mt3-infer`): see `audio2score-week4/gpu-worker/README.md`.
+An RTX 4000 Ada 20 GB box is enough. Set `MT3_ENDPOINT` to that pod's `/transcribe` URL.
+
 Upload form field `mode=fast|quality`. `/health` exposes `quality.available`.
 
 ## How to enable MIDICleaner safely
