@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { resultDownloadUrl, uploadAudio, type Job, type TranscriptionMode } from "../lib/api";
+import { uploadAudio, type Job, type TranscriptionMode } from "../lib/api";
 import { getJob } from "../lib/jobs";
+import SheetResult from "./SheetResult";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const ACCEPTED = ".wav,.mp3,.m4a,.flac,.mid,.midi,audio/*,audio/midi";
@@ -265,14 +266,12 @@ export default function UploadPanel() {
           )}
 
           {job?.status === "completed" && job.result_available && (
-            <div className="mt-6 flex flex-wrap gap-3">
-              <a
-                href={resultDownloadUrl(job.job_id)}
-                download
-                className="inline-flex min-h-11 items-center bg-ink px-5 text-sm font-medium text-mist transition hover:bg-score"
-              >
-                Download MusicXML
-              </a>
+            <div className="mt-6">
+              <SheetResult
+                apiUrl={API_URL}
+                jobId={job.job_id}
+                filename={job.filename}
+              />
               <button
                 type="button"
                 onClick={() => {
@@ -283,7 +282,7 @@ export default function UploadPanel() {
                   setErrorMessage("");
                   if (inputRef.current) inputRef.current.value = "";
                 }}
-                className="inline-flex min-h-11 items-center border border-ink/20 px-5 text-sm text-ink transition hover:border-ink/40"
+                className="mt-4 inline-flex min-h-11 items-center border border-ink/20 px-5 text-sm text-ink transition hover:border-ink/40"
               >
                 New upload
               </button>

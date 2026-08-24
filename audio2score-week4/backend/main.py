@@ -73,6 +73,30 @@ def is_allowed_filename(filename: str) -> bool:
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
 
 
+SOURCE_MEDIA_TYPES = {
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".flac": "audio/flac",
+    ".mid": "audio/midi",
+    ".midi": "audio/midi",
+}
+
+
+def _is_midi_name(name) -> bool:
+    return Path(name or "").suffix.lower() in ALLOWED_MIDI_EXTENSIONS
+
+
+def _job_source_kind(job: dict) -> str:
+    if _is_midi_name(job.get("filename")) or _is_midi_name(job.get("storage_key")):
+        return "midi"
+    return "audio"
+
+
+def _safe_download_name(name: str) -> str:
+    return Path(name).name.replace('"', "").replace("\r", "").replace("\n", "")
+
+
 def public_job(job: dict) -> dict:
     if not job:
         return {}
@@ -86,6 +110,7 @@ def public_job(job: dict) -> dict:
         "progress": job.get("progress", 0),
         "error": job.get("error"),
         "mode": job.get("mode") or "fast",
+        "source_kind": _job_source_kind(job),
         "result_available": bool(job.get("result_storage_key")),
         "created_at": job.get("created_at"),
         "updated_at": job.get("updated_at"),
@@ -295,6 +320,73 @@ def job_detail(job_id: str):
         )
 
     return public_job(job)
+
+
+def _source_media_type(job: dict) -> str:
+    suffix = Path(job.get("filename") or job.get("storage_key") or "").suffix.lower()
+    if suffix in SOURCE_MEDIA_TYPES:
+        return SOURCE_MEDIA_TYPES[suffix]
+    content_type = (job.get("content_type") or "").strip()
+    if content_type and content_type.lower() not in (
+        "application/octet-stream",
+        "binary/octet-stream",
+    ):
+        return content_type
+    return "application/octet-stream"
+
+
+@app.get("/jobs/{job_id}/source")
+def job_source(job_id: str):
+    """Original uploaded audio (or MIDI) for in-page preview."""
+    job = db.get_job(job_id)
+
+    if not job:
+        raise HTTPException(
+            status_code=404,
+            detail="Job not found",
+        )
+
+    storage_key = job.get("storage_key")
+    if not storage_key:
+        raise HTTPException(
+            status_code=404,
+            detail="Original file is not available",
+        )
+
+    storage_backend = storage_service.get_storage()
+    media_type = _source_media_type(job)
+    filename = _safe_download_name(job.get("filename") or Path(storage_key).name)
+
+    if storage_backend.backend == "local":
+        path = Path(storage_key)
+        if not path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail="Original file is missing",
+            )
+        return FileResponse(
+            path=str(path),
+            media_type=media_type,
+            filename=filename,
+            content_disposition_type="inline",
+        )
+
+    try:
+        data = storage_backend.read_upload_bytes(storage_key)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Original file is missing",
+        ) from exc
+
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Accept-Ranges": "bytes",
+        },
+    )
 
 
 def _musicxml_to_midi_bytes(musicxml_text: str) -> bytes:

@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import ListenPreview from "./ListenPreview";
+
 function triggerDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -186,6 +188,8 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
           </>
         )}
       </div>
+
+      <ListenPreview apiUrl={apiUrl} jobId={jobId} filename={filename} />
 
       <div className="formats">
         <button

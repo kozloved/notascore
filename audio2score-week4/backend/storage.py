@@ -58,6 +58,9 @@ class LocalStorage:
     def get_local_audio_path(self, storage_key):
         return Path(storage_key)
 
+    def read_upload_bytes(self, storage_key):
+        return Path(storage_key).read_bytes()
+
     def get_result_signed_url(self, result_storage_key, expires_in=3600):
         return None
 
@@ -184,6 +187,12 @@ class SupabaseStorage:
         local_path.write_bytes(data)
 
         return local_path
+
+    def read_upload_bytes(self, storage_key):
+        data = self._bucket(self.audio_bucket).download(storage_key)
+        if isinstance(data, bytes):
+            return data
+        return bytes(data)
 
     def get_result_signed_url(self, result_storage_key, expires_in=3600):
         data = self._bucket(self.results_bucket).create_signed_url(

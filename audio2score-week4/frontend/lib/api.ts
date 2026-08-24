@@ -13,6 +13,7 @@ export type Job = {
   progress?: number;
   error?: string | null;
   mode?: TranscriptionMode | string;
+  source_kind?: "audio" | "midi" | string;
   result_available?: boolean;
   created_at?: string;
   updated_at?: string;

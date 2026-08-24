@@ -8,11 +8,13 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.2",
+    "@tonejs/midi": "^2.0.28",
     "jspdf": "^4.2.1",
     "next": "latest",
     "opensheetmusicdisplay": "^2.1.1",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "tone": "^15.1.22"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
