@@ -104,16 +104,16 @@ class MeasureQuantizer:
                 timing_err = abs(start - ev.start_beat)
 
                 next_start = None
-                if i + 1 < len(ordered):
-                    next_start = ordered[i + 1].start_beat
-                remaining = measure_start + mql - start
+                for nxt in ordered[i + 1 :]:
+                    if nxt.start_beat > ev.start_beat + 1e-8:
+                        next_start = nxt.start_beat
+                        break
+                remaining = 8.0  # do not clip to the bar; the planner ties across barlines
                 if next_start is not None:
-                    remaining = min(remaining, max(grid, next_start - start))
+                    gap = next_start - start
+                    remaining = max(grid, gap)
                     if 0 < (next_start - (start + ev.duration_beats)) < cfg.absorb_rest_ql:
-                        remaining = min(
-                            measure_start + mql - start,
-                            next_start - start,
-                        )
+                        remaining = next_start - start
 
                 target = min(max(ev.duration_beats, grid), remaining)
                 duration = self._pick_duration(target, remaining, tuplet_ok=tuplet_used)

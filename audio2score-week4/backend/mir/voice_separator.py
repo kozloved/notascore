@@ -153,6 +153,8 @@ class VoiceSeparator:
             return [cluster]
         ordered = sorted(cluster, key=lambda e: e.pitch)
         span = ordered[-1].pitch - ordered[0].pitch
+        if len(ordered) == 2 and ordered[1].pitch - ordered[0].pitch >= 6:
+            return [[ordered[0]], [ordered[1]]]
         if span <= self.config.max_chord_span:
             durs = [e.duration_beats for e in ordered]
             if max(durs) - min(durs) < 0.85 or span <= 7:

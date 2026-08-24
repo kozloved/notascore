@@ -34,8 +34,14 @@ class MeterEstimator:
                 )
             ]
 
-        onsets = sorted(e.start_beat for e in events)
-        weights = [max(1.0, e.velocity / 64.0) for e in sorted(events, key=lambda x: x.start_beat)]
+        onsets = [e.start_beat for e in sorted(events, key=lambda x: x.start_beat)]
+        weights = []
+        for e in sorted(events, key=lambda x: x.start_beat):
+            w = max(1.0, e.velocity / 64.0)
+            if e.hand.value == "left" or e.role == "bass":
+                w *= 2.2
+            w *= 1.0 + max(0.0, (60 - e.pitch) / 30.0)
+            weights.append(w)
         hypotheses: list[MeterHypothesis] = []
 
         for name, num, den, mql in SUPPORTED_METERS:
@@ -132,16 +138,22 @@ class MeterEstimator:
 
         compound_bonus = 0.0
         if name in ("6/8", "12/8"):
-            # Prefer compound if onsets cluster on dotted-quarter beats
             dq = 1.5
-            hit = 0.0
+            on_beat = 0.0
+            off_beat = 0.0
             for onset, w in zip(onsets, weights):
-                rel = (onset % measure_ql) / dq
-                err = abs(rel - round(rel))
-                hit += w * (1.0 - min(1.0, err * 2.0))
-            compound_bonus = 0.15 * (hit / max(total_w, 1e-6))
+                rel = onset % measure_ql
+                dq_err = abs((rel / dq) - round(rel / dq))
+                eighth_off = abs((rel / 0.5) - round(rel / 0.5)) < 0.12
+                if dq_err < 0.12:
+                    on_beat += w
+                elif eighth_off:
+                    off_beat += w
+            if on_beat > off_beat * 1.05:
+                compound_bonus = 0.2 * (on_beat / max(on_beat + off_beat, 1e-6))
+            else:
+                compound_bonus = -0.35
         if name == "3/4":
-            # Penalize if 1.5-quarter accents dominate (that's 6/8)
             dq_hit = 0.0
             q_hit = 0.0
             for onset, w in zip(onsets, weights):
@@ -152,8 +164,25 @@ class MeterEstimator:
                 compound_bonus -= 0.2
 
         score = 0.45 * alignment + 0.30 * accent + 0.20 * stability + compound_bonus
+        if len(onsets) < 8:
+            if name == "4/4":
+                score += 0.4
+            else:
+                score *= 0.4
         if name == "4/4":
-            score += 0.04  # mild prior for common time
+            eighth_align = 0.0
+            for onset, w in zip(onsets, weights):
+                rel = (onset % measure_ql) / 0.5
+                err = abs(rel - round(rel))
+                eighth_align += w * (1.0 - min(1.0, err * 2.0))
+            eighth_align /= max(total_w, 1e-6)
+            score = (
+                0.25 * alignment
+                + 0.25 * eighth_align
+                + 0.25 * accent
+                + 0.20 * stability
+                + 0.08
+            )
         return max(0.0, score), {
             "alignment": alignment,
             "accent": accent,

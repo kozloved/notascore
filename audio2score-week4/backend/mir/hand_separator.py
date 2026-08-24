@@ -21,20 +21,22 @@ class HandSeparatorConfig:
     register_lh_center: float = 48.0
     register_rh_center: float = 72.0
     register_sigma: float = 18.0
-    register_weight: float = 0.35
-    motion_weight: float = 1.15
+    register_weight: float = 1.05
+    motion_weight: float = 0.85
     reach_weight: float = 4.0
-    crossing_weight: float = 0.85
-    switch_weight: float = 2.4
-    chord_split_weight: float = 3.2
+    crossing_weight: float = 0.55
+    switch_weight: float = 2.8
+    chord_split_weight: float = 4.5
     chord_compact_span: int = 12
-    discontinuity_weight: float = 1.6
-    role_weight: float = 1.15
-    direction_weight: float = 1.9
+    discontinuity_weight: float = 0.6
+    role_weight: float = 2.2
+    direction_weight: float = 2.2
     large_jump_semitones: int = 14
-    ambiguous_margin: float = 1.35
-    ambiguous_confidence: float = 0.48
+    ambiguous_margin: float = 0.4
+    ambiguous_confidence: float = 0.4
     max_full_enum_notes: int = 7
+    lh_comfort_max: int = 67
+    rh_comfort_min: int = 52
 
 
 class RegisterSplitHandSeparator:
@@ -167,27 +169,86 @@ class HandSeparator:
             center = cfg.register_rh_center if a == 1 else cfg.register_lh_center
             dist = (note.pitch - center) / cfg.register_sigma
             cost += cfg.register_weight * dist * dist
+            if a == 0 and note.pitch > cfg.lh_comfort_max:
+                cost += 0.45 * (note.pitch - cfg.lh_comfort_max)
+            if a == 1 and note.pitch < cfg.rh_comfort_min:
+                cost += 0.45 * (cfg.rh_comfort_min - note.pitch)
             if note.role == "melody" and a == 0:
-                cost += cfg.role_weight * 1.4
+                cost += cfg.role_weight * 1.6
             elif note.role == "bass" and a == 1:
-                cost += cfg.role_weight * 1.4
-            elif note.role == "accompaniment" and a == 1 and note.pitch < 55:
-                cost += cfg.role_weight * 0.35
+                cost += cfg.role_weight * 1.6
+            elif note.role == "accompaniment" and a == 1 and note.pitch <= 64:
+                cost += cfg.role_weight * 0.8
 
-        cost += cfg.reach_weight * (
-            self._span_penalty(lh) + self._span_penalty(rh)
-        )
+        cost += cfg.reach_weight * (self._span_penalty(lh) + self._span_penalty(rh))
 
         if lh and rh:
             cross = max(0, max(lh) - min(rh))
             cost += cfg.crossing_weight * (cross / 6.0)
 
-        all_pitches = sorted(n.pitch for n in notes)
-        if len(all_pitches) >= 2:
-            span = all_pitches[-1] - all_pitches[0]
-            if span <= cfg.chord_compact_span and lh and rh:
-                compactness = (cfg.chord_compact_span - span + 1) / cfg.chord_compact_span
-                cost += cfg.chord_split_weight * compactness
+        # Keep pitch-proximate chord tones in the same hand, unless roles conflict.
+        ordered = sorted(zip(notes, assign), key=lambda x: x[0].pitch)
+        component: list = []
+        for item in ordered:
+            if component and item[0].pitch - component[-1][0].pitch <= 5:
+                component.append(item)
+            else:
+                if component:
+                    cost += self._component_split_cost(component)
+                component = [item]
+        if component:
+            cost += self._component_split_cost(component)
+        return cost
+
+    def _component_split_cost(self, component: list) -> float:
+        if len(component) < 2:
+            return 0.0
+        roles = {n.role for n, _ in component if n.role}
+        if "melody" in roles and ("bass" in roles or "accompaniment" in roles):
+            return 0.0
+        hands = {a for _, a in component}
+        if len(hands) == 1:
+            return 0.0
+        span = component[-1][0].pitch - component[0][0].pitch
+        if span > self.config.chord_compact_span:
+            return 0.0
+        return self.config.chord_split_weight * (1.0 + 0.25 * len(component))
+
+    def _transition(
+        self,
+        prev_notes: list[MusicalEvent],
+        prev_assign: tuple[int, ...],
+        notes: list[MusicalEvent],
+        assign: tuple[int, ...],
+    ) -> float:
+        cfg = self.config
+        prev_c = self._centroids(prev_notes, prev_assign)
+        curr_c = self._centroids(notes, assign)
+        cost = 0.0
+
+        for hand in (0, 1):
+            pc, cc = prev_c[hand], curr_c[hand]
+            if pc is not None and cc is not None:
+                jump = abs(cc - pc)
+                cost += cfg.motion_weight * (jump / 12.0)
+                if jump > cfg.large_jump_semitones:
+                    cost += cfg.motion_weight * ((jump - cfg.large_jump_semitones) / 5.0)
+
+        # Prefer continuing a hand rather than activating the unused one
+        # unless the leap on the current hand would be large.
+        for note, a in zip(notes, assign):
+            other = 1 - a
+            if prev_c[a] is None and prev_c[other] is not None:
+                stay_jump = abs(note.pitch - prev_c[other])
+                if stay_jump <= cfg.large_jump_semitones:
+                    cost += cfg.switch_weight * (1.0 - stay_jump / 24.0)
+
+            if prev_c[0] is not None and prev_c[1] is not None:
+                d_lh = abs(note.pitch - prev_c[0])
+                d_rh = abs(note.pitch - prev_c[1])
+                natural = 0 if d_lh <= d_rh else 1
+                if natural != a and abs(d_lh - d_rh) > 3:
+                    cost += cfg.direction_weight * (abs(d_lh - d_rh) / 10.0)
         return cost
 
     def _span_penalty(self, pitches: list[int]) -> float:
@@ -200,67 +261,6 @@ class HandSeparator:
         extra = span - cfg.max_comfortable_span
         hard = max(0, span - cfg.max_hard_span)
         return extra * extra * 0.35 + hard * 12.0
-
-    def _transition(
-        self,
-        prev_notes: list[MusicalEvent],
-        prev_assign: tuple[int, ...],
-        notes: list[MusicalEvent],
-        assign: tuple[int, ...],
-    ) -> float:
-        cfg = self.config
-        prev_c = self._centroids(prev_notes, prev_assign)
-        curr_c = self._centroids(notes, assign)
-        prev_ext = self._extrema(prev_notes, prev_assign)
-        cost = 0.0
-
-        for hand in (0, 1):
-            pc, cc = prev_c[hand], curr_c[hand]
-            if pc is None or cc is None:
-                continue
-            jump = abs(cc - pc)
-            cost += cfg.motion_weight * (jump / 12.0)
-            if jump > cfg.large_jump_semitones:
-                cost += cfg.motion_weight * ((jump - cfg.large_jump_semitones) / 6.0)
-
-        for note, a in zip(notes, assign):
-            nearer = self._nearer_hand(note.pitch, prev_c)
-            if nearer is not None and nearer != a:
-                gap = abs(
-                    (prev_c[nearer] if prev_c[nearer] is not None else note.pitch)
-                    - note.pitch
-                )
-                other = prev_c[a]
-                other_gap = abs((other if other is not None else note.pitch) - note.pitch)
-                if gap + 3 < other_gap:
-                    cost += cfg.switch_weight * ((other_gap - gap) / 8.0)
-
-            disc = 0.0
-            if prev_ext[a] is not None:
-                disc = abs(note.pitch - prev_ext[a][1 if a == 1 else 0])
-            cost += cfg.discontinuity_weight * (min(disc, 24) / 16.0)
-
-        for hand in (0, 1):
-            if prev_c[hand] is None or curr_c[hand] is None:
-                continue
-            prev_dir = prev_ext[hand][1] - prev_ext[hand][0] if prev_ext[hand] else 0
-            # previous frame direction from min/max is weak; use centroid delta only
-            delta = curr_c[hand] - prev_c[hand]
-            if prev_dir == 0:
-                continue
-            if delta * prev_dir < 0 and abs(delta) > 2:
-                cost += cfg.direction_weight * 0.4
-
-        # Prefer matching each current note to the closest previous-hand stream.
-        for note, a in zip(notes, assign):
-            if prev_c[0] is None or prev_c[1] is None:
-                continue
-            d_lh = abs(note.pitch - prev_c[0])
-            d_rh = abs(note.pitch - prev_c[1])
-            natural = 0 if d_lh <= d_rh else 1
-            if natural != a and abs(d_lh - d_rh) > 4:
-                cost += cfg.direction_weight * (abs(d_lh - d_rh) / 10.0)
-        return cost
 
     def _centroids(
         self, notes: list[MusicalEvent], assign: tuple[int, ...]
@@ -304,15 +304,24 @@ class HandSeparator:
         confidences: list[float],
     ) -> list[tuple[MusicalEvent, MusicalEvent]]:
         assigned: list[tuple[MusicalEvent, MusicalEvent]] = []
-        for frame, assign, conf in zip(frames, path, confidences):
-            for note, a in zip(frame, assign):
-                if conf < self.config.ambiguous_confidence:
+        for frame, assign in zip(frames, path):
+            for i, (note, a) in enumerate(zip(frame, assign)):
+                flipped = list(assign)
+                flipped[i] = 1 - a
+                margin = self._emission(frame, tuple(flipped)) - self._emission(
+                    frame, assign
+                )
+                conf = 1.0 - pow(2.718281828, -max(0.0, margin) / 1.6)
+                conf = max(0.2, min(0.99, conf))
+                hand = Hand.RIGHT if a == 1 else Hand.LEFT
+                if (
+                    margin < self.config.ambiguous_margin
+                    and not note.role
+                    and 55 <= note.pitch <= 65
+                ):
                     hand = Hand.AMBIGUOUS
-                    hconf = conf
-                else:
-                    hand = Hand.RIGHT if a == 1 else Hand.LEFT
-                    hconf = conf
+                    conf = min(conf, 0.45)
                 assigned.append(
-                    (note, copy_event(note, hand=hand, hand_confidence=round(hconf, 3)))
+                    (note, copy_event(note, hand=hand, hand_confidence=round(conf, 3)))
                 )
         return assigned
