@@ -119,14 +119,14 @@ def gemini_config() -> GeminiConfig:
         reasoning_model=_env_str(
             "GEMINI_REASONING_MODEL", DEFAULT_REASONING_MODEL
         ),
-        auto_apply_threshold=_env_float("GEMINI_AUTO_APPLY_THRESHOLD", 0.70),
+        auto_apply_threshold=_env_float("GEMINI_AUTO_APPLY_THRESHOLD", 0.55),
         deep_analysis_threshold=_env_float(
             "GEMINI_DEEP_ANALYSIS_THRESHOLD", 0.60
         ),
         manual_review_threshold=_env_float(
             "GEMINI_MANUAL_REVIEW_THRESHOLD", 0.75
         ),
-        max_drop_fraction=_env_float("GEMINI_MAX_DROP_FRACTION", 0.15),
+        max_drop_fraction=_env_float("GEMINI_MAX_DROP_FRACTION", 0.25),
         cache_ttl_seconds=_env_int("GEMINI_CACHE_TTL_SECONDS", 7 * 24 * 3600),
         cache_dir=cache_root / "gemini-cache",
         timeout_seconds=_env_int("GEMINI_TIMEOUT_SECONDS", 180),

@@ -247,7 +247,7 @@ def test_layer_applies_validated_drop(tmp_path, monkeypatch):
 def test_layer_applies_ghost_drop_tempo_and_key(tmp_path, monkeypatch):
     for key, value in _cfg(tmp_path).items():
         monkeypatch.setenv(key, value)
-    monkeypatch.setenv("GEMINI_AUTO_APPLY_THRESHOLD", "0.70")
+    monkeypatch.setenv("GEMINI_AUTO_APPLY_THRESHOLD", "0.55")
     notes = _notes_simple() + [
         NoteEvent(pitch=72, start_time=0.0, end_time=0.4, velocity=18, confidence=0.2),
     ]
@@ -302,6 +302,69 @@ def test_layer_applies_ghost_drop_tempo_and_key(tmp_path, monkeypatch):
     assert result.meta.key_hint == "C major"
     assert result.meta.display_tempo_bpm == 96
     assert abs(result.tempo_map.bpm_at(0.0) - 96) < 0.01
+
+
+def test_gemini_config_defaults_lower_auto_apply(monkeypatch):
+    monkeypatch.delenv("GEMINI_AUTO_APPLY_THRESHOLD", raising=False)
+    monkeypatch.delenv("GEMINI_MAX_DROP_FRACTION", raising=False)
+    cfg = gemini_config()
+    assert cfg.auto_apply_threshold == 0.55
+    assert cfg.max_drop_fraction == 0.25
+
+
+def test_validator_applies_medium_ghost_and_second_drop():
+    from intelligence.config import GeminiConfig
+    from pathlib import Path
+
+    cfg = GeminiConfig(
+        api_key="x",
+        provider="gemini",
+        enabled=True,
+        audio_input=False,
+        deep_analysis=False,
+        midi_validation=True,
+        structure_analysis=True,
+        default_model="gemini-2.5-flash",
+        reasoning_model="gemini-2.5-flash",
+        auto_apply_threshold=0.55,
+        deep_analysis_threshold=0.6,
+        manual_review_threshold=0.75,
+        max_drop_fraction=0.25,
+        cache_ttl_seconds=60,
+        cache_dir=Path("/tmp/gemini-test-cache"),
+        timeout_seconds=10,
+        max_audio_seconds=30,
+    )
+    notes = _notes_simple() + [
+        NoteEvent(pitch=72, start_time=0.0, end_time=0.4, velocity=18, confidence=0.2),
+        NoteEvent(pitch=84, start_time=0.0, end_time=0.3, velocity=16, confidence=0.18),
+    ]
+    medium = Correction(
+        type="pitch",
+        time_start=0.0,
+        time_end=0.4,
+        existing_value={"pitch": 72},
+        proposed_value={"drop": True, "pitch": 72},
+        confidence=0.65,
+        reason="octave ghost",
+    )
+    second = Correction(
+        type="pitch",
+        time_start=0.0,
+        time_end=0.3,
+        existing_value={"pitch": 84},
+        proposed_value={"drop": True, "pitch": 84},
+        confidence=0.65,
+        reason="two-octave ghost",
+    )
+    validator = MusicalCorrectionValidator(cfg)
+    accepted, rejected = validator.validate(
+        [medium, second], notes, audio_feature_confidence=0.7
+    )
+    assert all(c.final_confidence >= 0.55 for c in accepted)
+    dropped = {c.proposed_value.get("pitch") for c in accepted if c.proposed_value.get("drop")}
+    assert dropped == {72, 84}
+    assert rejected == []
 
 
 def test_pitch_patch_without_target_does_not_retune_the_window():

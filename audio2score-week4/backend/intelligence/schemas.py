@@ -70,9 +70,11 @@ ALLOWED_TYPES_ALIASES = {
     "delete_note": "pitch",
     "drop_note": "pitch",
     "drop": "pitch",
+    "note_removal": "pitch",
     "update_note": "pitch",
     "change_note": "pitch",
     "change_pitch": "pitch",
+    "note_change": "pitch",
     "extend_note": "timing",
     "note_modification": "pitch",
     "modify_note": "pitch",
@@ -84,6 +86,14 @@ ALLOWED_TYPES_ALIASES = {
     "key": "key",
     "key_signature": "key",
     "timing": "timing",
+}
+
+_DROP_TYPE_ALIASES = {
+    "remove_note",
+    "delete_note",
+    "drop_note",
+    "drop",
+    "note_removal",
 }
 
 _CONFIDENCE_WORDS = {
@@ -157,13 +167,18 @@ class Correction:
                     proposed["start_time"] = start
                     proposed["end_time"] = start + duration
                     proposed["pitch"] = corrected.get("pitch", existing.get("pitch"))
-        ctype = str(raw.get("type") or raw.get("action") or "pitch")
-        ctype = ALLOWED_TYPES_ALIASES.get(ctype, ctype)
-        if proposed.get("drop") or raw.get("action") in {"delete", "remove"}:
+        raw_type = str(raw.get("type") or raw.get("action") or "pitch").strip().lower()
+        ctype = ALLOWED_TYPES_ALIASES.get(raw_type, raw_type)
+        if (
+            raw_type in _DROP_TYPE_ALIASES
+            or proposed.get("drop")
+            or raw.get("action") in {"delete", "remove"}
+        ):
             ctype = "pitch"
-            proposed["drop"] = True
-            if existing.get("pitch") is not None:
-                proposed.setdefault("pitch", existing.get("pitch"))
+            target_pitch = existing.get("pitch") or proposed.get("pitch")
+            if target_pitch is not None:
+                proposed["drop"] = True
+                proposed.setdefault("pitch", target_pitch)
         elif ctype == "key" or proposed.get("key") or raw.get("key"):
             ctype = "key"
             proposed.setdefault("key", raw.get("key") or proposed.get("key"))

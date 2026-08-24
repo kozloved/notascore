@@ -98,6 +98,21 @@ def test_correction_normalizes_flash_note_objects_and_word_confidence():
     assert drop.proposed_value.get("pitch") == 88
     assert drop.confidence == 0.9
 
+    named_drop = Correction.from_dict(
+        {
+            "type": "note_removal",
+            "time_start": 0.0,
+            "time_end": 0.4,
+            "existing_value": {"pitch": 88},
+            "confidence": "medium",
+            "reason": "harmonic ghost",
+        }
+    )
+    assert named_drop.type == "pitch"
+    assert named_drop.proposed_value.get("drop") is True
+    assert named_drop.proposed_value.get("pitch") == 88
+    assert named_drop.confidence == 0.65
+
     retune = Correction.from_dict(
         {
             "type": "update_note",
