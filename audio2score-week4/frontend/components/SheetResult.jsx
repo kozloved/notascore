@@ -81,6 +81,7 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
           autoResize: true,
           drawTitle: false,
           drawPartNames: false,
+          drawMetronomeMarks: true,
         });
         osmdRef.current = osmd;
 
@@ -90,6 +91,7 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
           osmd.EngravingRules.RenderTitle = false;
           osmd.EngravingRules.RenderSubtitle = false;
           osmd.EngravingRules.RenderLyricist = false;
+          osmd.EngravingRules.MetronomeMarksDrawn = true;
         }
 
         await osmd.load(xml);

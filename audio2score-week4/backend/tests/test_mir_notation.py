@@ -91,6 +91,8 @@ def test_notation_writer_grand_staff_musicxml(tmp_path):
     assert "f</sign>" in lower or "<sign>f</sign>" in lower
     assert "g</sign>" in lower or "<sign>g</sign>" in lower
     assert "<staves>2</staves>" in lower or "part-group" in lower
+    assert "<metronome" in lower
+    assert "<per-minute>120</per-minute>" in xml.replace(" ", "")
     score_midi = tmp_path / "bp_grand-test" / "grand-test.score.mid"
     assert score_midi.exists()
 

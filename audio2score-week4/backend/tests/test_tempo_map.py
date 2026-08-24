@@ -110,6 +110,10 @@ def test_notation_inserts_tempo_change_marks():
     numbers = {int(m.number) for m in marks if m.number}
     assert 80 in numbers
     assert any(n >= 150 for n in numbers)
+    xml = score.write("musicxml")
+    text = open(str(xml), encoding="utf-8").read()
+    assert "<per-minute>80</per-minute>" in text.replace(" ", "")
+    assert "<metronome" in text.lower()
 
 
 def test_beat_tracker_returns_map(sine_tone, normalized_audio_factory):

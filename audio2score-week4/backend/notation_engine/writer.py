@@ -105,7 +105,6 @@ class NotationWriter:
         md.movementName = None
         md.composer = None
         score.insert(0, md)
-        score.insert(0, m21tempo.MetronomeMark(number=bpm))
         score.insert(0, rh)
         score.insert(0, lh)
         group = layout.StaffGroup(
@@ -116,8 +115,11 @@ class NotationWriter:
             barTogether=True,
         )
         score.insert(0, group)
-        self._apply_tempo_map(score, meta)
         score.makeNotation(inPlace=True, refStreamOrTimeRange=[0.0, end_beat])
+        # Metronome marks must live in a measure. A score-level mark survives
+        # in memory but music21 omits it from MusicXML, so OSMD never draws BPM.
+        self._insert_metronome_at_beat(score, 0.0, int(bpm))
+        self._apply_tempo_map(score, meta)
         return score
 
     def _build_staff(
@@ -216,12 +218,7 @@ class NotationWriter:
             inPlace=True,
             recurse=True,
         )
-        marks = list(score.recurse().getElementsByClass(m21tempo.MetronomeMark))
-        if marks:
-            for mark in marks:
-                mark.number = bpm
-        else:
-            score.insert(0, m21tempo.MetronomeMark(number=bpm))
+        self._insert_metronome_at_beat(score, 0.0, int(bpm))
         self._apply_tempo_map(score, meta)
         return score
 
@@ -231,7 +228,6 @@ class NotationWriter:
             return
         from transcription import snap_to_standard_tempo
 
-        target = score.parts[0] if getattr(score, "parts", None) else score
         last_bpm = float(meta.display_tempo_bpm or 120)
         for pt in tempo_map.sorted_points():
             if pt.time_sec <= 1e-6:
@@ -242,8 +238,46 @@ class NotationWriter:
             offset = tempo_map.seconds_to_beats(pt.time_sec)
             if offset <= 0:
                 continue
-            target.insert(offset, m21tempo.MetronomeMark(number=int(snapped)))
+            self._insert_metronome_at_beat(score, offset, int(snapped))
             last_bpm = snapped
+
+    @staticmethod
+    def _insert_metronome_at_beat(score, beat: float, bpm: int) -> None:
+        """Put a metronome mark inside the measure that OSMD/MusicXML will export."""
+        mark = m21tempo.MetronomeMark(number=int(bpm))
+        try:
+            mark.placement = "above"
+        except Exception:
+            pass
+        part = score.parts[0] if getattr(score, "parts", None) else score
+        measures = list(part.getElementsByClass("Measure"))
+        if not measures:
+            part.insert(max(0.0, float(beat)), mark)
+            return
+        for meas in measures:
+            start = float(meas.offset)
+            try:
+                dur = float(meas.barDuration.quarterLength)
+            except Exception:
+                dur = float(getattr(meas.duration, "quarterLength", 4.0) or 4.0)
+            if start - 1e-6 <= float(beat) < start + dur - 1e-9:
+                local = max(0.0, float(beat) - start)
+                existing = [
+                    item
+                    for item in meas.getElementsByClass(m21tempo.MetronomeMark)
+                    if abs(float(item.offset) - local) < 1e-6
+                ]
+                if existing:
+                    existing[0].number = int(bpm)
+                    return
+                meas.insert(local, mark)
+                return
+        first = measures[0]
+        existing = list(first.getElementsByClass(m21tempo.MetronomeMark))
+        if existing:
+            existing[0].number = int(bpm)
+            return
+        first.insert(0, mark)
 
 
 def _staff_for(ev: MusicalEvent) -> str:
