@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import statistics
 
 from mir.types import NoteEvent
 
@@ -19,6 +20,8 @@ class MIDICleaner:
         octave_window_sec: float = 0.05,
         octave_keep_ratio: float = 0.6,
         drop_octave_ghosts: bool = True,
+        trim_overlaps: bool = True,
+        stretch_final_note: bool = True,
     ):
         self.merge_threshold_sec = merge_threshold_sec
         self.min_duration_sec = min_duration_sec
@@ -27,6 +30,8 @@ class MIDICleaner:
         self.octave_window_sec = octave_window_sec
         self.octave_keep_ratio = octave_keep_ratio
         self.drop_octave_ghosts = drop_octave_ghosts
+        self.trim_overlaps = trim_overlaps
+        self.stretch_final_note = stretch_final_note
 
     def clean(self, notes: list[NoteEvent]) -> list[NoteEvent]:
         if not notes:
@@ -35,8 +40,12 @@ class MIDICleaner:
         notes = self._merge_duplicates(notes)
         if self.drop_octave_ghosts:
             notes = self._drop_octave_ghosts(notes)
+        if self.trim_overlaps:
+            notes = self._trim_same_pitch_overlaps(notes)
         notes = self._snap_chord_starts(notes)
         notes = self._correct_drift(notes)
+        if self.stretch_final_note:
+            notes = self._stretch_short_final_note(notes)
         return sorted(notes, key=lambda n: (n.start_time, n.pitch))
 
     def _remove_micro_notes(self, notes: list[NoteEvent]) -> list[NoteEvent]:
@@ -124,6 +133,42 @@ class MIDICleaner:
                 keep[j] = False
 
         return [n for idx, n in enumerate(notes) if keep[idx]]
+
+    def _trim_same_pitch_overlaps(self, notes: list[NoteEvent]) -> list[NoteEvent]:
+        """Piano cannot retrigger the same key while it is still down."""
+        by_pitch: dict[int, list[NoteEvent]] = {}
+        for n in notes:
+            by_pitch.setdefault(int(n.pitch), []).append(n)
+
+        trimmed: list[NoteEvent] = []
+        for group in by_pitch.values():
+            group.sort(key=lambda n: n.start_time)
+            current: list[NoteEvent] = []
+            for n in group:
+                if current and n.start_time < current[-1].end_time:
+                    prev = current[-1]
+                    current[-1] = replace(
+                        prev,
+                        end_time=max(prev.start_time + 0.01, n.start_time),
+                    )
+                current.append(n)
+            trimmed.extend(current)
+        return trimmed
+
+    def _stretch_short_final_note(self, notes: list[NoteEvent]) -> list[NoteEvent]:
+        if len(notes) < 3:
+            return notes
+        last = max(notes, key=lambda n: n.start_time)
+        others = [n.duration for n in notes if n is not last]
+        if not others:
+            return notes
+        typical = statistics.median(others)
+        if last.duration >= typical:
+            return notes
+        return [
+            replace(n, end_time=n.start_time + typical) if n is last else n
+            for n in notes
+        ]
 
     def _snap_chord_starts(self, notes: list[NoteEvent]) -> list[NoteEvent]:
         """Align near-simultaneous notes to a common onset (e.g. C/E/G at 0.500)."""

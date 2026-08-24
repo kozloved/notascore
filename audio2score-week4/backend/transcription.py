@@ -53,6 +53,15 @@ def _use_piano_analyzer() -> bool:
     return _env_enabled("TRANSCRIPTION_USE_PIANO_ANALYZER", default=True)
 
 
+def _should_analyze_piano(instrument) -> bool:
+    """Fast path is poly piano; skip only obvious non-piano families."""
+    if not _use_piano_analyzer():
+        return False
+    from mir.types import InstrumentKind
+
+    return instrument not in (InstrumentKind.DRUMS, InstrumentKind.VOICE)
+
+
 def detect_tempo(audio_path) -> float:
     """Rough tempo estimate (BPM) from the audio, folded into a musical range."""
     try:
@@ -174,13 +183,11 @@ class BasicPitchEngine:
                 f"{raw_count} → {len(shadowed)} (job={job_id})"
             )
 
-        if (
-            _use_piano_analyzer()
-            and normalized is not None
-            and instrument == InstrumentKind.PIANO
-        ):
+        pedal_events: list[tuple[float, int]] = []
+        if _should_analyze_piano(instrument) and normalized is not None:
             piano = PianoAudioAnalyzer().analyze(normalized, note_events)
             note_events = piano.notes
+            pedal_events = [(p.time_sec, p.value) for p in piano.pedal_events]
             print(
                 f"[PianoAnalyzer] refined velocities for {len(note_events)} notes "
                 f"(job={job_id})"
@@ -191,7 +198,14 @@ class BasicPitchEngine:
             raise TranscriptionError("No notes detected")
 
         bpm = _estimate_tempo(audio_path, onsets)
-        write_job_raw_midi(audio_path, job_id, note_events, bpm=bpm)
+        write_job_raw_midi(
+            audio_path,
+            job_id,
+            note_events,
+            bpm=bpm,
+            pedal_events=pedal_events,
+            split_hands=True,
+        )
         print(
             f"[EnhancedLegacy] instrument={instrument.value} tempo={bpm:.1f} "
             f"notes={len(note_events)} normalizer={_use_normalizer()} "
@@ -242,6 +256,7 @@ class BasicPitchEngine:
 
         xml_path = out_dir / f"{job_id}.musicxml"
         score.write("musicxml", fp=str(xml_path))
+        score.write("midi", fp=str(out_dir / f"{job_id}.score.mid"))
 
         return xml_path.read_text(encoding="utf-8")
 
