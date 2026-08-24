@@ -66,7 +66,7 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
 }
 
 AUDIO_TOKENS_PER_SECOND = 32.0
-DEFAULT_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_REASONING_MODEL = "gemini-2.5-flash"
 
 
@@ -138,9 +138,9 @@ def pricing_for(model: str) -> dict[str, float]:
     if model in MODEL_PRICING:
         return MODEL_PRICING[model]
     if "flash-lite" in model:
-        return MODEL_PRICING[DEFAULT_MODEL]
+        return MODEL_PRICING["gemini-2.5-flash-lite"]
     if "flash" in model:
-        return MODEL_PRICING[DEFAULT_REASONING_MODEL]
+        return MODEL_PRICING["gemini-2.5-flash"]
     return MODEL_PRICING[DEFAULT_MODEL]
 
 

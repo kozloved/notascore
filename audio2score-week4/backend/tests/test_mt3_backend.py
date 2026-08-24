@@ -203,13 +203,16 @@ def test_health_includes_quality(monkeypatch):
     monkeypatch.setenv("ENABLE_GEMINI_MUSIC_ANALYSIS", "0")
     monkeypatch.setenv("GEMINI_ENABLED", "0")
     monkeypatch.setenv("GEMINI_API_KEY", "")
+    monkeypatch.delenv("GEMINI_DEFAULT_MODEL", raising=False)
 
     payload = health()
     assert payload["quality"]["available"] is False
     assert payload["modes"]["fast"] is True
     assert payload["modes"]["quality"] is False
     assert payload["gemini"]["enabled"] is False
-    assert payload["gemini"]["default_model"] == "gemini-2.5-flash-lite"
+    from intelligence.config import DEFAULT_MODEL
+
+    assert payload["gemini"]["default_model"] == DEFAULT_MODEL
 
 
 def test_quality_upload_rejected_when_unconfigured(tmp_path, monkeypatch):
