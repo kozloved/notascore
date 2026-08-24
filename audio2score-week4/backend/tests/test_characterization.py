@@ -36,7 +36,7 @@ def test_get_engine_understanding(monkeypatch):
     assert isinstance(engine, UnderstandingPipeline)
 
 
-@patch("basic_pitch.inference.predict")
+@patch("adapters.basic_pitch_backend.predict")
 def test_basic_pitch_engine_produces_musicxml(mock_predict, tmp_path, monkeypatch):
     import pretty_midi
 
@@ -47,6 +47,7 @@ def test_basic_pitch_engine_produces_musicxml(mock_predict, tmp_path, monkeypatc
     inst.notes.append(pretty_midi.Note(velocity=80, pitch=60, start=0.0, end=0.5))
     inst.notes.append(pretty_midi.Note(velocity=80, pitch=64, start=0.5, end=1.0))
     inst.notes.append(pretty_midi.Note(velocity=80, pitch=67, start=1.0, end=1.5))
+    midi.instruments.append(inst)
     mock_predict.return_value = (None, midi, None)
 
     audio = tmp_path / "test.wav"
