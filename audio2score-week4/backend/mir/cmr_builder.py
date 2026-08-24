@@ -29,11 +29,12 @@ def notes_to_events(
         end_beat = tempo_map.seconds_to_beats(note.end_time)
         duration = max(0.01, end_beat - start_beat)
 
-        hand = Hand.UNKNOWN
-        if note.pitch in melody_pitches:
-            hand = Hand.RIGHT
-        elif note.pitch in bass_pitches:
-            hand = Hand.LEFT
+        hand = note.hand
+        if hand == Hand.UNKNOWN:
+            if note.pitch in melody_pitches:
+                hand = Hand.RIGHT
+            elif note.pitch in bass_pitches:
+                hand = Hand.LEFT
 
         events.append(
             MusicalEvent(
@@ -56,12 +57,17 @@ def build_score_meta(
     instrument: InstrumentKind,
     segments,
     display_bpm: int = 120,
+    time_sig_hint: str | None = None,
+    key_hint: str | None = None,
 ) -> ScoreMeta:
     from mir.types import InstrumentPrediction, InstrumentCharacteristics
 
     return ScoreMeta(
         display_tempo_bpm=display_bpm,
         segments=list(segments),
+        tempo_map=tempo_map,
+        time_sig_hint=time_sig_hint,
+        key_hint=key_hint,
         instrument_prediction=InstrumentPrediction(
             instrument=instrument,
             confidence=0.8,

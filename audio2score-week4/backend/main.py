@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from contextlib import asynccontextmanager
@@ -22,11 +22,21 @@ CORS_ORIGIN = os.getenv(
     "http://localhost:3000,http://127.0.0.1:3000",
 )
 
-ALLOWED_EXTENSIONS = {
+ALLOWED_AUDIO_EXTENSIONS = {
     ".wav",
     ".mp3",
     ".m4a",
     ".flac",
+}
+ALLOWED_MIDI_EXTENSIONS = {".mid", ".midi"}
+ALLOWED_EXTENSIONS = ALLOWED_AUDIO_EXTENSIONS | ALLOWED_MIDI_EXTENSIONS
+MIDI_CONTENT_TYPES = {
+    "audio/midi",
+    "audio/mid",
+    "audio/x-midi",
+    "audio/sp-midi",
+    "application/midi",
+    "application/x-midi",
 }
 
 
@@ -63,6 +73,30 @@ def is_allowed_filename(filename: str) -> bool:
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
 
 
+SOURCE_MEDIA_TYPES = {
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".flac": "audio/flac",
+    ".mid": "audio/midi",
+    ".midi": "audio/midi",
+}
+
+
+def _is_midi_name(name) -> bool:
+    return Path(name or "").suffix.lower() in ALLOWED_MIDI_EXTENSIONS
+
+
+def _job_source_kind(job: dict) -> str:
+    if _is_midi_name(job.get("filename")) or _is_midi_name(job.get("storage_key")):
+        return "midi"
+    return "audio"
+
+
+def _safe_download_name(name: str) -> str:
+    return Path(name).name.replace('"', "").replace("\r", "").replace("\n", "")
+
+
 def public_job(job: dict) -> dict:
     if not job:
         return {}
@@ -75,6 +109,8 @@ def public_job(job: dict) -> dict:
         "size_bytes": job.get("size_bytes"),
         "progress": job.get("progress", 0),
         "error": job.get("error"),
+        "mode": job.get("mode") or "fast",
+        "source_kind": _job_source_kind(job),
         "result_available": bool(job.get("result_storage_key")),
         "created_at": job.get("created_at"),
         "updated_at": job.get("updated_at"),
@@ -83,6 +119,14 @@ def public_job(job: dict) -> dict:
 
 @app.get("/health")
 def health():
+    from adapters.basic_pitch_backend import basic_pitch_settings
+    from adapters.mt3_backend import mt3_status
+    from audio_engine.beat_tracker import beat_status
+    from intelligence.config import gemini_status
+
+    bp = basic_pitch_settings()
+    quality = mt3_status()
+    gemini = gemini_status()
     return {
         "status": "ok",
         "engine": os.getenv("TRANSCRIPTION_ENGINE", "basic_pitch"),
@@ -94,11 +138,22 @@ def health():
         "use_piano_analyzer": os.getenv("TRANSCRIPTION_USE_PIANO_ANALYZER", "1"),
         "use_mir_layers": os.getenv("TRANSCRIPTION_USE_MIR_LAYERS", "1"),
         "pipeline_fallback": os.getenv("TRANSCRIPTION_PIPELINE_FALLBACK", "1"),
+        "basic_pitch": bp,
+        "quality": quality,
+        "gemini": gemini,
+        "beat": beat_status(),
+        "modes": {
+            "fast": True,
+            "quality": quality["available"],
+        },
     }
 
 
 @app.post("/upload", status_code=202)
-async def upload(file: UploadFile = File(...)):
+async def upload(
+    file: UploadFile = File(...),
+    mode: str = Form("fast"),
+):
     if not file.filename:
         raise HTTPException(
             status_code=400,
@@ -108,23 +163,43 @@ async def upload(file: UploadFile = File(...)):
     if not is_allowed_filename(file.filename):
         raise HTTPException(
             status_code=400,
-            detail="Invalid file type. Allowed types: .wav, .mp3, .m4a, .flac",
+            detail="Invalid file type. Allowed types: .wav, .mp3, .m4a, .flac, .mid, .midi",
         )
 
-    # Browsers send audio/*; CLI tools often send application/octet-stream.
+    from transcription import parse_transcription_mode, queue_timeout_for_mode
+
+    try:
+        resolved_mode = parse_transcription_mode(mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Browsers send audio/* or audio/midi; CLI tools often send application/octet-stream.
     # Trust the allowed extension when the declared type is missing or generic.
     content_type = (file.content_type or "").lower()
+    suffix = Path(file.filename).suffix.lower()
+    midi_upload = suffix in ALLOWED_MIDI_EXTENSIONS
+    if resolved_mode == "quality" and not midi_upload:
+        from adapters.mt3_backend import mt3_available
+
+        if not mt3_available():
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Quality mode is not configured. "
+                    "Set MT3_ENDPOINT or MT3_TRANSCRIBE_COMMAND."
+                ),
+            )
     if content_type and not (
         content_type.startswith("audio/")
         or content_type in ("application/octet-stream", "binary/octet-stream")
+        or (midi_upload and content_type in MIDI_CONTENT_TYPES)
     ):
         raise HTTPException(
             status_code=400,
-            detail="Invalid content type. Please upload an audio file.",
+            detail="Invalid content type. Please upload an audio or MIDI file.",
         )
 
     job_id = str(uuid.uuid4())
-    suffix = Path(file.filename).suffix.lower()
 
     temp_path = storage_service.LOCAL_TEMP_DIR / f"{job_id}.part"
 
@@ -202,12 +277,16 @@ async def upload(file: UploadFile = File(...)):
         "error": None,
         "created_at": now,
         "updated_at": now,
+        "mode": resolved_mode,
     }
 
     db.create_job(job)
 
     try:
-        queue_service.enqueue_job(job_id)
+        queue_service.enqueue_job(
+            job_id,
+            job_timeout=queue_timeout_for_mode(resolved_mode),
+        )
     except Exception as exc:
         db.update_job(
             job_id,
@@ -248,6 +327,73 @@ def job_detail(job_id: str):
     return public_job(job)
 
 
+def _source_media_type(job: dict) -> str:
+    suffix = Path(job.get("filename") or job.get("storage_key") or "").suffix.lower()
+    if suffix in SOURCE_MEDIA_TYPES:
+        return SOURCE_MEDIA_TYPES[suffix]
+    content_type = (job.get("content_type") or "").strip()
+    if content_type and content_type.lower() not in (
+        "application/octet-stream",
+        "binary/octet-stream",
+    ):
+        return content_type
+    return "application/octet-stream"
+
+
+@app.get("/jobs/{job_id}/source")
+def job_source(job_id: str):
+    """Original uploaded audio (or MIDI) for in-page preview."""
+    job = db.get_job(job_id)
+
+    if not job:
+        raise HTTPException(
+            status_code=404,
+            detail="Job not found",
+        )
+
+    storage_key = job.get("storage_key")
+    if not storage_key:
+        raise HTTPException(
+            status_code=404,
+            detail="Original file is not available",
+        )
+
+    storage_backend = storage_service.get_storage()
+    media_type = _source_media_type(job)
+    filename = _safe_download_name(job.get("filename") or Path(storage_key).name)
+
+    if storage_backend.backend == "local":
+        path = Path(storage_key)
+        if not path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail="Original file is missing",
+            )
+        return FileResponse(
+            path=str(path),
+            media_type=media_type,
+            filename=filename,
+            content_disposition_type="inline",
+        )
+
+    try:
+        data = storage_backend.read_upload_bytes(storage_key)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Original file is missing",
+        ) from exc
+
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Accept-Ranges": "bytes",
+        },
+    )
+
+
 def _musicxml_to_midi_bytes(musicxml_text: str) -> bytes:
     from music21 import converter
     import tempfile
@@ -268,10 +414,10 @@ def _musicxml_to_midi_bytes(musicxml_text: str) -> bytes:
 def job_result(job_id: str, format: str = "musicxml"):
     fmt = (format or "musicxml").lower()
 
-    if fmt not in ("musicxml", "midi"):
+    if fmt not in ("musicxml", "midi", "midi_score"):
         raise HTTPException(
             status_code=400,
-            detail="Unsupported format. Use 'musicxml' or 'midi'.",
+            detail="Unsupported format. Use 'musicxml', 'midi', or 'midi_score'.",
         )
 
     job = db.get_job(job_id)
@@ -326,7 +472,34 @@ def job_result(job_id: str, format: str = "musicxml"):
 
         return RedirectResponse(signed_url)
 
-    # fmt == "midi": derive a MIDI file from the stored MusicXML on the fly.
+    if fmt == "midi":
+        raw_bytes = _load_sidecar_midi_bytes(
+            storage_backend, job_id, result_storage_key, f"{job_id}.raw.mid"
+        )
+        if raw_bytes:
+            return Response(
+                content=raw_bytes,
+                media_type="audio/midi",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{stem}.mid"',
+                },
+            )
+        # Older jobs: fall back to score MIDI derived from MusicXML.
+
+    if fmt == "midi_score":
+        score_bytes = _load_sidecar_midi_bytes(
+            storage_backend, job_id, result_storage_key, f"{job_id}.score.mid"
+        )
+        if score_bytes:
+            return Response(
+                content=score_bytes,
+                media_type="audio/midi",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{stem}.score.mid"',
+                },
+            )
+
+    # fmt == "midi_score" (or sidecars missing): derive from stored MusicXML.
     try:
         musicxml_text = storage_backend.read_result_text(result_storage_key)
         midi_bytes = _musicxml_to_midi_bytes(musicxml_text)
@@ -336,10 +509,25 @@ def job_result(job_id: str, format: str = "musicxml"):
             detail="Failed to generate MIDI from the transcription.",
         ) from exc
 
+    filename = f"{stem}.score.mid" if fmt == "midi_score" else f"{stem}.mid"
     return Response(
         content=midi_bytes,
         media_type="audio/midi",
         headers={
-            "Content-Disposition": f'attachment; filename="{stem}.mid"',
+            "Content-Disposition": f'attachment; filename="{filename}"',
         },
     )
+
+
+def _load_sidecar_midi_bytes(
+    storage_backend, job_id: str, result_storage_key: str, filename: str
+):
+    try:
+        if storage_backend.backend == "local":
+            midi_path = Path(result_storage_key).with_name(filename)
+            if midi_path.exists():
+                return midi_path.read_bytes()
+            return None
+        return storage_backend.read_result_bytes(filename)
+    except Exception:
+        return None

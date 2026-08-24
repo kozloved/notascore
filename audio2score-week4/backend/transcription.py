@@ -17,6 +17,8 @@ QUANTIZE_DIVISORS = (4, 3)
 DEFAULT_TEMPO = 120.0
 MIN_TEMPO = 50.0
 MAX_TEMPO = 200.0
+ALLOWED_MODES = ("fast", "quality")
+DEFAULT_FAST_QUEUE_TIMEOUT = 600
 
 # Classic (Maelzel) metronome graduations, used to snap the *printed* tempo to a
 # conventional value.
@@ -51,6 +53,15 @@ def _use_beat_tracker() -> bool:
 
 def _use_piano_analyzer() -> bool:
     return _env_enabled("TRANSCRIPTION_USE_PIANO_ANALYZER", default=True)
+
+
+def _should_analyze_piano(instrument) -> bool:
+    """Fast path is poly piano; skip only obvious non-piano families."""
+    if not _use_piano_analyzer():
+        return False
+    from mir.types import InstrumentKind
+
+    return instrument not in (InstrumentKind.DRUMS, InstrumentKind.VOICE)
 
 
 def detect_tempo(audio_path) -> float:
@@ -93,13 +104,16 @@ def refine_tempo(onsets, base_bpm: float) -> float:
 
     best_bpm, best_err = base_bpm, float("inf")
 
-    for center in {base_bpm * 0.5, base_bpm, base_bpm * 2.0}:
+    for factor in (0.5, 2.0 / 3.0, 0.8, 1.0, 1.25, 1.5, 2.0):
+        center = base_bpm * factor
         for bpm in np.arange(center - 8.0, center + 8.0, 0.05):
             if bpm < MIN_TEMPO or bpm > MAX_TEMPO:
                 continue
-            grid = (60.0 / bpm) / 4.0
-            ratio = onsets / grid
-            err = float(np.mean(np.abs(ratio - np.round(ratio))))
+            quarter = 60.0 / bpm
+            sixteenth = quarter / 4.0
+            err16 = float(np.mean(np.abs(onsets / sixteenth - np.round(onsets / sixteenth))))
+            errq = float(np.mean(np.abs(onsets / quarter - np.round(onsets / quarter))))
+            err = err16 + 0.5 * errq + 0.002 * abs(bpm - base_bpm) / max(base_bpm, 1.0)
             if err < best_err:
                 best_err, best_bpm = err, float(bpm)
 
@@ -113,7 +127,10 @@ def _estimate_tempo(audio_path: Path, onsets: list[float]) -> float:
         from audio_engine.normalizer import AudioNormalizer
 
         normalized = AudioNormalizer().normalize(audio_path)
-        seed = BeatTracker().track(normalized).bpm_at(0.0)
+        tracker = BeatTracker()
+        seed = tracker.track(normalized).bpm_at(0.0)
+        if tracker.last_source == "madmom":
+            return round(seed, 2)
     else:
         seed = detect_tempo(audio_path)
 
@@ -124,6 +141,14 @@ class BasicPitchEngine:
     name = "basic_pitch"
 
     def transcribe(self, audio_path, job_id):
+        from mir.midi_ingest import is_midi_path
+
+        audio_path = Path(audio_path)
+        if is_midi_path(audio_path):
+            from mir.pipeline import UnderstandingPipeline
+
+            return UnderstandingPipeline().transcribe(audio_path, job_id)
+
         import pretty_midi
 
         from adapters.basic_pitch_backend import BasicPitchBackend
@@ -131,6 +156,7 @@ class BasicPitchEngine:
         from audio_engine.normalizer import AudioNormalizer
         from audio_engine.piano_analyzer import PianoAudioAnalyzer
         from mir.midi_cleaner import MIDICleaner
+        from mir.raw_midi import write_job_raw_midi
         from mir.types import InstrumentKind
 
         audio_path = Path(audio_path)
@@ -173,13 +199,11 @@ class BasicPitchEngine:
                 f"{raw_count} → {len(shadowed)} (job={job_id})"
             )
 
-        if (
-            _use_piano_analyzer()
-            and normalized is not None
-            and instrument == InstrumentKind.PIANO
-        ):
+        pedal_events: list[tuple[float, int]] = []
+        if _should_analyze_piano(instrument) and normalized is not None:
             piano = PianoAudioAnalyzer().analyze(normalized, note_events)
             note_events = piano.notes
+            pedal_events = [(p.time_sec, p.value) for p in piano.pedal_events]
             print(
                 f"[PianoAnalyzer] refined velocities for {len(note_events)} notes "
                 f"(job={job_id})"
@@ -190,6 +214,14 @@ class BasicPitchEngine:
             raise TranscriptionError("No notes detected")
 
         bpm = _estimate_tempo(audio_path, onsets)
+        write_job_raw_midi(
+            audio_path,
+            job_id,
+            note_events,
+            bpm=bpm,
+            pedal_events=pedal_events,
+            split_hands=True,
+        )
         print(
             f"[EnhancedLegacy] instrument={instrument.value} tempo={bpm:.1f} "
             f"notes={len(note_events)} normalizer={_use_normalizer()} "
@@ -240,6 +272,7 @@ class BasicPitchEngine:
 
         xml_path = out_dir / f"{job_id}.musicxml"
         score.write("musicxml", fp=str(xml_path))
+        score.write("midi", fp=str(out_dir / f"{job_id}.score.mid"))
 
         return xml_path.read_text(encoding="utf-8")
 
@@ -254,6 +287,10 @@ class FallbackEngine:
         self.fallback = fallback
 
     def transcribe(self, audio_path, job_id):
+        from mir.midi_ingest import is_midi_path
+
+        if is_midi_path(audio_path):
+            return self.primary.transcribe(audio_path, job_id)
         try:
             return self.primary.transcribe(audio_path, job_id)
         except Exception as exc:
@@ -264,7 +301,45 @@ class FallbackEngine:
             return self.fallback.transcribe(audio_path, job_id)
 
 
-def get_engine():
+def parse_transcription_mode(mode: str | None) -> str:
+    """Return 'fast' or 'quality'. Invalid values raise ValueError."""
+    value = (mode or "fast").strip().lower()
+    if value not in ALLOWED_MODES:
+        raise ValueError("Invalid transcription mode. Use 'fast' or 'quality'.")
+    return value
+
+
+def queue_timeout_for_mode(mode: str) -> int:
+    """RQ job_timeout: Quality waits on a remote GPU, so it needs more room."""
+    resolved = parse_transcription_mode(mode)
+    if resolved != "quality":
+        return DEFAULT_FAST_QUEUE_TIMEOUT
+    from adapters.mt3_backend import mt3_settings
+
+    return max(900, int(mt3_settings()["timeout"]) + 120)
+
+
+def get_engine(mode: str | None = None, filename: str | None = None):
+    from mir.midi_ingest import is_midi_path
+
+    if filename and is_midi_path(filename):
+        from mir.pipeline import UnderstandingPipeline
+
+        return UnderstandingPipeline()
+
+    resolved = parse_transcription_mode(mode)
+    if resolved == "quality":
+        from adapters.mt3_backend import MT3Backend, mt3_available
+        from mir.pipeline import UnderstandingPipeline
+
+        if not mt3_available():
+            raise TranscriptionError(
+                "Quality mode (MT3) is not configured. "
+                "Set MT3_ENDPOINT or MT3_TRANSCRIBE_COMMAND."
+            )
+        # Quality never falls back to Fast / Basic Pitch.
+        return UnderstandingPipeline(backend_name=MT3Backend.name)
+
     pipeline = os.getenv("TRANSCRIPTION_PIPELINE", "understanding").lower()
     if pipeline == "understanding":
         from mir.pipeline import UnderstandingPipeline

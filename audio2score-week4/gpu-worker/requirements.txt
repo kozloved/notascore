@@ -1,0 +1,8 @@
+# Install on the GPU box. Do not overwrite a CUDA torch that the image already has.
+fastapi
+uvicorn
+python-multipart
+mt3-infer
+librosa
+soundfile
+pretty_midi

@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import ListenPreview from "./ListenPreview";
+
 function triggerDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -52,7 +54,7 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
   const containerRef = useRef(null);
   const osmdRef = useRef(null);
   const [previewState, setPreviewState] = useState("loading"); // loading | ready | error
-  const [busy, setBusy] = useState(null); // "musicxml" | "midi" | "pdf" | null
+  const [busy, setBusy] = useState(null); // "musicxml" | "midi" | "midi_score" | "pdf" | null
   const [message, setMessage] = useState("");
 
   const stem = (filename || "score").replace(/\.[^/.]+$/, "");
@@ -79,6 +81,7 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
           autoResize: true,
           drawTitle: false,
           drawPartNames: false,
+          drawMetronomeMarks: true,
         });
         osmdRef.current = osmd;
 
@@ -88,6 +91,7 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
           osmd.EngravingRules.RenderTitle = false;
           osmd.EngravingRules.RenderSubtitle = false;
           osmd.EngravingRules.RenderLyricist = false;
+          osmd.EngravingRules.MetronomeMarksDrawn = true;
         }
 
         await osmd.load(xml);
@@ -187,15 +191,28 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
         )}
       </div>
 
+      <ListenPreview apiUrl={apiUrl} jobId={jobId} filename={filename} />
+
       <div className="formats">
         <button
           type="button"
           className="btn btn-format"
           onClick={() => downloadFromApi("midi", "mid")}
           disabled={busy !== null}
+          title="Unquantized MIDI from Basic Pitch after cleaning"
         >
           {busy === "midi" ? <span className="spinner spinner-dark" aria-hidden="true" /> : <FileIcon />}
           MIDI
+        </button>
+        <button
+          type="button"
+          className="btn btn-format"
+          onClick={() => downloadFromApi("midi_score", "score.mid")}
+          disabled={busy !== null}
+          title="Quantized MIDI that matches the sheet"
+        >
+          {busy === "midi_score" ? <span className="spinner spinner-dark" aria-hidden="true" /> : <FileIcon />}
+          MIDI (score)
         </button>
         <button
           type="button"
