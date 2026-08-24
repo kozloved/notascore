@@ -52,6 +52,16 @@ def process_job(job_id: str):
             content_type="application/vnd.recordare.musicxml+xml",
         )
 
+        from mir.raw_midi import job_raw_midi_path
+
+        raw_midi = job_raw_midi_path(audio_local_path, job_id)
+        if raw_midi.exists():
+            storage_backend.save_local_file(
+                raw_midi,
+                f"{job_id}.raw.mid",
+                content_type="audio/midi",
+            )
+
         db.update_job(
             job_id,
             status="completed",

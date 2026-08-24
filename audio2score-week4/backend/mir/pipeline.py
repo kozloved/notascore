@@ -20,6 +20,7 @@ from mir.cmr_builder import build_score_meta, notes_to_events
 from mir.dynamics import DynamicsExtractor
 from mir.hand_separator import HandSeparator
 from mir.midi_cleaner import MIDICleaner
+from mir.raw_midi import write_job_raw_midi
 from mir.types import InstrumentKind, MusicalEvent, NoteEvent, ScoreMeta, TempoMap
 from mir.voice_separator import VoiceSeparator
 from notation_engine.writer import NotationWriter
@@ -98,6 +99,7 @@ class UnderstandingPipeline:
 
         onsets = [n.start_time for n in notes]
         bpm = _estimate_tempo(audio_path, onsets)
+        write_job_raw_midi(audio_path, job_id, notes, bpm=bpm)
         from mir.types import TempoPoint
 
         tempo_map = TempoMap(

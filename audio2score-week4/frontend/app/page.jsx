@@ -208,7 +208,7 @@ export default function Home() {
           {health && (
             <span className="badge">
               <span className="dot" />
-              API {health.status} · {health.engine} engine
+              API {health.status} · {health.pipeline || health.engine}{health.basic_pitch ? ` · onset ${health.basic_pitch.onset_threshold}` : ""}
             </span>
           )}
         </header>

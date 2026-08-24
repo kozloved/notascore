@@ -66,6 +66,7 @@ def test_enhanced_legacy_piano_velocity_refine(
         inst.notes.append(
             pretty_midi.Note(velocity=64, pitch=pitch, start=start, end=start + 0.4)
         )
+    midi.instruments.append(inst)
     mock_predict.return_value = (None, midi, None)
 
     mock_classify.return_value = InstrumentPrediction(
@@ -107,7 +108,8 @@ def test_enhanced_legacy_writes_normalized_wav(mock_transcribe, tmp_path, monkey
     t = np.linspace(0, 2, sr * 2)
     sf.write(str(audio), 0.1 * np.sin(2 * np.pi * 440 * t), sr)
 
-    BasicPitchEngine().transcribe(audio, "norm-test")
+    xml = BasicPitchEngine().transcribe(audio, "norm-test")
     norm_path = tmp_path / "bp_norm-test" / "norm-test_norm.wav"
     assert norm_path.exists()
     assert mock_transcribe.call_args[0][0] == norm_path
+    assert (tmp_path / "bp_norm-test" / "norm-test.raw.mid").exists()

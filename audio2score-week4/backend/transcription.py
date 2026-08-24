@@ -131,6 +131,7 @@ class BasicPitchEngine:
         from audio_engine.normalizer import AudioNormalizer
         from audio_engine.piano_analyzer import PianoAudioAnalyzer
         from mir.midi_cleaner import MIDICleaner
+        from mir.raw_midi import write_job_raw_midi
         from mir.types import InstrumentKind
 
         audio_path = Path(audio_path)
@@ -190,6 +191,7 @@ class BasicPitchEngine:
             raise TranscriptionError("No notes detected")
 
         bpm = _estimate_tempo(audio_path, onsets)
+        write_job_raw_midi(audio_path, job_id, note_events, bpm=bpm)
         print(
             f"[EnhancedLegacy] instrument={instrument.value} tempo={bpm:.1f} "
             f"notes={len(note_events)} normalizer={_use_normalizer()} "

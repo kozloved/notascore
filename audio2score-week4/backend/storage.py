@@ -42,6 +42,19 @@ class LocalStorage:
 
         return str(target)
 
+    def save_bytes(self, key, data, content_type=None):
+        target = (LOCAL_RESULTS_DIR / key).resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        return str(target)
+
+    def save_local_file(self, local_file_path, key, content_type=None):
+        return self.save_bytes(
+            key,
+            Path(local_file_path).read_bytes(),
+            content_type=content_type,
+        )
+
     def get_local_audio_path(self, storage_key):
         return Path(storage_key)
 
@@ -50,6 +63,9 @@ class LocalStorage:
 
     def read_result_text(self, result_storage_key):
         return Path(result_storage_key).read_text(encoding="utf-8")
+
+    def read_result_bytes(self, result_storage_key):
+        return Path(result_storage_key).read_bytes()
 
 
 class SupabaseStorage:
@@ -137,6 +153,29 @@ class SupabaseStorage:
 
         return key
 
+    def save_bytes(self, key, data, content_type=None):
+        temp_file = LOCAL_TEMP_DIR / Path(key).name
+        temp_file.write_bytes(data)
+        options = {"upsert": "true"}
+        if content_type:
+            options["content-type"] = content_type
+        try:
+            self._bucket(self.results_bucket).upload(
+                key,
+                str(temp_file),
+                options,
+            )
+        finally:
+            temp_file.unlink(missing_ok=True)
+        return key
+
+    def save_local_file(self, local_file_path, key, content_type=None):
+        return self.save_bytes(
+            key,
+            Path(local_file_path).read_bytes(),
+            content_type=content_type,
+        )
+
     def get_local_audio_path(self, storage_key):
         local_path = LOCAL_TEMP_DIR / f"audio-{Path(storage_key).name}"
 
@@ -168,6 +207,12 @@ class SupabaseStorage:
             return data.decode("utf-8")
 
         return str(data)
+
+    def read_result_bytes(self, result_storage_key):
+        data = self._bucket(self.results_bucket).download(result_storage_key)
+        if isinstance(data, bytes):
+            return data
+        return bytes(data)
 
 
 @lru_cache

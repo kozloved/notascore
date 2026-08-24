@@ -83,6 +83,9 @@ def public_job(job: dict) -> dict:
 
 @app.get("/health")
 def health():
+    from adapters.basic_pitch_backend import basic_pitch_settings
+
+    bp = basic_pitch_settings()
     return {
         "status": "ok",
         "engine": os.getenv("TRANSCRIPTION_ENGINE", "basic_pitch"),
@@ -94,6 +97,7 @@ def health():
         "use_piano_analyzer": os.getenv("TRANSCRIPTION_USE_PIANO_ANALYZER", "1"),
         "use_mir_layers": os.getenv("TRANSCRIPTION_USE_MIR_LAYERS", "1"),
         "pipeline_fallback": os.getenv("TRANSCRIPTION_PIPELINE_FALLBACK", "1"),
+        "basic_pitch": bp,
     }
 
 
@@ -268,10 +272,10 @@ def _musicxml_to_midi_bytes(musicxml_text: str) -> bytes:
 def job_result(job_id: str, format: str = "musicxml"):
     fmt = (format or "musicxml").lower()
 
-    if fmt not in ("musicxml", "midi"):
+    if fmt not in ("musicxml", "midi", "midi_score"):
         raise HTTPException(
             status_code=400,
-            detail="Unsupported format. Use 'musicxml' or 'midi'.",
+            detail="Unsupported format. Use 'musicxml', 'midi', or 'midi_score'.",
         )
 
     job = db.get_job(job_id)
@@ -326,7 +330,19 @@ def job_result(job_id: str, format: str = "musicxml"):
 
         return RedirectResponse(signed_url)
 
-    # fmt == "midi": derive a MIDI file from the stored MusicXML on the fly.
+    if fmt == "midi":
+        raw_bytes = _load_raw_midi_bytes(storage_backend, job_id, result_storage_key)
+        if raw_bytes:
+            return Response(
+                content=raw_bytes,
+                media_type="audio/midi",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{stem}.mid"',
+                },
+            )
+        # Older jobs: fall back to score MIDI derived from MusicXML.
+
+    # fmt == "midi_score" (or raw MIDI missing): derive from stored MusicXML.
     try:
         musicxml_text = storage_backend.read_result_text(result_storage_key)
         midi_bytes = _musicxml_to_midi_bytes(musicxml_text)
@@ -336,10 +352,24 @@ def job_result(job_id: str, format: str = "musicxml"):
             detail="Failed to generate MIDI from the transcription.",
         ) from exc
 
+    filename = f"{stem}.score.mid" if fmt == "midi_score" else f"{stem}.mid"
     return Response(
         content=midi_bytes,
         media_type="audio/midi",
         headers={
-            "Content-Disposition": f'attachment; filename="{stem}.mid"',
+            "Content-Disposition": f'attachment; filename="{filename}"',
         },
     )
+
+
+def _load_raw_midi_bytes(storage_backend, job_id: str, result_storage_key: str):
+    raw_key = f"{job_id}.raw.mid"
+    try:
+        if storage_backend.backend == "local":
+            raw_path = Path(result_storage_key).with_name(raw_key)
+            if raw_path.exists():
+                return raw_path.read_bytes()
+            return None
+        return storage_backend.read_result_bytes(raw_key)
+    except Exception:
+        return None
