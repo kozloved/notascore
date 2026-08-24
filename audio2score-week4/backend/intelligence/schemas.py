@@ -65,6 +65,54 @@ class MusicalAnalysisPacket:
         }
 
 
+ALLOWED_TYPES_ALIASES = {
+    "remove_note": "pitch",
+    "delete_note": "pitch",
+    "drop_note": "pitch",
+    "drop": "pitch",
+    "update_note": "pitch",
+    "change_note": "pitch",
+    "change_pitch": "pitch",
+    "extend_note": "timing",
+    "note_modification": "pitch",
+    "modify_note": "pitch",
+    "timing": "timing",
+}
+
+_CONFIDENCE_WORDS = {
+    "very high": 0.95,
+    "high": 0.9,
+    "medium": 0.65,
+    "moderate": 0.65,
+    "low": 0.35,
+    "very low": 0.2,
+}
+
+
+def _as_float(value: Any, default: float = 0.0) -> float:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().lower()
+    if text in _CONFIDENCE_WORDS:
+        return _CONFIDENCE_WORDS[text]
+    try:
+        return float(text)
+    except ValueError:
+        return default
+
+
+def _first_note_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, list) and value and isinstance(value[0], dict):
+        return dict(value[0])
+    return {}
+
+
 @dataclass
 class Correction:
     type: str
@@ -82,16 +130,52 @@ class Correction:
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> Correction:
+        existing = dict(raw.get("existing_value") or {})
+        proposed = dict(raw.get("proposed_value") or {})
+        original = _first_note_dict(
+            raw.get("original_notes") or raw.get("existing_notes")
+        )
+        corrected_raw = raw.get("corrected_notes")
+        if original:
+            existing = {**original, **existing}
+        if isinstance(corrected_raw, list) and not corrected_raw:
+            proposed = {**proposed, "drop": True, "pitch": existing.get("pitch")}
+        else:
+            corrected = _first_note_dict(corrected_raw or raw.get("proposed_notes"))
+            if corrected:
+                proposed = {**corrected, **proposed}
+                start = _as_float(corrected.get("start"), _as_float(raw.get("time_start")))
+                duration = _as_float(corrected.get("duration"))
+                if duration and "end_time" not in proposed:
+                    proposed["start_time"] = start
+                    proposed["end_time"] = start + duration
+                    proposed["pitch"] = corrected.get("pitch", existing.get("pitch"))
+        ctype = str(raw.get("type") or raw.get("action") or "pitch")
+        ctype = ALLOWED_TYPES_ALIASES.get(ctype, ctype)
+        if proposed.get("drop") or raw.get("action") in {"delete", "remove"}:
+            ctype = "pitch"
+            proposed["drop"] = True
+            if existing.get("pitch") is not None:
+                proposed.setdefault("pitch", existing.get("pitch"))
+        elif (
+            existing.get("pitch") is not None
+            and proposed.get("pitch") is not None
+            and int(existing.get("pitch") or 0) != int(proposed.get("pitch") or 0)
+        ):
+            ctype = "pitch"
+        elif proposed.get("end_time") or proposed.get("duration"):
+            if ctype not in {"tempo", "meter", "instrument", "hand", "voice"}:
+                ctype = "timing"
         return cls(
-            type=str(raw.get("type") or "pitch"),
-            time_start=float(raw.get("time_start") or 0.0),
-            time_end=float(raw.get("time_end") or 0.0),
-            existing_value=dict(raw.get("existing_value") or {}),
-            proposed_value=dict(raw.get("proposed_value") or {}),
-            confidence=float(raw.get("confidence") or 0.0),
+            type=ctype,
+            time_start=_as_float(raw.get("time_start") or existing.get("start")),
+            time_end=_as_float(raw.get("time_end")),
+            existing_value=existing,
+            proposed_value=proposed,
+            confidence=_as_float(raw.get("confidence")),
             reason=str(raw.get("reason") or ""),
             requires_deep_analysis=bool(raw.get("requires_deep_analysis")),
-            final_confidence=float(raw.get("final_confidence") or 0.0),
+            final_confidence=_as_float(raw.get("final_confidence")),
         )
 
 
@@ -121,7 +205,7 @@ class GeminiAnalysis:
             if isinstance(item, dict)
         ]
         return cls(
-            overall_confidence=float(raw.get("overall_confidence") or 0.0),
+            overall_confidence=_as_float(raw.get("overall_confidence")),
             instrument_analysis=dict(raw.get("instrument_analysis") or {}),
             musical_structure=dict(raw.get("musical_structure") or {}),
             tempo_analysis=dict(raw.get("tempo_analysis") or {}),

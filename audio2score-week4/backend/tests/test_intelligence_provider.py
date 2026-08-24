@@ -78,3 +78,36 @@ def test_parse_json_object_accepts_array_and_fenced_text():
     assert listed["corrections"][0]["type"] == "pitch"
     noisy = _parse_json_object('prefix {"overall_confidence": 0.4, "corrections": []} trailing')
     assert noisy["overall_confidence"] == 0.4
+
+
+def test_correction_normalizes_flash_note_objects_and_word_confidence():
+    from intelligence.schemas import Correction
+
+    drop = Correction.from_dict(
+        {
+            "time_start": 1.99,
+            "time_end": 3.08,
+            "confidence": "high",
+            "original_notes": [{"pitch": 88, "start": 1.99, "duration": 1.1, "velocity": 59}],
+            "corrected_notes": [],
+            "reason": "spurious overtone",
+        }
+    )
+    assert drop.type == "pitch"
+    assert drop.proposed_value.get("drop") is True
+    assert drop.proposed_value.get("pitch") == 88
+    assert drop.confidence == 0.9
+
+    retune = Correction.from_dict(
+        {
+            "type": "update_note",
+            "time_start": 1.6,
+            "time_end": 2.0,
+            "original_notes": [{"pitch": 71, "start": 1.6, "duration": 0.4}],
+            "corrected_notes": [{"pitch": 69, "start": 1.6, "duration": 0.4}],
+            "confidence": 0.92,
+        }
+    )
+    assert retune.type == "pitch"
+    assert retune.proposed_value.get("pitch") == 69
+    assert retune.existing_value.get("pitch") == 71
