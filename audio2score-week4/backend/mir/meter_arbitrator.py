@@ -185,8 +185,10 @@ class MeterArbitrator:
         hyps = self.estimator.estimate(events)
         ranked = self.estimator.ranked_candidates(events)
         scores = _score_map(hyps)
-        phase = _phase_beat(events, beat_evidence)
-        triple = triple_meter_evidence(events, phase_beat=phase)
+        # Events are already in tempo-map beat space from t=0. Do not rotate
+        # the accent window from a single mid-phrase downbeat — that turns
+        # 4/4 quarters into a fake S-W-W pattern.
+        triple = triple_meter_evidence(events, phase_beat=0.0)
         period = downbeat_periodicity(beat_evidence)
         grouping = beat_evidence.grouping_beats_per_bar if beat_evidence else None
         if grouping is None and beat_evidence is not None:
@@ -244,13 +246,53 @@ class MeterArbitrator:
         overridden = False
         confidence = min(0.93, max(0.2, hyps[0].confidence if hyps else 0.2))
 
-        # Strong compound grouping from a 6-state DBN is evidence for 6/8,
-        # not an automatic final meter.
-        if grouping_is_compound and (compound_score + 0.05 >= s34 or triple["prefers_6_8"]):
-            chosen = "6/8"
-            reason = "compound_grouping_and_estimator"
-            confidence = max(confidence, 0.72)
-            overridden = grouping_meter in ("3/4", "4/4")
+        eighth_bins = triple.get("eighth_bins") or []
+        eighth_occupied = sum(1 for b in eighth_bins if b >= 0.08)
+        compound_compatible = bool(
+            triple["prefers_6_8"]
+            or triple["bass_at_1_5"] >= 0.10
+            or (
+                triple["score_6_8"] >= triple["score_3_4"] - 0.02
+                and triple["bass_at_1_5"] > 0.0
+            )
+        )
+        four_four_competitive = s44 + 0.08 >= max(compound_score, s34)
+        duple_winner = est_mvp in ("4/4", "2/4")
+
+        # 4-beat grouping plus a competitive 4/4 score is simple meter, even
+        # if 3/4 or 12/8 barely tops the estimator (even quarter chords).
+        if (
+            grouping_is_simple
+            and four_four_competitive
+            and not triple["prefers_6_8"]
+            and triple["bass_at_1_5"] < 0.08
+            and triple["quarter_offbeats"] >= 0.40
+        ):
+            chosen = "2/4" if est_mvp == "2/4" else "4/4"
+            reason = "simple_grouping_competitive_four_four"
+            overridden = est_mvp not in ("4/4", "2/4")
+            confidence = max(confidence, 0.7)
+        elif (
+            grouping_is_simple
+            and four_four_competitive
+            and not triple["prefers_6_8"]
+            and (duple_winner or est_raw == "12/8")
+        ):
+            chosen = "2/4" if est_mvp == "2/4" else "4/4"
+            reason = "simple_grouping_competitive_four_four"
+            overridden = False
+            confidence = max(confidence, 0.7)
+
+        # 6-state DBN is compound evidence, not a final meter. Keep 2/4 or
+        # 4/4 when those win the estimator and downbeats are duple.
+        if grouping_is_compound and not duple_winner:
+            if est_mvp in ("6/8", "12/8") or (
+                compound_compatible and compound_score + 0.05 >= s34
+            ):
+                chosen = "6/8"
+                reason = "compound_grouping_and_estimator"
+                confidence = max(confidence, 0.72)
+                overridden = grouping_meter in ("3/4", "4/4")
 
         # Estimator 6/8 (or 12/8) with a significant margin over 3/4, plus
         # compound accent evidence, overrides a 3-beat madmom grouping.
@@ -264,15 +306,18 @@ class MeterArbitrator:
             overridden = bool(grouping_is_triple or grouping_meter == "3/4")
             confidence = min(0.9, 0.55 + (compound_score - s34))
 
-        # Same margin even if grouping is 3 (historical madmom could not emit 6).
-        compound_compatible = bool(
-            triple["prefers_6_8"]
-            or triple["bass_at_1_5"] >= 0.10
-            or (
-                triple["score_6_8"] >= triple["score_3_4"] - 0.02
-                and triple["bass_at_1_5"] > 0.0
-            )
-        )
+        # Historical madmom could not emit 6. A 3-beat group plus an eighth
+        # stream (notes on most 0.5 bins) is 6/8, not 3/4.
+        if (
+            grouping_is_triple
+            and eighth_occupied >= 5
+            and not triple["prefers_3_4"]
+        ):
+            chosen = "6/8"
+            reason = "override_3beat_grouping_with_eighth_stream"
+            overridden = True
+            confidence = max(confidence, 0.66)
+
         if (
             grouping_is_triple
             and compound_score - s34 >= COMPOUND_MARGIN
@@ -289,7 +334,7 @@ class MeterArbitrator:
             len(events) < 8
             and grouping_is_triple
             and compound_compatible
-            and chosen == "4/4"
+            and chosen in ("4/4", "2/4")
         ):
             chosen = "6/8"
             reason = "sparse_events_triple_grouping_compound_accents"
@@ -298,21 +343,19 @@ class MeterArbitrator:
 
         # 3/4 vs 6/8: three quarter groups beat two dotted-quarter pulses.
         if triple["prefers_3_4"] and chosen in ("6/8", "12/8", "3/4"):
-            # Don't let a 6/8 estimator win a clear S-W-W quarter pattern
-            # (typical waltz / simple triple) just because 0 and 3.0 align
-            # with a 6/8 barline.
-            if s44 < max(s34, compound_score) + 0.15 or grouping_is_triple:
+            if (not four_four_competitive) or grouping_is_triple:
                 chosen = "3/4"
                 reason = "three_quarter_accent_groups"
                 overridden = grouping_is_simple or est_mvp == "6/8"
                 confidence = min(0.88, 0.55 + (triple["score_3_4"] - triple["score_6_8"]))
 
-        # Wrong 4-beat grouping on a piece whose estimator contest is 3/4 vs
-        # 6/8, with S-W-W quarter accents — choose 3/4, not 4/4 or 6/8.
+        # Wrong 4-beat grouping on a 3/4 vs 6/8 contest with S-W-W quarters.
+        # Do not steal a competitive 4/4 reading of even quarter chords.
         if (
             grouping_is_simple
             and triple["prefers_3_4"]
             and est_mvp in ("6/8", "3/4", "12/8")
+            and not four_four_competitive
         ):
             chosen = "3/4"
             reason = "three_quarter_groups_override_simple_grouping"
@@ -322,9 +365,8 @@ class MeterArbitrator:
         # Simple duple/quadruple grouping agrees with estimator 4/4 or 2/4.
         if (
             grouping_is_simple
-            and est_mvp in ("4/4", "2/4")
+            and duple_winner
             and not triple["prefers_6_8"]
-            and not triple["prefers_3_4"]
             and chosen not in ("6/8", "3/4")
         ):
             chosen = est_mvp
@@ -338,32 +380,29 @@ class MeterArbitrator:
             grouping_is_triple
             and not triple["prefers_6_8"]
             and triple["prefers_3_4"]
-            and chosen == "4/4"
+            and eighth_occupied < 5
+            and chosen in ("4/4", "2/4")
         ):
             chosen = "3/4"
             reason = "triple_grouping_without_compound_accents"
             overridden = True
             confidence = 0.62
 
-        # Downbeats every ~3 quarter notes support 3/4 or 6/8, not 4/4.
+        # A ~3-quarter downbeat period is 3/4 or 6/8, never proof of 3/4.
         if (
             period.get("suggests_triple_or_compound")
-            and chosen == "4/4"
-            and (triple["prefers_3_4"] or grouping_is_triple)
+            and chosen in ("4/4", "2/4")
         ):
-            chosen = "3/4"
-            reason = "downbeat_period_three_quarters"
-            overridden = True
-            confidence = max(confidence, 0.6)
-        if (
-            period.get("suggests_triple_or_compound")
-            and chosen == "4/4"
-            and compound_compatible
-        ):
-            chosen = "6/8"
-            reason = "downbeat_period_compound_compatible"
-            overridden = True
-            confidence = max(confidence, 0.6)
+            if triple["prefers_3_4"] and eighth_occupied < 5:
+                chosen = "3/4"
+                reason = "downbeat_period_three_quarters"
+                overridden = True
+                confidence = max(confidence, 0.6)
+            elif compound_compatible or eighth_occupied >= 5:
+                chosen = "6/8"
+                reason = "downbeat_period_compound_compatible"
+                overridden = True
+                confidence = max(confidence, 0.6)
 
         chosen = _mvp_meter(chosen)
         hyp = _hypothesis_for(chosen, hyps, confidence)
