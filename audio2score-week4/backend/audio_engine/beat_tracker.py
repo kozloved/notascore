@@ -145,6 +145,7 @@ class BeatTracker:
         self.default_bpm = default_bpm
         self.last_source = "librosa"
         self.last_time_signature: str | None = None
+        self.last_beat_result = None
 
     def track(self, audio: NormalizedAudio) -> TempoMap:
         result_map, meter, source = self._track_with_meter(audio)
@@ -165,16 +166,20 @@ class BeatTracker:
 
             madmom_result = track_downbeats(audio)
             if madmom_result is not None:
+                self.last_beat_result = madmom_result
                 print(
                     f"[BeatTracker] madmom bpm={madmom_result.bpm:.1f} "
-                    f"meter={madmom_result.time_signature} "
-                    f"beats={len(madmom_result.beat_times)}"
+                    f"grouping={madmom_result.grouping_beats_per_bar or madmom_result.beats_per_bar} "
+                    f"label={madmom_result.grouping_meter or madmom_result.time_signature} "
+                    f"beats={len(madmom_result.beat_times)} "
+                    f"search={madmom_result.grouping_search}"
                 )
                 return (
                     madmom_result.tempo_map,
                     madmom_result.time_signature,
                     "madmom",
                 )
+        self.last_beat_result = None
         return self._track_librosa(audio), None, "librosa"
 
     def _track_librosa(self, audio: NormalizedAudio) -> TempoMap:

@@ -23,6 +23,22 @@ def test_madmom_parses_four_four_click_array():
     assert result.tempo_map.bpm_at(0.0) == pytest.approx(120.0, abs=1.0)
 
 
+def test_madmom_parses_six_beat_array_as_compound_grouping():
+    """A 6-state DBN output is grouping evidence for compound meter, not a final meter."""
+    times = np.arange(0.0, 3.0, 0.25)
+    pos = np.array([1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 6], dtype=float)
+    result = result_from_beat_array(np.column_stack([times, pos]))
+    assert result is not None
+    assert result.beats_per_bar == 6
+    assert result.grouping_beats_per_bar == 6
+    assert result.time_signature == "6/8"
+    assert result.grouping_meter == "6/8"
+    assert result.downbeat_times[0] == pytest.approx(0.0)
+    from audio_engine.madmom_beats import GROUP_BEATS_PER_BAR
+
+    assert GROUP_BEATS_PER_BAR == [3, 4, 6]
+
+
 def test_madmom_parses_three_four_array():
     times = np.arange(0.0, 3.0, 0.5)
     pos = np.array([1, 2, 3, 1, 2, 3], dtype=float)
