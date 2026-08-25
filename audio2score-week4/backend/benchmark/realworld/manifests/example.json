@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "description": "Template for a local real-world corpus. Copy to your machine, fill paths, keep audio out of git.",
+  "local_root": "/absolute/or/relative/path/to/local/audio",
+  "cases": [
+    {
+      "id": "example_piano_excerpt",
+      "title": "Human-readable title",
+      "audio": "clips/example.wav",
+      "reference_performance_midi": "refs/example_performance.mid",
+      "reference_score_midi": "refs/example_score.mid",
+      "expected_meter": "4/4",
+      "instrumentation": "solo piano",
+      "notes": "Optional context for the musician (mic, room, pedaling). Not an algorithm target."
+    }
+  ]
+}

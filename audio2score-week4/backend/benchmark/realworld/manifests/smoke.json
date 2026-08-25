@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "description": "Minimal 3-case smoke corpus generated locally. Audio is not committed. Not a real-world music set.",
+  "cases": [
+    {
+      "id": "smoke_solo_quarters",
+      "title": "Smoke: solo quarters",
+      "audio": "smoke_solo_quarters.wav",
+      "reference_performance_midi": "smoke_solo_quarters_performance.mid",
+      "reference_score_midi": "smoke_solo_quarters_score.mid",
+      "expected_meter": "4/4",
+      "instrumentation": "synthetic monophonic sine tones (not a recording)",
+      "notes": "Framework smoke. Additive synthesis, not real-world piano."
+    },
+    {
+      "id": "smoke_compound_6_8",
+      "title": "Smoke: compound 6/8",
+      "audio": "smoke_compound_6_8.wav",
+      "reference_performance_midi": "smoke_compound_6_8_performance.mid",
+      "reference_score_midi": "smoke_compound_6_8_score.mid",
+      "expected_meter": "6/8",
+      "instrumentation": "synthetic two-hand sine tones",
+      "notes": "Framework smoke. Bass on dotted-quarter pulses."
+    },
+    {
+      "id": "smoke_waltz_3_4",
+      "title": "Smoke: waltz 3/4",
+      "audio": "smoke_waltz_3_4.wav",
+      "reference_performance_midi": "smoke_waltz_3_4_performance.mid",
+      "reference_score_midi": "smoke_waltz_3_4_score.mid",
+      "expected_meter": "3/4",
+      "instrumentation": "synthetic bass+melody sine tones",
+      "notes": "Framework smoke. Bass on the downbeat of each 3/4 bar."
+    }
+  ]
+}

@@ -17,6 +17,8 @@ backend/.tmp/*
 audio2score-week4.zip
 
 .venvsource/
+backend/benchmark/realworld/local/**
+!backend/benchmark/realworld/local/.gitignore
 *.wav
 frontend/AGENTS.md
 frontend/CLAUDE.md
