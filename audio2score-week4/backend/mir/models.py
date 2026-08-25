@@ -95,6 +95,31 @@ class MeterHypothesis:
 
 
 @dataclass
+class MeterDecision:
+    """Canonical meter after combining estimator, grouping, and accent evidence."""
+
+    meter: str
+    confidence: float
+    candidate_scores: list[dict[str, Any]] = field(default_factory=list)
+    evidence_sources: list[str] = field(default_factory=list)
+    reason: str = ""
+    was_hint_overridden: bool = False
+    hypothesis: Optional[MeterHypothesis] = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "meter": self.meter,
+            "confidence": self.confidence,
+            "candidate_scores": list(self.candidate_scores),
+            "evidence_sources": list(self.evidence_sources),
+            "reason": self.reason,
+            "was_hint_overridden": self.was_hint_overridden,
+            "extra": dict(self.extra),
+        }
+
+
+@dataclass
 class KeyHypothesis:
     name: str
     mode: str

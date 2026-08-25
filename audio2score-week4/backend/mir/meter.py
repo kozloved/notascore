@@ -104,6 +104,22 @@ class MeterEstimator:
         hyps = self.estimate(events)
         return hyps[0]
 
+    def ranked_candidates(self, events: list[MusicalEvent]) -> list[dict]:
+        """Expose ranked meter scores, not only the winner."""
+        hyps = self.estimate(events)
+        total = sum(max(0.0, h.score) for h in hyps) or 1.0
+        rows = []
+        for h in hyps:
+            rows.append(
+                {
+                    "meter": h.time_signature,
+                    "score": round(float(h.score), 4),
+                    "confidence": round(float(h.confidence), 4),
+                    "normalized": round(max(0.0, float(h.score)) / total, 4),
+                }
+            )
+        return rows
+
     def _score_meter(
         self,
         onsets: list[float],

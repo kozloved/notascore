@@ -79,12 +79,18 @@ class NotationPlanner:
                 )
             )
 
+        extra = {"meter_confidence": meter.confidence}
+        if meta and meta.extra:
+            if meta.extra.get("meter_decision"):
+                extra["meter_decision"] = meta.extra["meter_decision"]
+            if meta.extra.get("meter_source"):
+                extra["meter_source"] = meta.extra["meter_source"]
         plan = NotationPlan(
             tempo_bpm=int(bpm),
             time_signature=meter.time_signature,
             key_signature=key_name,
             measures=measures,
-            extra={"meter_confidence": meter.confidence},
+            extra=extra,
         )
         return plan, decisions
 
@@ -94,15 +100,36 @@ class NotationPlanner:
         meta: ScoreMeta | None,
         structure: MusicalStructure | None,
     ) -> MeterHypothesis:
+        """Use a canonical MeterDecision when present.
+
+        madmom grouping strings are never treated as an unquestioned hint.
+        MIDI file meters and explicit test hints remain authoritative.
+        """
+        extra = dict(meta.extra or {}) if meta else {}
+        source = str(extra.get("meter_source") or "")
         hint = meta.time_sig_hint if meta else None
+        selected = structure.selected_meter if structure else None
+
+        if source == "madmom":
+            if selected:
+                return selected
+            return self.meter_estimator.select(events)
+
+        if source == "meter_decision" and selected:
+            if not hint or hint == selected.time_signature:
+                return selected
+            return meter_from_time_signature(hint, source="meta_time_sig_hint")
+
         if hint:
+            if selected and selected.time_signature == hint:
+                return selected
             if structure:
                 for hyp in structure.meter_hypotheses:
                     if hyp.time_signature == hint:
                         return hyp
             return meter_from_time_signature(hint, source="meta_time_sig_hint")
-        if structure and structure.selected_meter:
-            return structure.selected_meter
+        if selected:
+            return selected
         return self.meter_estimator.select(events)
 
     def _resolve_key(

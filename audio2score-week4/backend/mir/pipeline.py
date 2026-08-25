@@ -25,10 +25,12 @@ from mir.debug import PipelineDebug
 from mir.dynamics import DynamicsExtractor
 from mir.hand_separator import HandSeparator
 from mir.meter import MeterEstimator
+from mir.meter_arbitrator import BeatGroupingEvidence, MeterArbitrator
 from mir.midi_cleaner import MIDICleaner
 from mir.midi_ingest import ingest_midi, is_midi_path
 from mir.models import (
     CleaningAction,
+    MeterDecision,
     MusicalStructure,
     PedalObservation,
     RawPerformance,
@@ -87,6 +89,7 @@ class UnderstandingPipeline:
         self.articulation = ArticulationDetector()
         self.phrase_detector = PhraseDetector()
         self.meter_estimator = MeterEstimator()
+        self.meter_arbitrator = MeterArbitrator(self.meter_estimator)
         self.notation = NotationWriter()
         self.beat_tracker = BeatTracker()
         if use_mir_layers is None:
@@ -94,6 +97,7 @@ class UnderstandingPipeline:
         self.use_mir_layers = use_mir_layers
         self.last_debug: PipelineDebug | None = None
         self.last_structure: MusicalStructure | None = None
+        self.last_meter_decision: MeterDecision | None = None
 
     def transcribe(self, audio_path: str | Path, job_id: str) -> str:
         audio_path = Path(audio_path)
@@ -176,7 +180,8 @@ class UnderstandingPipeline:
         events = self._apply_mir_layers(events)
 
         meter_hyps = self.meter_estimator.estimate(events)
-        selected_meter = meter_hyps[0]
+        decision = self._arbitrate_meter(events, file_meter=None)
+        selected_meter = decision.hypothesis or meter_hyps[0]
         structure = MusicalStructure(
             events=events,
             tempo_map=tempo_map,
@@ -186,7 +191,10 @@ class UnderstandingPipeline:
             instrument_confidence=prediction.confidence,
             instrument_prediction=prediction,
             segments=list(segments),
-            extra={"chords": [c.name for c in chords[:12]]},
+            extra={
+                "chords": [c.name for c in chords[:12]],
+                "meter_decision": decision.to_dict(),
+            },
         )
         self.last_structure = structure
 
@@ -196,8 +204,13 @@ class UnderstandingPipeline:
             segments,
             display_bpm=snap_to_standard_tempo(bpm),
             instrument_confidence=prediction.confidence,
-            time_sig_hint=meter or selected_meter.time_signature,
+            time_sig_hint=decision.meter,
         )
+        meta.extra = {
+            **(meta.extra or {}),
+            "meter_source": "meter_decision",
+            "meter_decision": decision.to_dict(),
+        }
 
         self._write_debug(
             job_id=job_id,
@@ -301,7 +314,8 @@ class UnderstandingPipeline:
         events = self._apply_mir_layers(events)
 
         meter_hyps = self.meter_estimator.estimate(events)
-        selected_meter = meter_hyps[0]
+        decision = self._arbitrate_meter(events, file_meter=ingested.time_sig_hint)
+        selected_meter = decision.hypothesis or meter_hyps[0]
         structure = MusicalStructure(
             events=events,
             tempo_map=tempo_map,
@@ -309,7 +323,11 @@ class UnderstandingPipeline:
             selected_meter=selected_meter,
             instrument=InstrumentKind.PIANO,
             instrument_confidence=0.9,
-            extra={"source": "midi"},
+            extra={
+                "source": "midi",
+                "meter_decision": decision.to_dict(),
+                "file_meter": ingested.time_sig_hint,
+            },
         )
         self.last_structure = structure
 
@@ -319,8 +337,14 @@ class UnderstandingPipeline:
             [],
             display_bpm=snap_to_standard_tempo(bpm),
             instrument_confidence=0.9,
-            time_sig_hint=ingested.time_sig_hint or selected_meter.time_signature,
+            time_sig_hint=decision.meter,
         )
+        meta.extra = {
+            **(meta.extra or {}),
+            "meter_source": "meter_decision",
+            "meter_decision": decision.to_dict(),
+            "file_meter": ingested.time_sig_hint,
+        }
         from intelligence.layer import maybe_enhance
         from mir.types import InstrumentPrediction
 
@@ -384,6 +408,8 @@ class UnderstandingPipeline:
         extra["notation_fallback_error"] = payload.get("notation_fallback_error")
         extra["notation_time_signature"] = payload.get("time_signature")
         extra["notation_measure_count"] = payload.get("measure_count")
+        if self.last_meter_decision is not None:
+            extra["meter_decision"] = self.last_meter_decision.to_dict()
         self.last_debug.extra = extra
         if payload.get("fallback_used"):
             print(
@@ -393,6 +419,43 @@ class UnderstandingPipeline:
         out_dir = Path(out_dir)
         out_dir.mkdir(exist_ok=True)
         self.last_debug.write_json(out_dir / f"{job_id}.debug.json")
+
+    def _arbitrate_meter(
+        self,
+        events: list,
+        *,
+        file_meter: str | None = None,
+    ) -> MeterDecision:
+        """Canonical meter decision from estimator + beat grouping + accents."""
+        evidence = None
+        result = getattr(self.beat_tracker, "last_beat_result", None)
+        if result is not None:
+            evidence = BeatGroupingEvidence(
+                source=self.beat_tracker.last_source or "madmom",
+                beats_per_bar=int(result.beats_per_bar),
+                grouping_meter=result.grouping_meter or result.time_signature,
+                beat_times=list(result.beat_times),
+                downbeat_times=list(result.downbeat_times),
+                grouping_beats_per_bar=int(
+                    result.grouping_beats_per_bar or result.beats_per_bar
+                ),
+                bpm=float(result.bpm),
+                extra={
+                    "search": result.grouping_search,
+                    "grouping_positions": list(result.grouping_positions),
+                },
+            )
+        decision = self.meter_arbitrator.decide(
+            events,
+            beat_evidence=evidence,
+            file_meter=file_meter,
+        )
+        self.last_meter_decision = decision
+        print(
+            f"[Meter] {decision.meter} conf={decision.confidence:.2f} "
+            f"reason={decision.reason} override={decision.was_hint_overridden}"
+        )
+        return decision
 
     def _apply_mir_layers(self, events: list[MusicalEvent]) -> list[MusicalEvent]:
         if not self.use_mir_layers:
@@ -458,10 +521,19 @@ class UnderstandingPipeline:
             tempo_hypotheses=[{"bpm": bpm, "source": "beat_refine"}],
             selected_tempo_bpm=bpm,
             selected_meter=selected_meter.time_signature,
-            meter_confidence=selected_meter.confidence,
+            meter_confidence=(
+                self.last_meter_decision.confidence
+                if self.last_meter_decision is not None
+                else selected_meter.confidence
+            ),
             hand_assignments=hand_counts,
             voice_assignments=voice_counts,
             extra={
+                "meter_decision": (
+                    self.last_meter_decision.to_dict()
+                    if self.last_meter_decision is not None
+                    else None
+                ),
                 "role_confidence": role.confidence,
                 **(
                     {
