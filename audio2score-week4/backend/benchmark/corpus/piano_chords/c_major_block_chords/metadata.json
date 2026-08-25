@@ -19,6 +19,7 @@
     "voice_count_rh": 1,
     "keep_all_octaves": false,
     "notation_plan_required": true,
-    "check_hands": false
+    "check_hands": true,
+    "meter_eval": "STRICT_METER"
   }
 }

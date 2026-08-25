@@ -317,6 +317,8 @@ def evaluate_case(
             xml_errors=xml_errors,
         )
 
+    if case.keep_all_octaves and cleaning.false_removals:
+        flags.append("octave_false_removal")
     if case.notation_plan_required and not notation.plan_success:
         flags.append("notation_plan_fallback")
     if not notation.xml_valid:
@@ -330,10 +332,8 @@ def evaluate_case(
             flags.append("voice_merge_or_split")
         if voices.accidental_merges:
             flags.append("accidental_voice_merge")
-        if meter.correct is False:
-            flags.append("meter_mismatch")
-    if case.keep_all_octaves and cleaning.false_removals:
-        flags.append("octave_false_removal")
+    if case.meter_eval == "STRICT_METER" and meter.correct is False:
+        flags.append("meter_mismatch")
     if case.keep_all_octaves:
         ref_pitches = {int(n["pitch"]) for n in case.reference_notes if n.get("keep", True)}
         cleaned_for_octaves = MIDICleaner().clean(
@@ -376,6 +376,7 @@ def evaluate_case(
             "production_hands": production_hands,
             "voice_count": voices.predicted_count_rh,
             "measure_count": notation.measure_count,
+            "meter_eval": case.meter_eval,
         },
     )
     (work / "eval.json").write_text(

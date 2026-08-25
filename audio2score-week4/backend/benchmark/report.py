@@ -186,6 +186,9 @@ def render_markdown(report: dict[str, Any]) -> str:
         meter_s = meter.get("selected") or "-"
         if meter.get("correct") is False:
             meter_s += " ✗"
+        meter_eval = (row.get("counts") or {}).get("meter_eval")
+        if meter_eval and meter_eval != "STRICT_METER":
+            meter_s += f" [{meter_eval}]"
         f1 = trans.get("f1")
         f1_s = f"{f1:.2f}" if isinstance(f1, (int, float)) else "-"
         lines.append(

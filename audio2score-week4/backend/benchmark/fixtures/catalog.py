@@ -31,6 +31,8 @@ class CaseSpec:
     keep_all_octaves: bool = False
     notation_plan_required: bool = True
     check_hands: bool = True
+    # STRICT_METER | METER_AMBIGUOUS | METER_NOT_EVALUATED
+    meter_eval: str = "STRICT_METER"
 
 
 def _n(pitch, start, dur, hand="right", voice=0, vel=80, role=None, keep=True) -> NoteSpec:
@@ -105,7 +107,7 @@ def all_cases() -> list[CaseSpec]:
                 _n(41, 3.0, 1.0, hand="left", role="bass"),
             ],
             voice_count_rh=1,
-            check_hands=False,
+            check_hands=True,
         ),
         CaseSpec(
             case_id="octave_doubling",
@@ -122,6 +124,7 @@ def all_cases() -> list[CaseSpec]:
             keep_all_octaves=True,
             voice_count_rh=None,
             check_hands=False,
+            meter_eval="METER_AMBIGUOUS",
         ),
         CaseSpec(
             case_id="two_hand_scale",
@@ -204,6 +207,7 @@ def all_cases() -> list[CaseSpec]:
             description="Straight sixteenth notes in 4/4.",
             notes=[_n(72, i * 0.25, 0.25) for i in range(16)],
             voice_count_rh=1,
+            meter_eval="METER_NOT_EVALUATED",
         ),
         CaseSpec(
             case_id="dotted",
@@ -218,6 +222,7 @@ def all_cases() -> list[CaseSpec]:
                 _n(81, 3.0, 1.0),
             ],
             voice_count_rh=1,
+            meter_eval="METER_NOT_EVALUATED",
         ),
         CaseSpec(
             case_id="triplets",
@@ -234,6 +239,7 @@ def all_cases() -> list[CaseSpec]:
                 _n(84, 3.0, 1.0),
             ],
             voice_count_rh=1,
+            meter_eval="METER_AMBIGUOUS",
         ),
         CaseSpec(
             case_id="syncopation",
@@ -247,6 +253,7 @@ def all_cases() -> list[CaseSpec]:
                 _n(79, 3.0, 1.0),
             ],
             voice_count_rh=1,
+            meter_eval="METER_AMBIGUOUS",
         ),
         CaseSpec(
             case_id="waltz_3_4",
@@ -297,6 +304,7 @@ def all_cases() -> list[CaseSpec]:
                 _n(48, 0.0, 2.0, hand="left", role="bass"),
             ],
             voice_count_rh=1,
+            meter_eval="METER_AMBIGUOUS",
         ),
         CaseSpec(
             case_id="midi_3_4",

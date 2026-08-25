@@ -79,7 +79,8 @@
     "voice_count_rh": null,
     "keep_all_octaves": true,
     "notation_plan_required": true,
-    "check_hands": false
+    "check_hands": false,
+    "meter_eval": "METER_AMBIGUOUS"
   },
   "expected_hands": {
     "48": "left",

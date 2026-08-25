@@ -65,5 +65,13 @@ class LoadedCase:
         return bool(expected.get("check_hands", True))
 
     @property
+    def meter_eval(self) -> str:
+        expected = self.reference.get("expected") or self.metadata.get("expected") or {}
+        value = str(expected.get("meter_eval") or "STRICT_METER").strip().upper()
+        if value not in {"STRICT_METER", "METER_AMBIGUOUS", "METER_NOT_EVALUATED"}:
+            return "STRICT_METER"
+        return value
+
+    @property
     def reference_notes(self) -> list[dict[str, Any]]:
         return list(self.reference.get("notes") or [])

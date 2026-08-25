@@ -39,6 +39,23 @@ def test_catalog_has_required_coverage():
     assert len(midi_cases) >= 3
 
 
+def test_checkpoint6a_meter_and_hand_gates():
+    """Gate calibration: enforce only musically unambiguous meter/hands."""
+    cases = {c.case_id: c for c in all_cases()}
+    for cid in ("midi_3_4", "midi_6_8", "compound_6_8", "waltz_3_4"):
+        assert cases[cid].meter_eval == "STRICT_METER", cid
+    assert cases["triplets"].meter_eval == "METER_AMBIGUOUS"
+    assert cases["syncopation"].meter_eval == "METER_AMBIGUOUS"
+    assert cases["midi_rh_lh_tracks"].meter_eval == "METER_AMBIGUOUS"
+    assert cases["octave_doubling"].meter_eval == "METER_AMBIGUOUS"
+    assert cases["sixteenths"].meter_eval == "METER_NOT_EVALUATED"
+    assert cases["dotted"].meter_eval == "METER_NOT_EVALUATED"
+    assert cases["c_major_block_chords"].check_hands is True
+    assert cases["midi_chords_and_melody"].check_hands is False
+    assert cases["octave_doubling"].check_hands is False
+    assert cases["polyphonic_rh"].check_hands is False
+
+
 def test_generate_and_load_corpus(tmp_path):
     write_corpus()
     cases = load_cases()

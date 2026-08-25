@@ -100,6 +100,7 @@ def case_payload(spec: CaseSpec) -> tuple[dict, dict]:
             "keep_all_octaves": spec.keep_all_octaves,
             "notation_plan_required": spec.notation_plan_required,
             "check_hands": spec.check_hands,
+            "meter_eval": spec.meter_eval,
         },
     }
     reference = {

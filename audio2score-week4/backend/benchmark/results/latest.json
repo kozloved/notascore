@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-08-24T19:15:20Z",
-  "git": "7bb1319",
+  "timestamp": "2026-08-25T07:50:21Z",
+  "git": "e581c4c",
   "mode": "midi",
   "mode_label": "MIDI ingest",
   "case_count": 21,
@@ -85,7 +85,8 @@
           "ambiguous": 1
         },
         "voice_count": 1,
-        "measure_count": 2
+        "measure_count": 2,
+        "meter_eval": "STRICT_METER"
       }
     },
     {
@@ -162,7 +163,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 1
+        "measure_count": 1,
+        "meter_eval": "STRICT_METER"
       }
     },
     {
@@ -240,7 +242,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 1
+        "measure_count": 1,
+        "meter_eval": "STRICT_METER"
       }
     },
     {
@@ -319,7 +322,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 1
+        "measure_count": 1,
+        "meter_eval": "STRICT_METER"
       }
     },
     {
@@ -400,7 +404,8 @@
           "ambiguous": 0
         },
         "voice_count": 2,
-        "measure_count": 1
+        "measure_count": 1,
+        "meter_eval": "STRICT_METER"
       }
     },
     {
@@ -478,7 +483,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 1
+        "measure_count": 1,
+        "meter_eval": "METER_AMBIGUOUS"
       }
     },
     {
@@ -557,7 +563,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 1
+        "measure_count": 1,
+        "meter_eval": "STRICT_METER"
       }
     },
     {
@@ -637,7 +644,8 @@
           "ambiguous": 0
         },
         "voice_count": 2,
-        "measure_count": 1
+        "measure_count": 1,
+        "meter_eval": "METER_AMBIGUOUS"
       }
     },
     {
@@ -715,7 +723,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 1
+        "measure_count": 1,
+        "meter_eval": "STRICT_METER"
       }
     },
     {
@@ -793,7 +802,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 2
+        "measure_count": 2,
+        "meter_eval": "STRICT_METER"
       }
     },
     {
@@ -871,7 +881,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 2
+        "measure_count": 2,
+        "meter_eval": "STRICT_METER"
       }
     },
     {
@@ -951,7 +962,8 @@
           "ambiguous": 0
         },
         "voice_count": 2,
-        "measure_count": 1
+        "measure_count": 1,
+        "meter_eval": "STRICT_METER"
       }
     },
     {
@@ -1029,7 +1041,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 2
+        "measure_count": 2,
+        "meter_eval": "STRICT_METER"
       }
     },
     {
@@ -1107,7 +1120,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 2
+        "measure_count": 2,
+        "meter_eval": "STRICT_METER"
       }
     },
     {
@@ -1184,7 +1198,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 1
+        "measure_count": 1,
+        "meter_eval": "METER_NOT_EVALUATED"
       }
     },
     {
@@ -1261,7 +1276,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 2
+        "measure_count": 2,
+        "meter_eval": "STRICT_METER"
       }
     },
     {
@@ -1338,7 +1354,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 2
+        "measure_count": 2,
+        "meter_eval": "STRICT_METER"
       }
     },
     {
@@ -1415,7 +1432,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 1
+        "measure_count": 1,
+        "meter_eval": "METER_NOT_EVALUATED"
       }
     },
     {
@@ -1492,7 +1510,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 1
+        "measure_count": 1,
+        "meter_eval": "METER_AMBIGUOUS"
       }
     },
     {
@@ -1569,7 +1588,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 1
+        "measure_count": 1,
+        "meter_eval": "METER_AMBIGUOUS"
       }
     },
     {
@@ -1647,7 +1667,8 @@
           "ambiguous": 0
         },
         "voice_count": 1,
-        "measure_count": 2
+        "measure_count": 2,
+        "meter_eval": "STRICT_METER"
       }
     }
   ],
