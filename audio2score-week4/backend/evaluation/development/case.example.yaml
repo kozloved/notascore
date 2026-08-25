@@ -1,0 +1,18 @@
+id: piano_sixteenth_120
+title: Sixteenth note threshold
+instrument: piano
+
+reference:
+  midi: reference.mid
+
+expected:
+  meter: "4/4"
+  tempo_bpm: 120
+
+tags:
+  - piano
+  - duration
+  - sixteenth
+
+# Optional: shared identity for paired audio renders of the same performance
+# performance_id: piano_sixteenth_120_perf

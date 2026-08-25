@@ -19,6 +19,15 @@ audio2score-week4.zip
 .venvsource/
 backend/benchmark/realworld/local/**
 !backend/benchmark/realworld/local/.gitignore
+backend/evaluation/results/**
+!backend/evaluation/results/.gitignore
+backend/evaluation/baselines/**
+!backend/evaluation/baselines/.gitignore
+backend/evaluation/**/*.wav
+backend/evaluation/**/*.mp3
+backend/evaluation/**/*.flac
+backend/evaluation/**/*.mid
+backend/evaluation/**/*.midi
 *.wav
 frontend/AGENTS.md
 frontend/CLAUDE.md

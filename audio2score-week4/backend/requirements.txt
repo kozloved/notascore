@@ -15,6 +15,7 @@ basic-pitch
 onnxruntime
 music21
 pretty_midi
+PyYAML
 librosa
 soundfile
 numpy

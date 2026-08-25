@@ -1,0 +1,12 @@
+# User-owned DAW audio and reference MIDI (do not commit).
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+*.mid
+*.midi
+
+!.gitignore
+!README.md
+!**/case.example.yaml
