@@ -22,7 +22,7 @@ reference:
   midi: reference.mid
 expected:
   meter: "4/4"
-  tempo_bpm: 100
+  tempo_bpm: 120
 tags:
   - piano
   - duration

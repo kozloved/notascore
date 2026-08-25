@@ -98,6 +98,11 @@ class UnderstandingPipeline:
         self.last_debug: PipelineDebug | None = None
         self.last_structure: MusicalStructure | None = None
         self.last_meter_decision: MeterDecision | None = None
+        # Observation-only stage snapshots for evaluation (not used by algorithms).
+        self.last_raw_notes: list | None = None
+        self.last_cleaned_notes: list | None = None
+        self.last_post_piano_notes: list | None = None
+        self.last_clean_decisions: list | None = None
 
     def transcribe(self, audio_path: str | Path, job_id: str) -> str:
         audio_path = Path(audio_path)
@@ -125,11 +130,14 @@ class UnderstandingPipeline:
             backend=backend.name,
             audio_path=str(transcribe_path),
         )
+        self.last_raw_notes = list(notes)
 
         if not notes:
             raise TranscriptionError("No notes detected")
 
         notes, clean_decisions = self.cleaner.clean_with_report(notes)
+        self.last_cleaned_notes = list(notes)
+        self.last_clean_decisions = list(clean_decisions)
         print(
             f"[MIDICleaner] notes {raw_count} → {len(notes)} (job={job_id})"
         )
@@ -150,6 +158,7 @@ class UnderstandingPipeline:
                 f"[PianoAnalyzer] refined velocities for {len(notes)} notes "
                 f"pedal={len(pedal_events)} (job={job_id})"
             )
+        self.last_post_piano_notes = list(notes)
 
         onsets = [n.start_time for n in notes]
         tempo_map, meter = self._build_tempo_map(normalized, audio_path, onsets)
@@ -296,6 +305,11 @@ class UnderstandingPipeline:
         notes = [n.ensure_ids(i) for i, n in enumerate(ingested.notes)]
         tempo_map = ingested.tempo_map
         bpm = tempo_map.bpm_at(0.0)
+        # MIDI ingest has no Basic Pitch / cleaner pass — all stage snapshots match.
+        self.last_raw_notes = list(notes)
+        self.last_cleaned_notes = list(notes)
+        self.last_post_piano_notes = list(notes)
+        self.last_clean_decisions = []
 
         out_dir = midi_path.parent / f"bp_{job_id}"
         out_dir.mkdir(exist_ok=True)

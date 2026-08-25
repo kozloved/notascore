@@ -189,30 +189,48 @@ def evaluate_case(
         final_notes = []
     result.notes = compare_stage_notes(final_notes, ref.notes)
 
-    cleaner_suppressions = []
-    if debug is not None:
-        cleaner_suppressions = list(debug.removed_notes or [])
-
-    stage_audio = norm_wav if norm_wav.is_file() else audio_copy
     diagnostics = capture_transcription_stages(
-        audio_path=stage_audio,
         out_dir=out,
         reference_notes=ref.notes,
+        raw_notes=pipe.last_raw_notes,
+        cleaned_notes=pipe.last_cleaned_notes,
+        post_piano_notes=pipe.last_post_piano_notes,
         structured_events=events,
         tempo_map=structure.tempo_map if structure is not None else None,
         tempo_bpm=predicted_tempo or ref.tempo_bpm or 120.0,
-        cleaner_suppressions=cleaner_suppressions,
+        clean_decisions=pipe.last_clean_decisions,
         pipeline_info={
-            "raw_note_count": debug.raw_note_count if debug else None,
-            "cleaned_note_count": debug.cleaned_note_count if debug else None,
+            "raw_note_count": (
+                len(pipe.last_raw_notes) if pipe.last_raw_notes is not None else None
+            ),
+            "cleaned_note_count": (
+                len(pipe.last_cleaned_notes)
+                if pipe.last_cleaned_notes is not None
+                else None
+            ),
+            "post_piano_note_count": (
+                len(pipe.last_post_piano_notes)
+                if pipe.last_post_piano_notes is not None
+                else None
+            ),
             "structured_note_count": len(events),
+            "stage_source": "pipeline_snapshots",
         },
     )
     result.stages = diagnostics.to_dict()
 
     result.pipeline = {
-        "raw_note_count": debug.raw_note_count if debug else None,
-        "cleaned_note_count": debug.cleaned_note_count if debug else None,
+        "raw_note_count": (
+            len(pipe.last_raw_notes) if pipe.last_raw_notes is not None else None
+        ),
+        "cleaned_note_count": (
+            len(pipe.last_cleaned_notes) if pipe.last_cleaned_notes is not None else None
+        ),
+        "post_piano_note_count": (
+            len(pipe.last_post_piano_notes)
+            if pipe.last_post_piano_notes is not None
+            else None
+        ),
         "structured_note_count": len(events),
         "notation_plan_success": plan is not None and not writer.last_fallback_used,
         "fallback_used": bool(writer.last_fallback_used),
@@ -220,7 +238,7 @@ def evaluate_case(
         "notation_path": (
             (debug.extra or {}).get("notation_path") if debug else None
         ),
-        "cleaner_suppressions": len(cleaner_suppressions),
+        "cleaner_suppressions": len(pipe.last_clean_decisions or []),
         "musicxml_success": musicxml_ok and bool(xml),
         "source_backend": debug.source_backend if debug else None,
     }
@@ -239,8 +257,15 @@ def evaluate_case(
         "audio": str(case.audio_path),
         "reference_midi": str(case.reference_midi),
         "output_musicxml": str(out / "output.musicxml") if musicxml_ok else None,
-        "raw_transcription_midi": str(out / "raw_transcription.mid"),
-        "cleaned_midi": str(out / "cleaned.mid"),
+        "transcription_midi": str(out / "transcription.mid")
+        if (out / "transcription.mid").exists()
+        else None,
+        "post_cleaner_midi": str(out / "post_cleaner.mid")
+        if (out / "post_cleaner.mid").exists()
+        else None,
+        "post_piano_midi": str(out / "post_piano.mid")
+        if (out / "post_piano.mid").exists()
+        else None,
         "structured_midi": str(out / "structured.mid")
         if (out / "structured.mid").exists()
         else None,

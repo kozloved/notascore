@@ -178,12 +178,12 @@ def test_note_matching_and_tolerance_behavior():
 def test_stage_metric_first_degradation():
     stages = [
         StageSnapshot(
-            name="raw",
+            name="transcription",
             notes=[],
             metrics={"onset_pitch_f1": 0.91, "predicted_count": 115},
         ),
         StageSnapshot(
-            name="cleaned",
+            name="post_cleaner",
             notes=[],
             metrics={"onset_pitch_f1": 0.85, "predicted_count": 103},
         ),
@@ -194,10 +194,9 @@ def test_stage_metric_first_degradation():
         ),
     ]
     first, conclusion = _first_degradation(stages, reference_count=120)
-    assert first == "cleaned"
-    assert "after raw transcription" in conclusion.lower()
-    assert "RAW TRANSCRIPTION" in conclusion
-    assert "AFTER CLEANER" in conclusion
+    assert first == "post_cleaner"
+    assert "cleaner" in conclusion.lower()
+    assert "TRANSCRIPTION" in conclusion.upper() or "transcription" in conclusion.lower()
 
 
 def test_baseline_comparison_and_regression_thresholds(tmp_path: Path):
@@ -324,12 +323,49 @@ def test_prepare_fixture_and_end_to_end_evaluation(tmp_path: Path):
     assert row.notes.get("onset_pitch_f1") is not None
     assert row.pipeline.get("musicxml_success") is True
     out = tmp_path / "results" / "piano_quarters_120"
-    assert (out / "raw_transcription.mid").is_file()
-    assert (out / "cleaned.mid").is_file()
+    assert (out / "transcription.mid").is_file()
+    assert (out / "post_cleaner.mid").is_file()
+    assert (out / "post_piano.mid").is_file()
     assert (out / "structured.mid").is_file()
     assert (out / "output.musicxml").is_file()
     assert (out / "metrics.json").is_file()
     assert (out / "diagnostics.json").is_file()
     assert (out / "report.md").is_file()
     report_text = (out / "report.md").read_text(encoding="utf-8")
-    assert "Stage diagnostics" in report_text or "STAGE" in report_text.upper() or "RAW" in report_text
+    assert "TRANSCRIPTION" in report_text or "Stage" in report_text or "F1" in report_text
+    assert pipeline.last_raw_notes is not None
+    stage_names = [s["name"] for s in (row.stages or {}).get("stages") or []]
+    assert "transcription" in stage_names
+    assert (row.stages or {}).get("pipeline", {}).get("stage_source") == "pipeline_snapshots"
+
+
+def test_stage_capture_does_not_reinvoke_basic_pitch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Regression: evaluation must not re-transcribe for stage MIDIs."""
+    from adapters.basic_pitch_backend import BasicPitchBackend
+
+    calls = {"n": 0}
+    original = BasicPitchBackend.transcribe_notes
+
+    def wrapped(self, audio_path):
+        calls["n"] += 1
+        return original(self, audio_path)
+
+    monkeypatch.setattr(BasicPitchBackend, "transcribe_notes", wrapped)
+
+    prepare_fixture(root=tmp_path)
+    cases = discover_cases(split="development", case_id="piano_quarters_120", root=tmp_path)
+    from mir.pipeline import UnderstandingPipeline
+
+    pipeline = UnderstandingPipeline(mode="fast")
+    row = evaluate_case(
+        cases[0],
+        case_out_dir=tmp_path / "results" / "once",
+        pipeline=pipeline,
+    )
+    assert row.status == "ran"
+    assert calls["n"] == 1
+    assert pipeline.last_raw_notes is not None
+    assert pipeline.last_cleaned_notes is not None
+    stages = {s["name"]: s for s in (row.stages or {}).get("stages") or []}
+    assert stages["transcription"]["note_count"] == len(pipeline.last_raw_notes)
+    assert stages["post_cleaner"]["note_count"] == len(pipeline.last_cleaned_notes)

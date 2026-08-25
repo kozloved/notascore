@@ -117,6 +117,24 @@ Configurable musical tolerances (default onset 50 ms). Reports onset F1,
 onset+pitch F1, optional offset F1, timing/duration errors, meter, tempo,
 hands, and pipeline stage counts.
 
+
+## Stage diagnostics
+
+Stage MIDIs are **snapshots from the single production pipeline run**:
+
+1. `transcription` — Basic Pitch notes (`pipeline.last_raw_notes`)
+2. `post_cleaner` — after MIDICleaner
+3. `post_piano` — after PianoAnalyzer (same as cleaned when piano analysis is skipped)
+4. `structured` — MIR structure events
+
+The evaluator does **not** re-invoke Basic Pitch for diagnostics.
+
+## Relation to `benchmark/realworld`
+
+`benchmark/realworld` is an older observational harness for ad-hoc local audio.
+`evaluation/` is the Checkpoint 7 corpus + baseline + stage-diagnostics system.
+Prefer `evaluation/` for new DAW cases; keep `benchmark/realworld` for its existing smoke tests.
+
 ## Design doc
 
 See `docs/CHECKPOINT_7_EVALUATION_DESIGN.md`.
