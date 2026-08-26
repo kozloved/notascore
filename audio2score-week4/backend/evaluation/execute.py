@@ -30,6 +30,7 @@ class CaseResult:
     skip_reason: str | None = None
     error: str | None = None
     notes: dict[str, Any] = field(default_factory=dict)
+    metrics: dict[str, Any] = field(default_factory=dict)
     meter: dict[str, Any] = field(default_factory=dict)
     tempo: dict[str, Any] = field(default_factory=dict)
     hands: dict[str, Any] = field(default_factory=dict)
@@ -48,6 +49,7 @@ class CaseResult:
             "skip_reason": self.skip_reason,
             "error": self.error,
             "notes": self.notes,
+            "metrics": self.metrics,
             "meter": self.meter,
             "tempo": self.tempo,
             "hands": self.hands,
@@ -60,14 +62,43 @@ class CaseResult:
         }
 
 
-def _resolve_expected_meter(case: CaseSpec, ref: NormalizedReference) -> str | None:
-    return case.expected_meter or ref.time_signature
+def _resolve_expected_meter(case: CaseSpec, ref: NormalizedReference | None) -> str | None:
+    if case.expected_meter:
+        return case.expected_meter
+    return ref.time_signature if ref is not None else None
 
 
-def _resolve_expected_tempo(case: CaseSpec, ref: NormalizedReference) -> float | None:
+def _resolve_expected_tempo(
+    case: CaseSpec, ref: NormalizedReference | None
+) -> float | None:
     if case.expected_tempo_bpm is not None:
         return float(case.expected_tempo_bpm)
-    return ref.tempo_bpm
+    return ref.tempo_bpm if ref is not None else None
+
+
+def _stage_metrics(stages: dict[str, Any], name: str) -> dict[str, Any]:
+    for stage in (stages or {}).get("stages") or []:
+        if stage.get("name") == name:
+            return dict(stage.get("metrics") or {})
+    return {}
+
+
+def _namespace_from_match(match: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "onset_precision": match.get("onset_precision"),
+        "onset_recall": match.get("onset_recall"),
+        "onset_f1": match.get("onset_f1"),
+        "onset_pitch_f1": match.get("onset_pitch_f1"),
+        "onset_pitch_offset_f1": match.get("onset_pitch_offset_f1"),
+        "false_positives": match.get("false_positives"),
+        "false_negatives": match.get("false_negatives"),
+        "reference_count": match.get("reference_count"),
+        "predicted_count": match.get("predicted_count"),
+        "matched": match.get("matched"),
+        "mean_onset_error_ms": match.get("mean_onset_error_ms"),
+        "median_onset_error_ms": match.get("median_onset_error_ms"),
+        "mean_duration_error_ms": match.get("mean_duration_error_ms"),
+    }
 
 
 def evaluate_case(
@@ -89,7 +120,7 @@ def evaluate_case(
         result.skip_reason = "missing input audio"
         return result
     if case.missing_reference():
-        result.skip_reason = "missing reference MIDI"
+        result.skip_reason = "missing reference MIDI (need reference_raw.mid, reference_score.mid, or reference.mid)"
         return result
 
     out = Path(case_out_dir)
@@ -104,12 +135,57 @@ def evaluate_case(
     audio_copy = work / f"input{suffix}"
     shutil.copy2(case.audio_path, audio_copy)
 
-    # Normalize reference in memory only — never mutate the source file
-    ref = normalize_reference_midi(case.reference_midi)
-    # Keep an untouched copy of the reference beside outputs for inspection
-    ref_copy = out / "reference.mid"
-    shutil.copy2(case.reference_midi, ref_copy)
-    result.reference = ref.to_dict()
+    resolution = case.reference_resolution
+    raw_path = case.reference_raw_midi
+    score_path = case.reference_score_midi
+
+    raw_ref: NormalizedReference | None = None
+    score_ref: NormalizedReference | None = None
+
+    # Normalize references in memory only — never mutate source files
+    if raw_path is not None and raw_path.is_file():
+        before = raw_path.read_bytes()
+        raw_ref = normalize_reference_midi(raw_path)
+        after = raw_path.read_bytes()
+        if before != after:
+            raise RuntimeError(f"Reference MIDI was mutated: {raw_path}")
+        shutil.copy2(raw_path, out / "reference_raw.mid")
+
+    if score_path is not None and score_path.is_file():
+        before = score_path.read_bytes()
+        score_ref = normalize_reference_midi(score_path)
+        after = score_path.read_bytes()
+        if before != after:
+            raise RuntimeError(f"Reference MIDI was mutated: {score_path}")
+        # Avoid overwriting when raw and score are the same legacy file
+        dest = out / "reference_score.mid"
+        if not (raw_path and score_path.resolve() == raw_path.resolve() and (out / "reference_raw.mid").exists()):
+            shutil.copy2(score_path, dest)
+        elif raw_path and score_path.resolve() == raw_path.resolve():
+            shutil.copy2(score_path, dest)
+
+    # Legacy alias for inspection
+    if raw_path is not None:
+        shutil.copy2(raw_path, out / "reference.mid")
+    elif score_path is not None:
+        shutil.copy2(score_path, out / "reference.mid")
+
+    result.reference = {
+        "resolution": resolution.to_dict(),
+        "raw": raw_ref.to_dict() if raw_ref is not None else None,
+        "score": score_ref.to_dict() if score_ref is not None else None,
+        "raw_note_count": len(raw_ref.notes) if raw_ref is not None else None,
+        "score_note_count": len(score_ref.notes) if score_ref is not None else None,
+        "same_file": resolution.same_file,
+        "raw_legacy_fallback": resolution.raw_legacy_fallback,
+        "score_legacy_fallback": resolution.score_legacy_fallback,
+        # Backward-compat flat fields (primary = raw when present)
+        **(
+            raw_ref.to_dict()
+            if raw_ref is not None
+            else (score_ref.to_dict() if score_ref is not None else {})
+        ),
+    }
 
     pipe = pipeline or UnderstandingPipeline(mode="fast")
     xml = ""
@@ -126,7 +202,6 @@ def evaluate_case(
     score_midi = job_dir / f"{case.case_id}.score.mid"
     musicxml_src = job_dir / f"{case.case_id}.musicxml"
     debug_json = job_dir / f"{case.case_id}.debug.json"
-    norm_wav = job_dir / f"{case.case_id}_norm.wav"
 
     musicxml_ok = copy_musicxml(
         musicxml_src if musicxml_src.exists() else None,
@@ -148,7 +223,8 @@ def evaluate_case(
     elif debug is not None:
         predicted_meter = debug.selected_meter
 
-    expected_meter = _resolve_expected_meter(case, ref)
+    primary_ref = raw_ref or score_ref
+    expected_meter = _resolve_expected_meter(case, primary_ref)
     result.meter = meter_metrics(
         predicted=predicted_meter,
         expected=expected_meter,
@@ -167,13 +243,15 @@ def evaluate_case(
         predicted_tempo = float(structure.tempo_map.bpm_at(0.0))
     result.tempo = tempo_metrics(
         predicted_bpm=predicted_tempo,
-        reference_bpm=_resolve_expected_tempo(case, ref),
+        reference_bpm=_resolve_expected_tempo(case, primary_ref),
     )
 
     events = list(structure.events) if structure is not None else []
-    result.hands = hand_metrics(events, ref.notes)
+    hand_ref_notes = (raw_ref.notes if raw_ref is not None else []) or (
+        score_ref.notes if score_ref is not None else []
+    )
+    result.hands = hand_metrics(events, hand_ref_notes)
 
-    # Final note metrics: prefer structured events (seconds), else pipeline raw.mid
     from evaluation.stages import events_to_notes
     from benchmark.note_extract import notes_from_midi
 
@@ -187,17 +265,26 @@ def evaluate_case(
         final_notes = notes_from_midi(raw_midi)
     else:
         final_notes = []
-    result.notes = compare_stage_notes(final_notes, ref.notes)
+
+    # Never compare raw stages to the score MIDI. Never compare score stages
+    # to the raw MIDI unless they resolve to the same legacy file via fallback.
+    raw_notes_for_stages = raw_ref.notes if raw_ref is not None else None
+    score_notes_for_stages = score_ref.notes if score_ref is not None else None
 
     diagnostics = capture_transcription_stages(
         out_dir=out,
-        reference_notes=ref.notes,
+        reference_notes=raw_notes_for_stages,
+        reference_score_notes=score_notes_for_stages,
+        has_raw_reference=raw_ref is not None,
+        has_score_reference=score_ref is not None,
         raw_notes=pipe.last_raw_notes,
         cleaned_notes=pipe.last_cleaned_notes,
         post_piano_notes=pipe.last_post_piano_notes,
         structured_events=events,
         tempo_map=structure.tempo_map if structure is not None else None,
-        tempo_bpm=predicted_tempo or ref.tempo_bpm or 120.0,
+        tempo_bpm=predicted_tempo
+        or (primary_ref.tempo_bpm if primary_ref else None)
+        or 120.0,
         clean_decisions=pipe.last_clean_decisions,
         pipeline_info={
             "raw_note_count": (
@@ -215,9 +302,74 @@ def evaluate_case(
             ),
             "structured_note_count": len(events),
             "stage_source": "pipeline_snapshots",
+            "reference_raw_source": resolution.raw_source,
+            "reference_score_source": resolution.score_source,
+            "raw_legacy_fallback": resolution.raw_legacy_fallback,
+            "score_legacy_fallback": resolution.score_legacy_fallback,
+            "same_reference_file": resolution.same_file,
         },
     )
     result.stages = diagnostics.to_dict()
+
+    transcription_m = _stage_metrics(result.stages, "transcription")
+    cleaner_m = _stage_metrics(result.stages, "post_cleaner")
+    score_block = dict(diagnostics.score_evaluation or {})
+
+    raw_namespace = (
+        _namespace_from_match(transcription_m)
+        if transcription_m
+        else {
+            "status": "unavailable",
+            "reason": "no raw performance reference",
+        }
+    )
+    cleaner_namespace = (
+        _namespace_from_match(cleaner_m)
+        if cleaner_m
+        else {
+            "status": "unavailable",
+            "reason": "no raw performance reference or cleaner stage missing",
+        }
+    )
+
+    result.metrics = {
+        "raw": raw_namespace,
+        "cleaner": cleaner_namespace,
+        "score": score_block,
+        "cleaner_delta": {
+            "onset_pitch_f1": (
+                (cleaner_m.get("onset_pitch_f1") - transcription_m.get("onset_pitch_f1"))
+                if isinstance(cleaner_m.get("onset_pitch_f1"), (int, float))
+                and isinstance(transcription_m.get("onset_pitch_f1"), (int, float))
+                else None
+            ),
+            "onset_f1": (
+                (cleaner_m.get("onset_f1") - transcription_m.get("onset_f1"))
+                if isinstance(cleaner_m.get("onset_f1"), (int, float))
+                and isinstance(transcription_m.get("onset_f1"), (int, float))
+                else None
+            ),
+        },
+    }
+
+    # Headline notes: raw transcription when raw ref exists; else score metrics.
+    if raw_ref is not None and transcription_m:
+        result.notes = transcription_m
+    elif raw_ref is not None:
+        result.notes = compare_stage_notes(final_notes, raw_ref.notes)
+    elif score_ref is not None and score_block.get("status") == "evaluated":
+        result.notes = {
+            "onset_pitch_f1": score_block.get("onset_pitch_f1"),
+            "onset_f1": score_block.get("onset_f1"),
+            "onset_pitch_offset_f1": score_block.get("onset_pitch_offset_f1"),
+            "reference_count": score_block.get("reference_count"),
+            "predicted_count": score_block.get("predicted_count"),
+            "matched": score_block.get("matched"),
+            "false_positives": score_block.get("false_positives"),
+            "false_negatives": score_block.get("false_negatives"),
+        }
+    else:
+        result.notes = {}
 
     result.pipeline = {
         "raw_note_count": (
@@ -243,19 +395,12 @@ def evaluate_case(
         "source_backend": debug.source_backend if debug else None,
     }
 
-    # Prefer structured-stage F1 as the headline when available
-    structured_metrics = None
-    for stage in diagnostics.stages:
-        if stage.name == "structured":
-            structured_metrics = stage.metrics
-            break
-    if structured_metrics:
-        result.notes = structured_metrics
-
     result.artifacts = {
         "case_dir": str(case.case_dir),
         "audio": str(case.audio_path),
-        "reference_midi": str(case.reference_midi),
+        "reference_midi": str(case.reference_midi) if case.reference_midi else None,
+        "reference_raw_midi": str(raw_path) if raw_path else None,
+        "reference_score_midi": str(score_path) if score_path else None,
         "output_musicxml": str(out / "output.musicxml") if musicxml_ok else None,
         "transcription_midi": str(out / "transcription.mid")
         if (out / "transcription.mid").exists()
@@ -294,6 +439,8 @@ def _write_case_files(
         "status": result.status,
         "stages": result.stages,
         "pipeline": result.pipeline,
+        "reference": result.reference,
+        "metrics": result.metrics,
         "conclusion": diagnostics_text,
     }
     (out / "diagnostics.json").write_text(
@@ -308,10 +455,16 @@ def _write_case_files(
 
 def _case_report_markdown(result: CaseResult, diagnostics_text: str) -> str:
     notes = result.notes or {}
+    metrics = result.metrics or {}
+    raw_m = metrics.get("raw") or {}
+    cleaner_m = metrics.get("cleaner") or {}
+    score_m = metrics.get("score") or {}
     meter = result.meter or {}
     tempo = result.tempo or {}
     hands = result.hands or {}
     pipe = result.pipeline or {}
+    ref = result.reference or {}
+    resolution = ref.get("resolution") or {}
     lines = [
         f"# Case `{result.case_id}`",
         "",
@@ -319,17 +472,46 @@ def _case_report_markdown(result: CaseResult, diagnostics_text: str) -> str:
         f"- status: **{result.status}**",
         f"- title: {result.title or result.case_id}",
         "",
-        "## Notes",
+        "## References",
         "",
-        f"- reference: {notes.get('reference_count', '—')}",
-        f"- predicted: {notes.get('predicted_count', '—')}",
-        f"- matched: {notes.get('matched', '—')}",
-        f"- FP / FN: {notes.get('false_positives', '—')} / {notes.get('false_negatives', '—')}",
-        f"- onset F1: {_fmt(notes.get('onset_f1'))}",
-        f"- onset+pitch F1: {_fmt(notes.get('onset_pitch_f1'))}",
-        f"- onset+pitch+offset F1: {_fmt(notes.get('onset_pitch_offset_f1'))}",
-        f"- mean onset error: {_fmt(notes.get('mean_onset_error_ms'), ' ms')}",
-        f"- median onset error: {_fmt(notes.get('median_onset_error_ms'), ' ms')}",
+        f"- raw source: `{resolution.get('raw_source') or '—'}`"
+        f"{' (legacy fallback)' if resolution.get('raw_legacy_fallback') else ''}",
+        f"- score source: `{resolution.get('score_source') or '—'}`"
+        f"{' (legacy fallback)' if resolution.get('score_legacy_fallback') else ''}",
+        f"- same file: {resolution.get('same_file')}",
+        f"- raw note count: {ref.get('raw_note_count', '—')}",
+        f"- score note count: {ref.get('score_note_count', '—')}",
+        "",
+        "## Raw metrics (vs reference_raw)",
+        "",
+        f"- onset F1: {_fmt(raw_m.get('onset_f1') or notes.get('onset_f1'))}",
+        f"- onset+pitch F1: {_fmt(raw_m.get('onset_pitch_f1') or notes.get('onset_pitch_f1'))}",
+        f"- onset+pitch+offset F1: {_fmt(raw_m.get('onset_pitch_offset_f1') or notes.get('onset_pitch_offset_f1'))}",
+        f"- FP / FN: {raw_m.get('false_positives', notes.get('false_positives', '—'))} / "
+        f"{raw_m.get('false_negatives', notes.get('false_negatives', '—'))}",
+        "",
+        "## Cleaner metrics (vs reference_raw)",
+        "",
+        f"- onset+pitch F1: {_fmt(cleaner_m.get('onset_pitch_f1'))}",
+        f"- onset+pitch+offset F1: {_fmt(cleaner_m.get('onset_pitch_offset_f1'))}",
+        f"- delta onset+pitch F1: {_fmt((metrics.get('cleaner_delta') or {}).get('onset_pitch_f1'))}",
+        "",
+        "## Score metrics (vs reference_score)",
+        "",
+    ]
+    if score_m.get("status") == "evaluated":
+        lines += [
+            f"- quantized note F1: {_fmt(score_m.get('quantized_note_f1'))}",
+            f"- rhythm accuracy: {_fmt(score_m.get('rhythm_accuracy'))}",
+            f"- duration accuracy: {_fmt(score_m.get('duration_accuracy'))}",
+            f"- measure alignment: {score_m.get('measure_alignment')}",
+        ]
+    else:
+        lines.append(
+            f"- score_evaluation: **unavailable**"
+            f" — {score_m.get('reason') or 'no score comparison'}"
+        )
+    lines += [
         "",
         "## Meter",
         "",

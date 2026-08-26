@@ -28,10 +28,22 @@ AUDIO_CANDIDATES = (
     "audio.wav",
 )
 
+# Legacy single-reference filenames (Checkpoint 7)
 REFERENCE_CANDIDATES = (
     "reference.mid",
     "reference.midi",
     "ref.mid",
+)
+
+# Preferred two-reference filenames (Checkpoint 7B)
+REFERENCE_RAW_CANDIDATES = (
+    "reference_raw.mid",
+    "reference_raw.midi",
+)
+
+REFERENCE_SCORE_CANDIDATES = (
+    "reference_score.mid",
+    "reference_score.midi",
 )
 
 MANIFEST_NAMES = (
@@ -41,3 +53,15 @@ MANIFEST_NAMES = (
 )
 
 SPLITS = ("development", "holdout", "real_world")
+
+# Stages compared against the raw performance reference
+RAW_REFERENCE_STAGES = (
+    "transcription",
+    "post_cleaner",
+    "post_piano",
+)
+
+# Stages compared against the score / quantized reference (when available)
+SCORE_REFERENCE_STAGES = (
+    "structured",
+)

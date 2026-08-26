@@ -30,18 +30,36 @@ python -m evaluation.runner --split development --compare-baseline checkpoint-7-
 
 ```
 evaluation/development/<case_id>/
-    input.wav          # required (also .mp3/.flac/.mid)
-    reference.mid      # required ground-truth performance MIDI
-    case.yaml          # optional metadata
+    input.wav              # required (also .mp3/.flac/.mid)
+    reference_raw.mid      # preferred: exact performance MIDI for input.wav
+    reference_score.mid    # preferred: quantized musical score MIDI
+    case.yaml              # optional metadata
 ```
 
-Same layout under `evaluation/holdout/` and `evaluation/real_world/`.
+### Two-reference layouts (Checkpoint 7B)
 
-Audio and MIDI are **gitignored** by default so DAW assets are not committed.
+| Layout | Files | Raw metrics | Score metrics |
+|---|---|---|---|
+| **Legacy** | `reference.mid` | yes (fallback) | yes (fallback) |
+| **Raw-only** | `reference_raw.mid` | yes | unavailable |
+| **Score-only** | `reference_score.mid` | unavailable | yes |
+| **Preferred** | both | yes | yes |
+
+Resolution reports `raw_source`, `score_source`, legacy-fallback flags, and
+whether raw/score point at the same file. Raw transcription stages are **never**
+silently compared to `reference_score.mid`. Structured / score stages are
+**never** compared to the raw performance MIDI unless both resolved to the same
+legacy `reference.mid`.
+
+Same layout under `evaluation/holdout/` and `evaluation/real_world/`.
+Nested folders (e.g. `development/NotaTestSamples/CaseN`) are discovered.
+
+Audio and MIDI are **gitignored** by default so DAW assets are not committed
+(except intentionally versioned fixtures such as `NotaTestSamples/`).
 
 ### Minimum case
 
-Only `input.wav` + `reference.mid` are required. Without `case.yaml`, the
+`input.wav` plus at least one reference MIDI. Without `case.yaml`, the
 directory name is the case id and note metrics are still computed.
 
 ### Optional `case.yaml`
@@ -51,7 +69,8 @@ id: piano_sixteenth_120
 title: Sixteenth note threshold
 instrument: piano
 reference:
-  midi: reference.mid
+  raw: reference_raw.mid
+  score: reference_score.mid
 expected:
   meter: "4/4"
   tempo_bpm: 120
@@ -62,6 +81,7 @@ tags:
 performance_id: piano_sixteenth_120_perf   # paired renders share this
 ```
 
+Legacy: `reference: { midi: reference.mid }` still works.
 ## Corpus splits
 
 | Split | Meaning |
@@ -105,18 +125,30 @@ Holdout aggregate reports are marked **HOLDOUT EVALUATION**.
 
 ## Reference MIDI
 
-Ground truth for the intended performance. May include multiple tracks, tempo
-maps, time signatures, channels, and LH/RH tracks. Evaluation normalizes to
-musical note events in memory and **never mutates** the original file.
+Two immutable ground truths (Checkpoint 7B):
+
+- **`reference_raw.mid`** — exact performance MIDI used to render `input.wav`.
+  Used for pitch/onset/offset F1, FP/FN, and raw + cleaner stage evaluation.
+- **`reference_score.mid`** — intended quantized musical score. Used for
+  structured / notation comparison when meaningful.
+
+Legacy single `reference.mid` remains supported as a fallback for both roles
+(explicitly reported). Evaluation normalizes to musical note events in memory
+and **never mutates** the original files.
 
 If hand track names are absent, hands are reported as `NOT_EVALUATED`.
 
 ## Metrics
 
-Configurable musical tolerances (default onset 50 ms). Reports onset F1,
-onset+pitch F1, optional offset F1, timing/duration errors, meter, tempo,
-hands, and pipeline stage counts.
+Namespaced results:
 
+- `metrics.raw` — vs raw reference (onset / onset+pitch / onset+pitch+offset F1, FP/FN)
+- `metrics.cleaner` — post-cleaner vs raw reference
+- `metrics.score` — vs score reference, or `{ status: unavailable, reason: ... }`
+- `metrics.cleaner_delta` — cleaner − transcription F1 deltas
+
+Configurable musical tolerances (default onset 50 ms). Reports also include
+meter, tempo, hands, and pipeline stage counts.
 
 ## Stage diagnostics
 
@@ -137,4 +169,5 @@ Prefer `evaluation/` for new DAW cases; keep `benchmark/realworld` for its exist
 
 ## Design doc
 
-See `docs/CHECKPOINT_7_EVALUATION_DESIGN.md`.
+See `docs/CHECKPOINT_7_EVALUATION_DESIGN.md` and
+`docs/CHECKPOINT_7B_TWO_REFERENCE_EVALUATION.md`.

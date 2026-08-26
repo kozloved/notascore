@@ -1,0 +1,17 @@
+id: Case1
+title: 160 F melody piano
+instrument: piano
+audio: 160_f_melody_piano_audio.wav
+reference:
+  raw: 160_f_melody_piano_raw.mid
+  score: 160_f_melody_piano_q.mid
+expected:
+  meter: "4/4"
+  tempo_bpm: 160
+tags:
+  - piano
+  - melody
+  - development
+notes: >
+  DAW Case1 — single-line melody. Raw = performance MIDI used to render audio;
+  score = quantized notation MIDI. Files are not renamed.

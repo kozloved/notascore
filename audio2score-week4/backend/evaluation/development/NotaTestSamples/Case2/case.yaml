@@ -1,0 +1,17 @@
+id: Case2
+title: 138 C chords piano
+instrument: piano
+audio: 138_с_chords_piano_audio.wav
+reference:
+  raw: 138_с_chords_piano_raw.mid
+  score: 138_с_chords_piano_q.mid
+expected:
+  meter: "4/4"
+  tempo_bpm: 138
+tags:
+  - piano
+  - chords
+  - development
+notes: >
+  DAW Case2 — chordal piano texture. Raw = performance MIDI used to render audio;
+  score = quantized notation MIDI. Filenames retain original Cyrillic character.

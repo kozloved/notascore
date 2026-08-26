@@ -3,7 +3,10 @@ title: Sixteenth note threshold
 instrument: piano
 
 reference:
-  midi: reference.mid
+  raw: reference_raw.mid
+  score: reference_score.mid
+  # Legacy alternative:
+  # midi: reference.mid
 
 expected:
   meter: "4/4"

@@ -1,0 +1,18 @@
+id: Case3
+title: 88 D waltz piano
+instrument: piano
+audio: 88_D_waltz_th_piano_audio.wav
+reference:
+  raw: 88_D_waltz_th_piano_raw.mid
+  score: 88_D_waltz_th_piano_q.mid
+expected:
+  meter: "3/4"
+  tempo_bpm: 88
+tags:
+  - piano
+  - waltz
+  - meter
+  - development
+notes: >
+  DAW Case3 — waltz texture. Raw = performance MIDI used to render audio;
+  score = quantized notation MIDI. Expected meter 3/4 from musical intent.

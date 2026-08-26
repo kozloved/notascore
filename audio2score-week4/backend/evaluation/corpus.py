@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from evaluation.defaults import SPLITS
-from evaluation.schema import CaseSpec, parse_case_dir
+from evaluation.schema import CaseSpec, looks_like_case_dir, parse_case_dir
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 
@@ -18,6 +18,30 @@ def split_dir(split: str) -> Path:
     if split not in SPLITS:
         raise ValueError(f"Unknown split {split!r}; expected one of {SPLITS}")
     return corpus_root() / split
+
+
+def _iter_case_dirs(directory: Path) -> list[Path]:
+    """Yield leaf case directories under a split (supports one nesting level)."""
+    if not directory.is_dir():
+        return []
+    found: list[Path] = []
+    for child in sorted(directory.iterdir()):
+        if not child.is_dir():
+            continue
+        if child.name.startswith(".") or child.name.startswith("_"):
+            continue
+        if looks_like_case_dir(child):
+            found.append(child)
+            continue
+        # Nested corpus folders (e.g. development/NotaTestSamples/Case1)
+        for grandchild in sorted(child.iterdir()):
+            if not grandchild.is_dir():
+                continue
+            if grandchild.name.startswith(".") or grandchild.name.startswith("_"):
+                continue
+            if looks_like_case_dir(grandchild):
+                found.append(grandchild)
+    return found
 
 
 def discover_cases(
@@ -34,13 +58,9 @@ def discover_cases(
         directory = base / name
         if not directory.is_dir():
             continue
-        for child in sorted(directory.iterdir()):
-            if not child.is_dir():
-                continue
-            if child.name.startswith(".") or child.name.startswith("_"):
-                continue
-            spec = parse_case_dir(child, name)
-            if case_id is not None and spec.case_id != case_id and child.name != case_id:
+        for case_dir in _iter_case_dirs(directory):
+            spec = parse_case_dir(case_dir, name)
+            if case_id is not None and spec.case_id != case_id and case_dir.name != case_id:
                 continue
             found.append(spec)
     return found
@@ -50,8 +70,10 @@ def performance_key(case: CaseSpec) -> str | None:
     """Identity used to detect development/holdout leakage of the same performance."""
     if case.performance_id:
         return f"id:{case.performance_id}"
-    if case.reference_midi and case.reference_midi.is_file():
-        return f"path:{case.reference_midi.resolve()}"
+    # Prefer raw reference for pairing identity
+    ref = case.reference_raw_midi or case.reference_midi
+    if ref and ref.is_file():
+        return f"path:{ref.resolve()}"
     return None
 
 

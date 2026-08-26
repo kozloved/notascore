@@ -48,15 +48,51 @@ def build_report(
     ran = [c for c in cases if c.get("status") == "ran"]
     skipped = [c for c in cases if c.get("status") == "skipped"]
     errors = [c for c in cases if c.get("status") == "error"]
+    def _metric(case: dict[str, Any], namespace: str, key: str) -> float | None:
+        block = (case.get("metrics") or {}).get(namespace) or {}
+        value = block.get(key)
+        if isinstance(value, (int, float)):
+            return float(value)
+        notes = case.get("notes") or {}
+        if namespace == "raw" and isinstance(notes.get(key), (int, float)):
+            return float(notes[key])
+        return None
+
     f1s = [
-        float((c.get("notes") or {}).get("onset_pitch_f1"))
+        v
         for c in ran
-        if isinstance((c.get("notes") or {}).get("onset_pitch_f1"), (int, float))
+        if (v := _metric(c, "raw", "onset_pitch_f1")) is not None
     ]
     onset_f1s = [
-        float((c.get("notes") or {}).get("onset_f1"))
+        v for c in ran if (v := _metric(c, "raw", "onset_f1")) is not None
+    ]
+    offset_f1s = [
+        v
         for c in ran
-        if isinstance((c.get("notes") or {}).get("onset_f1"), (int, float))
+        if (v := _metric(c, "raw", "onset_pitch_offset_f1")) is not None
+    ]
+    total_fp = sum(
+        int(_metric(c, "raw", "false_positives") or 0) for c in ran
+    )
+    total_fn = sum(
+        int(_metric(c, "raw", "false_negatives") or 0) for c in ran
+    )
+    cleaner_deltas = [
+        float(((c.get("metrics") or {}).get("cleaner_delta") or {}).get("onset_pitch_f1"))
+        for c in ran
+        if isinstance(
+            ((c.get("metrics") or {}).get("cleaner_delta") or {}).get("onset_pitch_f1"),
+            (int, float),
+        )
+    ]
+    score_f1s = [
+        float(((c.get("metrics") or {}).get("score") or {}).get("quantized_note_f1"))
+        for c in ran
+        if ((c.get("metrics") or {}).get("score") or {}).get("status") == "evaluated"
+        and isinstance(
+            ((c.get("metrics") or {}).get("score") or {}).get("quantized_note_f1"),
+            (int, float),
+        )
     ]
     git = git_info(repo)
     return {
@@ -77,6 +113,13 @@ def build_report(
         "aggregate": {
             "mean_onset_f1": _mean(onset_f1s),
             "mean_onset_pitch_f1": _mean(f1s),
+            "mean_raw_onset_f1": _mean(onset_f1s),
+            "mean_raw_onset_pitch_f1": _mean(f1s),
+            "mean_raw_onset_pitch_offset_f1": _mean(offset_f1s),
+            "total_false_positives": total_fp,
+            "total_false_negatives": total_fn,
+            "mean_cleaner_delta_onset_pitch_f1": _mean(cleaner_deltas),
+            "mean_score_quantized_note_f1": _mean(score_f1s),
             "meter_correct": sum(
                 1
                 for c in ran
@@ -138,8 +181,14 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         "## Aggregate metrics",
         "",
-        f"- mean onset F1: {_fmt((report.get('aggregate') or {}).get('mean_onset_f1'))}",
-        f"- mean onset+pitch F1: {_fmt((report.get('aggregate') or {}).get('mean_onset_pitch_f1'))}",
+        f"- mean raw onset F1: {_fmt((report.get('aggregate') or {}).get('mean_raw_onset_f1') or (report.get('aggregate') or {}).get('mean_onset_f1'))}",
+        f"- mean raw onset+pitch F1: {_fmt((report.get('aggregate') or {}).get('mean_raw_onset_pitch_f1') or (report.get('aggregate') or {}).get('mean_onset_pitch_f1'))}",
+        f"- mean raw onset+pitch+offset F1: {_fmt((report.get('aggregate') or {}).get('mean_raw_onset_pitch_offset_f1'))}",
+        f"- total false positives / negatives: "
+        f"{(report.get('aggregate') or {}).get('total_false_positives')} / "
+        f"{(report.get('aggregate') or {}).get('total_false_negatives')}",
+        f"- mean cleaner Δ onset+pitch F1: {_fmt((report.get('aggregate') or {}).get('mean_cleaner_delta_onset_pitch_f1'))}",
+        f"- mean score quantized note F1: {_fmt((report.get('aggregate') or {}).get('mean_score_quantized_note_f1'))}",
         f"- meter correct / incorrect / not evaluated: "
         f"{(report.get('aggregate') or {}).get('meter_correct')} / "
         f"{(report.get('aggregate') or {}).get('meter_incorrect')} / "
@@ -147,32 +196,32 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         "## Per-case table",
         "",
-        "| Case | Split | Note F1 | Pitch F1 | Meter | Tempo | Hands | Status |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Case | Split | Raw F1 | Cleaner F1 | Score F1 | Meter | Status |",
+        "|---|---|---|---|---|---|---|",
     ]
     for row in report.get("cases") or []:
         notes = row.get("notes") or {}
+        metrics = row.get("metrics") or {}
+        raw_m = metrics.get("raw") or {}
+        cleaner_m = metrics.get("cleaner") or {}
+        score_m = metrics.get("score") or {}
         meter = row.get("meter") or {}
-        tempo = row.get("tempo") or {}
-        hands = row.get("hands") or {}
         meter_s = meter.get("status") or NOT_EVALUATED
         if meter.get("predicted") and meter_s != NOT_EVALUATED:
             meter_s = f"{meter.get('predicted')} ({meter_s})"
-        tempo_s = NOT_EVALUATED
-        if tempo.get("status") == "evaluated":
-            tempo_s = f"err {_fmt(tempo.get('error_bpm'))}"
-        hands_s = hands.get("status") or NOT_EVALUATED
-        if hands.get("accuracy") is not None:
-            hands_s = _fmt(hands.get("accuracy"))
+        score_cell = "unavailable"
+        if score_m.get("status") == "evaluated":
+            score_cell = _fmt(score_m.get("quantized_note_f1"))
+        elif score_m.get("status") == "unavailable":
+            score_cell = "unavailable"
         lines.append(
-            "| {case} | {split} | {onset} | {pitch} | {meter} | {tempo} | {hands} | {status} |".format(
+            "| {case} | {split} | {raw} | {cleaner} | {score} | {meter} | {status} |".format(
                 case=row.get("id"),
                 split=row.get("split"),
-                onset=_fmt(notes.get("onset_f1")),
-                pitch=_fmt(notes.get("onset_pitch_f1")),
+                raw=_fmt(raw_m.get("onset_pitch_f1") or notes.get("onset_pitch_f1")),
+                cleaner=_fmt(cleaner_m.get("onset_pitch_f1")),
+                score=score_cell,
                 meter=meter_s,
-                tempo=tempo_s,
-                hands=hands_s,
                 status=_status_cell(row),
             )
         )
