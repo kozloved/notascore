@@ -1,4 +1,4 @@
-# User-owned DAW audio and reference MIDI (do not commit).
+# User-owned DAW audio and reference MIDI (do not commit by default).
 *.wav
 *.mp3
 *.flac
@@ -6,6 +6,12 @@
 *.m4a
 *.mid
 *.midi
+
+# Shared NotaTestSamples fixtures (wav + midi) are versioned.
+!NotaTestSamples/
+!NotaTestSamples/**/*.wav
+!NotaTestSamples/**/*.mid
+!NotaTestSamples/**/*.midi
 
 # Keep this ignore file and committed YAML templates.
 !.gitignore
