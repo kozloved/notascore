@@ -240,10 +240,11 @@ body::after {
 
 .wordmark .note {
   color: inherit;
-  /* The ♪ glyph only fills part of its em box, so scale it up to roughly the
-     cap height of the letters while keeping it seated on the baseline. */
-  font-size: 1.42em;
-  line-height: inherit;
+  /* Single sixteenth note: smaller than the wordmark and nudged up as a mark. */
+  font-size: 0.52em;
+  line-height: 1;
+  align-self: flex-start;
+  margin-top: 0.18em;
 }
 
 .tagline {
