@@ -3,11 +3,23 @@
 from audio_engine.beat_tracker import (
     BeatTracker,
     align_tempo_map,
+    fit_constant_beat_grid,
     stabilize_tempo_map,
 )
 from mir.cmr_builder import notes_to_events
 from mir.types import InstrumentKind, MusicalEvent, NoteEvent, ScoreMeta, TempoMap, TempoPoint
 from notation_engine.writer import NotationWriter
+
+
+def test_tempo_map_origin_puts_first_note_on_beat_zero():
+    tm = TempoMap(
+        points=[TempoPoint(time_sec=0.0, beat=0.0, bpm=40.0)],
+        origin_sec=0.012,
+    )
+    assert abs(tm.seconds_to_beats(0.012)) < 1e-9
+    assert abs(tm.seconds_to_beats(1.512) - 1.0) < 1e-6
+    assert abs(tm.beats_to_seconds(0.0) - 0.012) < 1e-9
+    assert abs(tm.beats_to_seconds(1.0) - 1.512) < 1e-6
 
 
 def test_tempo_map_seconds_to_beats_constant():
@@ -122,3 +134,24 @@ def test_beat_tracker_returns_map(sine_tone, normalized_audio_factory):
     tm = BeatTracker().track(audio)
     assert len(tm.points) >= 1
     assert tm.points[0].bpm > 0
+
+
+def test_fit_constant_beat_grid_demo_melody_is_quarters():
+    """Case1 demo WAV onsets (~1.5s IOI) become a ~40 BPM quarter-note grid."""
+    onsets = [0.012, 1.544, 2.997, 4.507, 5.995]
+    tm = fit_constant_beat_grid(onsets, seed_bpm=80.0)
+    assert abs(tm.bpm_at(0.0) - 40.0) < 4.0
+    beats = [tm.seconds_to_beats(t) for t in onsets]
+    assert abs(beats[0]) < 0.05
+    gaps = [b - a for a, b in zip(beats, beats[1:])]
+    assert all(abs(g - 1.0) < 0.08 for g in gaps)
+
+
+def test_fit_constant_beat_grid_ignores_spurious_half_pulses():
+    """Extra off-grid attacks must not double the pulse into half notes."""
+    onsets = [0.012, 1.544, 2.997, 4.507, 5.995, 9.003, 9.746, 11.489, 13.185]
+    tm = fit_constant_beat_grid(onsets, seed_bpm=80.0)
+    assert abs(tm.bpm_at(0.0) - 40.0) < 4.0
+    beats = [tm.seconds_to_beats(t) for t in onsets[:5]]
+    gaps = [b - a for a, b in zip(beats, beats[1:])]
+    assert all(abs(g - 1.0) < 0.08 for g in gaps)

@@ -12,6 +12,7 @@ from audio_engine.beat_tracker import (
     BeatTracker,
     align_tempo_map,
     constant_tempo_map,
+    fit_constant_beat_grid,
 )
 from audio_engine.chord_detector import ChordDetector
 from audio_engine.instrument_classifier import InstrumentClassifier
@@ -92,6 +93,7 @@ class UnderstandingPipeline:
         self.meter_arbitrator = MeterArbitrator(self.meter_estimator)
         self.notation = NotationWriter()
         self.beat_tracker = BeatTracker()
+        self.last_tracker_map: TempoMap | None = None
         if use_mir_layers is None:
             use_mir_layers = _env_enabled("TRANSCRIPTION_USE_MIR_LAYERS", default=True)
         self.use_mir_layers = use_mir_layers
@@ -281,7 +283,7 @@ class UnderstandingPipeline:
             bpm=bpm,
             events=events if events else None,
             pedal_events=pedal_events,
-            tempo_map=tempo_map,
+            tempo_map=self.last_tracker_map or tempo_map,
         )
 
         xml = self.notation.write_musicxml(
@@ -576,19 +578,37 @@ class UnderstandingPipeline:
     def _build_tempo_map(
         self, normalized, audio_path, onsets: list[float]
     ) -> tuple[TempoMap, str | None]:
+        """Tracker map keeps DAW MIDI; notation uses a constant first-beat grid."""
+        meter = None
+        seed = None
+        beat_times = None
+        tracked = None
         if _use_beat_tracker():
             tracked = self.beat_tracker.track_stable(normalized)
             meter = self.beat_tracker.last_time_signature
             source = self.beat_tracker.last_source
             seed = tracked.bpm_at(0.0)
-            # madmom already owns the beat grid; MIDI-onset refine was for librosa
-            # octave errors and can pull a good map toward 76/90 on sparse notes.
-            if source == "madmom":
-                return tracked, meter
-            refined = refine_tempo(onsets, seed)
-            return align_tempo_map(tracked, refined), meter
-        seed = detect_tempo(audio_path)
-        return constant_tempo_map(refine_tempo(onsets, seed)), None
+            result = getattr(self.beat_tracker, "last_beat_result", None)
+            if result is not None:
+                beat_times = list(result.beat_times)
+            if source != "madmom":
+                seed = refine_tempo(onsets, seed)
+                tracked = align_tempo_map(tracked, seed)
+        else:
+            seed = refine_tempo(onsets, detect_tempo(audio_path))
+            tracked = constant_tempo_map(seed)
+
+        self.last_tracker_map = tracked
+        grid = fit_constant_beat_grid(
+            onsets,
+            seed_bpm=seed or (tracked.bpm_at(0.0) if tracked else None),
+            beat_times=beat_times,
+        )
+        print(
+            f"[BeatGrid] origin={grid.origin_sec:.3f}s bpm={grid.bpm_at(0.0):.1f} "
+            f"onsets={len(onsets)} seed={float(seed or 0.0):.1f}"
+        )
+        return grid, meter
 
     @staticmethod
     def notes_from_events(events: list[MusicalEvent], bpm: float) -> list[NoteEvent]:

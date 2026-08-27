@@ -15,7 +15,7 @@ class TranscriptionError(Exception):
 QUANTIZE_DIVISORS = (4, 3)
 
 DEFAULT_TEMPO = 120.0
-MIN_TEMPO = 50.0
+MIN_TEMPO = 40.0
 MAX_TEMPO = 200.0
 ALLOWED_MODES = ("fast", "quality")
 DEFAULT_FAST_QUEUE_TIMEOUT = 600

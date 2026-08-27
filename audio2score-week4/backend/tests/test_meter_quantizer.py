@@ -1,6 +1,6 @@
 """Meter-aware quantization and rhythm cases."""
 
-from mir.meter import MeterEstimator
+from mir.meter import MeterEstimator, meter_from_time_signature
 from mir.quantizer import MeasureQuantizer
 from mir.types import Hand, MusicalEvent, ScoreMeta
 from notation_engine.plan import NotationPlanner
@@ -43,6 +43,30 @@ def test_sixteenths_quantize_to_quarter_grid():
     starts = [round(e.start_beat, 3) for e in quantized]
     assert starts[0] == 0.0
     assert all(abs(b - a - 0.25) < 0.02 or abs(b - a - 0.0) < 1e-6 for a, b in zip(starts, starts[1:]))
+
+
+def test_downbeat_not_clamped_to_last_sixteenth():
+    """A note just before the barline must snap to the next downbeat, not 3.75."""
+    events = [_ev(72, 3.99, 1.0)]
+    meter = meter_from_time_signature("4/4")
+    quantized, _ = MeasureQuantizer().quantize(events, meter)
+    assert quantized
+    assert abs(quantized[0].start_beat - 4.0) < 1e-9
+
+
+def test_isochronous_melody_prints_quarters():
+    """Straight melody IOIs become even quarter notes, not a shrinking grid."""
+    events = [
+        _ev(65 + i, float(i) + 0.04 * ((i % 3) - 1), 0.92) for i in range(8)
+    ]
+    meter = meter_from_time_signature("4/4")
+    quantized, _ = MeasureQuantizer().quantize(events, meter)
+    starts = [round(e.start_beat, 6) for e in quantized]
+    assert starts[0] == 0.0
+    gaps = [b - a for a, b in zip(starts, starts[1:])]
+    assert gaps
+    assert all(abs(g - 1.0) < 1e-6 for g in gaps)
+    assert all(abs(e.duration_beats - 1.0) < 1e-6 for e in quantized)
 
 
 def test_triplets_grid_available():

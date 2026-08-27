@@ -79,7 +79,7 @@ def test_audioset_family_mapping():
     assert scores[InstrumentKind.VOICE] == pytest.approx(0.1)
 
 
-def test_build_tempo_map_keeps_madmom_without_midi_refine():
+def test_build_tempo_map_uses_onset_grid_with_madmom_seed():
     from mir.pipeline import UnderstandingPipeline
     from mir.types import TempoMap, TempoPoint
 
@@ -93,7 +93,10 @@ def test_build_tempo_map_keeps_madmom_without_midi_refine():
         None, None, [i * 0.5 for i in range(8)]
     )
     assert meter == "4/4"
-    assert abs(tempo_map.bpm_at(0.0) - 150.0) < 0.5
+    # Notation uses the onset grid (0.5s → 120 BPM quarters), not the 150 seed.
+    assert abs(tempo_map.bpm_at(0.0) - 120.0) < 3.0
+    assert abs(tempo_map.seconds_to_beats(0.5) - 1.0) < 0.08
+    assert abs(pipeline.last_tracker_map.bpm_at(0.0) - 150.0) < 0.5
 
 
 def test_build_tempo_map_refines_librosa_octave_seed():

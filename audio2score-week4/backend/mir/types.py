@@ -123,6 +123,9 @@ class TempoPoint:
 @dataclass
 class TempoMap:
     points: list[TempoPoint] = field(default_factory=list)
+    # First-beat origin in seconds. Note times are converted relative to this
+    # so the first downbeat note lands on beat 0.
+    origin_sec: float = 0.0
 
     def sorted_points(self) -> list[TempoPoint]:
         return sorted(self.points, key=lambda p: p.time_sec)
@@ -139,7 +142,7 @@ class TempoMap:
                 break
         return best.bpm
 
-    def seconds_to_beats(self, time_sec: float) -> float:
+    def _beats_from_zero(self, time_sec: float) -> float:
         points = self.sorted_points()
         if not points:
             return time_sec * (120.0 / 60.0)
@@ -159,22 +162,28 @@ class TempoMap:
         beat += dt * (prev_bpm / 60.0)
         return beat
 
+    def seconds_to_beats(self, time_sec: float) -> float:
+        origin = float(self.origin_sec or 0.0)
+        return self._beats_from_zero(time_sec) - self._beats_from_zero(origin)
+
     def beats_to_seconds(self, beat: float) -> float:
+        origin = float(self.origin_sec or 0.0)
+        target = beat + self._beats_from_zero(origin)
         points = self.sorted_points()
         if not points:
-            return beat * (60.0 / 120.0)
+            return target * (60.0 / 120.0)
         prev_t = 0.0
         prev_beat = 0.0
         prev_bpm = max(points[0].bpm, 1e-6)
         for pt in points:
             if pt.time_sec > prev_t:
                 interval_beats = (pt.time_sec - prev_t) * (prev_bpm / 60.0)
-                if prev_beat + interval_beats >= beat:
-                    return prev_t + (beat - prev_beat) * (60.0 / prev_bpm)
+                if prev_beat + interval_beats >= target:
+                    return prev_t + (target - prev_beat) * (60.0 / prev_bpm)
                 prev_beat += interval_beats
                 prev_t = pt.time_sec
             prev_bpm = max(pt.bpm, 1e-6)
-        return prev_t + (beat - prev_beat) * (60.0 / prev_bpm)
+        return prev_t + (target - prev_beat) * (60.0 / prev_bpm)
 
     def median_bpm(self) -> float:
         points = self.sorted_points()

@@ -11,6 +11,10 @@ from mir.types import TempoMap, TempoPoint
 
 MIN_BPM = 50.0
 MAX_BPM = 200.0
+# Onset-grid tempo may be slower than madmom's floor so a largo quarter-note
+# melody (IOI ≈ 1.5s) prints as quarters instead of being doubled into halves.
+GRID_MIN_BPM = 32.0
+ONSET_CLUSTER_SEC = 0.06
 
 
 def _recompute_beats(points: list[TempoPoint]) -> list[TempoPoint]:
@@ -259,6 +263,103 @@ def constant_tempo_map(bpm: float, confidence: float = 0.9) -> TempoMap:
             )
         ]
     )
+
+
+def cluster_onsets(
+    onsets: list[float],
+    window_sec: float = ONSET_CLUSTER_SEC,
+) -> np.ndarray:
+    """Collapse simultaneous chord attacks into one grid time."""
+    times = np.array(
+        sorted(float(t) for t in onsets if t == t),
+        dtype=float,
+    )
+    if times.size == 0:
+        return times
+    clusters: list[float] = []
+    bucket = [float(times[0])]
+    for t in times[1:]:
+        if float(t) - bucket[0] <= window_sec:
+            bucket.append(float(t))
+        else:
+            clusters.append(float(np.median(bucket)))
+            bucket = [float(t)]
+    clusters.append(float(np.median(bucket)))
+    return np.array(clusters, dtype=float)
+
+
+def fit_constant_beat_grid(
+    onsets: list[float],
+    *,
+    seed_bpm: float | None = None,
+    beat_times: list[float] | None = None,
+) -> TempoMap:
+    """Build a constant-tempo grid anchored on the first beat note.
+
+    MIDI / audio onsets are snapped later in beat space. Using a constant pulse
+    from the first attack prevents an accelerating beat tracker from packing
+    later notes closer together.
+    """
+    clusters = cluster_onsets(onsets)
+    if clusters.size == 0:
+        return constant_tempo_map(seed_bpm or 120.0)
+
+    t0 = float(clusters[0])
+    candidates: list[float] = []
+    if seed_bpm and seed_bpm > 0:
+        candidates.append(float(seed_bpm))
+    if beat_times is not None and len(beat_times) >= 2:
+        dts = np.diff(np.asarray(beat_times, dtype=float))
+        dts = dts[dts > 1e-3]
+        if dts.size:
+            candidates.append(60.0 / float(np.median(dts)))
+
+    if clusters.size >= 2:
+        iois = np.diff(clusters)
+        iois = iois[iois > 1e-3]
+        if iois.size:
+            med = float(np.median(iois))
+            near = iois[(iois > 0.55 * med) & (iois < 1.45 * med)]
+            period = float(np.median(near)) if near.size else med
+            for factor in (0.25, 1.0 / 3.0, 0.5, 1.0, 2.0, 3.0, 4.0):
+                bpm = 60.0 / max(period * factor, 1e-6)
+                while bpm < GRID_MIN_BPM:
+                    bpm *= 2.0
+                while bpm > MAX_BPM:
+                    bpm /= 2.0
+                candidates.append(float(bpm))
+
+    if not candidates:
+        candidates.append(120.0)
+
+    uniq: list[float] = []
+    for bpm in candidates:
+        if not any(abs(bpm - seen) < 0.25 for seen in uniq):
+            uniq.append(float(bpm))
+
+    def _score(bpm: float) -> float:
+        quarter = 60.0 / max(bpm, 1e-6)
+        rel = (clusters - t0) / quarter
+        err = float(np.mean(np.abs(rel - np.round(rel))))
+        tactus_pen = 0.0
+        if clusters.size >= 2:
+            ioi_beats = float(np.median(np.diff(clusters))) / quarter
+            # Prefer the pulse where successive melody notes are quarter notes.
+            tactus_pen = min(abs(ioi_beats - 1.0), abs(ioi_beats - 0.5) * 1.25)
+        seed_pen = 0.0
+        if seed_bpm:
+            seed_pen = 0.002 * abs(bpm - seed_bpm) / max(seed_bpm, 1.0)
+        return err + 0.14 * tactus_pen + seed_pen
+
+    best = min(uniq, key=_score)
+    while best < GRID_MIN_BPM:
+        best *= 2.0
+    while best > MAX_BPM:
+        best /= 2.0
+
+    tm = constant_tempo_map(best, confidence=0.92)
+    tm.origin_sec = t0
+    return tm
 
 
 def align_tempo_map(tempo_map: TempoMap, target_bpm: float) -> TempoMap:
