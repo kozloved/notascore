@@ -93,12 +93,15 @@ class HandSeparator:
     def __init__(self, config: HandSeparatorConfig | None = None):
         self.config = config or HandSeparatorConfig()
         self.last_decisions: list[HandDecision] = []
+        self._afterbeats_to_rh = False
 
     def separate(self, events: list[MusicalEvent]) -> list[MusicalEvent]:
         self.last_decisions = []
+        self._afterbeats_to_rh = False
         if not events:
             return []
         frames = self._cluster(events)
+        self._afterbeats_to_rh = any(self._frame_has_bass_octave(f) for f in frames)
         path, confidences, carries = self._viterbi(frames)
         assigned = self._apply(frames, path, confidences)
         by_id = {id(src): out for src, out in assigned}
@@ -143,7 +146,36 @@ class HandSeparator:
         for i, n in enumerate(notes):
             if self._is_locked(n):
                 locked[i] = RH if n.hand == Hand.RIGHT else LH
+
+        # Bass octaves (higher at or below E3) stay entirely in the left hand.
+        for i, a in enumerate(notes):
+            for j, b in enumerate(notes):
+                if i >= j:
+                    continue
+                lower, higher = (a, b) if a.pitch <= b.pitch else (b, a)
+                if higher.pitch - lower.pitch == 12 and higher.pitch <= 52:
+                    locked[i] = LH
+                    locked[j] = LH
+
+        # Waltz / oom-pah: once bass octaves exist, mid-register chords with
+        # no bass note are afterbeats and belong in the right hand.
+        if (
+            self._afterbeats_to_rh
+            and len(notes) >= 2
+            and all(n.pitch >= 53 for n in notes)
+        ):
+            for i in range(len(notes)):
+                locked.setdefault(i, RH)
         return locked
+
+    @staticmethod
+    def _frame_has_bass_octave(notes: list[MusicalEvent]) -> bool:
+        for i, a in enumerate(notes):
+            for b in notes[i + 1 :]:
+                lower, higher = (a, b) if a.pitch <= b.pitch else (b, a)
+                if higher.pitch - lower.pitch == 12 and higher.pitch <= 52:
+                    return True
+        return False
 
     def _candidates(self, notes: list[MusicalEvent]) -> list[tuple[int, ...]]:
         n = len(notes)

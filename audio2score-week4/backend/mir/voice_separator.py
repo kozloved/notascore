@@ -153,6 +153,9 @@ class VoiceSeparator:
             return [cluster]
         ordered = sorted(cluster, key=lambda e: e.pitch)
         span = ordered[-1].pitch - ordered[0].pitch
+        # Octaves are one chord (one stem, two heads), not two independent voices.
+        if len(ordered) == 2 and ordered[1].pitch - ordered[0].pitch == 12:
+            return [ordered]
         if len(ordered) == 2 and ordered[1].pitch - ordered[0].pitch >= 6:
             return [[ordered[0]], [ordered[1]]]
         if span <= self.config.max_chord_span:

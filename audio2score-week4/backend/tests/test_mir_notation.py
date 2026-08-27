@@ -183,3 +183,26 @@ def test_estimate_key_f_minor_short_melody():
         for i, p in enumerate([65, 67, 68, 70, 72, 70, 72])
     ]
     assert estimate_key(events) == "f"
+
+
+def test_bass_octave_notated_as_one_chord():
+    """LH D2+D3 should be one glyph (two heads, one stem), not two voices."""
+    events = [
+        MusicalEvent(pitch=38, start_beat=0.0, duration_beats=0.5, velocity=80, hand=Hand.LEFT, voice=0),
+        MusicalEvent(pitch=50, start_beat=0.0, duration_beats=0.5, velocity=80, hand=Hand.LEFT, voice=0),
+        MusicalEvent(pitch=54, start_beat=1.0, duration_beats=0.5, velocity=80, hand=Hand.RIGHT, voice=0),
+        MusicalEvent(pitch=57, start_beat=1.0, duration_beats=0.5, velocity=80, hand=Hand.RIGHT, voice=0),
+    ]
+    meta = ScoreMeta(display_tempo_bpm=88, time_sig_hint="3/4", key_hint="D")
+    score = NotationWriter().write_from_events_direct(events, meta)
+    bass_chords = [
+        n
+        for n in score.recurse().notesAndRests
+        if n.isChord and {p.midi for p in n.pitches} == {38, 50}
+    ]
+    assert len(bass_chords) == 1
+    assert not any(
+        n.isNote and n.pitch.midi in (38, 50)
+        for n in score.recurse().notes
+        if n.isNote
+    )

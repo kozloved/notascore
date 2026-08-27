@@ -79,3 +79,13 @@ def test_compact_chord_is_one_voice():
     events = [_ev(60, 0.0, 1.0), _ev(64, 0.0, 1.0), _ev(67, 0.0, 1.0)]
     out = VoiceSeparator().separate(events)
     assert len({e.voice for e in out}) == 1
+
+
+def test_bass_octave_is_one_voice():
+    """D2+D3 must share a stem rather than split into two voices."""
+    events = [
+        _ev(38, 0.0, 0.5, hand=Hand.LEFT, role="bass"),
+        _ev(50, 0.0, 0.5, hand=Hand.LEFT, role="bass"),
+    ]
+    out = VoiceSeparator().separate(events)
+    assert len({e.voice for e in out}) == 1

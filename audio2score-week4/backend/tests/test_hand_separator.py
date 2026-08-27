@@ -279,3 +279,39 @@ def test_middle_register_accompaniment():
     melody = [e for e in out if e.role == "melody"]
     assert sum(1 for e in accomp if e.hand == Hand.LEFT) >= len(accomp) - 2
     assert all(e.hand == Hand.RIGHT for e in melody)
+
+
+def test_waltz_bass_octaves_left_afterbeats_right():
+    """Case3 texture: LH is only D/A octaves; F#3+A3 afterbeats stay in RH."""
+    events = []
+    bass = [(38, 50), (33, 45), (38, 50), (33, 45)]
+    for bar, (lo, hi) in enumerate(bass):
+        down = float(bar * 3)
+        events.extend(
+            [
+                _ev(lo, down, dur=0.5, role="bass"),
+                _ev(hi, down, dur=0.5, role="bass"),
+            ]
+        )
+        for beat in (1.0, 2.0):
+            events.extend(
+                [
+                    _ev(54, down + beat, dur=0.5, role="accompaniment"),
+                    _ev(57, down + beat, dur=0.5, role="accompaniment"),
+                ]
+            )
+    out = HandSeparator().separate(events)
+    bass_notes = [e for e in out if e.pitch in (33, 38, 45, 50)]
+    afterbeats = [e for e in out if e.pitch in (54, 57)]
+    assert bass_notes
+    assert afterbeats
+    assert all(e.hand == Hand.LEFT for e in bass_notes), [
+        (e.pitch, e.start_beat, e.hand) for e in bass_notes if e.hand != Hand.LEFT
+    ]
+    assert all(e.hand == Hand.RIGHT for e in afterbeats), [
+        (e.pitch, e.start_beat, e.hand) for e in afterbeats if e.hand != Hand.RIGHT
+    ]
+    for start in {e.start_beat for e in bass_notes}:
+        pair = [e for e in bass_notes if e.start_beat == start]
+        assert {e.pitch for e in pair} in ({38, 50}, {33, 45})
+        assert len({e.hand for e in pair}) == 1

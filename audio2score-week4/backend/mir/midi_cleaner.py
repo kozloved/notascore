@@ -105,6 +105,7 @@ class MIDICleaner:
             kept = self._merge_same_pitch_overlaps(kept)
 
         kept = self._snap_chord_starts(kept)
+        kept = self._unify_bass_octave_durations(kept)
         kept = self._correct_drift(kept)
         if self.stretch_final_note:
             kept = self._stretch_short_final_note(kept)
@@ -216,12 +217,37 @@ class MIDICleaner:
         kept, _ = self._drop_octave_ghosts_with_report(notes)
         return kept
 
+    def _is_protected_bass_octave(
+        self,
+        a: NoteEvent,
+        b: NoteEvent,
+        notes: list[NoteEvent],
+        keep: list[bool],
+    ) -> bool:
+        """True for a two-note bass octave (higher at or below E3)."""
+        lower, higher = (a, b) if a.pitch <= b.pitch else (b, a)
+        if higher.pitch - lower.pitch != 12 or higher.pitch > 52:
+            return False
+        onset = min(a.start_time, b.start_time)
+        extras = [
+            notes[k]
+            for k, flagged in enumerate(keep)
+            if flagged
+            and notes[k] is not a
+            and notes[k] is not b
+            and abs(notes[k].start_time - onset) <= self.octave_window_sec
+            and notes[k].pitch <= 59
+        ]
+        return not extras
+
     def _drop_octave_ghosts_with_report(
         self, notes: list[NoteEvent]
     ) -> tuple[list[NoteEvent], list[CleaningDecision]]:
-        """Drop quieter ±12/±24 copies that start with a stronger note.
+        """Drop quieter or much shorter ±12/±24 copies of a stronger note.
 
-        Similar-strength octaves (real doubled piano writing) are kept.
+        Keep the doubling when it is similar in both strength and duration
+        (real octave writing). Bass octaves — two notes a twelfth apart,
+        higher at or below E3 — are never dropped.
         A note is never dropped if it is the only remaining pitch covering
         its time span.
         """
@@ -254,8 +280,34 @@ class MIDICleaner:
                 sb = self._strength(b)
                 if sa < sb:
                     continue
-                if sb / max(sa, 1e-9) >= self.octave_keep_ratio:
+                duration_ratio = min(a.duration, b.duration) / max(
+                    a.duration, b.duration, 1e-9
+                )
+                similar_strength = sb / max(sa, 1e-9) >= self.octave_keep_ratio
+                similar_duration = duration_ratio >= self.octave_keep_ratio
+                if similar_strength and similar_duration:
                     continue
+                if self._is_protected_bass_octave(a, b, notes, keep):
+                    continue
+                if similar_strength:
+                    # Duration mismatch with similar strength is common in
+                    # two-voice writing (held bass + shorter chord/melody).
+                    # Only drop a short +12 copy that sits above the rest of
+                    # the cluster — a topping ghost, not an inner chord tone.
+                    if interval != 12:
+                        continue
+                    extras = [
+                        notes[k]
+                        for k in range(len(notes))
+                        if k not in (i, j)
+                        and keep[k]
+                        and abs(notes[k].start_time - a.start_time)
+                        <= self.octave_window_sec
+                    ]
+                    if not extras or b.pitch < a.pitch:
+                        continue
+                    if any(other.pitch >= b.pitch for other in extras):
+                        continue
 
                 still_covered = any(
                     k != j
@@ -400,6 +452,48 @@ class MIDICleaner:
             replace(n, end_time=n.start_time + typical) if n is last else n
             for n in notes
         ]
+
+    def _unify_bass_octave_durations(self, notes: list[NoteEvent]) -> list[NoteEvent]:
+        """Give bass-octave pairs a shared duration so they render as one stem."""
+        if len(notes) < 2:
+            return notes
+        used: set[int] = set()
+        replacements: dict[int, NoteEvent] = {}
+        ordered = sorted(notes, key=lambda n: (n.start_time, n.pitch, id(n)))
+        for index, lower in enumerate(ordered):
+            if id(lower) in used:
+                continue
+            higher = next(
+                (
+                    other
+                    for other in ordered[index + 1 :]
+                    if id(other) not in used
+                    and abs(other.start_time - lower.start_time) <= self.octave_window_sec
+                    and other.pitch - lower.pitch == 12
+                    and other.pitch <= 52
+                ),
+                None,
+            )
+            if higher is None:
+                continue
+            short, long = (
+                (lower, higher) if lower.duration <= higher.duration else (higher, lower)
+            )
+            shared_end = (
+                short.end_time
+                if long.duration >= 1.6 * max(short.duration, 1e-6)
+                else long.end_time
+            )
+            shared_start = min(lower.start_time, higher.start_time)
+            replacements[id(lower)] = replace(
+                lower, start_time=shared_start, end_time=shared_end
+            )
+            replacements[id(higher)] = replace(
+                higher, start_time=shared_start, end_time=shared_end
+            )
+            used.add(id(lower))
+            used.add(id(higher))
+        return [replacements.get(id(n), n) for n in notes]
 
     def _snap_chord_starts(self, notes: list[NoteEvent]) -> list[NoteEvent]:
         if len(notes) < 2:
