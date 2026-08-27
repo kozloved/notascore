@@ -161,6 +161,16 @@ Stage MIDIs are **snapshots from the single production pipeline run**:
 
 The evaluator does **not** re-invoke Basic Pitch for diagnostics.
 
+### Checkpoint 8 forensics
+
+Read-only error taxonomy + MIDI/CSV diagnostics:
+
+```bash
+python -m evaluation.forensics --split development
+```
+
+See `docs/CHECKPOINT_8_TRANSCRIPTION_FORENSICS.md`.
+
 ## Relation to `benchmark/realworld`
 
 `benchmark/realworld` is an older observational harness for ad-hoc local audio.
