@@ -96,6 +96,22 @@ def test_merges_overlapping_same_pitch_into_one_sustain():
     assert same[0].end_time >= 1.2
 
 
+def test_keeps_common_tone_when_next_chord_attacks():
+    notes = [
+        NoteEvent(pitch=60, start_time=0.0, end_time=4.0, velocity=80, confidence=0.8),
+        NoteEvent(pitch=63, start_time=0.0, end_time=4.0, velocity=80, confidence=0.8),
+        NoteEvent(pitch=67, start_time=0.0, end_time=4.0, velocity=80, confidence=0.8),
+        NoteEvent(pitch=60, start_time=4.0, end_time=5.75, velocity=80, confidence=0.8),
+        NoteEvent(pitch=65, start_time=4.0, end_time=5.75, velocity=80, confidence=0.8),
+        NoteEvent(pitch=68, start_time=4.0, end_time=5.75, velocity=80, confidence=0.8),
+    ]
+    cleaned = MIDICleaner().clean(notes)
+    cs = [n for n in cleaned if n.pitch == 60]
+    assert len(cs) == 2
+    assert abs(cs[0].end_time - 4.0) < 1e-6
+    assert abs(cs[1].start_time - 4.0) < 1e-6
+
+
 def test_merges_split_held_melody_note():
     """Case1 last C: Basic Pitch re-onsets the same pitch as the hold ends."""
     notes = [

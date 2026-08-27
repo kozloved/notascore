@@ -363,6 +363,14 @@ class MIDICleaner:
             for n in group:
                 if current and n.start_time <= current[-1].end_time + self.same_pitch_merge_gap_sec:
                     prev = current[-1]
+                    new_chord = any(
+                        int(o.pitch) != int(n.pitch)
+                        and abs(o.start_time - n.start_time) <= self.chord_window_sec
+                        for o in notes
+                    )
+                    if new_chord:
+                        current.append(n)
+                        continue
                     current[-1] = replace(
                         prev,
                         end_time=max(prev.end_time, n.end_time),
