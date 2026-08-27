@@ -343,7 +343,8 @@ class MeterArbitrator:
 
         # 3/4 vs 6/8: three quarter groups beat two dotted-quarter pulses.
         if triple["prefers_3_4"] and chosen in ("6/8", "12/8", "3/4"):
-            if (not four_four_competitive) or grouping_is_triple:
+            steal_simple = grouping_is_simple and period.get("suggests_duple")
+            if ((not four_four_competitive) or grouping_is_triple) and not steal_simple:
                 chosen = "3/4"
                 reason = "three_quarter_accent_groups"
                 overridden = grouping_is_simple or est_mvp == "6/8"
