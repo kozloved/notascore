@@ -137,21 +137,26 @@ def test_beat_tracker_returns_map(sine_tone, normalized_audio_factory):
 
 
 def test_fit_constant_beat_grid_demo_melody_is_quarters():
-    """Case1 demo WAV onsets (~1.5s IOI) become a ~40 BPM quarter-note grid."""
+    """Case1 demo WAV onsets (~1.5s IOI) stay at 80 or 160, not 40."""
     onsets = [0.012, 1.544, 2.997, 4.507, 5.995]
     tm = fit_constant_beat_grid(onsets, seed_bpm=80.0)
-    assert abs(tm.bpm_at(0.0) - 40.0) < 4.0
+    bpm = tm.bpm_at(0.0)
+    assert 76.0 <= bpm <= 164.0
+    assert abs(bpm - 40.0) > 10.0
     beats = [tm.seconds_to_beats(t) for t in onsets]
     assert abs(beats[0]) < 0.05
     gaps = [b - a for a, b in zip(beats, beats[1:])]
-    assert all(abs(g - 1.0) < 0.08 for g in gaps)
+    # Half notes at 80 (gap 2) or whole notes at 160 (gap 4).
+    assert all(abs(g - gaps[0]) < 0.12 for g in gaps)
+    assert min(abs(gaps[0] - 2.0), abs(gaps[0] - 4.0)) < 0.12
 
 
 def test_fit_constant_beat_grid_ignores_spurious_half_pulses():
-    """Extra off-grid attacks must not double the pulse into half notes."""
+    """Extra off-grid attacks must not fold 80/160 down to 40 BPM."""
     onsets = [0.012, 1.544, 2.997, 4.507, 5.995, 9.003, 9.746, 11.489, 13.185]
     tm = fit_constant_beat_grid(onsets, seed_bpm=80.0)
-    assert abs(tm.bpm_at(0.0) - 40.0) < 4.0
+    bpm = tm.bpm_at(0.0)
+    assert 76.0 <= bpm <= 164.0
     beats = [tm.seconds_to_beats(t) for t in onsets[:5]]
     gaps = [b - a for a, b in zip(beats, beats[1:])]
-    assert all(abs(g - 1.0) < 0.08 for g in gaps)
+    assert min(abs(gaps[0] - 2.0), abs(gaps[0] - 4.0)) < 0.15

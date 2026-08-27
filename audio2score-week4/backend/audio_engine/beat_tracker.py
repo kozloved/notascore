@@ -344,12 +344,22 @@ def fit_constant_beat_grid(
         tactus_pen = 0.0
         if clusters.size >= 2:
             ioi_beats = float(np.median(np.diff(clusters))) / quarter
-            # Prefer the pulse where successive melody notes are quarter notes.
-            tactus_pen = min(abs(ioi_beats - 1.0), abs(ioi_beats - 0.5) * 1.25)
+            # 1, 2, or 4 beats between notes are all legitimate (quarters,
+            # halves, wholes). Do not force the slow 40 BPM reading.
+            nearest = min((1.0, 2.0, 4.0), key=lambda x: abs(ioi_beats - x))
+            tactus_pen = abs(ioi_beats - nearest)
         seed_pen = 0.0
         if seed_bpm:
-            seed_pen = 0.002 * abs(bpm - seed_bpm) / max(seed_bpm, 1.0)
-        return err + 0.14 * tactus_pen + seed_pen
+            octaves = [float(seed_bpm)]
+            if 2.0 * seed_bpm <= MAX_BPM + 1e-6:
+                octaves.append(2.0 * seed_bpm)
+            seed_pen = 0.22 * min(
+                abs(bpm - o) / max(o, 1.0) for o in octaves
+            )
+            # Reject folding a ~80/160 melody down to 40.
+            if bpm < 0.75 * seed_bpm:
+                seed_pen += 0.55
+        return err + 0.10 * tactus_pen + seed_pen
 
     best = min(uniq, key=_score)
     while best < GRID_MIN_BPM:

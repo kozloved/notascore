@@ -151,3 +151,13 @@ def test_estimate_time_signature_defaults_to_four_four():
         for i in range(8)
     ]
     assert estimate_time_signature(events) == "4/4"
+
+
+def test_estimate_key_f_minor_short_melody():
+    from notation_engine.meter import estimate_key
+
+    events = [
+        MusicalEvent(pitch=p, start_beat=float(i), duration_beats=1.0)
+        for i, p in enumerate([65, 67, 68, 70, 72, 70, 72])
+    ]
+    assert estimate_key(events) == "f"
