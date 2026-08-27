@@ -466,6 +466,31 @@ class UnderstandingPipeline:
             beat_evidence=evidence,
             file_meter=file_meter,
         )
+        # A constant quarter-note grid can make a sparse melody look like 6/8
+        # to the estimator (confidence < 0.5) even when madmom grouped in 4.
+        if (
+            file_meter is None
+            and decision.meter == "6/8"
+            and decision.confidence < 0.5
+            and evidence is not None
+            and int(evidence.beats_per_bar or 0) in (2, 4)
+            and not (decision.extra or {}).get("triple", {}).get("prefers_6_8")
+        ):
+            from dataclasses import replace
+
+            from mir.meter import meter_from_time_signature
+
+            hyp = meter_from_time_signature(
+                "4/4", confidence=0.62, source="weak_compound_simple_grouping"
+            )
+            decision = replace(
+                decision,
+                meter="4/4",
+                confidence=0.62,
+                reason="weak_compound_simple_grouping",
+                was_hint_overridden=True,
+                hypothesis=hyp,
+            )
         self.last_meter_decision = decision
         print(
             f"[Meter] {decision.meter} conf={decision.confidence:.2f} "
