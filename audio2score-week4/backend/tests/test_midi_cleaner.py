@@ -97,17 +97,17 @@ def test_merges_overlapping_same_pitch_into_one_sustain():
 
 
 def test_merges_split_held_melody_note():
-    """Case1 last C: Basic Pitch re-onsets the same pitch while it is still down."""
+    """Case1 last C: Basic Pitch re-onsets the same pitch as the hold ends."""
     notes = [
         NoteEvent(pitch=70, start_time=9.0, end_time=9.77, velocity=80, confidence=0.8),
-        NoteEvent(pitch=72, start_time=9.75, end_time=11.60, velocity=80, confidence=0.8),
-        NoteEvent(pitch=72, start_time=11.49, end_time=13.00, velocity=78, confidence=0.75),
+        NoteEvent(pitch=72, start_time=9.75, end_time=11.489, velocity=80, confidence=0.8),
+        NoteEvent(pitch=72, start_time=11.489, end_time=12.985, velocity=78, confidence=0.75),
     ]
     cleaned = MIDICleaner().clean(notes)
     cs = [n for n in cleaned if n.pitch == 72]
     assert len(cs) == 1
     assert abs(cs[0].start_time - 9.75) < 1e-6
-    assert cs[0].end_time >= 13.0
+    assert cs[0].end_time >= 12.985
     assert any(n.pitch == 70 for n in cleaned)
 
 

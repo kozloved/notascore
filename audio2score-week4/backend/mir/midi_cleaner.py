@@ -35,6 +35,7 @@ class MIDICleaner:
         isolated_low_pitch_max: int = 35,
         isolated_low_gap_semitones: int = 24,
         isolated_low_neighbor_semitones: int = 12,
+        same_pitch_merge_gap_sec: float = 0.04,
         trim_overlaps: bool = True,
         stretch_final_note: bool = True,
         shadow_mode: bool = False,
@@ -56,6 +57,7 @@ class MIDICleaner:
         self.isolated_low_pitch_max = isolated_low_pitch_max
         self.isolated_low_gap_semitones = isolated_low_gap_semitones
         self.isolated_low_neighbor_semitones = isolated_low_neighbor_semitones
+        self.same_pitch_merge_gap_sec = same_pitch_merge_gap_sec
         self.trim_overlaps = trim_overlaps
         self.stretch_final_note = stretch_final_note
         self.shadow_mode = shadow_mode
@@ -359,7 +361,7 @@ class MIDICleaner:
             group.sort(key=lambda n: n.start_time)
             current: list[NoteEvent] = []
             for n in group:
-                if current and n.start_time < current[-1].end_time:
+                if current and n.start_time <= current[-1].end_time + self.same_pitch_merge_gap_sec:
                     prev = current[-1]
                     current[-1] = replace(
                         prev,
