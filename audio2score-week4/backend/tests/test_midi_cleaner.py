@@ -228,3 +228,35 @@ def test_keeps_chord_tone_octave_above_held_bass():
     ]
     cleaned = MIDICleaner().clean(notes)
     assert {n.pitch for n in cleaned} == {48, 60, 64, 67, 76}
+
+
+def test_drops_trailing_decay_reonset_of_same_chord():
+    """Case3 leftover: last F#3+A3 is the previous afterbeat still ringing."""
+    notes = [
+        NoteEvent(pitch=38, start_time=4.26, end_time=4.47, velocity=80, confidence=0.8),
+        NoteEvent(pitch=50, start_time=4.26, end_time=4.47, velocity=80, confidence=0.8),
+        NoteEvent(pitch=54, start_time=6.99, end_time=7.34, velocity=80, confidence=0.8),
+        NoteEvent(pitch=57, start_time=6.99, end_time=7.41, velocity=80, confidence=0.8),
+        NoteEvent(pitch=54, start_time=7.68, end_time=7.99, velocity=80, confidence=0.8),
+        NoteEvent(pitch=57, start_time=7.68, end_time=8.11, velocity=80, confidence=0.8),
+        NoteEvent(pitch=54, start_time=8.20, end_time=8.66, velocity=80, confidence=0.8),
+        NoteEvent(pitch=57, start_time=8.20, end_time=8.79, velocity=80, confidence=0.8),
+    ]
+    cleaned, report = MIDICleaner().clean_with_report(notes)
+    last_starts = {round(n.start_time, 2) for n in cleaned if n.pitch in (54, 57)}
+    assert 8.20 not in last_starts
+    assert 7.68 in last_starts
+    assert any(d.reason == "decay_reonset" for d in report)
+
+
+def test_keeps_real_repeated_afterbeat():
+    """A true next pah waits ~0.25s after the previous chord ends."""
+    notes = [
+        NoteEvent(pitch=54, start_time=6.99, end_time=7.34, velocity=80, confidence=0.8),
+        NoteEvent(pitch=57, start_time=6.99, end_time=7.41, velocity=80, confidence=0.8),
+        NoteEvent(pitch=54, start_time=7.68, end_time=7.99, velocity=80, confidence=0.8),
+        NoteEvent(pitch=57, start_time=7.68, end_time=8.11, velocity=80, confidence=0.8),
+    ]
+    cleaned = MIDICleaner().clean(notes)
+    starts = sorted({round(n.start_time, 2) for n in cleaned})
+    assert starts == [6.99, 7.68]

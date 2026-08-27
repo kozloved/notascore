@@ -36,6 +36,7 @@ class MIDICleaner:
         isolated_low_gap_semitones: int = 24,
         isolated_low_neighbor_semitones: int = 12,
         same_pitch_merge_gap_sec: float = 0.04,
+        decay_reonset_gap_sec: float = 0.18,
         trim_overlaps: bool = True,
         stretch_final_note: bool = True,
         shadow_mode: bool = False,
@@ -58,6 +59,7 @@ class MIDICleaner:
         self.isolated_low_gap_semitones = isolated_low_gap_semitones
         self.isolated_low_neighbor_semitones = isolated_low_neighbor_semitones
         self.same_pitch_merge_gap_sec = same_pitch_merge_gap_sec
+        self.decay_reonset_gap_sec = decay_reonset_gap_sec
         self.trim_overlaps = trim_overlaps
         self.stretch_final_note = stretch_final_note
         self.shadow_mode = shadow_mode
@@ -103,6 +105,10 @@ class MIDICleaner:
 
         if self.trim_overlaps:
             kept = self._merge_same_pitch_overlaps(kept)
+
+        if not self.shadow_mode:
+            kept, decay_decisions = self._drop_trailing_decay_reonsets_with_report(kept)
+            decisions.extend(decay_decisions)
 
         kept = self._snap_chord_starts(kept)
         kept = self._unify_bass_octave_durations(kept)
@@ -437,6 +443,65 @@ class MIDICleaner:
                     current.append(n)
             merged.extend(current)
         return merged
+
+    def _onset_clusters(self, notes: list[NoteEvent]) -> list[list[NoteEvent]]:
+        if not notes:
+            return []
+        ordered = sorted(notes, key=lambda n: (n.start_time, n.pitch))
+        clusters: list[list[NoteEvent]] = [[ordered[0]]]
+        for n in ordered[1:]:
+            if n.start_time - clusters[-1][0].start_time <= self.chord_window_sec:
+                clusters[-1].append(n)
+            else:
+                clusters.append([n])
+        return clusters
+
+    def _drop_trailing_decay_reonsets_with_report(
+        self, notes: list[NoteEvent]
+    ) -> tuple[list[NoteEvent], list[CleaningDecision]]:
+        """Drop a last chord that is only the previous chord still ringing.
+
+        Basic Pitch often retriggers the same pitches ~100ms after a chord
+        ends because decaying harmonics look like a new onset. A real
+        repeated afterbeat waits about a beat (~0.25s+ of silence).
+        Only the final cluster is eligible, so a melody of repeated notes
+        is left alone.
+        """
+        if len(notes) < 4:
+            return notes, []
+        clusters = self._onset_clusters(notes)
+        if len(clusters) < 2:
+            return notes, []
+        prev, last = clusters[-2], clusters[-1]
+        if len(last) < 2:
+            return notes, []
+        prev_pitches = {int(n.pitch) for n in prev}
+        last_pitches = {int(n.pitch) for n in last}
+        if not last_pitches <= prev_pitches:
+            return notes, []
+        prev_end = max(n.end_time for n in prev)
+        last_start = min(n.start_time for n in last)
+        gap = last_start - prev_end
+        if gap > self.decay_reonset_gap_sec:
+            return notes, []
+
+        drop_ids = {id(n) for n in last}
+        decisions = [
+            CleaningDecision(
+                note_id=n.note_id,
+                pitch=n.pitch,
+                start_time=n.start_time,
+                action=CleaningAction.SUPPRESS,
+                reason="decay_reonset",
+                evidence={
+                    "gap_sec": round(gap, 4),
+                    "prev_pitches": sorted(prev_pitches),
+                },
+            )
+            for n in last
+        ]
+        kept = [n for n in notes if id(n) not in drop_ids]
+        return kept, decisions
 
     def _stretch_short_final_note(self, notes: list[NoteEvent]) -> list[NoteEvent]:
         if len(notes) < 3:
