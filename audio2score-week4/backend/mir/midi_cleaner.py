@@ -100,7 +100,7 @@ class MIDICleaner:
             decisions.extend(low_decisions)
 
         if self.trim_overlaps:
-            kept = self._trim_same_pitch_overlaps(kept)
+            kept = self._merge_same_pitch_overlaps(kept)
 
         kept = self._snap_chord_starts(kept)
         kept = self._correct_drift(kept)
@@ -343,13 +343,18 @@ class MIDICleaner:
             )
         return kept, decisions
 
-    def _trim_same_pitch_overlaps(self, notes: list[NoteEvent]) -> list[NoteEvent]:
-        """Piano cannot retrigger the same key while it is still down."""
+    def _merge_same_pitch_overlaps(self, notes: list[NoteEvent]) -> list[NoteEvent]:
+        """Merge overlapping same-pitch notes into one sustain.
+
+        A piano key cannot sound twice at once. Basic Pitch often splits a
+        held note into a second onset; that should stay one written note,
+        not a repeated attack.
+        """
         by_pitch: dict[int, list[NoteEvent]] = {}
         for n in notes:
             by_pitch.setdefault(int(n.pitch), []).append(n)
 
-        trimmed: list[NoteEvent] = []
+        merged: list[NoteEvent] = []
         for group in by_pitch.values():
             group.sort(key=lambda n: n.start_time)
             current: list[NoteEvent] = []
@@ -358,11 +363,18 @@ class MIDICleaner:
                     prev = current[-1]
                     current[-1] = replace(
                         prev,
-                        end_time=max(prev.start_time + 0.01, n.start_time),
+                        end_time=max(prev.end_time, n.end_time),
+                        velocity=max(prev.velocity, n.velocity),
+                        confidence=max(prev.confidence, n.confidence),
+                        original_end_time=max(
+                            prev.original_end_time or prev.end_time,
+                            n.original_end_time or n.end_time,
+                        ),
                     )
-                current.append(n)
-            trimmed.extend(current)
-        return trimmed
+                else:
+                    current.append(n)
+            merged.extend(current)
+        return merged
 
     def _stretch_short_final_note(self, notes: list[NoteEvent]) -> list[NoteEvent]:
         if len(notes) < 3:

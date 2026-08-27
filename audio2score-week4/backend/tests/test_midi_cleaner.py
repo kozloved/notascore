@@ -84,15 +84,31 @@ def test_does_not_drop_only_note_in_window():
     assert cleaned[0].pitch == 72
 
 
-def test_trims_same_pitch_overlap():
+def test_merges_overlapping_same_pitch_into_one_sustain():
     notes = [
         NoteEvent(pitch=60, start_time=0.0, end_time=1.0, velocity=80, confidence=0.8),
         NoteEvent(pitch=60, start_time=0.4, end_time=1.2, velocity=70, confidence=0.7),
     ]
     cleaned = MIDICleaner().clean(notes)
     same = [n for n in cleaned if n.pitch == 60]
-    assert len(same) == 2
-    assert same[0].end_time <= same[1].start_time + 1e-9
+    assert len(same) == 1
+    assert same[0].start_time == 0.0
+    assert same[0].end_time >= 1.2
+
+
+def test_merges_split_held_melody_note():
+    """Case1 last C: Basic Pitch re-onsets the same pitch while it is still down."""
+    notes = [
+        NoteEvent(pitch=70, start_time=9.0, end_time=9.77, velocity=80, confidence=0.8),
+        NoteEvent(pitch=72, start_time=9.75, end_time=11.60, velocity=80, confidence=0.8),
+        NoteEvent(pitch=72, start_time=11.49, end_time=13.00, velocity=78, confidence=0.75),
+    ]
+    cleaned = MIDICleaner().clean(notes)
+    cs = [n for n in cleaned if n.pitch == 72]
+    assert len(cs) == 1
+    assert abs(cs[0].start_time - 9.75) < 1e-6
+    assert cs[0].end_time >= 13.0
+    assert any(n.pitch == 70 for n in cleaned)
 
 
 def test_drops_isolated_low_ghost_at_end():
