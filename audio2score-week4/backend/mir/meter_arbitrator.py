@@ -351,11 +351,13 @@ class MeterArbitrator:
 
         # Wrong 4-beat grouping on a 3/4 vs 6/8 contest with S-W-W quarters.
         # Do not steal a competitive 4/4 reading of even quarter chords.
+        # Downbeats that are clearly one 4/4 bar apart stay simple meter.
         if (
             grouping_is_simple
             and triple["prefers_3_4"]
             and est_mvp in ("6/8", "3/4", "12/8")
             and not four_four_competitive
+            and not period.get("suggests_duple")
         ):
             chosen = "3/4"
             reason = "three_quarter_groups_override_simple_grouping"
