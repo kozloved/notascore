@@ -153,6 +153,28 @@ def test_estimate_time_signature_defaults_to_four_four():
     assert estimate_time_signature(events) == "4/4"
 
 
+def test_writer_spells_ab_not_gs_in_f_minor():
+    """MIDI 68 is G# by default; F minor must print A-flat (plain A on the staff)."""
+    from notation_engine.writer import spell_midi_for_key
+
+    spelled = spell_midi_for_key(68, "f")
+    assert spelled.step == "A"
+    assert spelled.alter == -1
+    assert spelled.midi == 68
+
+    events = [
+        MusicalEvent(pitch=p, start_beat=float(i) * 2.0, duration_beats=2.0, hand=Hand.RIGHT)
+        for i, p in enumerate([65, 67, 68, 70, 72])
+    ]
+    meta = ScoreMeta(display_tempo_bpm=80, time_sig_hint="4/4", key_hint="f")
+    score = NotationWriter().write_from_events_direct(events, meta)
+    pitched = [n for n in score.recurse().notes if n.isNote]
+    ab = next(n for n in pitched if n.pitch.midi == 68)
+    assert ab.pitch.step == "A"
+    assert ab.pitch.alter == -1
+    assert not any(n.pitch.step == "G" and n.pitch.alter == 1 for n in pitched)
+
+
 def test_estimate_key_f_minor_short_melody():
     from notation_engine.meter import estimate_key
 

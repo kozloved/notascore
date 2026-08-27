@@ -31,6 +31,10 @@ class MIDICleaner:
         octave_velocity_ratio: float = 0.38,
         octave_keep_ratio: float = 0.6,
         drop_octave_ghosts: bool = True,
+        drop_isolated_low_ghosts: bool = True,
+        isolated_low_pitch_max: int = 35,
+        isolated_low_gap_semitones: int = 24,
+        isolated_low_neighbor_semitones: int = 12,
         trim_overlaps: bool = True,
         stretch_final_note: bool = True,
         shadow_mode: bool = False,
@@ -48,6 +52,10 @@ class MIDICleaner:
         self.octave_velocity_ratio = octave_velocity_ratio
         self.octave_keep_ratio = octave_keep_ratio
         self.drop_octave_ghosts = drop_octave_ghosts
+        self.drop_isolated_low_ghosts = drop_isolated_low_ghosts
+        self.isolated_low_pitch_max = isolated_low_pitch_max
+        self.isolated_low_gap_semitones = isolated_low_gap_semitones
+        self.isolated_low_neighbor_semitones = isolated_low_neighbor_semitones
         self.trim_overlaps = trim_overlaps
         self.stretch_final_note = stretch_final_note
         self.shadow_mode = shadow_mode
@@ -86,6 +94,10 @@ class MIDICleaner:
         if self.drop_octave_ghosts and not self.shadow_mode:
             kept, ghost_decisions = self._drop_octave_ghosts_with_report(kept)
             decisions.extend(ghost_decisions)
+
+        if self.drop_isolated_low_ghosts and not self.shadow_mode:
+            kept, low_decisions = self._drop_isolated_low_ghosts_with_report(kept)
+            decisions.extend(low_decisions)
 
         if self.trim_overlaps:
             kept = self._trim_same_pitch_overlaps(kept)
@@ -269,6 +281,64 @@ class MIDICleaner:
                     action=CleaningAction.SUPPRESS,
                     reason="octave_ghost",
                     evidence={"strength": self._strength(n)},
+                )
+            )
+        return kept, decisions
+
+    def _drop_isolated_low_ghosts_with_report(
+        self, notes: list[NoteEvent]
+    ) -> tuple[list[NoteEvent], list[CleaningDecision]]:
+        """Drop a lone rumble far below the rest of the texture.
+
+        Basic Pitch often emits a sub-bass pitch (e.g. Bb0) at the end of a
+        treble melody. A real left-hand line has neighbors in the same
+        register, so those stay.
+        """
+        if len(notes) < 3:
+            return notes, []
+
+        pitches = [int(n.pitch) for n in notes]
+        median_pitch = statistics.median(pitches)
+        body = [n for n in notes if int(n.pitch) >= median_pitch - 18]
+        if len(body) < 3:
+            return notes, []
+        body_median = float(statistics.median([int(n.pitch) for n in body]))
+
+        keep = [True] * len(notes)
+        for i, n in enumerate(notes):
+            pitch = int(n.pitch)
+            if pitch > self.isolated_low_pitch_max:
+                continue
+            if body_median - pitch < self.isolated_low_gap_semitones:
+                continue
+            has_neighbor = any(
+                j != i
+                and abs(int(notes[j].pitch) - pitch)
+                <= self.isolated_low_neighbor_semitones
+                for j in range(len(notes))
+            )
+            if has_neighbor:
+                continue
+            keep[i] = False
+
+        decisions: list[CleaningDecision] = []
+        kept: list[NoteEvent] = []
+        for idx, n in enumerate(notes):
+            if keep[idx]:
+                kept.append(n)
+                continue
+            decisions.append(
+                CleaningDecision(
+                    note_id=n.note_id,
+                    pitch=n.pitch,
+                    start_time=n.start_time,
+                    action=CleaningAction.SUPPRESS,
+                    reason="isolated_low_ghost",
+                    evidence={
+                        "pitch": int(n.pitch),
+                        "body_median": body_median,
+                        "gap": body_median - int(n.pitch),
+                    },
                 )
             )
         return kept, decisions

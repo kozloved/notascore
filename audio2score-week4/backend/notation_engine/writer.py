@@ -23,6 +23,7 @@ from music21 import (
     metadata as m21meta,
     meter,
     note as m21note,
+    pitch as m21pitch,
     stream,
     tempo as m21tempo,
     tie as m21tie,
@@ -214,7 +215,9 @@ class NotationWriter:
                     for vplan in staff.voices:
                         voice = stream.Voice(id=str(vplan.voice_id + 1))
                         for el in vplan.elements:
-                            voice.append(self._element_to_m21(el))
+                            voice.append(
+                                self._element_to_m21(el, plan.key_signature)
+                            )
                         m.insert(0, voice)
                 part.append(m)
 
@@ -228,13 +231,14 @@ class NotationWriter:
             self._apply_tempo_map(score, meta)
         return score
 
-    def _element_to_m21(self, el):
+    def _element_to_m21(self, el, key_name: str | None = None):
         if isinstance(el, PlannedRest):
             return m21note.Rest(quarterLength=float(el.duration_q))
-        if len(el.pitches) == 1:
-            n = m21note.Note(midi=int(el.pitches[0]))
+        spelled = [spell_midi_for_key(int(p), key_name) for p in el.pitches]
+        if len(spelled) == 1:
+            n = m21note.Note(spelled[0])
         else:
-            n = m21chord.Chord([int(p) for p in el.pitches])
+            n = m21chord.Chord(spelled)
         n.quarterLength = float(el.duration_q)
         try:
             n.volume.velocity = int(el.velocity)
@@ -334,19 +338,21 @@ class NotationWriter:
                 pass
 
         for start, group in _chord_clusters(events):
-            part.insert(start, self._m21_element(group))
+            part.insert(start, self._m21_element(group, key_name=key_name))
 
         if not events:
             part.insert(0, m21note.Rest(quarterLength=max(end_beat, 1.0)))
         return part
 
-    def _m21_element(self, group: list[MusicalEvent]):
+    def _m21_element(self, group: list[MusicalEvent], key_name: str | None = None):
         duration = max(e.duration_beats for e in group)
         if len(group) == 1:
-            el = m21note.Note(group[0].pitch)
+            el = m21note.Note(spell_midi_for_key(int(group[0].pitch), key_name))
             el.volume.velocity = max(1, min(127, int(group[0].velocity)))
         else:
-            el = m21chord.Chord([e.pitch for e in group])
+            el = m21chord.Chord(
+                [spell_midi_for_key(int(e.pitch), key_name) for e in group]
+            )
             el.volume.velocity = max(
                 1, min(127, int(sum(e.velocity for e in group) / len(group)))
             )
@@ -467,6 +473,49 @@ class NotationWriter:
             existing[0].number = int(bpm)
             return
         first.insert(0, mark)
+
+
+def spell_midi_for_key(midi_num: int, key_name: str | None) -> m21pitch.Pitch:
+    """Spell a MIDI number the way the active key would write it.
+
+    music21's default for MIDI 68 is G#, so F minor prints a sharp instead of
+    the A-flat that belongs in a 4-flat key (and looks like a plain A on the
+    staff). Prefer a spelling that is diatonic in the key; otherwise follow
+    the key's sharp/flat direction.
+    """
+    p = m21pitch.Pitch(midi=int(midi_num))
+    if not key_name:
+        return p
+    try:
+        k = m21key.Key(key_name)
+    except Exception:
+        return p
+    candidates = [p] + list(p.getAllCommonEnharmonics())
+    key_names = {kp.name for kp in k.pitches}
+    in_key = [c for c in candidates if c.name in key_names]
+    if in_key:
+        chosen = min(in_key, key=lambda c: abs(c.alter))
+    else:
+        sharps = int(getattr(k, "sharps", 0) or 0)
+        prefer_flats = sharps < 0
+        prefer_sharps = sharps > 0
+
+        def _score(c: m21pitch.Pitch) -> float:
+            alter = float(c.alter)
+            penalty = abs(alter)
+            if abs(alter) >= 2:
+                penalty += 5.0
+            if prefer_flats and alter > 0:
+                penalty += 8.0
+            if prefer_sharps and alter < 0:
+                penalty += 8.0
+            return penalty
+
+        chosen = min(candidates, key=_score)
+    chosen.octave = p.octave
+    if int(round(chosen.ps)) != int(midi_num):
+        return p
+    return chosen
 
 
 def _staff_for(ev: MusicalEvent) -> str:

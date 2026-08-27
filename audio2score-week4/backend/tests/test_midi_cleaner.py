@@ -95,6 +95,33 @@ def test_trims_same_pitch_overlap():
     assert same[0].end_time <= same[1].start_time + 1e-9
 
 
+def test_drops_isolated_low_ghost_at_end():
+    notes = [
+        NoteEvent(pitch=65, start_time=0.0, end_time=1.5, velocity=90, confidence=0.9),
+        NoteEvent(pitch=67, start_time=1.5, end_time=3.0, velocity=88, confidence=0.9),
+        NoteEvent(pitch=68, start_time=3.0, end_time=4.5, velocity=86, confidence=0.85),
+        NoteEvent(pitch=70, start_time=4.5, end_time=6.0, velocity=84, confidence=0.85),
+        NoteEvent(pitch=72, start_time=6.0, end_time=9.0, velocity=82, confidence=0.8),
+        NoteEvent(pitch=22, start_time=13.1, end_time=13.4, velocity=40, confidence=0.3),
+    ]
+    cleaned, report = MIDICleaner().clean_with_report(notes)
+    assert {n.pitch for n in cleaned} == {65, 67, 68, 70, 72}
+    assert any(d.reason == "isolated_low_ghost" and d.pitch == 22 for d in report)
+
+
+def test_keeps_real_left_hand_bass_line():
+    notes = [
+        NoteEvent(pitch=72, start_time=0.0, end_time=0.5, velocity=80, confidence=0.8),
+        NoteEvent(pitch=74, start_time=0.5, end_time=1.0, velocity=80, confidence=0.8),
+        NoteEvent(pitch=76, start_time=1.0, end_time=1.5, velocity=80, confidence=0.8),
+        NoteEvent(pitch=36, start_time=0.0, end_time=0.5, velocity=70, confidence=0.75),
+        NoteEvent(pitch=38, start_time=0.5, end_time=1.0, velocity=70, confidence=0.75),
+        NoteEvent(pitch=40, start_time=1.0, end_time=1.5, velocity=70, confidence=0.75),
+    ]
+    cleaned = MIDICleaner().clean(notes)
+    assert {n.pitch for n in cleaned} == {72, 74, 76, 36, 38, 40}
+
+
 def test_stretches_short_final_note():
     notes = [
         NoteEvent(pitch=60, start_time=0.0, end_time=0.5, velocity=80),
