@@ -185,6 +185,26 @@ def test_estimate_key_f_minor_short_melody():
     assert estimate_key(events) == "f"
 
 
+def test_estimate_key_waltz_d_major_triad():
+    """Case3 is only D–F#–A; afterbeat weight must not flip it to F# minor."""
+    from notation_engine.meter import estimate_key
+
+    events = []
+    for bar in range(4):
+        down = float(bar * 3)
+        events.extend(
+            [
+                MusicalEvent(pitch=38, start_beat=down, duration_beats=0.25),
+                MusicalEvent(pitch=50, start_beat=down, duration_beats=0.25),
+                MusicalEvent(pitch=54, start_beat=down + 1, duration_beats=0.5),
+                MusicalEvent(pitch=57, start_beat=down + 1, duration_beats=0.5),
+                MusicalEvent(pitch=54, start_beat=down + 2, duration_beats=0.5),
+                MusicalEvent(pitch=57, start_beat=down + 2, duration_beats=0.5),
+            ]
+        )
+    assert estimate_key(events) == "D"
+
+
 def test_bass_octave_notated_as_one_chord():
     """LH D2+D3 should be one glyph (two heads, one stem), not two voices."""
     events = [
