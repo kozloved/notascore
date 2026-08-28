@@ -18,7 +18,14 @@ const HOP_BY_HOP = new Set([
 ]);
 
 function backendOrigin(): string {
-  return (process.env.BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+  const raw = (
+    process.env.BACKEND_URL ||
+    process.env.BACKEND_HOSTPORT ||
+    "http://127.0.0.1:8000"
+  ).trim();
+  const stripped = raw.replace(/\/$/, "");
+  if (/^https?:\/\//i.test(stripped)) return stripped;
+  return `http://${stripped}`;
 }
 
 function filterHeaders(source: Headers): Headers {

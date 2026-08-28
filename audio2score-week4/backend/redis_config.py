@@ -1,7 +1,7 @@
-"""Redis connection URL for local Compose and Railway.
+"""Redis connection URL for local Compose and Render.
 
-Railway's private network is IPv6. Prefer REDIS_PRIVATE_URL (the
-*.railway.internal plugin URL) when it is set.
+Prefer REDIS_PRIVATE_URL when a host injects an internal URL; otherwise
+REDIS_URL (Render Key Value connectionString).
 """
 
 from __future__ import annotations

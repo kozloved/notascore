@@ -4,7 +4,7 @@ NotaScore AI turns uploaded audio into editable MusicXML via the NotaScore Trans
 
 ## Production deploy
 
-- **Railway (recommended for the CPU site):** [deploy/RAILWAY.md](deploy/RAILWAY.md) — frontend + API + Redis + Solo worker. Polyphonic GPU stays on Vast.ai.
+- **Render (recommended for the CPU site):** [deploy/RENDER.md](deploy/RENDER.md) — frontend + API + Redis + Solo worker. Polyphonic GPU stays on Vast.ai.
 - **Local machine + Cloudflare Tunnel:** [deploy/README.md](deploy/README.md)
 - **Split hosting overview:** [deploy/SPLIT_HOSTING.md](deploy/SPLIT_HOSTING.md)
 

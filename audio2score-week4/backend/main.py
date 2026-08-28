@@ -23,6 +23,18 @@ CORS_ORIGIN = os.getenv(
     "http://localhost:3000,http://127.0.0.1:3000",
 )
 
+
+def _cors_origins() -> list[str]:
+    origins = [
+        origin.strip()
+        for origin in CORS_ORIGIN.split(",")
+        if origin.strip()
+    ]
+    extra = (os.getenv("FRONTEND_PUBLIC_URL") or "").strip()
+    if extra and extra not in origins:
+        origins.append(extra)
+    return origins
+
 ALLOWED_AUDIO_EXTENSIONS = {
     ".wav",
     ".mp3",
@@ -55,11 +67,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-origins = [
-    origin.strip()
-    for origin in CORS_ORIGIN.split(",")
-    if origin.strip()
-]
+origins = _cors_origins()
 
 app.add_middleware(
     CORSMiddleware,

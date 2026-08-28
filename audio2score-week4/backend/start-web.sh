@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Railway CPU service: FastAPI + RQ worker in one container so Solo jobs
-# share local disk (uploads / results / sqlite) without a shared volume.
+# Render CPU service: FastAPI + RQ worker in one container so Solo jobs
+# share local disk (uploads / results / sqlite). Render disks cannot be
+# mounted on two services.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -12,15 +13,14 @@ PORT="${PORT:-8000}"
 
 mkdir -p "$UPLOAD_DIR" "$RESULTS_DIR" "$TEMP_DIR" /data
 
-echo "[railway] starting RQ worker"
+echo "[web] starting RQ worker"
 (
   while true; do
     python worker.py || true
-    echo "[railway] worker exited; restarting in 3s"
+    echo "[web] worker exited; restarting in 3s"
     sleep 3
   done
 ) &
 
-echo "[railway] starting API on [::]:${PORT}"
-# Bind IPv6 so Railway private networking (frontend → backend) works.
-exec uvicorn main:app --host "::" --port "$PORT"
+echo "[web] starting API on 0.0.0.0:${PORT}"
+exec uvicorn main:app --host 0.0.0.0 --port "$PORT"

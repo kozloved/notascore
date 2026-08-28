@@ -4,9 +4,9 @@ The website and the transcription GPU are **different machines**.
 
 ```text
 Browser
-  → Railway frontend (Next.js, public)
-       /api  →  Railway backend (FastAPI + Solo worker + volume)
-                      Redis plugin
+  → Render frontend (Next.js, public)
+       /api  →  Render backend (FastAPI + Solo worker + disk)
+                      Redis (Key Value)
                             │
                             │  Polyphonic jobs only: POST audio, get MIDI
                             ▼
@@ -15,14 +15,14 @@ Browser
 
 | Piece | Where | GPU? | Cost |
 |---|---|---|---|
-| Site (frontend + API + Redis + Solo jobs) | **Railway** (recommended) or Docker Compose + Cloudflare Tunnel | No | Railway Hobby is paid; cheaper than a GPU pod |
+| Site (frontend + API + Redis + Solo jobs) | **Render** (recommended) or Docker Compose + Cloudflare Tunnel | No | Render Starter/Standard; cheaper than a GPU pod |
 | Polyphonic model | Vast.ai dedicated GPU | Yes | Paid by the hour; destroy when idle |
 
-**RunPod is not free.** Prefer Vast.ai for the GPU and Railway for the site.
+**RunPod is not free.** Prefer Vast.ai for the GPU and Render for the site.
 
-## 1. Site (CPU) — Railway
+## 1. Site (CPU) — Render
 
-Follow [RAILWAY.md](RAILWAY.md). Three pieces: managed Redis, one backend service (`./start-railway.sh` = FastAPI + worker + `/data` volume), one frontend service that proxies `/api` to `backend.railway.internal`.
+Follow [RENDER.md](RENDER.md). Blueprint `render.yaml` at the repo root creates Redis, one backend service (`./start-web.sh` = FastAPI + worker + `/data` disk), and one frontend that proxies `/api` to the backend private `host:port`.
 
 ```env
 MT3_ENDPOINT=http://<vast-public-ip>:<mapped-port>/transcribe
@@ -31,7 +31,7 @@ MT3_MODEL=yourmt3
 MT3_TIMEOUT_SECONDS=300
 ```
 
-`GET /api/health` on the Railway frontend should show `modes.polyphonic: true` after the GPU worker is up.
+`GET /api/health` on the Render frontend should show `modes.polyphonic: true` after the GPU worker is up.
 
 ### Alternative: Compose + Cloudflare Tunnel
 
@@ -45,7 +45,7 @@ cp nginx/notascore.http.conf nginx/notascore.conf
 docker compose --env-file .env.production --profile tunnel up -d --build
 ```
 
-That is the free-ish path: Cloudflare Tunnel + any always-on CPU (home PC, Oracle Always Free, a $5 VPS). Do **not** put FastAPI on a GPU pod just to serve the website.
+That is the always-on local path: Cloudflare Tunnel + a machine that stays awake. Do **not** put FastAPI on a GPU pod just to serve the website.
 
 After the GPU worker is up, set these on the CPU host:
 
@@ -74,7 +74,7 @@ Optional: `docker compose --profile gpu` on a machine that **has** an NVIDIA GPU
 
 | UI | Engine | Runs on |
 |---|---|---|
-| Solo | Basic Pitch | CPU site |
+| Solo | Basic Pitch | CPU site (Render) |
 | Polyphonic | YourMT3 (`mt3-infer` 0.2.0) | Vast.ai GPU |
 
 Legacy API values `fast` and `quality` still work (`fast` → Solo, `quality` → Polyphonic).

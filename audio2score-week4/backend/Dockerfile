@@ -19,7 +19,7 @@ RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
 COPY . .
-RUN chmod +x start-railway.sh \
+RUN chmod +x start-web.sh \
     && mkdir -p uploads results .tmp data
 
 EXPOSE 8000
