@@ -39,10 +39,11 @@ All backends emit `MusicalEvent[]` + `TempoMap` + `ScoreMeta`. Notation never im
 |----------|--------|---------|
 | `TRANSCRIPTION_PIPELINE` | `legacy` \| `understanding` | `understanding` |
 | `TRANSCRIPTION_PIPELINE_FALLBACK` | `0` \| `1` | `1` |
-| `TRANSCRIPTION_BACKEND` | `basic_pitch` \| `classical_dsp` \| `mt3` | `basic_pitch` (Fast default) |
-| `MT3_ENDPOINT` | URL | empty — Quality HTTP worker (`POST` audio → MIDI) |
+| `TRANSCRIPTION_BACKEND` | `basic_pitch` \| `classical_dsp` \| `mt3` | `basic_pitch` (Solo default) |
+| `MT3_ENDPOINT` | URL | empty — Polyphonic HTTP worker (`POST` audio → MIDI) |
+| `MT3_MODEL` | `yourmt3` \| `mt3_pytorch` \| `mr_mt3` | `yourmt3` — latest mt3-infer 0.2.0 model |
 | `MT3_API_KEY` | string | empty — optional Bearer / X-API-Key |
-| `MT3_TRANSCRIBE_COMMAND` | command with `{input}` `{output}` | empty — Quality CLI that writes MIDI |
+| `MT3_TRANSCRIBE_COMMAND` | command with `{input}` `{output}` | empty — Polyphonic CLI that writes MIDI |
 | `MT3_TIMEOUT_SECONDS` | int | `300` |
 | `TRANSCRIPTION_USE_CLEANER` | `0` \| `1` | `0` |
 | `TRANSCRIPTION_SHADOW_CLEANER` | `0` \| `1` | `0` |
@@ -130,17 +131,17 @@ Uploaded `.mid` / `.midi` files join at CMR (no Basic Pitch):
 - Drum tracks are skipped
 - The original file is the raw DAW MIDI download; score MIDI / MusicXML use the grand-staff writer
 
-## Phase 8 — Quality / MT3 (implemented)
+## Phase 8 — Polyphonic / MT3 (implemented)
 
-Per-job **Fast** vs **Quality**. Notation, cleaner, tempo map, and grand staff stay the same; only the note detector changes.
+Per-job **Solo** vs **Polyphonic**. Notation, cleaner, tempo map, and grand staff stay the same; only the note detector changes. Legacy `fast`/`quality` aliases still work.
 
 | Mode | Detector | Fallback |
 |------|----------|----------|
-| Fast (default) | Basic Pitch on CPU | understanding → enhanced legacy |
-| Quality | MR-MT3 via `MT3_ENDPOINT` or `MT3_TRANSCRIBE_COMMAND` | **none** — never substitutes Basic Pitch |
+| Solo (default) | Basic Pitch on CPU | understanding → enhanced legacy |
+| Polyphonic | YourMT3 via `MT3_ENDPOINT` or `MT3_TRANSCRIBE_COMMAND` (`mt3-infer` 0.2.0) | **none** — never substitutes Basic Pitch |
 | MIDI upload | file ingest at CMR | mode is ignored |
 
-Quality is available when `MT3_ENDPOINT` or `MT3_TRANSCRIBE_COMMAND` is set. The GPU worker contract:
+Polyphonic is available when `MT3_ENDPOINT` or `MT3_TRANSCRIBE_COMMAND` is set. The GPU worker contract:
 
 ```
 POST {MT3_ENDPOINT}
@@ -159,10 +160,11 @@ MT3_ENDPOINT=http://127.0.0.1:8090/transcribe
 python scripts/example_mt3_http.py
 ```
 
-Real GPU worker (MR-MT3 via `mt3-infer`): see `audio2score-week4/gpu-worker/README.md`.
-An RTX 4000 Ada 20 GB box is enough. Set `MT3_ENDPOINT` to that pod's `/transcribe` URL.
+Real GPU worker (YourMT3 via `mt3-infer` 0.2.0): see `audio2score-week4/gpu-worker/README.md`.
+A 12 GB card (RTX 3060 / 4000 Ada) is enough. Set `MT3_ENDPOINT` to that pod's `/transcribe` URL.
+Split hosting (CPU site + Vast.ai GPU): `audio2score-week4/deploy/SPLIT_HOSTING.md`.
 
-Upload form field `mode=fast|quality`. `/health` exposes `quality.available`.
+Upload form field `mode=solo|polyphonic` (`fast|quality` still accepted). `/health` exposes `modes.polyphonic`.
 
 ## How to enable MIDICleaner safely
 
@@ -197,7 +199,7 @@ cd audio2score-week4/backend
 
 ## Phase 9 — Gemini music intelligence (optional)
 
-Gemini is **not** a transcription engine. Fast still uses Basic Pitch; Quality still uses MT3. When `ENABLE_GEMINI_MUSIC_ANALYSIS=1` and `GEMINI_API_KEY` is set, the understanding pipeline builds a compact analysis packet (notes, tempo, meter, chords, uncertainties) and asks Gemini for structured JSON corrections. A validator applies only high-confidence, non-destructive patches. If Gemini is down, the job still completes.
+Gemini is **not** a transcription engine. Solo still uses Basic Pitch; Polyphonic still uses MT3. When `ENABLE_GEMINI_MUSIC_ANALYSIS=1` and `GEMINI_API_KEY` is set, the understanding pipeline builds a compact analysis packet (notes, tempo, meter, chords, uncertainties) and asks Gemini for structured JSON corrections. A validator applies only high-confidence, non-destructive patches. If Gemini is down, the job still completes.
 
 **Models (Aug 2026 Developer API pricing):**
 

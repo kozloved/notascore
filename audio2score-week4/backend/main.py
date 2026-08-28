@@ -13,6 +13,7 @@ import uuid
 import database as db
 import storage as storage_service
 import job_queue as queue_service
+from modes import POLYPHONIC, canonical_mode
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 RESULTS_DIR = Path(os.getenv("RESULTS_DIR", "results"))
@@ -109,7 +110,7 @@ def public_job(job: dict) -> dict:
         "size_bytes": job.get("size_bytes"),
         "progress": job.get("progress", 0),
         "error": job.get("error"),
-        "mode": job.get("mode") or "fast",
+        "mode": canonical_mode(job.get("mode")),
         "source_kind": _job_source_kind(job),
         "result_available": bool(job.get("result_storage_key")),
         "created_at": job.get("created_at"),
@@ -125,13 +126,14 @@ def health():
     from intelligence.config import gemini_status
 
     bp = basic_pitch_settings()
-    quality = mt3_status()
+    mt3 = mt3_status()
     gemini = gemini_status()
+    poly_available = bool(mt3["available"])
     return {
         "status": "ok",
         "engine": os.getenv("TRANSCRIPTION_ENGINE", "basic_pitch"),
         "pipeline": os.getenv("TRANSCRIPTION_PIPELINE", "understanding"),
-        "mode": os.getenv("TRANSCRIPTION_MODE", "fast"),
+        "mode": os.getenv("TRANSCRIPTION_MODE", "solo"),
         "backend": os.getenv("TRANSCRIPTION_BACKEND", "basic_pitch"),
         "use_cleaner": os.getenv("TRANSCRIPTION_USE_CLEANER", "0"),
         "use_normalizer": os.getenv("TRANSCRIPTION_USE_NORMALIZER", "1"),
@@ -140,12 +142,15 @@ def health():
         "use_mir_layers": os.getenv("TRANSCRIPTION_USE_MIR_LAYERS", "1"),
         "pipeline_fallback": os.getenv("TRANSCRIPTION_PIPELINE_FALLBACK", "1"),
         "basic_pitch": bp,
-        "quality": quality,
+        "polyphonic": mt3,
+        "quality": mt3,
         "gemini": gemini,
         "beat": beat_status(),
         "modes": {
+            "solo": True,
+            "polyphonic": poly_available,
             "fast": True,
-            "quality": quality["available"],
+            "quality": poly_available,
         },
     }
 
@@ -153,7 +158,7 @@ def health():
 @app.post("/upload", status_code=202)
 async def upload(
     file: UploadFile = File(...),
-    mode: str = Form("fast"),
+    mode: str = Form("solo"),
 ):
     if not file.filename:
         raise HTTPException(
@@ -179,14 +184,14 @@ async def upload(
     content_type = (file.content_type or "").lower()
     suffix = Path(file.filename).suffix.lower()
     midi_upload = suffix in ALLOWED_MIDI_EXTENSIONS
-    if resolved_mode == "quality" and not midi_upload:
+    if resolved_mode == POLYPHONIC and not midi_upload:
         from adapters.mt3_backend import mt3_available
 
         if not mt3_available():
             raise HTTPException(
                 status_code=503,
                 detail=(
-                    "Quality mode is not configured. "
+                    "Polyphonic mode is not configured. "
                     "Set MT3_ENDPOINT or MT3_TRANSCRIBE_COMMAND."
                 ),
             )

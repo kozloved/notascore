@@ -7,8 +7,8 @@ Product:
 AI-powered Audio → Sheet Music SaaS
 
 Modes:
-- Fast (Basic Pitch)
-- Quality (MR-MT3)
+- Solo (Basic Pitch on CPU)
+- Polyphonic (YourMT3 / mt3-infer 0.2.0 on a remote GPU)
 
 Goal:
 Upload audio and receive MusicXML, MIDI and PDF sheet music.

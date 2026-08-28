@@ -96,6 +96,26 @@ services:
     networks:
       - notascore
 
+  # Optional local GPU worker. Remote Vast.ai does not use this profile —
+  # set MT3_ENDPOINT on api/worker instead. Requires nvidia-container-toolkit.
+  gpu-worker:
+    profiles: ["gpu"]
+    build:
+      context: ./gpu-worker
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      MT3_MODEL: ${MT3_MODEL:-yourmt3}
+      MT3_API_KEY: ${MT3_API_KEY:-}
+      MT3_WARMUP: "1"
+      PORT: "8090"
+    ports:
+      - "8090:8090"
+    gpus: all
+    networks:
+      - notascore
+
   # Cloudflare Tunnel: exposes notascore.com without opening router ports.
   # Dashboard public hostname service URL must be http://nginx:80
   cloudflared:

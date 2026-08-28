@@ -123,3 +123,11 @@ def test_quality_mode_skips_without_gpu(tmp_path):
     row = evaluate_case(case, mode="quality", work_root=tmp_path / "q")
     assert row.skipped is True
     assert "unavailable" in (row.skip_reason or "").lower()
+
+
+def test_polyphonic_mode_skips_without_gpu(tmp_path):
+    write_corpus()
+    case = next(c for c in load_cases() if c.case_id == "c_major_quarters")
+    row = evaluate_case(case, mode="polyphonic", work_root=tmp_path / "p")
+    assert row.skipped is True
+    assert "unavailable" in (row.skip_reason or "").lower()

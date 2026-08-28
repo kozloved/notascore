@@ -46,7 +46,7 @@ class Job(Base):
     error = Column(String, nullable=True)
     created_at = Column(String, nullable=True)
     updated_at = Column(String, nullable=True)
-    mode = Column(String, default="fast")
+    mode = Column(String, default="solo")
 
 
 def init_db():
@@ -63,8 +63,8 @@ def _ensure_job_mode_column():
     if "mode" in columns:
         return
     with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE jobs ADD COLUMN mode VARCHAR DEFAULT 'fast'"))
-        conn.execute(text("UPDATE jobs SET mode = 'fast' WHERE mode IS NULL"))
+        conn.execute(text("ALTER TABLE jobs ADD COLUMN mode VARCHAR DEFAULT 'solo'"))
+        conn.execute(text("UPDATE jobs SET mode = 'solo' WHERE mode IS NULL"))
 
 
 def row_to_dict(row):

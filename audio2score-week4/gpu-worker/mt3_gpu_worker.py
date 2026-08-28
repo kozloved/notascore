@@ -1,27 +1,38 @@
-"""MR-MT3 HTTP worker for NotaScore Quality mode.
+"""Polyphonic MT3 HTTP worker for NotaScore.
 
-Run this on a GPU box (RTX 4000 Ada 20GB is enough). NotaScore POSTs audio
-here and expects MIDI back.
+Runs the latest mt3-infer toolkit (0.2.0, July 2026) on a GPU box
+(Vast.ai / RunPod). Default model is YourMT3 (YPTF.MoE+Multi) — the
+current production descendant of Magenta MT3 for polyphonic /
+multi-instrument audio.
+
+NotaScore Solo stays on CPU Basic Pitch. Polyphonic POSTs audio here
+and expects MIDI.
 
   POST /transcribe   multipart field `file`
   GET  /health
+  GET  /models
 
-  MT3_ENDPOINT=https://<pod-host>:8090/transcribe
+  MT3_ENDPOINT=https://<gpu-host>:8090/transcribe
 """
 
 from __future__ import annotations
 
 import os
 import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import Response
 
-MODEL_NAME = os.getenv("MT3_MODEL", "mr_mt3")
-API_KEY = (os.getenv("MT3_API_KEY") or "").strip()
+SUPPORTED_MODELS = ("yourmt3", "mt3_pytorch", "mr_mt3")
+DEFAULT_MODEL = "yourmt3"
+TOOLKIT_PIN = "0.2.0"
 
-app = FastAPI(title="NotaScore MT3 worker")
+MODEL_NAME = (os.getenv("MT3_MODEL") or DEFAULT_MODEL).strip().lower()
+API_KEY = (os.getenv("MT3_API_KEY") or "").strip()
+WARMUP = (os.getenv("MT3_WARMUP") or "0").strip().lower() in ("1", "true", "yes")
+
 _model = None
 
 
@@ -39,21 +50,39 @@ def _authorized(
     return token == API_KEY
 
 
+def _toolkit_version() -> str:
+    try:
+        import mt3_infer
+
+        return str(getattr(mt3_infer, "__version__", TOOLKIT_PIN))
+    except Exception:
+        return TOOLKIT_PIN
+
+
 def get_model():
-    """Load MR-MT3 once per process."""
+    """Load the selected MT3-family model once per process."""
     global _model
     if _model is not None:
         return _model
+    if MODEL_NAME not in SUPPORTED_MODELS:
+        raise RuntimeError(
+            f"Unknown MT3_MODEL={MODEL_NAME!r}. "
+            f"Supported: {', '.join(SUPPORTED_MODELS)}"
+        )
     try:
         import torch
         from mt3_infer import load_model
     except ImportError as exc:
         raise RuntimeError(
-            "mt3-infer (and CUDA torch) must be installed on this GPU box. "
+            "mt3-infer 0.2.0 (and CUDA torch) must be installed on this GPU box. "
             "See gpu-worker/README.md."
         ) from exc
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"[MT3 worker] loading {MODEL_NAME} on {device}", flush=True)
+    print(
+        f"[MT3 worker] loading {MODEL_NAME} via mt3-infer {_toolkit_version()} "
+        f"on {device}",
+        flush=True,
+    )
     _model = load_model(MODEL_NAME, device=device)
     return _model
 
@@ -86,12 +115,13 @@ def transcribe_audio_path(audio_path: str) -> bytes:
     return midi_to_bytes(midi)
 
 
-@app.get("/")
-@app.get("/health")
-def health():
+def _health_payload() -> dict:
     payload = {
         "status": "ok",
         "model": MODEL_NAME,
+        "supported_models": list(SUPPORTED_MODELS),
+        "toolkit": "mt3-infer",
+        "toolkit_version": _toolkit_version(),
         "loaded": _model is not None,
         "cuda": False,
         "device_name": "unknown",
@@ -110,6 +140,36 @@ def health():
     except ImportError:
         payload["device_name"] = "torch-not-installed"
     return payload
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if WARMUP:
+        try:
+            get_model()
+        except Exception as exc:
+            print(f"[MT3 worker] warmup failed: {exc}", flush=True)
+    yield
+
+
+app = FastAPI(title="NotaScore MT3 worker", lifespan=lifespan)
+
+
+@app.get("/")
+@app.get("/health")
+def health():
+    return _health_payload()
+
+
+@app.get("/models")
+def models():
+    payload = _health_payload()
+    return {
+        "current": payload["model"],
+        "supported": payload["supported_models"],
+        "toolkit": payload["toolkit"],
+        "toolkit_version": payload["toolkit_version"],
+    }
 
 
 @app.post("/transcribe")

@@ -68,12 +68,12 @@ Audio
 - `adapters/mt3_backend.py`, `adapters/classical_dsp_backend.py`
 - root `backend/engines/*`, `backend/workers/*`
 
-## Fast vs Quality
+## Solo vs Polyphonic
 
 Both call the same `UnderstandingPipeline`.
 
-- Fast: `TRANSCRIPTION_BACKEND=basic_pitch`
-- Quality: same adapter until MT3 exists (do not wire the raising stub as Quality)
+- Solo: `TRANSCRIPTION_BACKEND=basic_pitch`
+- Polyphonic: `MT3Backend` via `MT3_ENDPOINT` (YourMT3 / mt3-infer 0.2.0)
 
 ## Checkpoint order
 

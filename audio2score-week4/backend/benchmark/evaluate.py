@@ -41,8 +41,10 @@ from notation_engine.writer import NotationWriter
 
 MODE_LABELS = {
     "midi": "MIDI ingest",
-    "fast": "Fast",
-    "quality": "Quality",
+    "solo": "Solo (Basic Pitch)",
+    "fast": "Solo (Basic Pitch)",
+    "polyphonic": "Polyphonic (MT3)",
+    "quality": "Polyphonic (MT3)",
 }
 
 
@@ -162,13 +164,18 @@ def _cleaning_for_midi(case: LoadedCase) -> CleaningMetrics:
 
 
 def _pipeline_for_mode(mode: str) -> UnderstandingPipeline | None:
-    if mode == "quality":
+    from modes import POLYPHONIC, SOLO, is_polyphonic, parse_transcription_mode
+
+    if mode == "midi":
+        return UnderstandingPipeline(mode=SOLO)
+    resolved = parse_transcription_mode(mode)
+    if resolved == POLYPHONIC or is_polyphonic(resolved):
         from adapters.mt3_backend import MT3Backend, mt3_available
 
         if not mt3_available():
             return None
-        return UnderstandingPipeline(backend_name=MT3Backend.name, mode="quality")
-    return UnderstandingPipeline(mode="fast")
+        return UnderstandingPipeline(backend_name=MT3Backend.name, mode=POLYPHONIC)
+    return UnderstandingPipeline(mode=SOLO)
 
 
 def evaluate_case(
@@ -183,7 +190,9 @@ def evaluate_case(
         shutil.rmtree(work)
     work.mkdir(parents=True, exist_ok=True)
 
-    if mode == "quality":
+    from modes import is_polyphonic
+
+    if mode != "midi" and is_polyphonic(mode):
         from adapters.mt3_backend import mt3_available
 
         if not mt3_available():
@@ -193,7 +202,7 @@ def evaluate_case(
                 mode=mode,
                 passed=True,
                 skipped=True,
-                skip_reason="Quality worker unavailable (MT3_ENDPOINT / MT3_TRANSCRIBE_COMMAND unset)",
+                skip_reason="Polyphonic worker unavailable (MT3_ENDPOINT / MT3_TRANSCRIBE_COMMAND unset)",
             )
 
     pipeline = _pipeline_for_mode(mode)
@@ -325,7 +334,7 @@ def evaluate_case(
         flags.append("invalid_musicxml")
     if xml and not notation.voice_sum_ok:
         flags.append("voice_sum_invalid")
-    if mode != "fast":
+    if mode not in ("fast", "solo"):
         if case.check_hands and hands.accuracy is not None and hands.accuracy < 0.85:
             flags.append("hand_accuracy_low")
         if voices.continuity_ok is False:

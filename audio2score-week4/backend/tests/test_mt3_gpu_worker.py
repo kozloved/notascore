@@ -35,8 +35,21 @@ def test_health_does_not_load_model():
     with TestClient(worker.app) as client:
         payload = client.get("/health").json()
     assert payload["status"] == "ok"
-    assert payload["model"] == "mr_mt3"
+    assert payload["model"] == "yourmt3"
+    assert payload["toolkit"] == "mt3-infer"
     assert payload["loaded"] is False
+
+
+def test_models_endpoint_lists_yourmt3():
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    with TestClient(worker.app) as client:
+        payload = client.get("/models").json()
+    assert payload["current"] == "yourmt3"
+    assert "yourmt3" in payload["supported"]
+    assert "mt3_pytorch" in payload["supported"]
+    assert "mr_mt3" in payload["supported"]
 
 
 def test_transcribe_returns_midi(tmp_path, monkeypatch):

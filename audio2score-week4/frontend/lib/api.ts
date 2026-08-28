@@ -2,7 +2,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export { API_URL };
 
-export type TranscriptionMode = "fast" | "quality";
+export type TranscriptionMode = "solo" | "polyphonic";
 
 export type Job = {
   job_id: string;
@@ -38,7 +38,7 @@ function detailMessage(data: unknown, fallback: string): string {
 export async function uploadAudio(
   file: File,
   onProgress?: (percent: number) => void,
-  mode: TranscriptionMode = "fast"
+  mode: TranscriptionMode = "solo"
 ): Promise<Job> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();

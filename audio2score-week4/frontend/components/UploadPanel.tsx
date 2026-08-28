@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { uploadAudio, type Job, type TranscriptionMode } from "../lib/api";
 import { getJob } from "../lib/jobs";
+import { parseMode, polyphonicAvailable } from "../lib/modes";
 import SheetResult from "./SheetResult";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -32,21 +33,19 @@ export default function UploadPanel() {
   >("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [job, setJob] = useState<Job | null>(null);
-  const [mode, setMode] = useState<TranscriptionMode>("fast");
-  const [qualityAvailable, setQualityAvailable] = useState(false);
+  const [mode, setMode] = useState<TranscriptionMode>("solo");
+  const [polyAvailable, setPolyAvailable] = useState(false);
 
   useEffect(() => {
     try {
       const stored = localStorage.getItem("notascore-mode");
-      if (stored === "fast" || stored === "quality") {
-        setMode(stored);
-      }
+      setMode(parseMode(stored));
     } catch {}
     fetch(`${API_URL}/health`)
       .then(async (response) => {
         if (!response.ok) return;
         const data = await response.json();
-        setQualityAvailable(Boolean(data?.quality?.available));
+        setPolyAvailable(polyphonicAvailable(data));
       })
       .catch(() => {});
   }, []);
@@ -103,8 +102,8 @@ export default function UploadPanel() {
   };
 
   const isMidiFile = Boolean(file && /\.midi?$/i.test(file.name));
-  const qualityBlocked = isMidiFile || !qualityAvailable;
-  const effectiveMode: TranscriptionMode = qualityBlocked ? "fast" : mode;
+  const polyBlocked = isMidiFile || !polyAvailable;
+  const effectiveMode: TranscriptionMode = polyBlocked ? "solo" : mode;
 
   const changeMode = (next: TranscriptionMode) => {
     setMode(next);
@@ -158,45 +157,45 @@ export default function UploadPanel() {
       <div className="mb-4 grid grid-cols-2 gap-2 rounded-md border border-ink/15 bg-white/40 p-1">
         <button
           type="button"
-          onClick={() => changeMode("fast")}
+          onClick={() => changeMode("solo")}
           disabled={busy}
-          aria-pressed={effectiveMode === "fast"}
+          aria-pressed={effectiveMode === "solo"}
           className={
             "rounded px-3 py-2 text-sm font-medium transition " +
-            (effectiveMode === "fast"
+            (effectiveMode === "solo"
               ? "bg-ink text-mist"
               : "text-slate hover:text-ink")
           }
         >
-          Fast
+          Solo
           <span className="mt-0.5 block text-[0.65rem] font-normal uppercase tracking-wide opacity-80">
             Basic Pitch
           </span>
         </button>
         <button
           type="button"
-          onClick={() => changeMode("quality")}
-          disabled={busy || qualityBlocked}
-          aria-pressed={effectiveMode === "quality"}
+          onClick={() => changeMode("polyphonic")}
+          disabled={busy || polyBlocked}
+          aria-pressed={effectiveMode === "polyphonic"}
           className={
             "rounded px-3 py-2 text-sm font-medium transition " +
-            (effectiveMode === "quality"
+            (effectiveMode === "polyphonic"
               ? "bg-ink text-mist"
               : "text-slate hover:text-ink disabled:cursor-not-allowed disabled:opacity-40")
           }
         >
-          Quality
+          Polyphonic
           <span className="mt-0.5 block text-[0.65rem] font-normal uppercase tracking-wide opacity-80">
-            MR-MT3
+            YourMT3
           </span>
         </button>
       </div>
       <p className="mb-5 text-xs text-slate">
         {isMidiFile
           ? "MIDI files skip note detection — the score is written from the file."
-          : qualityAvailable
-            ? "Fast runs Basic Pitch here. Quality sends audio to an MR-MT3 GPU worker."
-            : "Quality needs a remote MT3 worker (MT3_ENDPOINT or MT3_TRANSCRIBE_COMMAND)."}
+          : polyAvailable
+            ? "Solo runs Basic Pitch here. Polyphonic sends audio to a YourMT3 GPU worker."
+            : "Polyphonic needs a remote MT3 worker (MT3_ENDPOINT or MT3_TRANSCRIBE_COMMAND)."}
       </p>
 
       <div className="flex flex-col gap-5 sm:flex-row sm:items-center">

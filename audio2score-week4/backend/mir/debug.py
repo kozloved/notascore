@@ -12,7 +12,7 @@ from typing import Any
 class PipelineDebug:
     job_id: str = ""
     pipeline: str = "understanding"
-    transcription_mode: str = "fast"
+    transcription_mode: str = "solo"
     source_backend: str = "unknown"
     raw_note_count: int = 0
     cleaned_note_count: int = 0
