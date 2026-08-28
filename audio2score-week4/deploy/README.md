@@ -3,7 +3,9 @@
 Run the full **CPU** stack (Nginx → Next.js + FastAPI + Redis + worker) on your Mac/PC.
 Cloudflare Tunnel exposes `https://notascore.com` without opening router ports.
 
-Polyphonic (YourMT3) does **not** run here. Rent a Vast.ai GPU and point `MT3_ENDPOINT` at it — see [SPLIT_HOSTING.md](SPLIT_HOSTING.md) and [../gpu-worker/README.md](../gpu-worker/README.md).
+Polyphonic (YourMT3) does **not** run here. For production, put this CPU stack on **Railway** ([RAILWAY.md](RAILWAY.md)) and the GPU on Vast.ai ([SPLIT_HOSTING.md](SPLIT_HOSTING.md)).
+
+This README is the local / Cloudflare Tunnel path.
 
 ```text
 Browser → Cloudflare (HTTPS) → tunnel → cloudflared → nginx:80 → frontend /api

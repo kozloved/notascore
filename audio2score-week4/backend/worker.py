@@ -14,8 +14,9 @@ from redis import Redis
 from rq import SimpleWorker, Worker
 
 import database
+from redis_config import redis_url
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+REDIS_URL = redis_url()
 QUEUE_NAME = os.getenv("QUEUE_NAME", "transcription")
 
 

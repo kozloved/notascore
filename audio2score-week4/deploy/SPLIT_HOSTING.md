@@ -4,22 +4,36 @@ The website and the transcription GPU are **different machines**.
 
 ```text
 Browser
-  → Cloudflare (HTTPS) → CPU host (free/cheap)
-       Next.js + FastAPI + Redis + RQ worker + Basic Pitch
-            │
-            │  Polyphonic jobs only: POST audio, get MIDI
-            ▼
+  → Railway frontend (Next.js, public)
+       /api  →  Railway backend (FastAPI + Solo worker + volume)
+                      Redis plugin
+                            │
+                            │  Polyphonic jobs only: POST audio, get MIDI
+                            ▼
        Vast.ai GPU  (YourMT3 via mt3-infer 0.2.0)
 ```
 
 | Piece | Where | GPU? | Cost |
 |---|---|---|---|
-| Site (frontend + API + Redis + Solo jobs) | This Docker Compose stack | No | Free if you keep the existing Cloudflare Tunnel on a machine that stays awake, or a small Always Free VM |
+| Site (frontend + API + Redis + Solo jobs) | **Railway** (recommended) or Docker Compose + Cloudflare Tunnel | No | Railway Hobby is paid; cheaper than a GPU pod |
 | Polyphonic model | Vast.ai dedicated GPU | Yes | Paid by the hour; destroy when idle |
 
-**RunPod is not free.** It can host either the CPU site or the GPU worker, but you pay. Prefer Vast.ai for the GPU (cheaper interruptible 12 GB cards) and keep the site off-GPU.
+**RunPod is not free.** Prefer Vast.ai for the GPU and Railway for the site.
 
-## 1. Site (CPU)
+## 1. Site (CPU) — Railway
+
+Follow [RAILWAY.md](RAILWAY.md). Three pieces: managed Redis, one backend service (`./start-railway.sh` = FastAPI + worker + `/data` volume), one frontend service that proxies `/api` to `backend.railway.internal`.
+
+```env
+MT3_ENDPOINT=http://<vast-public-ip>:<mapped-port>/transcribe
+MT3_API_KEY=the-same-secret-as-the-gpu
+MT3_MODEL=yourmt3
+MT3_TIMEOUT_SECONDS=300
+```
+
+`GET /api/health` on the Railway frontend should show `modes.polyphonic: true` after the GPU worker is up.
+
+### Alternative: Compose + Cloudflare Tunnel
 
 Use the existing Compose stack from [README.md](README.md):
 
