@@ -4,13 +4,8 @@ NotaScore AI turns uploaded audio into editable MusicXML via the NotaScore Trans
 
 ## Production deploy
 
-- **Render (recommended for the CPU site):** [deploy/RENDER.md](deploy/RENDER.md) — frontend + API + Redis + Solo worker. Polyphonic GPU stays on Vast.ai.
-- **Local machine + Cloudflare Tunnel:** [deploy/README.md](deploy/README.md)
-- **Split hosting overview:** [deploy/SPLIT_HOSTING.md](deploy/SPLIT_HOSTING.md)
-
-## What is new in Week 4?
-
-See [deploy/README.md](deploy/README.md) for Docker Compose + Nginx + Let's Encrypt on Always Free.
+- **Cheap VPS + Cloudflare Tunnel (recommended):** [deploy/VPS.md](deploy/VPS.md) — ~$5–6/month for frontend + API + Redis + Solo worker.
+- **Split hosting overview:** [deploy/SPLIT_HOSTING.md](deploy/SPLIT_HOSTING.md) — Polyphonic GPU stays on Vast.ai.
 
 ## What is included?
 
