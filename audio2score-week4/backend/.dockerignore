@@ -12,3 +12,9 @@ results/*
 !.tmp/.gitignore
 *.wav
 .test*
+tests
+benchmark
+evaluation
+.pytest_cache
+*.md
+start-web.sh

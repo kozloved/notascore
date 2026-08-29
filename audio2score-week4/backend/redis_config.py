@@ -1,7 +1,6 @@
-"""Redis connection URL for local Compose and Render.
+"""Redis connection URL for Docker Compose (and optional host overrides).
 
-Prefer REDIS_PRIVATE_URL when a host injects an internal URL; otherwise
-REDIS_URL (Render Key Value connectionString).
+Prefer REDIS_PRIVATE_URL when a host injects an internal URL; otherwise REDIS_URL.
 """
 
 from __future__ import annotations

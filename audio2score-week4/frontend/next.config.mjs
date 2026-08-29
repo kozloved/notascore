@@ -4,8 +4,8 @@ const nextConfig = {
   transpilePackages: ["tone", "@tonejs/midi"],
   // Cursor / local proxies sometimes hit the dev server as 127.0.2.2
   allowedDevOrigins: ["127.0.0.1", "localhost", "127.0.2.2", "127.0.2.3"],
-  // Fallback when the app/api/[...path] route is not used (e.g. some hosts).
-  // Render and `next dev` prefer the route handler so BACKEND_URL is runtime.
+  // Local `next dev` without nginx: browser /api → FastAPI on :8000.
+  // Production Compose uses nginx for /api instead.
   async rewrites() {
     const backend = process.env.BACKEND_URL || "http://127.0.0.1:8000";
     return [

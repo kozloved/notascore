@@ -1,4 +1,4 @@
-"""Tests for Compose / Render Redis URL selection."""
+"""Tests for Compose Redis URL selection."""
 
 from redis_config import redis_url
 
