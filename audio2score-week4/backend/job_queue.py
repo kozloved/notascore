@@ -6,9 +6,10 @@ import os
 import redis
 from rq import Queue
 
+from redis_config import redis_url
 from tasks import process_job
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+REDIS_URL = redis_url()
 QUEUE_NAME = os.getenv("QUEUE_NAME", "transcription")
 
 redis_client = redis.from_url(REDIS_URL)

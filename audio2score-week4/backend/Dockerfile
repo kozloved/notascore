@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libsndfile1 \
     build-essential \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -18,8 +19,8 @@ RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
 COPY . .
-
-RUN mkdir -p uploads results .tmp data
+RUN chmod +x start-web.sh \
+    && mkdir -p uploads results .tmp data
 
 EXPOSE 8000
 

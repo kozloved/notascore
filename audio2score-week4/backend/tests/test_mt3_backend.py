@@ -1,4 +1,4 @@
-"""Quality / MT3 backend and Fast vs Quality routing."""
+"""Solo / Polyphonic MT3 backend routing (legacy Fast/Quality aliases still work)."""
 
 from __future__ import annotations
 
@@ -53,9 +53,11 @@ class _FakeResponse:
 
 
 def test_parse_mode():
-    assert parse_transcription_mode(None) == "fast"
-    assert parse_transcription_mode("Quality") == "quality"
-    with pytest.raises(ValueError, match="fast"):
+    assert parse_transcription_mode(None) == "solo"
+    assert parse_transcription_mode("Quality") == "polyphonic"
+    assert parse_transcription_mode("fast") == "solo"
+    assert parse_transcription_mode("polyphonic") == "polyphonic"
+    with pytest.raises(ValueError, match="solo"):
         parse_transcription_mode("ultra")
 
 
@@ -125,10 +127,12 @@ def test_mt3_command_writes_midi(tmp_path, monkeypatch):
 def test_get_engine_quality_no_fallback(monkeypatch):
     monkeypatch.setenv("MT3_ENDPOINT", "http://gpu.example/transcribe")
     monkeypatch.setenv("TRANSCRIPTION_PIPELINE_FALLBACK", "1")
-    engine = get_engine(mode="quality")
-    assert isinstance(engine, UnderstandingPipeline)
-    assert not isinstance(engine, FallbackEngine)
-    assert engine.backend_name == "mt3"
+    for mode in ("quality", "polyphonic"):
+        engine = get_engine(mode=mode)
+        assert isinstance(engine, UnderstandingPipeline)
+        assert not isinstance(engine, FallbackEngine)
+        assert engine.backend_name == "mt3"
+        assert engine.mode == "polyphonic"
 
 
 def test_get_engine_quality_unconfigured(monkeypatch):
@@ -136,12 +140,15 @@ def test_get_engine_quality_unconfigured(monkeypatch):
     monkeypatch.setenv("MT3_TRANSCRIBE_COMMAND", "")
     with pytest.raises(TranscriptionError, match="not configured"):
         get_engine(mode="quality")
+    with pytest.raises(TranscriptionError, match="not configured"):
+        get_engine(mode="polyphonic")
 
 
 def test_get_engine_fast_still_fallback(monkeypatch):
     monkeypatch.delenv("TRANSCRIPTION_PIPELINE", raising=False)
-    engine = get_engine(mode="fast")
-    assert isinstance(engine, FallbackEngine)
+    for mode in ("fast", "solo"):
+        engine = get_engine(mode=mode)
+        assert isinstance(engine, FallbackEngine)
 
 
 def test_midi_ignores_quality_and_skips_mt3(tmp_path, monkeypatch):
@@ -190,7 +197,9 @@ def test_quality_pipeline_uses_mt3_not_basic_pitch(
 def test_queue_timeout_quality_uses_mt3_budget(monkeypatch):
     monkeypatch.setenv("MT3_TIMEOUT_SECONDS", "300")
     assert queue_timeout_for_mode("fast") == 600
+    assert queue_timeout_for_mode("solo") == 600
     assert queue_timeout_for_mode("quality") == 900
+    assert queue_timeout_for_mode("polyphonic") == 900
 
 
 def test_health_includes_quality(monkeypatch):
@@ -207,6 +216,11 @@ def test_health_includes_quality(monkeypatch):
 
     payload = health()
     assert payload["quality"]["available"] is False
+    assert payload["polyphonic"]["available"] is False
+    assert payload["polyphonic"]["model"] == "yourmt3"
+    assert payload["polyphonic"]["toolkit_version"] == "0.2.0"
+    assert payload["modes"]["solo"] is True
+    assert payload["modes"]["polyphonic"] is False
     assert payload["modes"]["fast"] is True
     assert payload["modes"]["quality"] is False
     assert payload["gemini"]["enabled"] is False
@@ -233,7 +247,28 @@ def test_quality_upload_rejected_when_unconfigured(tmp_path, monkeypatch):
             data={"mode": "quality"},
         )
     assert response.status_code == 503
-    assert "Quality mode is not configured" in response.json()["detail"]
+    assert "Polyphonic mode is not configured" in response.json()["detail"]
+
+
+def test_polyphonic_upload_rejected_when_unconfigured(tmp_path, monkeypatch):
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    import main as app_main
+
+    monkeypatch.setenv("MT3_ENDPOINT", "")
+    monkeypatch.setenv("MT3_TRANSCRIBE_COMMAND", "")
+    monkeypatch.setattr(app_main.queue_service, "enqueue_job", lambda *a, **k: None)
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"RIFF")
+    with TestClient(app_main.app) as client:
+        response = client.post(
+            "/upload",
+            files={"file": ("a.wav", wav.read_bytes(), "audio/wav")},
+            data={"mode": "polyphonic"},
+        )
+    assert response.status_code == 503
+    assert "Polyphonic mode is not configured" in response.json()["detail"]
 
 
 def test_invalid_mode_rejected(tmp_path, monkeypatch):

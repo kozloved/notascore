@@ -2,9 +2,11 @@
 
 NotaScore AI turns uploaded audio into editable MusicXML via the NotaScore Transcription Engine.
 
-## Production deploy (local + Cloudflare Tunnel)
+## Production deploy
 
-See [deploy/README.md](deploy/README.md) for Docker Compose on a local machine with Cloudflare Tunnel for `notascore.com`.
+- **Render (recommended for the CPU site):** [deploy/RENDER.md](deploy/RENDER.md) — frontend + API + Redis + Solo worker. Polyphonic GPU stays on Vast.ai.
+- **Local machine + Cloudflare Tunnel:** [deploy/README.md](deploy/README.md)
+- **Split hosting overview:** [deploy/SPLIT_HOSTING.md](deploy/SPLIT_HOSTING.md)
 
 ## What is new in Week 4?
 
@@ -14,10 +16,10 @@ See [deploy/README.md](deploy/README.md) for Docker Compose + Nginx + Let's Encr
 
 - Redis Queue worker
 - Storage abstraction
-- Fast (Basic Pitch) and Quality (MR-MT3) transcription
-- Per-job Fast / Quality toggle on upload
+- Solo (Basic Pitch) and Polyphonic (YourMT3) transcription
+- Per-job Solo / Polyphonic toggle on upload (`fast`/`quality` still accepted)
 - Dummy MT3 MIDI command + HTTP contract scripts
-- Real MR-MT3 GPU worker (`gpu-worker/`) for Quality mode
+- Real YourMT3 GPU worker (`gpu-worker/`, mt3-infer 0.2.0) for Polyphonic mode
 - Worker that calls the transcription engine
 - Frontend that shows engine info
 
@@ -91,19 +93,20 @@ npm run dev
 
 ## Transcription modes
 
-Jobs choose **Fast** or **Quality** at upload (`mode=fast|quality`). MIDI files skip note detection and ignore the mode.
+Jobs choose **Solo** or **Polyphonic** at upload (`mode=solo|polyphonic`). Legacy `fast`/`quality` still work. MIDI files skip note detection and ignore the mode.
 
-### Fast (default)
+### Solo (default)
 
 Basic Pitch on this machine. Same cleaner → CMR → grand-staff path as before.
 
-### Quality (MR-MT3)
+### Polyphonic (YourMT3)
 
-Quality never falls back to Fast. Configure a GPU worker **or** a command that writes **MIDI** (not MusicXML):
+Polyphonic never falls back to Solo. Configure a GPU worker **or** a command that writes **MIDI** (not MusicXML):
 
 ```env
 MT3_ENDPOINT=http://127.0.0.1:8090/transcribe
 MT3_API_KEY=
+MT3_MODEL=yourmt3
 MT3_TIMEOUT_SECONDS=300
 ```
 
@@ -123,6 +126,6 @@ backend/scripts/example_mt3.py
 backend/scripts/example_mt3_http.py
 ```
 
-`GET /health` includes `quality.available`. The UI greys out Quality until a worker is configured.
+`GET /health` includes `modes.polyphonic` (and the legacy alias `quality.available`). The UI greys out Polyphonic until a worker is configured.
 
-To run **real** MR-MT3, put `gpu-worker/` on an RTX 4000 Ada (20 GB) or similar and set `MT3_ENDPOINT` to its `/transcribe` URL. See [gpu-worker/README.md](gpu-worker/README.md).
+To run **real** YourMT3, put `gpu-worker/` on a Vast.ai GPU (12 GB+) and set `MT3_ENDPOINT` to its `/transcribe` URL. See [gpu-worker/README.md](gpu-worker/README.md) and [deploy/SPLIT_HOSTING.md](deploy/SPLIT_HOSTING.md).

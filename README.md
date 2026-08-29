@@ -7,8 +7,8 @@ https://notascore.com
 
 Features:
 - Audio upload
-- Fast transcription (Basic Pitch)
-- Quality transcription (MR-MT3)
+- Solo transcription (Basic Pitch, CPU)
+- Polyphonic transcription (YourMT3 via mt3-infer 0.2.0, remote GPU)
 - MusicXML export
 - MIDI export
 - PDF sheet music export

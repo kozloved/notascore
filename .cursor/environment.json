@@ -12,7 +12,7 @@
     {
       "name": "worker",
       "command": "cd audio2score-week4/backend && .venv/bin/python worker.py",
-      "description": "RQ worker that runs the Basic Pitch transcription engine"
+      "description": "RQ worker that runs Solo (Basic Pitch) and dispatches Polyphonic (MT3) jobs"
     },
     {
       "name": "frontend",

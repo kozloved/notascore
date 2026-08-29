@@ -1,9 +1,9 @@
-"""Quality-mode MT3 adapter — remote GPU HTTP or a local transcribe command.
+"""Polyphonic-mode MT3 adapter — remote GPU HTTP or a local transcribe command.
 
 Both paths must return MIDI. Notes then follow the same cleaner → CMR →
-grand-staff path as Fast (Basic Pitch). This process does not run Magenta
-weights; point MT3_ENDPOINT at an MR-MT3 GPU worker, or
-MT3_TRANSCRIBE_COMMAND at a command that writes MIDI.
+grand-staff path as Solo (Basic Pitch). This process does not run Magenta
+weights; point MT3_ENDPOINT at an mt3-infer 0.2.0 GPU worker (default
+YourMT3), or MT3_TRANSCRIBE_COMMAND at a command that writes MIDI.
 """
 
 from __future__ import annotations
@@ -22,11 +22,12 @@ from pathlib import Path
 
 from mir.midi_ingest import ingest_midi
 from mir.types import NoteEvent
+from modes import DEFAULT_MT3_MODEL, MT3_MODELS
 
 DEFAULT_TIMEOUT_SECONDS = 300
 
-_QUALITY_UNCONFIGURED = (
-    "Quality mode (MT3) is not configured. "
+_POLYPHONIC_UNCONFIGURED = (
+    "Polyphonic mode (MT3) is not configured. "
     "Set MT3_ENDPOINT or MT3_TRANSCRIBE_COMMAND."
 )
 
@@ -38,12 +39,22 @@ def _env_int(name: str, default: int) -> int:
     return int(raw)
 
 
+def _mt3_model_name() -> str:
+    raw = (os.getenv("MT3_MODEL") or DEFAULT_MT3_MODEL).strip().lower()
+    if raw in MT3_MODELS:
+        return raw
+    return DEFAULT_MT3_MODEL
+
+
 def mt3_settings() -> dict:
     return {
         "endpoint": (os.getenv("MT3_ENDPOINT") or "").strip(),
         "api_key": (os.getenv("MT3_API_KEY") or "").strip(),
         "command": (os.getenv("MT3_TRANSCRIBE_COMMAND") or "").strip(),
         "timeout": _env_int("MT3_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS),
+        "model": _mt3_model_name(),
+        "toolkit": "mt3-infer",
+        "toolkit_version": "0.2.0",
     }
 
 
@@ -59,6 +70,10 @@ def mt3_status() -> dict:
         "endpoint_configured": bool(settings["endpoint"]),
         "command_configured": bool(settings["command"]),
         "timeout_seconds": settings["timeout"],
+        "model": settings["model"],
+        "toolkit": settings["toolkit"],
+        "toolkit_version": settings["toolkit_version"],
+        "supported_models": list(MT3_MODELS),
     }
 
 
@@ -96,12 +111,12 @@ def _parse_mt3_response(body: bytes, content_type: str) -> bytes:
             payload = json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise _transcription_error(
-                "Quality (MT3) endpoint returned invalid JSON."
+                "Polyphonic (MT3) endpoint returned invalid JSON."
             ) from exc
         midi = _midi_from_json(payload)
         if midi is None:
             raise _transcription_error(
-                "Quality (MT3) JSON response did not include midi_base64."
+                "Polyphonic (MT3) JSON response did not include midi_base64."
             )
         return midi
     if _looks_like_midi(body):
@@ -112,25 +127,25 @@ def _parse_mt3_response(body: bytes, content_type: str) -> bytes:
             payload = json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise _transcription_error(
-                "Quality (MT3) endpoint returned a non-MIDI body."
+                "Polyphonic (MT3) endpoint returned a non-MIDI body."
             ) from exc
         midi = _midi_from_json(payload)
         if midi is not None:
             return midi
     raise _transcription_error(
-        "Quality (MT3) endpoint did not return MIDI bytes or midi_base64 JSON."
+        "Polyphonic (MT3) endpoint did not return MIDI bytes or midi_base64 JSON."
     )
 
 
 def _notes_from_midi_bytes(data: bytes) -> list[NoteEvent]:
     if not _looks_like_midi(data):
-        raise _transcription_error("Quality (MT3) returned invalid MIDI.")
+        raise _transcription_error("Polyphonic (MT3) returned invalid MIDI.")
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "mt3.mid"
         path.write_bytes(data)
         notes = ingest_midi(path).notes
     if not notes:
-        raise _transcription_error("Quality (MT3) returned a MIDI file with no notes.")
+        raise _transcription_error("Polyphonic (MT3) returned a MIDI file with no notes.")
     return notes
 
 
@@ -165,15 +180,15 @@ def _post_audio(url: str, audio_path: Path, api_key: str, timeout: int) -> bytes
         except Exception:
             detail = str(exc)
         raise _transcription_error(
-            f"Quality (MT3) endpoint returned HTTP {exc.code}: {detail or exc.reason}"
+            f"Polyphonic (MT3) endpoint returned HTTP {exc.code}: {detail or exc.reason}"
         ) from exc
     except urllib.error.URLError as exc:
         raise _transcription_error(
-            f"Quality (MT3) endpoint is unreachable: {exc.reason}"
+            f"Polyphonic (MT3) endpoint is unreachable: {exc.reason}"
         ) from exc
     except TimeoutError as exc:
         raise _transcription_error(
-            f"Quality (MT3) endpoint timed out after {timeout}s."
+            f"Polyphonic (MT3) endpoint timed out after {timeout}s."
         ) from exc
 
 
@@ -197,21 +212,21 @@ def _run_command(audio_path: Path, command: str, timeout: int) -> bytes:
             )
         except subprocess.TimeoutExpired as exc:
             raise _transcription_error(
-                f"Quality (MT3) command timed out after {timeout}s."
+                f"Polyphonic (MT3) command timed out after {timeout}s."
             ) from exc
         except OSError as exc:
             raise _transcription_error(
-                f"Quality (MT3) command failed to start: {exc}"
+                f"Polyphonic (MT3) command failed to start: {exc}"
             ) from exc
         if completed.returncode != 0:
             err = (completed.stderr or completed.stdout or "").strip()[:400]
             raise _transcription_error(
-                f"Quality (MT3) command exited {completed.returncode}"
+                f"Polyphonic (MT3) command exited {completed.returncode}"
                 + (f": {err}" if err else ".")
             )
         if not midi_out.exists():
             raise _transcription_error(
-                "Quality (MT3) command did not write the output MIDI file."
+                "Polyphonic (MT3) command did not write the output MIDI file."
             )
         return midi_out.read_bytes()
 
@@ -238,4 +253,4 @@ class MT3Backend:
             midi_bytes = _run_command(audio_path, command, timeout)
             return _notes_from_midi_bytes(midi_bytes)
 
-        raise _transcription_error(_QUALITY_UNCONFIGURED)
+        raise _transcription_error(_POLYPHONIC_UNCONFIGURED)

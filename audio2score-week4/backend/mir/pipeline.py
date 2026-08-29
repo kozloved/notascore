@@ -72,7 +72,7 @@ class UnderstandingPipeline:
         self,
         use_mir_layers: bool | None = None,
         backend_name: str | None = None,
-        mode: str = "fast",
+        mode: str = "solo",
     ):
         self.backend_name = backend_name
         self.mode = mode

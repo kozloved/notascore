@@ -5,8 +5,8 @@ Usage (from audio2score-week4/backend):
 
   python -m benchmark.runner --mode midi
   python -m benchmark.runner --mode midi --subset ci
-  python -m benchmark.runner --mode fast
-  python -m benchmark.runner --mode quality
+  python -m benchmark.runner --mode solo
+  python -m benchmark.runner --mode polyphonic
   python -m benchmark.runner --mode midi --save-baseline
 """
 
@@ -34,9 +34,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="NotaScore pipeline benchmark")
     parser.add_argument(
         "--mode",
-        choices=("midi", "fast", "quality", "all"),
+        choices=("midi", "solo", "polyphonic", "fast", "quality", "all"),
         default="midi",
-        help="midi = ingest fixtures; fast = Basic Pitch; quality = MT3 if configured",
+        help="midi = ingest fixtures; solo/fast = Basic Pitch; polyphonic/quality = MT3 if configured",
     )
     parser.add_argument(
         "--subset",
@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         extra = []
         primary_rows = []
         primary_mode = "midi"
-        for mode in ("midi", "fast", "quality"):
+        for mode in ("midi", "solo", "polyphonic"):
             rows = run_mode(mode, args.subset, results_dir)
             report = build_report(
                 mode=mode,

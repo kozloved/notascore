@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import SheetResult from "../components/SheetResult";
+import { parseMode, polyphonicAvailable } from "../lib/modes";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -14,7 +15,7 @@ export default function Home() {
   const [jobId, setJobId] = useState(null);
   const [job, setJob] = useState(null);
   const [theme, setTheme] = useState("system");
-  const [mode, setMode] = useState("fast");
+  const [mode, setMode] = useState("solo");
 
   useEffect(() => {
     try {
@@ -23,9 +24,7 @@ export default function Home() {
         setTheme(stored);
       }
       const storedMode = localStorage.getItem("notascore-mode");
-      if (storedMode === "fast" || storedMode === "quality") {
-        setMode(storedMode);
-      }
+      setMode(parseMode(storedMode));
     } catch {}
   }, []);
 
@@ -97,9 +96,9 @@ export default function Home() {
   };
 
   const isMidiFile = Boolean(file && /\.midi?$/i.test(file.name));
-  const qualityAvailable = Boolean(health?.quality?.available);
-  const qualityBlocked = isMidiFile || !qualityAvailable;
-  const effectiveMode = qualityBlocked ? "fast" : mode;
+  const polyAvailable = polyphonicAvailable(health);
+  const polyBlocked = isMidiFile || !polyAvailable;
+  const effectiveMode = polyBlocked ? "solo" : mode;
 
   const handleUpload = async () => {
     if (!file) return;
@@ -227,11 +226,9 @@ export default function Home() {
             <span className="badge">
               <span className="dot" />
               API {health.status} · {health.pipeline || health.engine}
-              {health.quality
-                ? health.quality.available
-                  ? " · Quality ready"
-                  : " · Quality offline"
-                : ""}
+              {(health.modes?.polyphonic || health.polyphonic?.available || health.quality?.available)
+                ? " · Polyphonic ready"
+                : " · Polyphonic offline"}
             </span>
           )}
         </header>
@@ -279,31 +276,31 @@ export default function Home() {
             <div className="mode-toggle" role="group" aria-label="Transcription mode">
               <button
                 type="button"
-                className={"mode-option" + (effectiveMode === "fast" ? " is-active" : "")}
-                onClick={() => changeMode("fast")}
+                className={"mode-option" + (effectiveMode === "solo" ? " is-active" : "")}
+                onClick={() => changeMode("solo")}
                 disabled={isUploading}
-                aria-pressed={effectiveMode === "fast"}
+                aria-pressed={effectiveMode === "solo"}
               >
-                <span>Fast</span>
+                <span>Solo</span>
                 <span className="mode-kicker">Basic Pitch</span>
               </button>
               <button
                 type="button"
-                className={"mode-option" + (effectiveMode === "quality" ? " is-active" : "")}
-                onClick={() => changeMode("quality")}
-                disabled={isUploading || qualityBlocked}
-                aria-pressed={effectiveMode === "quality"}
+                className={"mode-option" + (effectiveMode === "polyphonic" ? " is-active" : "")}
+                onClick={() => changeMode("polyphonic")}
+                disabled={isUploading || polyBlocked}
+                aria-pressed={effectiveMode === "polyphonic"}
               >
-                <span>Quality</span>
-                <span className="mode-kicker">MR-MT3</span>
+                <span>Polyphonic</span>
+                <span className="mode-kicker">YourMT3</span>
               </button>
             </div>
             <p className="mode-hint">
               {isMidiFile
                 ? "MIDI files skip note detection — the score is written from the file."
-                : qualityAvailable
-                  ? "Fast runs Basic Pitch on this machine. Quality sends audio to an MR-MT3 GPU worker."
-                  : "Quality needs a remote MT3 worker (set MT3_ENDPOINT or MT3_TRANSCRIBE_COMMAND)."}
+                : polyAvailable
+                  ? "Solo runs Basic Pitch on this machine. Polyphonic sends audio to a YourMT3 GPU worker."
+                  : "Polyphonic needs a remote MT3 worker (set MT3_ENDPOINT or MT3_TRANSCRIBE_COMMAND)."}
             </p>
           </div>
 

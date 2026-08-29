@@ -1,81 +1,100 @@
-# Quality GPU worker (MR-MT3)
+# Polyphonic GPU worker (YourMT3 via mt3-infer 0.2.0)
 
-NotaScore Fast stays on CPU. Quality POSTs audio here and expects MIDI.
+NotaScore **Solo** stays on CPU Basic Pitch. **Polyphonic** POSTs audio here and expects MIDI.
 
-**RTX 4000 Ada 20 GB is enough.** MR-MT3 weights are ~176 MB. Inference usually sits in a few GB of VRAM. 20 GB leaves headroom. You do not need a 4090.
+This worker runs the **latest production MT3-family toolkit**: [`mt3-infer` 0.2.0](https://pypi.org/project/mt3-infer/) (July 2026). Default model is **YourMT3** (`YPTF.MoE+Multi`), the current polyphonic / multi-stem descendant of Magenta MT3.
 
-This Cloud Agent cannot log into your GPU rental. Run the steps on the GPU pod, then point NotaScore at the public URL.
+| `MT3_MODEL` | What it is | Weights | Notes |
+|---|---|---|---|
+| `yourmt3` (default) | YourMT3+ (MLSP 2024) | ~536 MB | Best multi-instrument polyphony |
+| `mt3_pytorch` | Official MT3 architecture in PyTorch | ~176 MB | Closest to Magenta MT3 |
+| `mr_mt3` | Multi-resolution MT3 | ~176 MB | Fastest |
 
-## 1. Rent the pod
+**12 GB VRAM is enough** (RTX 3060 / 4070 / 4000 Ada). YourMT3 sits in a few GB. You do not need a 4090.
 
-Use a **PyTorch + CUDA** template (CUDA 12.x, Python 3.10 or 3.11).
+This Cloud Agent cannot log into Vast.ai or RunPod. Rent the GPU, start the worker, then point NotaScore at the public URL.
 
-- GPU: RTX 4000 Ada 20 GB (~$0.28/hr is fine)
-- Disk: ≥ 20 GB (checkpoints + pip)
-- Expose **HTTP port 8090** (RunPod: Connect → HTTP services / TCP port)
+## Architecture
 
-Stop the pod when you are not transcribing. 24h on = about $7.
-
-## 2. On the GPU box
-
-SSH in, then:
-
-```bash
-python -c "import torch; print(torch.__version__, 'cuda', torch.cuda.is_available())"
+```text
+Browser → notascore.com (CPU: Next.js + FastAPI + Redis)
+                │  Polyphonic jobs only
+                ▼
+         Vast.ai GPU  POST /transcribe  → MIDI
 ```
 
-You want `cuda True`. If it prints `False`, pick a different PyTorch template — do not `pip install torch` from default PyPI (that often replaces CUDA torch with CPU torch).
+The site does **not** need a GPU. Only this worker does.
 
-Copy this folder onto the pod (git clone the repo, or scp `gpu-worker/`), then:
+## 1. Rent a Vast.ai GPU (recommended)
+
+1. Create an account at [vast.ai](https://vast.ai/).
+2. Search for an **RTX 3060 12 GB** or better, **PyTorch + CUDA 12.x** template, Python 3.10/3.11, disk ≥ 40 GB (YourMT3 checkpoint + git-lfs).
+3. Open **port 8090** (Direct TCP / extra ports). Interruptible instances are cheaper; on-demand is more stable.
+4. Launch, then SSH in.
+
+Copy this folder onto the pod (`audio2score-week4/gpu-worker/`), then:
 
 ```bash
-cd audio2score-week4/gpu-worker   # or wherever you copied it
-python -m pip install -U pip
-python -m pip install -r requirements.txt
-
-# First run downloads ~176 MB of MR-MT3 weights
-python -c "from mt3_infer import load_model; load_model('mr_mt3', device='cuda'); print('ok')"
-
+cd audio2score-week4/gpu-worker   # or /workspace/notascore-gpu
 export MT3_API_KEY='pick-a-long-random-secret'
-chmod +x start.sh
-./start.sh
+export MT3_MODEL=yourmt3
+export MT3_CHECKPOINT_DIR=/workspace/mt3-checkpoints
+chmod +x vast.onstart.sh start.sh
+./vast.onstart.sh
 ```
 
-Health check on the pod:
+First boot downloads ~536 MB of YourMT3 weights. Health check on the pod:
 
 ```bash
 curl -s http://127.0.0.1:8090/health
 ```
 
-Expect `"cuda": true` and `"vram_gb": 20` (or similar).
+Expect `"cuda": true`, `"model": "yourmt3"`, `"toolkit_version": "0.2.0"`.
 
-## 3. Public URL
-
-RunPod usually gives something like:
-
-`https://<pod-id>-8090.proxy.runpod.net`
-
-Test from your laptop (not from inside the pod):
+Vast.ai maps `8090` to a public `IP:PORT`. Test from your laptop:
 
 ```bash
-curl -sS -X POST "https://<pod-id>-8090.proxy.runpod.net/transcribe" \
+curl -sS -X POST "http://<vast-ip>:<mapped-port>/transcribe" \
   -H "Authorization: Bearer pick-a-long-random-secret" \
   -F "file=@clip.wav" \
   -o out.mid
 file out.mid   # should say Standard MIDI
 ```
 
+## 2. Docker image (optional)
+
+From this folder, with an NVIDIA GPU and nvidia-container-toolkit:
+
+```bash
+docker build -t notascore-mt3-gpu .
+docker run --gpus all -p 8090:8090 \
+  -e MT3_API_KEY='pick-a-long-random-secret' \
+  -e MT3_MODEL=yourmt3 \
+  notascore-mt3-gpu
+```
+
+On Vast.ai you can also point the instance at this image after you push it to a registry.
+
+## 3. RunPod (alternative GPU)
+
+Same worker. Use a **PyTorch + CUDA** template, expose HTTP **8090**, then `./start.sh`. Public URL looks like:
+
+`https://<pod-id>-8090.proxy.runpod.net`
+
+RunPod is not free. Vast.ai interruptible GPUs are usually cheaper for the same VRAM.
+
 ## 4. Point NotaScore at it
 
-On the machine that runs FastAPI (not the GPU):
+On the **CPU** machine that runs FastAPI (not the GPU):
 
 ```env
-MT3_ENDPOINT=https://<pod-id>-8090.proxy.runpod.net/transcribe
+MT3_ENDPOINT=http://<vast-ip>:<mapped-port>/transcribe
 MT3_API_KEY=pick-a-long-random-secret
+MT3_MODEL=yourmt3
 MT3_TIMEOUT_SECONDS=300
 ```
 
-Restart API + RQ worker. `/health` should show `quality.available: true`. In the UI, Quality becomes selectable.
+Restart API + RQ worker. `/health` should show `modes.polyphonic: true` (and the legacy alias `quality.available: true`). In the UI, **Polyphonic** becomes selectable.
 
 ## If pip broke CUDA
 
@@ -85,12 +104,13 @@ python -c "import torch; print(torch.cuda.is_available())"   # False = broken
 pip install --index-url https://download.pytorch.org/whl/cu124 torch torchaudio
 ```
 
-Then retry `load_model('mr_mt3', device='cuda')`.
+Then retry `load_model('yourmt3', device='cuda')`.
 
 ## Cost
 
-- Idle with the pod **stopped**: $0
-- Idle with the pod **running** (even no jobs): ~$0.28/hr
-- A short piano clip on Ada 4000 is typically seconds to a minute after the model is loaded
+- Vast.ai interruptible RTX 3060 12 GB is typically well under $0.20/hr
+- Idle with the instance **destroyed**: $0 (you pay disk only if you keep a volume)
+- Idle with the instance **running**: you still pay the GPU hourly rate
+- A short piano clip on 12 GB is typically seconds to a minute after the model is loaded
 
-Keep one pod for tests; stop it when you are done.
+Destroy or stop the instance when you are not transcribing.
