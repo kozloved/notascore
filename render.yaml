@@ -8,6 +8,8 @@ services:
     name: notascore-redis
     plan: starter
     maxmemoryPolicy: noeviction
+    # Empty list = private network only. Required by Render Blueprint validation.
+    ipAllowList: []
 
   - type: web
     name: notascore-backend
@@ -17,7 +19,6 @@ services:
     dockerContext: ./audio2score-week4/backend
     dockerCommand: ./start-web.sh
     healthCheckPath: /health
-    maxShutdownDelaySeconds: 120
     disk:
       name: notascore-data
       mountPath: /data

@@ -34,7 +34,7 @@ The backend runs **API + RQ worker in one container** (`./start-web.sh`) with a 
 
 | Service | Plan | Notes |
 |---|---|---|
-| `notascore-redis` | Starter Key Value | `REDIS_URL` on the backend (private connection string) |
+| `notascore-redis` | Starter Key Value | Private only (`ipAllowList: []`); `REDIS_URL` is the private connection string |
 | `notascore-backend` | Standard | Docker, `./start-web.sh`, health `/health`, disk `/data` |
 | `notascore-frontend` | Starter | Docker, `BACKEND_URL` = backend private `host:port`, browser uses `/api` |
 
