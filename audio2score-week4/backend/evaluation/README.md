@@ -24,6 +24,10 @@ python -m evaluation.runner --all
 # Baselines
 python -m evaluation.runner --split development --save-baseline checkpoint-7-baseline
 python -m evaluation.runner --split development --compare-baseline checkpoint-7-baseline
+
+# A/B validation modes (does not change production defaults)
+python -m evaluation.runner --prepare-fixture --validation-mode safe
+python -m evaluation.ab --out evaluation/results/ab.json
 ```
 
 ## Where to put files

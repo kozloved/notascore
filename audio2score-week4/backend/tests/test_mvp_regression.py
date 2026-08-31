@@ -143,6 +143,7 @@ def test_quantizer_does_not_delete_events():
         _ev(72, i * 0.25, 0.22, note_id=f"n{i:04d}")
         for i in range(16)
     ]
+    meter = MeterEstimator().select(events)
     q = MeasureQuantizer()
     quantized, decisions = q.quantize(events, meter)
     assert len(quantized) == 16
