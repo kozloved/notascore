@@ -38,9 +38,19 @@ Icons: **Lucide** (`lucide-react`).
 
 ## Navigation
 
-- Public: NotaScore · How it works · Examples · Log in · **Create a score**
-- App: Create · My Scores · Account
+- Public: NotaScore · How it works · Examples · Pricing · Log in · **Create a score**
+- App: Create · My Scores · Account avatar
 - Mobile app: bottom tabs Create / Scores / Account
+
+## Public product (Pass 2)
+
+Routes: `/`, `/how-it-works`, `/examples`, `/pricing`, `/login`, `/signup`, `/forgot-password`, `/verify-email`, `/create`, plus help/contact/legal.
+
+Create flow lives at `/create` and still calls `POST /upload` without requiring an account. Sign-in uses the existing Supabase client (Google + email). Apple is not configured, so it is not shown.
+
+Demo assets in `public/demo/` are a real transcription of a short piano figure, labelled as an example.
+
+Analytics: first-party `track()` events only. No third-party pixels or cookies.
 
 ## What was preserved
 
@@ -49,12 +59,13 @@ Icons: **Lucide** (`lucide-react`).
 - `SheetResult` OSMD preview
 - MIDI, score MIDI, MusicXML, and PDF downloads
 - `ListenPreview` playback
-- Supabase Google sign-in on `/login`
+- Supabase Google sign-in on `/login` (now also email)
 
 ## Known issues
 
-- `/dashboard` is still an upload workspace, not a score library (`listJobs` exists but is unused).
-- There is no Pricing page yet; the public nav omits it.
-- Examples currently points at the live create flow.
-- No frontend unit tests existed; Pass 1 did not add a test runner.
-- Desktop previously showed a leftover hamburger because `.ns-icon-btn { display: inline-flex }` overrode the tablet hide rule. The menu is now wrapped in `.ns-nav-menu-wrap`, which is `display: none` from 768px up.
+- `/dashboard` is not a personal score library yet. Jobs are not tied to accounts.
+- Sign-in is disabled until `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set.
+- Apple sign-in is not configured.
+- Billing is not implemented; pricing pages describe structure only.
+- Ensemble transcription may be offline depending on the workspace.
+- No frontend unit tests existed; Pass 2 did not add a test runner.

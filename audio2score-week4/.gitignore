@@ -34,6 +34,7 @@ backend/evaluation/**/*.midi
 !backend/evaluation/development/NotaTestSamples/**/*.midi
 *.wav
 !backend/evaluation/development/NotaTestSamples/**/*.wav
+!frontend/public/demo/*.wav
 frontend/AGENTS.md
 frontend/CLAUDE.md
 frontend/tsconfig.tsbuildinfo

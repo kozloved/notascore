@@ -4,10 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import ThemeToggle from "../theme/ThemeToggle";
+import AccountMenu from "./AccountMenu";
 import Wordmark from "./Wordmark";
 
 const LINKS = [
-  { href: "/", label: "Create" },
+  { href: "/create", label: "Create" },
   { href: "/dashboard", label: "My Scores" },
 ];
 
@@ -17,13 +18,10 @@ export default function AppNavbar() {
   return (
     <header className="ns-nav ns-nav-app">
       <div className="ns-nav-inner">
-        <Wordmark />
+        <Wordmark href="/create" />
         <nav className="ns-nav-links" aria-label="Application">
           {LINKS.map((link) => {
-            const active =
-              link.href === "/"
-                ? pathname === "/"
-                : pathname.startsWith(link.href);
+            const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
             return (
               <Link
                 key={link.href}
@@ -38,9 +36,7 @@ export default function AppNavbar() {
         </nav>
         <div className="ns-nav-actions">
           <ThemeToggle compact />
-          <Link href="/login" className="ns-nav-link ns-nav-login">
-            Account
-          </Link>
+          <AccountMenu />
         </div>
       </div>
     </header>

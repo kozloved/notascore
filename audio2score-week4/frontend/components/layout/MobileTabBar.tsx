@@ -5,9 +5,9 @@ import { usePathname } from "next/navigation";
 import { FileMusic, Plus, User } from "lucide-react";
 
 const TABS = [
-  { href: "/", label: "Create", icon: Plus },
+  { href: "/create", label: "Create", icon: Plus },
   { href: "/dashboard", label: "Scores", icon: FileMusic },
-  { href: "/login", label: "Account", icon: User },
+  { href: "/account", label: "Account", icon: User },
 ];
 
 export default function MobileTabBar() {
@@ -18,8 +18,8 @@ export default function MobileTabBar() {
       {TABS.map((tab) => {
         const Icon = tab.icon;
         const active =
-          tab.href === "/"
-            ? pathname === "/"
+          tab.href === "/create"
+            ? pathname === "/create"
             : pathname.startsWith(tab.href);
         return (
           <Link
