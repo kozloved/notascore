@@ -12,13 +12,13 @@ const ACCEPTED = ".wav,.mp3,.m4a,.flac,.mid,.midi,audio/*,audio/midi";
 function statusLabel(status?: string) {
   switch (status) {
     case "queued":
-      return "Queued";
+      return "Listening to your recording";
     case "processing":
-      return "Transcribing";
+      return "Writing your score";
     case "completed":
-      return "Complete";
+      return "Your score is ready";
     case "failed":
-      return "Failed";
+      return "We could not finish this score";
     default:
       return status || "Waiting";
   }
@@ -154,7 +154,7 @@ export default function UploadPanel() {
         disabled={busy}
       />
 
-      <div className="mb-4 grid grid-cols-2 gap-2 rounded-md border border-ink/15 bg-white/40 p-1">
+      <div className="mb-4 grid grid-cols-2 gap-2 rounded-[10px] border border-border bg-surface p-1">
         <button
           type="button"
           onClick={() => changeMode("solo")}
@@ -163,8 +163,8 @@ export default function UploadPanel() {
           className={
             "rounded px-3 py-2 text-sm font-medium transition " +
             (effectiveMode === "solo"
-              ? "bg-ink text-mist"
-              : "text-slate hover:text-ink")
+              ? "bg-primary text-on-primary"
+              : "text-secondary hover:text-foreground")
           }
         >
           Solo
@@ -180,8 +180,8 @@ export default function UploadPanel() {
           className={
             "rounded px-3 py-2 text-sm font-medium transition " +
             (effectiveMode === "polyphonic"
-              ? "bg-ink text-mist"
-              : "text-slate hover:text-ink disabled:cursor-not-allowed disabled:opacity-40")
+              ? "bg-primary text-on-primary"
+              : "text-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40")
           }
         >
           Polyphonic
@@ -190,7 +190,7 @@ export default function UploadPanel() {
           </span>
         </button>
       </div>
-      <p className="mb-5 text-xs text-slate">
+      <p className="mb-5 text-xs text-muted">
         {isMidiFile
           ? "MIDI files skip note detection — the score is written from the file."
           : polyAvailable
@@ -203,14 +203,14 @@ export default function UploadPanel() {
           type="button"
           onClick={pickFile}
           disabled={busy}
-          className="min-h-12 flex-1 border border-ink/15 bg-white/55 px-5 py-3 text-left text-[0.95rem] text-ink backdrop-blur-sm transition hover:border-ink/30 hover:bg-white/75 disabled:cursor-not-allowed disabled:opacity-60"
+          className="min-h-12 flex-1 rounded-[10px] border border-border bg-surface px-5 py-3 text-left text-[0.95rem] text-foreground transition hover:border-foreground/30 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {file ? (
             <span className="block truncate font-medium">{file.name}</span>
           ) : (
-            <span className="text-slate">Choose audio or MIDI file</span>
+            <span className="text-muted">Choose audio or MIDI file</span>
           )}
-          <span className="mt-0.5 block text-xs text-slate">
+          <span className="mt-0.5 block text-xs text-muted">
             WAV, MP3, M4A, FLAC, or MIDI
           </span>
         </button>
@@ -219,49 +219,47 @@ export default function UploadPanel() {
           type="button"
           onClick={handleUpload}
           disabled={!file || busy}
-          className="min-h-12 shrink-0 bg-ink px-7 py-3 text-sm font-medium tracking-wide text-mist transition hover:bg-score disabled:cursor-not-allowed disabled:bg-ink/35"
+          className="min-h-12 shrink-0 rounded-[10px] bg-primary px-7 py-3 text-sm font-medium tracking-wide text-on-primary transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           {phase === "uploading"
             ? "Uploading…"
             : phase === "transcribing"
-              ? "Working…"
-              : "Transcribe"}
+              ? "Writing…"
+              : "Create a score"}
         </button>
       </div>
 
       {(phase !== "idle" || job) && (
         <div className="mt-8 animate-[rise_0.5s_ease-out_both]">
           <div className="mb-2 flex items-baseline justify-between gap-4 text-sm">
-            <span className="font-medium text-ink">
+            <span className="font-medium text-foreground">
               {phase === "uploading"
                 ? "Uploading"
                 : phase === "error"
                   ? "Something went wrong"
                   : statusLabel(job?.status)}
             </span>
-            <span className="tabular-nums text-slate">{progress}%</span>
+            <span className="tabular-nums text-muted">{progress}%</span>
           </div>
 
-          <div className="h-[3px] w-full overflow-hidden bg-ink/10">
+          <div className="h-[3px] w-full overflow-hidden bg-foreground/10">
             <div
-              className="h-full bg-brass transition-[width] duration-500 ease-out"
+              className="h-full bg-accent transition-[width] duration-500 ease-out"
               style={{ width: `${progress}%` }}
             />
           </div>
 
           {job && phase !== "uploading" && (
-            <p className="mt-3 text-sm text-slate">
-              {job.status === "queued" && "Waiting in the transcription queue…"}
-              {job.status === "processing" &&
-                "NotaScore Transcription Engine is converting your audio…"}
-              {job.status === "completed" &&
-                "Ready. Download your editable score below."}
-              {job.status === "failed" && (job.error || "Transcription failed")}
+            <p className="mt-3 text-sm text-muted">
+              {job.status === "queued" && "Listening to your recording…"}
+              {job.status === "processing" && "Finding the notes and writing your score…"}
+              {job.status === "completed" && "Your score is ready. Download it below."}
+              {job.status === "failed" && (job.error || "We could not finish this score")}
             </p>
           )}
 
           {errorMessage && phase === "error" && (
-            <p className="mt-3 text-sm text-red-700">{errorMessage}</p>
+            <p className="mt-3 text-sm text-error">{errorMessage}</p>
           )}
 
           {job?.status === "completed" && job.result_available && (
@@ -281,7 +279,7 @@ export default function UploadPanel() {
                   setErrorMessage("");
                   if (inputRef.current) inputRef.current.value = "";
                 }}
-                className="mt-4 inline-flex min-h-11 items-center border border-ink/20 px-5 text-sm text-ink transition hover:border-ink/40"
+                className="mt-4 inline-flex min-h-11 items-center rounded-[10px] border border-border px-5 text-sm text-foreground transition hover:border-foreground/40"
               >
                 New upload
               </button>

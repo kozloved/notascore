@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
+import AppShell from "../../../components/layout/AppShell";
+import Alert from "../../../components/ui/Alert";
+import { Display, Text } from "../../../components/ui/Text";
 import SheetResult from "../../../components/SheetResult";
 import { API_URL, type Job } from "../../../lib/api";
 import { getJob } from "../../../lib/jobs";
@@ -31,7 +34,7 @@ export default function ResultPage() {
         }
       } catch (err) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load job");
+        setError(err instanceof Error ? err.message : "Failed to load score");
       }
     };
 
@@ -43,35 +46,42 @@ export default function ResultPage() {
   }, [id]);
 
   return (
-    <main className="min-h-screen bg-[#dfe7f1] px-6 py-16">
-      <div className="mx-auto max-w-2xl">
-        <p className="font-display text-3xl font-semibold text-ink">NotaScore</p>
-        <h1 className="mt-4 font-display text-2xl text-score">
-          Transcription Result
-        </h1>
+    <AppShell variant="app" width="default">
+      <Display>Your score</Display>
+      <Text className="tagline">Review the notation, listen back, and download what you need.</Text>
 
-        {error && <p className="mt-4 text-red-700">{error}</p>}
+      {error && <Alert tone="error">{error}</Alert>}
 
-        {job && (
-          <div className="mt-6 space-y-3 text-sm text-slate">
-            <p>
-              <span className="font-medium text-ink">Status:</span> {job.status}
-            </p>
-            <p>
-              <span className="font-medium text-ink">Progress:</span>{" "}
-              {job.progress ?? 0}%
-            </p>
-            {job.error && <p className="text-red-700">{job.error}</p>}
-            {job.status === "completed" && job.result_available && (
-              <SheetResult
-                apiUrl={API_URL}
-                jobId={job.job_id}
-                filename={job.filename}
-              />
-            )}
+      {job && (
+        <div className="status" style={{ marginTop: 24, paddingTop: 0, borderTop: "none" }}>
+          <div className="status-head">
+            <h2 className="status-title">
+              {job.status === "completed" ? "Your score is ready" : job.status}
+            </h2>
+            <span
+              className={
+                "chip" +
+                (job.status === "completed" ? " is-completed" : "") +
+                (job.status === "failed" ? " is-failed" : "")
+              }
+            >
+              {job.status}
+            </span>
           </div>
-        )}
-      </div>
-    </main>
+          <div className="meta">
+            <span>Progress</span>
+            <strong>{job.progress ?? 0}%</strong>
+          </div>
+          {job.error && <Alert tone="error">{job.error}</Alert>}
+          {job.status === "completed" && job.result_available && (
+            <SheetResult
+              apiUrl={API_URL}
+              jobId={job.job_id}
+              filename={job.filename}
+            />
+          )}
+        </div>
+      )}
+    </AppShell>
   );
 }

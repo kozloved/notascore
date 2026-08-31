@@ -25,7 +25,7 @@ export default function AuthButton() {
     <button
       type="button"
       onClick={login}
-      className="min-h-11 bg-ink px-6 text-sm font-medium text-mist transition hover:bg-score"
+      className="ns-btn ns-btn-primary"
     >
       Continue with Google
     </button>

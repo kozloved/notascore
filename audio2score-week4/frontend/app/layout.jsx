@@ -1,13 +1,17 @@
 import "./globals.css";
-import { Fraunces, Outfit } from "next/font/google";
+import { Instrument_Serif, Inter } from "next/font/google";
 
-const display = Fraunces({
+import { Providers } from "../components/providers";
+
+const display = Instrument_Serif({
   subsets: ["latin"],
+  weight: ["400"],
+  style: ["normal", "italic"],
   variable: "--font-display",
   display: "swap",
 });
 
-const sans = Outfit({
+const sans = Inter({
   subsets: ["latin"],
   variable: "--font-sans",
   display: "swap",
@@ -15,12 +19,10 @@ const sans = Outfit({
 
 export const metadata = {
   title: "NotaScore",
-  description: "AI-powered audio to sheet music. Upload audio and receive MusicXML.",
+  description: "Turn your music into a score. From recordings to editable sheet music in minutes.",
 };
 
-// Set the theme (and a matching background) before first paint to avoid a
-// flash of the wrong theme on load/reload.
-const themeInitScript = `(function(){try{var t=localStorage.getItem('notascore-theme');var m=(t==='light'||t==='dark')?t:'system';var d=document.documentElement;d.setAttribute('data-theme',m);var dark=m==='dark'||(m!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);d.style.backgroundColor=dark?'#0b0d12':'#dfe7f1';d.style.colorScheme=dark?'dark':'light';}catch(e){d&&d.setAttribute('data-theme','system');}})();`;
+const themeInitScript = `(function(){try{var t=localStorage.getItem('notascore-theme');var m=(t==='light'||t==='dark')?t:'system';var d=document.documentElement;d.setAttribute('data-theme',m);var dark=m==='dark'||(m!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);d.style.backgroundColor=dark?'#0B1018':'#F6F3EC';d.style.colorScheme=dark?'dark':'light';}catch(e){document.documentElement.setAttribute('data-theme','system');}})();`;
 
 export default function RootLayout({ children }) {
   return (
@@ -31,7 +33,10 @@ export default function RootLayout({ children }) {
     >
       <body suppressHydrationWarning>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-        {children}
+        <a className="ns-skip" href="#main">
+          Skip to content
+        </a>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

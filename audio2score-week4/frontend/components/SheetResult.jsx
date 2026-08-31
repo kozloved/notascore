@@ -199,7 +199,7 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
           className="btn btn-format"
           onClick={() => downloadFromApi("midi", "mid")}
           disabled={busy !== null}
-          title="Unquantized MIDI from Basic Pitch after cleaning"
+          aria-label="Download MIDI"
         >
           {busy === "midi" ? <span className="spinner spinner-dark" aria-hidden="true" /> : <FileIcon />}
           MIDI
@@ -209,7 +209,7 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
           className="btn btn-format"
           onClick={() => downloadFromApi("midi_score", "score.mid")}
           disabled={busy !== null}
-          title="Quantized MIDI that matches the sheet"
+          aria-label="Download MIDI that matches the score"
         >
           {busy === "midi_score" ? <span className="spinner spinner-dark" aria-hidden="true" /> : <FileIcon />}
           MIDI (score)
@@ -219,6 +219,7 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
           className="btn btn-format"
           onClick={() => downloadFromApi("musicxml", "musicxml")}
           disabled={busy !== null}
+          aria-label="Download MusicXML"
         >
           {busy === "musicxml" ? <span className="spinner spinner-dark" aria-hidden="true" /> : <FileIcon />}
           MusicXML
@@ -228,6 +229,7 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
           className="btn btn-format"
           onClick={downloadPdf}
           disabled={pdfDisabled}
+          aria-label="Download PDF"
           title={previewState !== "ready" ? "Preview must finish rendering first" : undefined}
         >
           {busy === "pdf" ? <span className="spinner spinner-dark" aria-hidden="true" /> : <FileIcon />}
