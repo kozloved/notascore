@@ -219,6 +219,42 @@ def test_syncopation_survives_quantization():
     assert abs(mid.start_beat - 0.5) < 0.13
 
 
+def test_quantizer_pulls_early_downbeat_to_next_bar():
+    """A note 2 ms early of a 4/4 barline is a downbeat, not the previous 16th."""
+    from mir.models import MeterHypothesis
+
+    meter = MeterHypothesis(
+        time_signature="4/4",
+        numerator=4,
+        denominator=4,
+        measure_quarter_length=4.0,
+        score=1.0,
+        confidence=1.0,
+    )
+    events = [
+        _ev(60, 0.0, 1.0, note_id="a"),
+        _ev(62, 1.0, 1.0, note_id="b"),
+        _ev(64, 2.0, 1.0, note_id="c"),
+        _ev(65, 3.0, 1.0, note_id="d"),
+        _ev(67, 3.996, 1.0, note_id="e"),
+        _ev(69, 5.0, 1.0, note_id="f"),
+        _ev(71, 6.0, 1.0, note_id="g"),
+        _ev(72, 7.0, 1.0, note_id="h"),
+    ]
+    quantized, _ = MeasureQuantizer().quantize(events, meter)
+    by_id = {e.note_id: e for e in quantized}
+    assert abs(by_id["e"].start_beat - 4.0) < 0.02
+    # Legitimate last-16th syncopation must stay put.
+    sync = [
+        _ev(72, 0.0, 0.75, note_id="x"),
+        _ev(74, 3.75, 0.25, note_id="y"),
+        _ev(76, 4.0, 1.0, note_id="z"),
+    ]
+    q2, _ = MeasureQuantizer().quantize(sync, meter)
+    y = [e for e in q2 if e.note_id == "y"][0]
+    assert abs(y.start_beat - 3.75) < 0.02
+
+
 def test_hand_separator_does_not_mutate_pitch_or_timing():
     events = [
         _ev(48, 0.0, 0.5, hand=Hand.UNKNOWN, note_id="l", start_time_sec=0.11),

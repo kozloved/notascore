@@ -93,7 +93,8 @@ AUDIO
   → RAW MIDI                 {job}.raw.mid        (never overwritten)
   → source-aware validation  {job}.validated.mid
   → musical interpretation   (meter, tempo map, hands, voices)
-  → conservative quantization (notation stage only)
+  → conservative quantization (notation stage only; early downbeats are
+     pulled to the next bar instead of clamped to the previous 16th)
   → NotationPlan → MusicXML / {job}.score.mid
 ```
 

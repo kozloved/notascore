@@ -46,6 +46,30 @@ class QuantizerConfig:
     tuplet_weight: float = 0.55
     tie_weight: float = 0.2
     rest_weight: float = 0.7
+    # Notes this close to the next barline (in beats) that round to it on a
+    # 16th grid belong to the next measure. Stops a 2 ms-early downbeat from
+    # being clamped to the last 16th of the previous bar.
+    barline_pull_beats: float = 0.125
+
+
+def measure_index_for_onset(
+    start_beat: float,
+    mql: float,
+    pull_beats: float = 0.125,
+) -> int:
+    """Assign an onset to a measure without trapping early downbeats."""
+    if mql <= 0:
+        return 0
+    idx = max(0, int(math.floor((start_beat + 1e-9) / mql)))
+    measure_start = idx * mql
+    measure_end = measure_start + mql
+    if (measure_end - start_beat) > pull_beats + 1e-12:
+        return idx
+    rel = start_beat - measure_start
+    nearest_16 = round(rel / 0.25) * 0.25
+    if nearest_16 >= mql - 1e-9:
+        return idx + 1
+    return idx
 
 
 class MeasureQuantizer:
@@ -77,7 +101,11 @@ class MeasureQuantizer:
             ordered = sorted(group, key=lambda e: (e.start_beat, e.pitch))
             by_measure: dict[int, list[MusicalEvent]] = {}
             for ev in ordered:
-                idx = int(math.floor((ev.start_beat + 1e-9) / mql))
+                idx = measure_index_for_onset(
+                    ev.start_beat,
+                    mql,
+                    pull_beats=self.config.barline_pull_beats,
+                )
                 by_measure.setdefault(idx, []).append(ev)
             for measure_idx, bucket in sorted(by_measure.items()):
                 q_events, bucket_decisions = self._quantize_bucket(
