@@ -57,4 +57,4 @@ Icons: **Lucide** (`lucide-react`).
 - There is no Pricing page yet; the public nav omits it.
 - Examples currently points at the live create flow.
 - No frontend unit tests existed; Pass 1 did not add a test runner.
-- Desktop previously showed a leftover hamburger because `.ns-icon-btn { display: inline-flex }` overrode the tablet hide rule. This is now scoped to `.ns-nav .ns-nav-menu-btn`.
+- Desktop previously showed a leftover hamburger because `.ns-icon-btn { display: inline-flex }` overrode the tablet hide rule. The menu is now wrapped in `.ns-nav-menu-wrap`, which is `display: none` from 768px up.
