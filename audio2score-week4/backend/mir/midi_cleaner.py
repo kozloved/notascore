@@ -1,16 +1,69 @@
 """Clean raw note lists before notation.
 
 Destructive edits are classified KEEP / SUPPRESS / UNCERTAIN with a reason.
-Production default drops quiet octave ghosts; similar-strength doubling is kept.
+Modes:
+
+    strict_safe         technically invalid MIDI only (MT3 default)
+    conservative        safe + Basic Pitch artifact cleanup (quiet micros,
+                        near-duplicate onsets, quiet octave ghosts)
+    legacy_aggressive   historical production cleaner, including chord-start
+                        snapping, millisecond drift rounding, and final-note
+                        stretching — kept for A/B and explicit opt-in
+
+MIDICleaner() with no arguments stays on legacy_aggressive so existing unit
+tests of those rules keep their meaning. Production always constructs the
+cleaner via MIDICleaner.for_source().
 """
 
 from __future__ import annotations
 
 from dataclasses import replace
+import math
 import statistics
 
 from mir.models import CleaningAction, CleaningDecision
+from mir.pipeline_config import ValidationMode, parse_validation_mode, resolve_validation_mode
 from mir.types import NoteEvent
+
+
+_MODE_PRESETS: dict[ValidationMode, dict] = {
+    ValidationMode.STRICT_SAFE: {
+        "merge_threshold_sec": 0.001,
+        "min_duration_sec": 0.0,
+        "drop_octave_ghosts": False,
+        "suppress_octave_ghosts": False,
+        "trim_overlaps": True,
+        "stretch_final_note": False,
+        "snap_chords": False,
+        "correct_drift": False,
+        "suppress_quiet_micros": False,
+        "preserve_uncertain": True,
+    },
+    ValidationMode.CONSERVATIVE: {
+        "merge_threshold_sec": 0.025,
+        "min_duration_sec": 0.04,
+        "drop_octave_ghosts": True,
+        "suppress_octave_ghosts": False,
+        "trim_overlaps": True,
+        "stretch_final_note": False,
+        "snap_chords": False,
+        "correct_drift": False,
+        "suppress_quiet_micros": True,
+        "preserve_uncertain": True,
+    },
+    ValidationMode.LEGACY_AGGRESSIVE: {
+        "merge_threshold_sec": 0.025,
+        "min_duration_sec": 0.04,
+        "drop_octave_ghosts": True,
+        "suppress_octave_ghosts": False,
+        "trim_overlaps": True,
+        "stretch_final_note": True,
+        "snap_chords": True,
+        "correct_drift": True,
+        "suppress_quiet_micros": True,
+        "preserve_uncertain": True,
+    },
+}
 
 
 class MIDICleaner:
@@ -18,39 +71,97 @@ class MIDICleaner:
 
     def __init__(
         self,
-        merge_threshold_sec: float = 0.025,
-        min_duration_sec: float = 0.04,
+        merge_threshold_sec: float | None = None,
+        min_duration_sec: float | None = None,
         chord_window_sec: float = 0.05,
         timing_drift_sec: float = 0.015,
         quiet_velocity: int = 42,
         low_confidence: float = 0.45,
-        preserve_uncertain: bool = True,
-        suppress_octave_ghosts: bool = False,
+        preserve_uncertain: bool | None = None,
+        suppress_octave_ghosts: bool | None = None,
         octave_window_sec: float = 0.05,
         octave_duration_ratio: float = 0.55,
         octave_velocity_ratio: float = 0.38,
         octave_keep_ratio: float = 0.6,
-        drop_octave_ghosts: bool = True,
-        trim_overlaps: bool = True,
-        stretch_final_note: bool = True,
+        drop_octave_ghosts: bool | None = None,
+        trim_overlaps: bool | None = None,
+        stretch_final_note: bool | None = None,
+        snap_chords: bool | None = None,
+        correct_drift: bool | None = None,
+        suppress_quiet_micros: bool | None = None,
         shadow_mode: bool = False,
+        mode: str | ValidationMode | None = None,
+        source_backend: str = "unknown",
     ):
-        self.merge_threshold_sec = merge_threshold_sec
-        self.min_duration_sec = min_duration_sec
+        resolved = (
+            parse_validation_mode(mode)
+            if mode is not None
+            else ValidationMode.LEGACY_AGGRESSIVE
+        )
+        if resolved is None:
+            resolved = ValidationMode.LEGACY_AGGRESSIVE
+        preset = dict(_MODE_PRESETS[resolved])
+        self.mode = resolved
+        self.source_backend = source_backend
+        self.merge_threshold_sec = (
+            preset["merge_threshold_sec"]
+            if merge_threshold_sec is None
+            else merge_threshold_sec
+        )
+        self.min_duration_sec = (
+            preset["min_duration_sec"] if min_duration_sec is None else min_duration_sec
+        )
         self.chord_window_sec = chord_window_sec
         self.timing_drift_sec = timing_drift_sec
         self.quiet_velocity = quiet_velocity
         self.low_confidence = low_confidence
-        self.preserve_uncertain = preserve_uncertain
-        self.suppress_octave_ghosts = suppress_octave_ghosts
+        self.preserve_uncertain = (
+            preset["preserve_uncertain"]
+            if preserve_uncertain is None
+            else preserve_uncertain
+        )
+        self.suppress_octave_ghosts = (
+            preset["suppress_octave_ghosts"]
+            if suppress_octave_ghosts is None
+            else suppress_octave_ghosts
+        )
         self.octave_window_sec = octave_window_sec
         self.octave_duration_ratio = octave_duration_ratio
         self.octave_velocity_ratio = octave_velocity_ratio
         self.octave_keep_ratio = octave_keep_ratio
-        self.drop_octave_ghosts = drop_octave_ghosts
-        self.trim_overlaps = trim_overlaps
-        self.stretch_final_note = stretch_final_note
+        self.drop_octave_ghosts = (
+            preset["drop_octave_ghosts"]
+            if drop_octave_ghosts is None
+            else drop_octave_ghosts
+        )
+        self.trim_overlaps = (
+            preset["trim_overlaps"] if trim_overlaps is None else trim_overlaps
+        )
+        self.stretch_final_note = (
+            preset["stretch_final_note"]
+            if stretch_final_note is None
+            else stretch_final_note
+        )
+        self.snap_chords = preset["snap_chords"] if snap_chords is None else snap_chords
+        self.correct_drift = (
+            preset["correct_drift"] if correct_drift is None else correct_drift
+        )
+        self.suppress_quiet_micros = (
+            preset["suppress_quiet_micros"]
+            if suppress_quiet_micros is None
+            else suppress_quiet_micros
+        )
         self.shadow_mode = shadow_mode
+
+    @classmethod
+    def for_source(
+        cls,
+        source_backend: str,
+        mode: str | ValidationMode | None = None,
+        **kwargs,
+    ) -> "MIDICleaner":
+        resolved = resolve_validation_mode(source_backend, mode)
+        return cls(mode=resolved, source_backend=source_backend, **kwargs)
 
     def clean(self, notes: list[NoteEvent]) -> list[NoteEvent]:
         cleaned, _ = self.clean_with_report(notes)
@@ -65,8 +176,18 @@ class MIDICleaner:
         tagged = [n.ensure_ids(i) for i, n in enumerate(notes)]
         decisions: list[CleaningDecision] = []
 
+        tagged, sanitize_decisions = self._sanitize_invalid(tagged)
+        decisions.extend(sanitize_decisions)
+
         for n in tagged:
             action, reason, evidence = self._classify_micro(n)
+            if (
+                action == CleaningAction.SUPPRESS
+                and not self.suppress_quiet_micros
+            ):
+                action = CleaningAction.UNCERTAIN
+                reason = f"{reason}_observation"
+                evidence = {**evidence, "applied": False, "mode": self.mode.value}
             decisions.append(
                 CleaningDecision(
                     note_id=n.note_id,
@@ -83,17 +204,38 @@ class MIDICleaner:
         kept, merge_decisions = self._merge_duplicates(kept)
         decisions.extend(merge_decisions)
 
+        ghost_kept, ghost_decisions = self._drop_octave_ghosts_with_report(kept)
         if self.drop_octave_ghosts and not self.shadow_mode:
-            kept, ghost_decisions = self._drop_octave_ghosts_with_report(kept)
+            kept = ghost_kept
             decisions.extend(ghost_decisions)
+        else:
+            for d in ghost_decisions:
+                decisions.append(
+                    CleaningDecision(
+                        note_id=d.note_id,
+                        pitch=d.pitch,
+                        start_time=d.start_time,
+                        action=CleaningAction.UNCERTAIN,
+                        reason="octave_ghost_observation",
+                        evidence={**d.evidence, "applied": False, "mode": self.mode.value},
+                    )
+                )
 
         if self.trim_overlaps:
             kept = self._trim_same_pitch_overlaps(kept)
 
-        kept = self._snap_chord_starts(kept)
-        kept = self._correct_drift(kept)
+        if self.snap_chords:
+            kept = self._snap_chord_starts(kept)
+        else:
+            decisions.extend(self._observe_chord_snaps(kept))
+
+        if self.correct_drift:
+            kept = self._correct_drift(kept)
+
         if self.stretch_final_note:
             kept = self._stretch_short_final_note(kept)
+        else:
+            decisions.extend(self._observe_final_stretch(kept))
 
         octave_decisions = self._classify_octaves(kept)
         decisions.extend(octave_decisions)
@@ -121,10 +263,72 @@ class MIDICleaner:
             return False
         return True
 
+    def _sanitize_invalid(
+        self, notes: list[NoteEvent]
+    ) -> tuple[list[NoteEvent], list[CleaningDecision]]:
+        """Technically invalid MIDI: NaNs, impossible pitch/velocity/duration."""
+        kept: list[NoteEvent] = []
+        decisions: list[CleaningDecision] = []
+        for n in notes:
+            if not _finite(n.start_time) or not _finite(n.end_time):
+                decisions.append(
+                    CleaningDecision(
+                        note_id=n.note_id,
+                        pitch=int(n.pitch) if _finite(n.pitch) else -1,
+                        start_time=0.0,
+                        action=CleaningAction.SUPPRESS,
+                        reason="invalid_non_finite_time",
+                        evidence={"start_time": n.start_time, "end_time": n.end_time},
+                    )
+                )
+                continue
+            pitch = int(n.pitch)
+            velocity = int(n.velocity)
+            start = float(n.start_time)
+            end = float(n.end_time)
+            changes: list[str] = []
+            if pitch < 0 or pitch > 127:
+                clamped = max(0, min(127, pitch))
+                changes.append(f"pitch {pitch}->{clamped}")
+                pitch = clamped
+            if velocity < 1 or velocity > 127:
+                clamped_v = max(1, min(127, velocity))
+                changes.append(f"velocity {velocity}->{clamped_v}")
+                velocity = clamped_v
+            if start < 0:
+                changes.append(f"start {start}->0")
+                start = 0.0
+            if end <= start:
+                new_end = start + 0.01
+                changes.append(f"duration {end - start}->{new_end - start}")
+                end = new_end
+            note = n
+            if changes:
+                note = replace(
+                    n,
+                    pitch=pitch,
+                    velocity=velocity,
+                    start_time=start,
+                    end_time=end,
+                )
+                decisions.append(
+                    CleaningDecision(
+                        note_id=n.note_id,
+                        pitch=pitch,
+                        start_time=start,
+                        action=CleaningAction.KEEP,
+                        reason="invalid_midi_clamped",
+                        evidence={"changes": changes},
+                    )
+                )
+            kept.append(note)
+        return kept, decisions
+
     def _classify_micro(
         self, note: NoteEvent
     ) -> tuple[CleaningAction, str, dict]:
-        if note.duration >= self.min_duration_sec:
+        threshold = self.min_duration_sec if self.min_duration_sec > 0 else 0.04
+        if note.duration >= threshold:
             return CleaningAction.KEEP, "duration_ok", {"duration": note.duration}
         quiet = note.velocity <= self.quiet_velocity
         weak = note.confidence <= self.low_confidence
@@ -167,6 +371,8 @@ class MIDICleaner:
                             evidence={
                                 "kept_id": cur.note_id,
                                 "onset_delta": abs(nxt.start_time - cur.start_time),
+                                "threshold_sec": self.merge_threshold_sec,
+                                "mode": self.mode.value,
                             },
                         )
                     )
@@ -309,6 +515,32 @@ class MIDICleaner:
             for n in notes
         ]
 
+    def _observe_final_stretch(self, notes: list[NoteEvent]) -> list[CleaningDecision]:
+        if len(notes) < 3:
+            return []
+        last = max(notes, key=lambda n: n.start_time)
+        others = [n.duration for n in notes if n is not last]
+        if not others:
+            return []
+        typical = statistics.median(others)
+        if last.duration >= typical:
+            return []
+        return [
+            CleaningDecision(
+                note_id=last.note_id,
+                pitch=last.pitch,
+                start_time=last.start_time,
+                action=CleaningAction.UNCERTAIN,
+                reason="final_note_stretch_skipped",
+                evidence={
+                    "duration": last.duration,
+                    "typical": typical,
+                    "applied": False,
+                    "mode": self.mode.value,
+                },
+            )
+        ]
+
     def _snap_chord_starts(self, notes: list[NoteEvent]) -> list[NoteEvent]:
         if len(notes) < 2:
             return notes
@@ -333,6 +565,39 @@ class MIDICleaner:
             else:
                 result.extend(cluster)
         return result
+
+    def _observe_chord_snaps(self, notes: list[NoteEvent]) -> list[CleaningDecision]:
+        """Report cluster candidates without moving onsets (safe/conservative)."""
+        if len(notes) < 2:
+            return []
+        sorted_notes = sorted(notes, key=lambda n: n.start_time)
+        decisions: list[CleaningDecision] = []
+        cluster = [sorted_notes[0]]
+        for n in sorted_notes[1:] + [None]:  # type: ignore[list-item]
+            if n is not None and n.start_time - cluster[0].start_time <= self.chord_window_sec:
+                cluster.append(n)
+                continue
+            if len(cluster) >= 2:
+                starts = [c.start_time for c in cluster]
+                if max(starts) - min(starts) > 1e-9:
+                    for c in cluster:
+                        decisions.append(
+                            CleaningDecision(
+                                note_id=c.note_id,
+                                pitch=c.pitch,
+                                start_time=c.start_time,
+                                action=CleaningAction.UNCERTAIN,
+                                reason="chord_start_snap_skipped",
+                                evidence={
+                                    "cluster_size": len(cluster),
+                                    "spread_sec": max(starts) - min(starts),
+                                    "applied": False,
+                                    "mode": self.mode.value,
+                                },
+                            )
+                        )
+            cluster = [n] if n is not None else []
+        return decisions
 
     def _correct_drift(self, notes: list[NoteEvent]) -> list[NoteEvent]:
         corrected: list[NoteEvent] = []
@@ -363,6 +628,8 @@ class MIDICleaner:
                     "velocity_ratio": vel_ratio,
                     "duration_ratio": dur_ratio,
                     "onset_delta": abs(a.start_time - b.start_time),
+                    "applied": bool(self.suppress_octave_ghosts),
+                    "mode": self.mode.value,
                 }
                 if (
                     vel_ratio <= self.octave_velocity_ratio
@@ -392,3 +659,10 @@ class MIDICleaner:
                     )
                 )
         return decisions
+
+
+def _finite(value: float) -> bool:
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False

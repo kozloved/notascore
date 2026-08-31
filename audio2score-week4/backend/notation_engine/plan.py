@@ -55,6 +55,7 @@ class NotationPlanner:
         quantized, decisions = self.quantizer.quantize(events, meter)
         bpm = (meta.display_tempo_bpm if meta else None) or int(fallback_bpm)
         key_name = self._resolve_key(quantized, meta, structure)
+        quant_summary = dict(self.quantizer.last_summary)
 
         pianoish = self._use_grand_staff(quantized, structure, meta)
         end_beat = 0.0
@@ -79,7 +80,7 @@ class NotationPlanner:
                 )
             )
 
-        extra = {"meter_confidence": meter.confidence}
+        extra = {"meter_confidence": meter.confidence, "quantization": quant_summary}
         if meta and meta.extra:
             if meta.extra.get("meter_decision"):
                 extra["meter_decision"] = meta.extra["meter_decision"]

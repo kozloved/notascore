@@ -45,8 +45,10 @@ def test_understanding_pipeline_produces_musicxml(mock_transcribe, tmp_path, mon
     assert "<rest" in lower
     assert "<staves>2</staves>" in lower
     raw_midi = tmp_path / "bp_understanding-test" / "understanding-test.raw.mid"
+    validated_midi = tmp_path / "bp_understanding-test" / "understanding-test.validated.mid"
     score_midi = tmp_path / "bp_understanding-test" / "understanding-test.score.mid"
     assert raw_midi.exists()
+    assert validated_midi.exists()
     assert score_midi.exists()
 
 
@@ -128,9 +130,14 @@ def test_understanding_raw_midi_keeps_seconds_and_tempo_track(
         ]
     )
     pipeline.transcribe(audio, "tempo-map-test")
-    midi = pretty_midi.PrettyMIDI(str(tmp_path / "bp_tempo-map-test" / "tempo-map-test.raw.mid"))
-    starts = sorted(n.start for inst in midi.instruments for n in inst.notes)
+    raw = pretty_midi.PrettyMIDI(str(tmp_path / "bp_tempo-map-test" / "tempo-map-test.raw.mid"))
+    raw_starts = sorted(n.start for inst in raw.instruments for n in inst.notes)
+    assert any(abs(s - 0.20) < 0.03 for s in raw_starts)
+    validated = pretty_midi.PrettyMIDI(
+        str(tmp_path / "bp_tempo-map-test" / "tempo-map-test.validated.mid")
+    )
+    starts = sorted(n.start for inst in validated.instruments for n in inst.notes)
     assert any(abs(s - 0.20) < 0.03 for s in starts)
-    times, tempi = midi.get_tempo_changes()
+    times, tempi = validated.get_tempo_changes()
     assert len(tempi) >= 2
     assert any(abs(float(t) - 150.0) < 3.0 for t in tempi)

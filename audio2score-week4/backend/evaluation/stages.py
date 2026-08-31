@@ -17,13 +17,20 @@ from mir.types import MusicalEvent, NoteEvent, TempoMap
 
 
 # Honest labels matching the production order:
-# Basic Pitch → Cleaner → PianoAnalyzer → MIR structure
-STAGE_ORDER = ("transcription", "post_cleaner", "post_piano", "structured")
+# transcription → validated (cleaner) → piano → structured → quantized
+STAGE_ORDER = (
+    "transcription",
+    "post_cleaner",
+    "post_piano",
+    "structured",
+    "quantized",
+)
 
 # Backward-compatible aliases used in older reports/tests
 _STAGE_ALIASES = {
     "raw": "transcription",
     "cleaned": "post_cleaner",
+    "validated": "post_cleaner",
 }
 
 
@@ -121,6 +128,7 @@ def capture_transcription_stages(
     tempo_bpm: float,
     clean_decisions: Sequence[Any] | None = None,
     pipeline_info: dict[str, Any] | None = None,
+    quantized_events: Sequence[MusicalEvent] | None = None,
 ) -> StageDiagnostics:
     """Write stage MIDIs and metrics from one pipeline run's snapshots.
 
@@ -202,6 +210,26 @@ def capture_transcription_stages(
             )
         )
 
+    if quantized_events:
+        quantized_notes = events_to_notes(
+            quantized_events, tempo_map=tempo_map, fallback_bpm=tempo_bpm
+        )
+        quantized_midi = write_events_to_midi(
+            list(quantized_events),
+            out_dir / "quantized.mid",
+            bpm=tempo_bpm,
+            tempo_map=tempo_map,
+        )
+        stages.append(
+            StageSnapshot(
+                name="quantized",
+                notes=quantized_notes,
+                midi_path=quantized_midi,
+                metrics=match_notes(quantized_notes, reference_notes).to_dict(),
+                extra={"source": "pipeline.last_quantized_events"},
+            )
+        )
+
     first_deg, conclusion = _first_degradation(
         stages, reference_count=len(reference_notes)
     )
@@ -224,6 +252,7 @@ def _first_degradation(
         "transcription": "TRANSCRIPTION (Basic Pitch)",
         "post_cleaner": "AFTER CLEANER",
         "post_piano": "AFTER PIANO ANALYZER",
+        "quantized": "AFTER NOTATION QUANTIZATION",
         "structured": "AFTER STRUCTURE / MIR",
         # aliases
         "raw": "TRANSCRIPTION (Basic Pitch)",
@@ -249,6 +278,8 @@ def _first_degradation(
         conclusion = "Likely change introduced after cleaner (piano analyzer)."
     elif first == "structured":
         conclusion = "Likely quality drop introduced after piano stage (structure / MIR)."
+    elif first == "quantized":
+        conclusion = "Likely quality drop introduced at notation quantization."
     elif stages and float(stages[0].metrics.get("onset_pitch_f1") or 0) < 0.85:
         conclusion = "Primary quality gap appears at transcription (Basic Pitch)."
         first = first or stages[0].name

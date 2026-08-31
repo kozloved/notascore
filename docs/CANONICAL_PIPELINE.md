@@ -84,3 +84,42 @@ Both call the same `UnderstandingPipeline`.
 5. Meter-aware quantization
 6. Notation planning
 7. Benchmark suite
+
+## MVP production path (transcription quality refactor)
+
+```
+AUDIO
+  → transcription engine (Basic Pitch | MT3 | MIDI ingest)
+  → RAW MIDI                 {job}.raw.mid        (never overwritten)
+  → source-aware validation  {job}.validated.mid
+  → musical interpretation   (meter, tempo map, hands, voices)
+  → conservative quantization (notation stage only)
+  → NotationPlan → MusicXML / {job}.score.mid
+```
+
+Gemini is optional (`TRANSCRIPTION_ENABLE_GEMINI=0` by default) and never required.
+
+### Source-aware validation
+
+| Backend | Default `TRANSCRIPTION_VALIDATION_MODE` | Allowed mutations |
+|---|---|---|
+| `mt3` | `strict_safe` | invalid MIDI clamp, exact duplicates, overlap trim required for piano retrigger |
+| `basic_pitch` | `conservative` | safe + quiet micro-notes + 25 ms same-pitch merge + quiet octave ghosts |
+| `midi` ingest | `strict_safe` | none beyond ingest |
+
+Set `TRANSCRIPTION_VALIDATION_MODE=legacy_aggressive` to restore chord-start snapping, millisecond drift rounding, and final-note stretching for A/B.
+
+### Configuration
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `TRANSCRIPTION_BACKEND` | `basic_pitch` | Solo detector; Polyphonic jobs force `mt3` |
+| `TRANSCRIPTION_VALIDATION_MODE` | source-aware | `safe` / `conservative` / `legacy_aggressive` |
+| `TRANSCRIPTION_QUANTIZATION_MODE` | `adaptive` | Notation-stage grid selection |
+| `TRANSCRIPTION_ENABLE_GEMINI` | `false` | Alias that can disable `ENABLE_GEMINI_MUSIC_ANALYSIS` |
+| `TRANSCRIPTION_ENABLE_PIANO_ANALYSIS` | source-aware | Off for MT3 (keeps model velocities) |
+| `TRANSCRIPTION_ENABLE_MIR_LAYERS` | `true` | Alias of `TRANSCRIPTION_USE_MIR_LAYERS` |
+| `TRANSCRIPTION_PIPELINE` | `understanding` | Canonical path. `legacy` is explicit fallback only |
+
+Legacy `BasicPitchEngine` is not a silent second production pipeline. Solo may fall back to it when `TRANSCRIPTION_PIPELINE_FALLBACK=1`. Polyphonic never substitutes Basic Pitch.
+

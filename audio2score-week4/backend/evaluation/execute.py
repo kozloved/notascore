@@ -13,6 +13,7 @@ from evaluation.metrics import (
     compare_stage_notes,
     hand_metrics,
     meter_metrics,
+    notation_metrics,
     tempo_metrics,
 )
 from evaluation.normalize import NormalizedReference, normalize_reference_midi
@@ -35,6 +36,7 @@ class CaseResult:
     hands: dict[str, Any] = field(default_factory=dict)
     pipeline: dict[str, Any] = field(default_factory=dict)
     stages: dict[str, Any] = field(default_factory=dict)
+    notation: dict[str, Any] = field(default_factory=dict)
     reference: dict[str, Any] = field(default_factory=dict)
     artifacts: dict[str, Any] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
@@ -53,6 +55,7 @@ class CaseResult:
             "hands": self.hands,
             "pipeline": self.pipeline,
             "stages": self.stages,
+            "notation": self.notation,
             "reference": self.reference,
             "artifacts": self.artifacts,
             "tags": self.tags,
@@ -172,6 +175,9 @@ def evaluate_case(
 
     events = list(structure.events) if structure is not None else []
     result.hands = hand_metrics(events, ref.notes)
+    result.notation = notation_metrics(plan)
+
+    quantized_events = list(pipe.last_quantized_events or [])
 
     # Final note metrics: prefer structured events (seconds), else pipeline raw.mid
     from evaluation.stages import events_to_notes
@@ -199,6 +205,7 @@ def evaluate_case(
         tempo_map=structure.tempo_map if structure is not None else None,
         tempo_bpm=predicted_tempo or ref.tempo_bpm or 120.0,
         clean_decisions=pipe.last_clean_decisions,
+        quantized_events=quantized_events or None,
         pipeline_info={
             "raw_note_count": (
                 len(pipe.last_raw_notes) if pipe.last_raw_notes is not None else None
@@ -214,7 +221,17 @@ def evaluate_case(
                 else None
             ),
             "structured_note_count": len(events),
+            "quantized_note_count": len(quantized_events),
+            "validated_note_count": (
+                len(pipe.last_validated_notes)
+                if getattr(pipe, "last_validated_notes", None) is not None
+                else None
+            ),
             "stage_source": "pipeline_snapshots",
+            "validation_mode": getattr(getattr(pipe, "config", None), "validation_mode", None)
+            and pipe.config.validation_mode.value,
+            "gemini_enabled": bool(getattr(pipe, "last_gemini_enabled", False)),
+            "gemini_applied": int(getattr(pipe, "last_gemini_applied", 0)),
         },
     )
     result.stages = diagnostics.to_dict()
@@ -232,15 +249,38 @@ def evaluate_case(
             else None
         ),
         "structured_note_count": len(events),
+        "quantized_note_count": len(quantized_events),
+        "validated_note_count": (
+            len(pipe.last_validated_notes)
+            if getattr(pipe, "last_validated_notes", None) is not None
+            else None
+        ),
         "notation_plan_success": plan is not None and not writer.last_fallback_used,
         "fallback_used": bool(writer.last_fallback_used),
         "fallback_reason": writer.last_fallback_error,
         "notation_path": (
             (debug.extra or {}).get("notation_path") if debug else None
         ),
-        "cleaner_suppressions": len(pipe.last_clean_decisions or []),
+        "cleaner_suppressions": len(
+            [
+                d
+                for d in (pipe.last_clean_decisions or [])
+                if getattr(getattr(d, "action", None), "value", d) == "suppress"
+                or getattr(d, "action", None) == "suppress"
+            ]
+        ),
         "musicxml_success": musicxml_ok and bool(xml),
         "source_backend": debug.source_backend if debug else None,
+        "validation_mode": (
+            pipe.config.validation_mode.value
+            if getattr(pipe, "config", None) is not None
+            else None
+        ),
+        "gemini_enabled": bool(getattr(pipe, "last_gemini_enabled", False)),
+        "gemini_applied": int(getattr(pipe, "last_gemini_applied", 0)),
+        "quantized_events_changed": (
+            (debug.extra or {}).get("quantized_events_changed") if debug else None
+        ),
     }
 
     # Prefer structured-stage F1 as the headline when available

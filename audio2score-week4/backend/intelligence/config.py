@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from mir.pipeline_config import gemini_flag_enabled
+
 
 def _env_bool(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
@@ -100,9 +102,7 @@ class GeminiConfig:
 
 
 def gemini_config() -> GeminiConfig:
-    enabled = _env_bool("ENABLE_GEMINI_MUSIC_ANALYSIS") or _env_bool(
-        "GEMINI_ENABLED"
-    )
+    enabled = gemini_flag_enabled()
     cache_root = Path(os.getenv("TEMP_DIR", ".tmp"))
     return GeminiConfig(
         api_key=_env_str("GEMINI_API_KEY", ""),

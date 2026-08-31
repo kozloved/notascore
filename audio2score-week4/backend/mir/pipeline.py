@@ -38,7 +38,16 @@ from mir.models import (
     TranscriptionResult,
 )
 from mir.phrase_detector import PhraseDetector
-from mir.raw_midi import job_raw_midi_path, write_job_raw_midi
+from mir.pipeline_config import (
+    PipelineConfig,
+    load_pipeline_config,
+    piano_analysis_enabled,
+)
+from mir.raw_midi import (
+    job_raw_midi_path,
+    job_validated_midi_path,
+    write_job_stage_midi,
+)
 from mir.types import InstrumentKind, MusicalEvent, NoteEvent, TempoMap
 from mir.voice_separator import VoiceSeparator
 from notation_engine.writer import NotationWriter
@@ -73,13 +82,21 @@ class UnderstandingPipeline:
         use_mir_layers: bool | None = None,
         backend_name: str | None = None,
         mode: str = "solo",
+        validation_mode: str | None = None,
     ):
         self.backend_name = backend_name
         self.mode = mode
+        self._validation_override = validation_mode
+        self.config: PipelineConfig = load_pipeline_config(
+            backend=backend_name, mode=mode, validation_mode=validation_mode
+        )
         self.normalizer = AudioNormalizer()
         self.classifier = InstrumentClassifier()
         self.segmenter = AudioSegmenter()
-        self.cleaner = MIDICleaner()
+        self.cleaner = MIDICleaner.for_source(
+            (backend_name or self.config.backend),
+            mode=self.config.validation_mode,
+        )
         self.piano_analyzer = PianoAudioAnalyzer()
         self.chord_detector = ChordDetector()
         self.role_separator = MelodyAccompanimentSeparator()
@@ -93,16 +110,21 @@ class UnderstandingPipeline:
         self.notation = NotationWriter()
         self.beat_tracker = BeatTracker()
         if use_mir_layers is None:
-            use_mir_layers = _env_enabled("TRANSCRIPTION_USE_MIR_LAYERS", default=True)
+            use_mir_layers = self.config.enable_mir_layers
         self.use_mir_layers = use_mir_layers
         self.last_debug: PipelineDebug | None = None
         self.last_structure: MusicalStructure | None = None
         self.last_meter_decision: MeterDecision | None = None
+        self.last_raw_performance: RawPerformance | None = None
         # Observation-only stage snapshots for evaluation (not used by algorithms).
         self.last_raw_notes: list | None = None
         self.last_cleaned_notes: list | None = None
+        self.last_validated_notes: list | None = None
         self.last_post_piano_notes: list | None = None
+        self.last_quantized_events: list | None = None
         self.last_clean_decisions: list | None = None
+        self.last_gemini_applied: int = 0
+        self.last_gemini_enabled: bool = False
 
     def transcribe(self, audio_path: str | Path, job_id: str) -> str:
         audio_path = Path(audio_path)
@@ -120,9 +142,31 @@ class UnderstandingPipeline:
         )
 
         backend = get_backend(self.backend_name)
+        self.config = load_pipeline_config(
+            backend=backend.name,
+            mode=self.mode,
+            validation_mode=self._validation_override,
+        )
+        self.cleaner = MIDICleaner.for_source(
+            backend.name, mode=self.config.validation_mode
+        )
+        print(
+            f"[Pipeline] backend={backend.name} mode={self.mode} "
+            f"validation={self.config.validation_mode.value} "
+            f"quantize={self.config.quantization_mode.value} "
+            f"gemini={self.config.enable_gemini} "
+            f"piano_analysis={self.config.enable_piano_analysis} "
+            f"(job={job_id})"
+        )
         notes = [
             n.ensure_ids(i)
             for i, n in enumerate(backend.transcribe_notes(transcribe_path))
+        ]
+        notes = [
+            n
+            if n.source_backend and n.source_backend != "unknown"
+            else replace_source(n, backend.name)
+            for n in notes
         ]
         raw_count = len(notes)
         transcription = TranscriptionResult(
@@ -131,20 +175,37 @@ class UnderstandingPipeline:
             audio_path=str(transcribe_path),
         )
         self.last_raw_notes = list(notes)
+        write_job_stage_midi(
+            job_raw_midi_path(audio_path, job_id),
+            notes,
+            bpm=120.0,
+            split_hands=False,
+        )
 
         if not notes:
             raise TranscriptionError("No notes detected")
 
         notes, clean_decisions = self.cleaner.clean_with_report(notes)
         self.last_cleaned_notes = list(notes)
+        self.last_validated_notes = list(notes)
         self.last_clean_decisions = list(clean_decisions)
         print(
-            f"[MIDICleaner] notes {raw_count} → {len(notes)} (job={job_id})"
+            f"[MIDICleaner] mode={self.cleaner.mode.value} "
+            f"notes {raw_count} → {len(notes)} (job={job_id})"
+        )
+        write_job_stage_midi(
+            job_validated_midi_path(audio_path, job_id),
+            notes,
+            bpm=120.0,
+            split_hands=False,
         )
 
         pedal_events: list[tuple[float, int]] = []
         pedal_obs: list[PedalObservation] = []
-        if _should_analyze_piano(prediction.instrument):
+        run_piano = piano_analysis_enabled(backend.name) and _should_analyze_piano(
+            prediction.instrument
+        )
+        if run_piano:
             piano = self.piano_analyzer.analyze(normalized, notes)
             notes = piano.notes
             pedal_events = [(p.time_sec, p.value) for p in piano.pedal_events]
@@ -164,7 +225,7 @@ class UnderstandingPipeline:
         tempo_map, meter = self._build_tempo_map(normalized, audio_path, onsets)
         bpm = tempo_map.bpm_at(0.0)
 
-        RawPerformance(
+        self.last_raw_performance = RawPerformance(
             notes=list(transcription.notes),
             pedal_events=pedal_obs,
             tempo_observations=[
@@ -265,22 +326,25 @@ class UnderstandingPipeline:
         meta = enhanced.meta
         tempo_map = enhanced.tempo_map
         bpm = tempo_map.bpm_at(0.0)
+        self.last_gemini_enabled = bool(self.config.enable_gemini)
+        self.last_gemini_applied = int(enhanced.applied)
 
         print(
             f"[Understanding] instrument={prediction.instrument.value} "
             f"tempo={bpm:.1f} meter={meta.time_sig_hint or '-'} "
             f"tempo_points={len(tempo_map.points)} "
             f"events={len(events)} mir_layers={self.use_mir_layers} "
+            f"validation={self.config.validation_mode.value} "
             f"(job={job_id})"
         )
 
-        write_job_raw_midi(
-            audio_path,
-            job_id,
+        # Rewrite validated MIDI now that tempo is known. Do not touch raw.mid.
+        write_job_stage_midi(
+            job_validated_midi_path(audio_path, job_id),
             notes,
             bpm=bpm,
-            events=events if events else None,
             pedal_events=pedal_events,
+            split_hands=False,
             tempo_map=tempo_map,
         )
 
@@ -293,6 +357,7 @@ class UnderstandingPipeline:
             fallback_bpm=bpm,
             structure=structure,
         )
+        self.last_quantized_events = list(self.notation.last_quantized_events)
         self._attach_notation_debug(job_id, out_dir)
         return xml
 
@@ -305,17 +370,28 @@ class UnderstandingPipeline:
         notes = [n.ensure_ids(i) for i, n in enumerate(ingested.notes)]
         tempo_map = ingested.tempo_map
         bpm = tempo_map.bpm_at(0.0)
-        # MIDI ingest has no Basic Pitch / cleaner pass — all stage snapshots match.
+        # MIDI ingest has no transcription cleaner — raw == validated.
         self.last_raw_notes = list(notes)
         self.last_cleaned_notes = list(notes)
+        self.last_validated_notes = list(notes)
         self.last_post_piano_notes = list(notes)
         self.last_clean_decisions = []
+        self.last_gemini_enabled = False
+        self.last_gemini_applied = 0
+        self.config = load_pipeline_config(
+            backend="midi",
+            mode=self.mode,
+            validation_mode=self._validation_override,
+        )
 
         out_dir = midi_path.parent / f"bp_{job_id}"
         out_dir.mkdir(exist_ok=True)
         raw_path = job_raw_midi_path(midi_path, job_id)
         if midi_path.resolve() != raw_path.resolve():
             shutil.copy2(midi_path, raw_path)
+        validated_path = job_validated_midi_path(midi_path, job_id)
+        if midi_path.resolve() != validated_path.resolve():
+            shutil.copy2(midi_path, validated_path)
 
         role = self.role_separator.separate(notes)
         events = notes_to_events(
@@ -406,6 +482,9 @@ class UnderstandingPipeline:
             fallback_bpm=bpm,
             structure=structure,
         )
+        self.last_quantized_events = list(self.notation.last_quantized_events)
+        self.last_gemini_enabled = bool(self.config.enable_gemini)
+        self.last_gemini_applied = int(enhanced.applied)
         self._attach_notation_debug(job_id, out_dir)
         return xml
 
@@ -422,6 +501,24 @@ class UnderstandingPipeline:
         extra["notation_fallback_error"] = payload.get("notation_fallback_error")
         extra["notation_time_signature"] = payload.get("time_signature")
         extra["notation_measure_count"] = payload.get("measure_count")
+        extra["quantization_summary"] = payload.get("quantization_summary") or {}
+        extra["validation_mode"] = self.config.validation_mode.value
+        extra["quantization_mode"] = self.config.quantization_mode.value
+        extra["gemini_enabled"] = bool(self.last_gemini_enabled)
+        extra["gemini_applied"] = int(self.last_gemini_applied)
+        extra["raw_note_count"] = (
+            len(self.last_raw_notes) if self.last_raw_notes is not None else None
+        )
+        extra["validated_note_count"] = (
+            len(self.last_validated_notes)
+            if self.last_validated_notes is not None
+            else None
+        )
+        extra["notation_note_count"] = len(self.last_quantized_events or [])
+        extra["quantized_events_changed"] = (payload.get("quantization_summary") or {}).get(
+            "events_changed"
+        )
+        extra["backend"] = self.last_debug.source_backend
         if self.last_meter_decision is not None:
             extra["meter_decision"] = self.last_meter_decision.to_dict()
         self.last_debug.extra = extra
@@ -549,6 +646,11 @@ class UnderstandingPipeline:
                     else None
                 ),
                 "role_confidence": role.confidence,
+                "validation_mode": self.config.validation_mode.value,
+                "quantization_mode": self.config.quantization_mode.value,
+                "gemini_enabled": bool(self.config.enable_gemini),
+                "gemini_applied": 0,
+                "backend": backend_name,
                 **(
                     {
                         "hand_decisions": [
@@ -607,3 +709,9 @@ class UnderstandingPipeline:
             )
             for e in events
         ]
+
+
+def replace_source(note: NoteEvent, backend: str) -> NoteEvent:
+    from dataclasses import replace as dc_replace
+
+    return dc_replace(note, source_backend=backend)

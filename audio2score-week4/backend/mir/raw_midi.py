@@ -15,8 +15,17 @@ def job_raw_midi_path(audio_path: str | Path, job_id: str) -> Path:
     return Path(audio_path).parent / f"bp_{job_id}" / f"{job_id}.raw.mid"
 
 
+def job_validated_midi_path(audio_path: str | Path, job_id: str) -> Path:
+    return Path(audio_path).parent / f"bp_{job_id}" / f"{job_id}.validated.mid"
+
+
 def job_score_midi_path(audio_path: str | Path, job_id: str) -> Path:
     return Path(audio_path).parent / f"bp_{job_id}" / f"{job_id}.score.mid"
+
+
+def job_notation_midi_path(audio_path: str | Path, job_id: str) -> Path:
+    """Alias of the notation-stage MIDI (readable score, not performance)."""
+    return job_score_midi_path(audio_path, job_id)
 
 
 def _hand_for_pitch(pitch: int) -> str:
@@ -208,6 +217,25 @@ def write_events_to_midi(
         hands=hands,
         pedal_events=pedal_events,
         split_hands=True,
+        tempo_map=tempo_map,
+    )
+
+
+def write_job_stage_midi(
+    path: Path,
+    notes: list[NoteEvent],
+    bpm: float = 120.0,
+    *,
+    pedal_events: Iterable[tuple[float, int]] | None = None,
+    split_hands: bool = False,
+    tempo_map: TempoMap | None = None,
+) -> Path:
+    return write_notes_to_midi(
+        notes,
+        path,
+        bpm=bpm,
+        pedal_events=pedal_events,
+        split_hands=split_hands,
         tempo_map=tempo_map,
     )
 

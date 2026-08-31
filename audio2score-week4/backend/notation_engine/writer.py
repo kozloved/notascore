@@ -45,6 +45,8 @@ class NotationWriter:
         self.planner = NotationPlanner()
         self.last_plan: NotationPlan | None = None
         self.last_quantization_decisions: list[dict] = []
+        self.last_quantization_summary: dict = {}
+        self.last_quantized_events: list = []
         self.last_fallback_used: bool = False
         self.last_fallback_error: str | None = None
 
@@ -59,6 +61,7 @@ class NotationWriter:
             "time_signature": plan.time_signature if plan else None,
             "measure_count": len(plan.measures) if plan else 0,
             "quantization_decisions": list(self.last_quantization_decisions),
+            "quantization_summary": dict(self.last_quantization_summary),
         }
 
     def write_musicxml(
@@ -123,6 +126,8 @@ class NotationWriter:
     ) -> stream.Score:
         self.last_plan = None
         self.last_quantization_decisions = []
+        self.last_quantization_summary = {}
+        self.last_quantized_events = []
         self.last_fallback_used = False
         self.last_fallback_error = None
         try:
@@ -135,6 +140,10 @@ class NotationWriter:
             score = self.score_from_plan(plan, meta=meta)
             self.last_plan = plan
             self.last_quantization_decisions = decisions
+            self.last_quantization_summary = dict(
+                (plan.extra or {}).get("quantization") or {}
+            )
+            self.last_quantized_events = list(self.planner.quantizer.last_events)
             print(
                 f"[Notation] NotationPlan "
                 f"({plan.time_signature}, {len(plan.measures)} measures, "

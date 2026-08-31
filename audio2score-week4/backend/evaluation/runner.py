@@ -98,6 +98,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Override evaluation package root (for tests)",
     )
+    parser.add_argument(
+        "--validation-mode",
+        default=None,
+        choices=("safe", "strict_safe", "conservative", "legacy_aggressive", "legacy"),
+        help="Override TRANSCRIPTION_VALIDATION_MODE for this run (A/B)",
+    )
     return parser.parse_args(argv)
 
 
@@ -140,7 +146,10 @@ def main(argv: list[str] | None = None) -> int:
     for warning in leakage:
         print(f"[evaluation] WARNING: {warning}")
 
-    pipeline = UnderstandingPipeline(mode="fast")
+    pipeline = UnderstandingPipeline(
+        mode="fast",
+        validation_mode=args.validation_mode,
+    )
     rows = []
     print(f"[evaluation] run_id={run_id} cases={len(cases)} split={split_label}")
     for case in cases:

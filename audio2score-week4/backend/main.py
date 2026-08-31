@@ -132,11 +132,13 @@ def health():
     from adapters.mt3_backend import mt3_status
     from audio_engine.beat_tracker import beat_status
     from intelligence.config import gemini_status
+    from mir.pipeline_config import load_pipeline_config
 
     bp = basic_pitch_settings()
     mt3 = mt3_status()
     gemini = gemini_status()
     poly_available = bool(mt3["available"])
+    cfg = load_pipeline_config()
     return {
         "status": "ok",
         "engine": os.getenv("TRANSCRIPTION_ENGINE", "basic_pitch"),
@@ -149,6 +151,10 @@ def health():
         "use_piano_analyzer": os.getenv("TRANSCRIPTION_USE_PIANO_ANALYZER", "1"),
         "use_mir_layers": os.getenv("TRANSCRIPTION_USE_MIR_LAYERS", "1"),
         "pipeline_fallback": os.getenv("TRANSCRIPTION_PIPELINE_FALLBACK", "1"),
+        "validation_mode": cfg.validation_mode.value,
+        "quantization_mode": cfg.quantization_mode.value,
+        "enable_gemini": cfg.enable_gemini,
+        "canonical": cfg.to_dict(),
         "basic_pitch": bp,
         "polyphonic": mt3,
         "quality": mt3,

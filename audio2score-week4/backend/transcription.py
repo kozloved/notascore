@@ -188,9 +188,16 @@ class BasicPitchEngine:
         backend = BasicPitchBackend()
         note_events = backend.transcribe_notes(transcribe_path)
         raw_count = len(note_events)
+        write_job_raw_midi(
+            audio_path,
+            job_id,
+            note_events,
+            bpm=DEFAULT_TEMPO,
+            split_hands=False,
+        )
 
         if _use_midi_cleaner():
-            note_events = MIDICleaner().clean(note_events)
+            note_events = MIDICleaner.for_source("basic_pitch").clean(note_events)
             print(
                 f"[MIDICleaner] notes {raw_count} → {len(note_events)} "
                 f"(job={job_id})"
@@ -221,9 +228,10 @@ class BasicPitchEngine:
             raise TranscriptionError("No notes detected")
 
         bpm = _estimate_tempo(audio_path, onsets)
-        write_job_raw_midi(
-            audio_path,
-            job_id,
+        from mir.raw_midi import job_validated_midi_path, write_job_stage_midi
+
+        write_job_stage_midi(
+            job_validated_midi_path(audio_path, job_id),
             note_events,
             bpm=bpm,
             pedal_events=pedal_events,
@@ -285,7 +293,12 @@ class BasicPitchEngine:
 
 
 class FallbackEngine:
-    """Run understanding pipeline with legacy fallback on failure."""
+    """Explicit fallback: understanding pipeline, then enhanced legacy on failure.
+
+    Solo (Basic Pitch) may fall back when TRANSCRIPTION_PIPELINE_FALLBACK=1.
+    Polyphonic / MT3 never uses this class — get_engine() returns
+    UnderstandingPipeline(backend_name='mt3') with no Basic Pitch substitute.
+    """
 
     name = "understanding"
 

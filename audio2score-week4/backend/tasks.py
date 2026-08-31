@@ -55,10 +55,15 @@ def process_job(job_id: str):
             content_type="application/vnd.recordare.musicxml+xml",
         )
 
-        from mir.raw_midi import job_raw_midi_path, job_score_midi_path
+        from mir.raw_midi import (
+            job_raw_midi_path,
+            job_score_midi_path,
+            job_validated_midi_path,
+        )
 
         for midi_path, key in (
             (job_raw_midi_path(audio_local_path, job_id), f"{job_id}.raw.mid"),
+            (job_validated_midi_path(audio_local_path, job_id), f"{job_id}.validated.mid"),
             (job_score_midi_path(audio_local_path, job_id), f"{job_id}.score.mid"),
         ):
             if midi_path.exists():

@@ -142,3 +142,50 @@ def compare_stage_notes(
     **kwargs: Any,
 ) -> dict[str, Any]:
     return note_metrics_dict(match_notes(predicted, reference, **kwargs))
+
+
+def notation_metrics(plan) -> dict[str, Any]:
+    """Measure / rest / tie / tuplet / staff counts from a NotationPlan."""
+    if plan is None:
+        return {
+            "status": NOT_EVALUATED,
+            "measure_count": 0,
+            "note_count": 0,
+            "rest_count": 0,
+            "tie_count": 0,
+            "tuplet_like_count": 0,
+            "staff_assignment": {},
+        }
+    from mir.models import PlannedNote, PlannedRest
+
+    note_count = 0
+    rest_count = 0
+    tie_count = 0
+    tuplet_like = 0
+    staff_assignment: dict[str, int] = {}
+    for measure in plan.measures or []:
+        for staff in measure.staves or []:
+            key = str(staff.staff_id)
+            for voice in staff.voices or []:
+                for el in voice.elements or []:
+                    if isinstance(el, PlannedRest):
+                        rest_count += 1
+                        continue
+                    if isinstance(el, PlannedNote):
+                        note_count += 1
+                        staff_assignment[key] = staff_assignment.get(key, 0) + 1
+                        if el.tie:
+                            tie_count += 1
+                        dur = float(el.duration_q)
+                        if abs(dur - 1.0 / 3.0) < 1e-6 or abs(dur - 2.0 / 3.0) < 1e-6:
+                            tuplet_like += 1
+    return {
+        "status": "evaluated",
+        "measure_count": len(plan.measures or []),
+        "note_count": note_count,
+        "rest_count": rest_count,
+        "tie_count": tie_count,
+        "tuplet_like_count": tuplet_like,
+        "staff_assignment": staff_assignment,
+        "time_signature": getattr(plan, "time_signature", None),
+    }

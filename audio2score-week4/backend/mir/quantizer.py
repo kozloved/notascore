@@ -51,6 +51,8 @@ class QuantizerConfig:
 class MeasureQuantizer:
     def __init__(self, config: QuantizerConfig | None = None):
         self.config = config or QuantizerConfig()
+        self.last_summary: dict = {}
+        self.last_events: list[MusicalEvent] = []
 
     def quantize(
         self,
@@ -58,6 +60,8 @@ class MeasureQuantizer:
         meter: MeterHypothesis,
     ) -> tuple[list[MusicalEvent], list[dict]]:
         if not events:
+            self.last_summary = _empty_quantizer_summary()
+            self.last_events = []
             return [], []
 
         grouped: dict[tuple[int, int], list[MusicalEvent]] = {}
@@ -88,7 +92,50 @@ class MeasureQuantizer:
                 decisions.extend(bucket_decisions)
 
         out.sort(key=lambda e: (e.start_beat, e.pitch, e.voice))
+        if len(out) < len(events):
+            out, decisions = self._restore_missing(events, out, decisions)
+        self.last_events = list(out)
+        self.last_summary = summarize_quantization(events, out, decisions)
         return out, decisions
+
+    @staticmethod
+    def _restore_missing(
+        original: list[MusicalEvent],
+        quantized: list[MusicalEvent],
+        decisions: list[dict],
+    ) -> tuple[list[MusicalEvent], list[dict]]:
+        """Quantization must not drop events. Restore any missing by note_id."""
+        if len(quantized) >= len(original):
+            return quantized, decisions
+        q_ids = {e.note_id for e in quantized if e.note_id}
+        if not q_ids:
+            return quantized, decisions
+        restored = list(quantized)
+        extra_decisions = list(decisions)
+        for ev in original:
+            if not ev.note_id or ev.note_id in q_ids:
+                continue
+            restored.append(copy_event(ev))
+            extra_decisions.append(
+                {
+                    "note_id": ev.note_id,
+                    "pitch": ev.pitch,
+                    "raw_start": ev.start_beat,
+                    "quantized_start": ev.start_beat,
+                    "raw_duration": ev.duration_beats,
+                    "quantized_duration": ev.duration_beats,
+                    "grid": None,
+                    "timing_error": 0.0,
+                    "hand": ev.hand.value,
+                    "voice": ev.voice,
+                    "staff": staff_for_hand(ev.hand, ev.pitch),
+                    "cost": 0.0,
+                    "removed": False,
+                    "reason": "restored_after_quantizer_drop",
+                }
+            )
+        restored.sort(key=lambda e: (e.start_beat, e.pitch, e.voice))
+        return restored, extra_decisions
 
     def _grids_for(self, meter: MeterHypothesis) -> list[float]:
         if meter.time_signature in ("6/8", "12/8"):
@@ -182,6 +229,9 @@ class MeasureQuantizer:
             )
 
             cost = timing_err + dur_cost
+            if timing_err > cfg.max_timing_error:
+                # This grid is fighting the performance timing; prefer another grid.
+                cost += 8.0 * (timing_err - cfg.max_timing_error)
             total_cost += cost
             decisions.append(
                 {
@@ -310,3 +360,51 @@ class MeasureQuantizer:
         if abs(best - value) > 1e-6:
             return None
         return best
+
+
+def _empty_quantizer_summary() -> dict:
+    return {
+        "raw_events": 0,
+        "quantized_events": 0,
+        "events_changed": 0,
+        "events_removed": 0,
+        "average_onset_displacement": 0.0,
+        "average_duration_displacement": 0.0,
+        "triplet_decisions": 0,
+        "removed_events": [],
+    }
+
+
+def summarize_quantization(
+    original: list[MusicalEvent],
+    quantized: list[MusicalEvent],
+    decisions: list[dict],
+) -> dict:
+    onset_disp = [abs(float(d.get("quantized_start", 0)) - float(d.get("raw_start", 0))) for d in decisions]
+    dur_disp = [
+        abs(float(d.get("quantized_duration", 0)) - float(d.get("raw_duration", 0)))
+        for d in decisions
+    ]
+    changed = 0
+    triplets = 0
+    for d in decisions:
+        start_changed = abs(float(d.get("quantized_start", 0)) - float(d.get("raw_start", 0))) > 1e-6
+        dur_changed = abs(float(d.get("quantized_duration", 0)) - float(d.get("raw_duration", 0))) > 1e-6
+        if start_changed or dur_changed:
+            changed += 1
+        grid = d.get("selected_grid", d.get("grid"))
+        if grid is not None and abs(float(grid) - (1.0 / 3.0)) < 1e-6:
+            triplets += 1
+    orig_ids = {e.note_id for e in original if e.note_id}
+    q_ids = {e.note_id for e in quantized if e.note_id}
+    removed_ids = sorted(orig_ids - q_ids)
+    return {
+        "raw_events": len(original),
+        "quantized_events": len(quantized),
+        "events_changed": changed,
+        "events_removed": max(0, len(original) - len(quantized)),
+        "average_onset_displacement": (sum(onset_disp) / len(onset_disp)) if onset_disp else 0.0,
+        "average_duration_displacement": (sum(dur_disp) / len(dur_disp)) if dur_disp else 0.0,
+        "triplet_decisions": triplets,
+        "removed_events": removed_ids,
+    }
