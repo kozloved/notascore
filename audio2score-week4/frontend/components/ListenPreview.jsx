@@ -7,6 +7,7 @@ import {
   fetchArrayBuffer,
   formatClock,
 } from "../lib/midiPlayback";
+import { apiFetch } from "../lib/api-client";
 
 function PlayIcon({ playing }) {
   if (playing) {
@@ -115,6 +116,8 @@ export default function ListenPreview({ apiUrl, jobId, filename }) {
     midi_score: { current: 0, duration: 0 },
   });
 
+  const [sourceSrc, setSourceSrc] = useState(null);
+
   const sourceUrl = `${apiUrl}/jobs/${jobId}/source`;
   const midiUrl = `${apiUrl}/jobs/${jobId}/result?format=midi`;
   const scoreUrl = `${apiUrl}/jobs/${jobId}/result?format=midi_score`;
@@ -125,6 +128,29 @@ export default function ListenPreview({ apiUrl, jobId, filename }) {
       midiPlayerRef.current?.stop();
     };
   }, [jobId]);
+
+  useEffect(() => {
+    if (isMidiSource) return undefined;
+    let objectUrl = "";
+    let cancelled = false;
+    apiFetch(sourceUrl)
+      .then((response) => {
+        if (!response.ok) throw new Error("Could not load the original audio");
+        return response.blob();
+      })
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSourceSrc(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setError("source", "Could not load the original audio");
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [isMidiSource, sourceUrl]);
 
   const setClock = (id, current, duration) => {
     setClocks((prev) => ({
@@ -255,7 +281,7 @@ export default function ListenPreview({ apiUrl, jobId, filename }) {
       {!isMidiSource && (
         <audio
           ref={audioRef}
-          src={sourceUrl}
+          src={sourceSrc || undefined}
           preload="metadata"
           aria-hidden="true"
           onLoadedMetadata={onAudioMeta}

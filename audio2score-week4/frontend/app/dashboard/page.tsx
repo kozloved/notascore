@@ -1,97 +1,241 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import AppShell from "../../components/layout/AppShell";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
+import Button from "../../components/ui/Button";
 import ButtonLink from "../../components/ui/ButtonLink";
+import SegmentedControl from "../../components/ui/SegmentedControl";
 import { Display, Text } from "../../components/ui/Text";
-import { getJob } from "../../lib/jobs";
+import { useAuth } from "../../components/auth/AuthProvider";
+import { track } from "../../lib/analytics";
+import type { Job } from "../../lib/api";
+import { deleteScore, listScores } from "../../lib/jobs";
 import { chipLabel } from "../../lib/job-ux";
 import {
-  listStoredScores,
-  removeStoredScore,
-  storedTitle,
-  type StoredScore,
-} from "../../lib/session-jobs";
+  formatDuration,
+  formatScoreDate,
+  sortScores,
+  titleFromFilename,
+  type ScoreSort,
+} from "../../lib/score-meta";
+import { removeStoredScore } from "../../lib/session-jobs";
 
 export default function DashboardPage() {
-  const [items, setItems] = useState<StoredScore[]>([]);
+  const { user, loading: authLoading, configured } = useAuth();
+  const [items, setItems] = useState<Job[]>([]);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+  const [sort, setSort] = useState<ScoreSort>("newest");
+  const [query, setQuery] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<Job | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!configured || !user) return;
+    setLoadState("loading");
+    try {
+      const rows = await listScores();
+      setItems(rows);
+      setLoadState("ready");
+    } catch {
+      setLoadState("error");
+    }
+  }, [configured, user]);
 
   useEffect(() => {
-    let cancelled = false;
-    const refresh = async () => {
-      const stored = listStoredScores();
-      const next: StoredScore[] = [];
-      for (const item of stored) {
-        if (item.status === "completed" || item.status === "failed") {
-          next.push(item);
-          continue;
-        }
-        try {
-          const job = await getJob(item.job_id);
-          next.push({
-            ...item,
-            status: job.status,
-            progress: job.progress,
-            filename: job.filename || item.filename,
-          });
-        } catch {
-          next.push(item);
-        }
-      }
-      if (!cancelled) setItems(next);
-    };
-    refresh();
-    const timer = setInterval(refresh, 4000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
+    track("score_library_viewed");
   }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!configured || !user) {
+      setLoadState("ready");
+      setItems([]);
+      return;
+    }
+    void load();
+  }, [authLoading, configured, user, load]);
+
+  useEffect(() => {
+    if (!user || loadState !== "ready") return;
+    const inflight = items.some(
+      (item) => item.status !== "completed" && item.status !== "failed"
+    );
+    if (!inflight) return;
+    const timer = window.setInterval(() => {
+      listScores()
+        .then(setItems)
+        .catch(() => {});
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [user, loadState, items]);
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = q
+      ? items.filter((item) => {
+          const title = (item.title || titleFromFilename(item.filename)).toLowerCase();
+          return title.includes(q) || (item.filename || "").toLowerCase().includes(q);
+        })
+      : items;
+    return sortScores(filtered, sort);
+  }, [items, query, sort]);
+
+  const onDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try {
+      await deleteScore(pendingDelete.job_id);
+      removeStoredScore(pendingDelete.job_id);
+      setItems((cur) => cur.filter((row) => row.job_id !== pendingDelete.job_id));
+      track("score_deleted");
+      setPendingDelete(null);
+    } catch {
+      setLoadState("error");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <AppShell variant="app" width="default">
       <Display as="h1">My Scores</Display>
-      <Text className="tagline">
-        Scores on this device. Account-linked history needs the service to store
-        who created each job — that is not available yet.
-      </Text>
+      {configured && user ? (
+        <Text className="tagline">Your music library.</Text>
+      ) : configured ? (
+        <Text className="tagline">Log in to see the scores saved to your account.</Text>
+      ) : (
+        <Text className="tagline">
+          Sign-in is not configured on this workspace yet. You can still create a
+          score.
+        </Text>
+      )}
+
       <div className="ns-page-cta">
         <ButtonLink href="/create">Create a score</ButtonLink>
+        {configured && !user ? (
+          <ButtonLink href="/login?next=/dashboard" variant="secondary">
+            Log in
+          </ButtonLink>
+        ) : null}
       </div>
-      {items.length === 0 ? (
-        <p className="ns-empty">No scores on this device yet.</p>
-      ) : (
-        <ul className="ns-score-list">
-          {items.map((item) => (
-            <li key={item.job_id} className="ns-score-card">
-              <Link href={`/create?job=${item.job_id}`}>
-                <strong>{storedTitle(item)}</strong>
-                <span
-                  className={
-                    "chip" +
-                    (item.status === "completed" ? " is-completed" : "") +
-                    (item.status === "failed" ? " is-failed" : "")
-                  }
-                >
-                  {chipLabel(item.status)}
-                </span>
-              </Link>
-              <button
-                type="button"
-                className="ns-text-link"
-                onClick={() => {
-                  removeStoredScore(item.job_id);
-                  setItems((cur) => cur.filter((row) => row.job_id !== item.job_id));
-                }}
-              >
-                Remove from this device
-              </button>
-            </li>
+
+      {authLoading || (configured && user && loadState === "loading") ? (
+        <ul className="ns-score-list" aria-busy="true" aria-label="Loading scores">
+          {[0, 1, 2].map((key) => (
+            <li key={key} className="ns-score-card ns-score-skeleton" />
           ))}
         </ul>
-      )}
+      ) : null}
+
+      {configured && user && loadState === "error" ? (
+        <div className="ns-library-error" role="alert">
+          <p>We couldn’t load your scores.</p>
+          <p>Please try again.</p>
+          <Button variant="secondary" onClick={() => void load()}>
+            Try again
+          </Button>
+        </div>
+      ) : null}
+
+      {configured && user && loadState === "ready" && items.length === 0 ? (
+        <div className="ns-library-empty">
+          <p>Your music library is empty.</p>
+          <p>Create your first score from a recording.</p>
+          <div className="ns-page-cta">
+            <ButtonLink href="/create">Create a score</ButtonLink>
+            <Link href="/examples" className="ns-text-link">
+              Explore an example →
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
+      {configured && user && loadState === "ready" && items.length > 0 ? (
+        <>
+          <div className="ns-library-toolbar">
+            <SegmentedControl
+              label="Sort scores"
+              compact
+              value={sort}
+              onChange={(value) => setSort(value as ScoreSort)}
+              options={[
+                { value: "newest", label: "Newest" },
+                { value: "oldest", label: "Oldest" },
+                { value: "name", label: "Name" },
+              ]}
+            />
+            {items.length >= 6 ? (
+              <label className="ns-library-search">
+                <span className="sr-only">Search your music</span>
+                <input
+                  className="ns-input"
+                  type="search"
+                  placeholder="Search your music…"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </label>
+            ) : null}
+          </div>
+          <ul className="ns-score-list">
+            {visible.map((item) => {
+              const title = item.title || titleFromFilename(item.filename);
+              const failed = item.status === "failed";
+              const ready = item.status === "completed";
+              return (
+                <li key={item.job_id} className="ns-score-card ns-score-card-rich">
+                  <Link href={`/score/${item.job_id}`} className="ns-score-main">
+                    <span className="ns-score-thumb" aria-hidden="true" />
+                    <span className="ns-score-copy">
+                      <strong>{title}</strong>
+                      <span className="ns-score-meta">
+                        {formatScoreDate(item.created_at)}
+                        {item.duration_seconds
+                          ? ` · ${formatDuration(item.duration_seconds)}`
+                          : ""}
+                      </span>
+                    </span>
+                    <span
+                      className={
+                        "chip" +
+                        (ready ? " is-completed" : "") +
+                        (failed ? " is-failed" : "")
+                      }
+                    >
+                      {chipLabel(item.status)}
+                    </span>
+                  </Link>
+                  <div className="ns-score-actions">
+                    <Link href={`/score/${item.job_id}`}>Open</Link>
+                    {ready ? (
+                      <Link href={`/score/${item.job_id}#download`}>Download</Link>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setPendingDelete(item)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      ) : null}
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title="Delete this score?"
+        body="This will remove the score and its generated files."
+        confirmLabel="Delete score"
+        busy={deleting}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => void onDelete()}
+      />
     </AppShell>
   );
 }

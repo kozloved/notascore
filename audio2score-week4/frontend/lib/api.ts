@@ -6,8 +6,11 @@ export type TranscriptionMode = "solo" | "polyphonic";
 
 export type Job = {
   job_id: string;
+  score_id?: string;
   status: string;
   filename?: string;
+  title?: string;
+  duration_seconds?: number | null;
   content_type?: string;
   size_bytes?: number;
   progress?: number;
@@ -15,6 +18,8 @@ export type Job = {
   mode?: TranscriptionMode | string;
   source_kind?: "audio" | "midi" | string;
   result_available?: boolean;
+  owned?: boolean;
+  claim_token?: string;
   created_at?: string;
   updated_at?: string;
 };
@@ -38,15 +43,22 @@ function detailMessage(data: unknown, fallback: string): string {
 export async function uploadAudio(
   file: File,
   onProgress?: (percent: number) => void,
-  mode: TranscriptionMode = "solo"
+  mode: TranscriptionMode = "solo",
+  options?: { token?: string | null; durationSeconds?: number | null }
 ): Promise<Job> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const formData = new FormData();
     formData.append("file", file);
     formData.append("mode", mode);
+    if (options?.durationSeconds && options.durationSeconds > 0) {
+      formData.append("duration_seconds", String(Math.round(options.durationSeconds)));
+    }
 
     xhr.open("POST", `${API_URL}/upload`);
+    if (options?.token) {
+      xhr.setRequestHeader("Authorization", `Bearer ${options.token}`);
+    }
 
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable || !onProgress) return;

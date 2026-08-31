@@ -66,6 +66,5 @@ export function chipLabel(status?: string | null): string {
   const phase = mapBackendStatus(status);
   if (phase === "completed") return "Ready";
   if (phase === "failed") return "Failed";
-  if (phase === "queued") return "Preparing";
-  return "Listening";
+  return "Processing…";
 }

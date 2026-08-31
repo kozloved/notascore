@@ -20,7 +20,11 @@ export type AnalyticsEvent =
   | "export_pdf"
   | "export_midi"
   | "export_musicxml"
-  | "retry_started";
+  | "retry_started"
+  | "score_library_viewed"
+  | "score_renamed"
+  | "score_deleted"
+  | "score_downloaded";
 
 /**
  * Lightweight, first-party events. No third-party pixels, no cookies,

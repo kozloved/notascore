@@ -32,10 +32,12 @@ export function useJobPoll(jobId: string | null, onTerminal?: (job: Job) => void
         upsertStoredScore({
           job_id: next.job_id,
           filename: next.filename || "Recording",
+          title: next.title,
           status: next.status,
           created_at: next.created_at,
           progress: next.progress,
           source_kind: next.source_kind,
+          duration_seconds: next.duration_seconds,
         });
         if (next.status === "completed" || next.status === "failed") {
           terminal.current?.(next);

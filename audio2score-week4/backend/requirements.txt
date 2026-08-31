@@ -6,6 +6,7 @@ uvicorn
 python-multipart
 python-dotenv
 sqlalchemy
+PyJWT>=2.8
 redis
 # rq<2 keeps the rq.Connection API used by worker.py.
 rq<2

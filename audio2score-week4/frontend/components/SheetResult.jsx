@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import ListenPreview from "./ListenPreview";
+import { apiFetch } from "../lib/api-client";
 
 function triggerDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -67,7 +68,7 @@ export default function SheetResult({ apiUrl, jobId, filename, onExport = undefi
       setMessage("");
 
       try {
-        const res = await fetch(`${apiUrl}/jobs/${jobId}/result?format=musicxml`);
+        const res = await apiFetch(`${apiUrl}/jobs/${jobId}/result?format=musicxml`);
         if (!res.ok) throw new Error("Could not load the score");
         const xml = await res.text();
         if (cancelled) return;
@@ -122,7 +123,7 @@ export default function SheetResult({ apiUrl, jobId, filename, onExport = undefi
     setBusy(format);
     setMessage("");
     try {
-      const res = await fetch(`${apiUrl}/jobs/${jobId}/result?format=${format}`);
+      const res = await apiFetch(`${apiUrl}/jobs/${jobId}/result?format=${format}`);
       if (!res.ok) throw new Error(`Failed to download ${ext.toUpperCase()}`);
       const blob = await res.blob();
       triggerDownload(blob, `${stem}.${ext}`);

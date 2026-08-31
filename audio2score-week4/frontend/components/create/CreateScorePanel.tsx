@@ -12,11 +12,14 @@ import {
   validateRecording,
 } from "../../lib/files";
 import { polyphonicAvailable } from "../../lib/modes";
+import { rememberPendingClaim } from "../../lib/pending-claim";
 import {
   getActiveJobId,
   setActiveJobId,
   upsertStoredScore,
 } from "../../lib/session-jobs";
+import { retryJob } from "../../lib/jobs";
+import { titleFromFilename } from "../../lib/score-meta";
 import { useAuth } from "../auth/AuthProvider";
 import { useJobPoll } from "../../hooks/useJobPoll";
 import Alert from "../ui/Alert";
@@ -29,7 +32,7 @@ import RecordingPreview from "./RecordingPreview";
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function CreateScorePanel() {
-  const { user, configured } = useAuth();
+  const { user, configured, session } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
   const urlJob = params.get("job");
@@ -45,6 +48,7 @@ export default function CreateScorePanel() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [wantEnsemble, setWantEnsemble] = useState(false);
+  const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
 
   const { job, error: pollError } = useJobPoll(jobId, (next) => {
     if (next.status === "completed") track("job_completed");
@@ -103,6 +107,7 @@ export default function CreateScorePanel() {
     setFileError("");
     setSubmitError("");
     setFile(next);
+    setDurationSeconds(null);
     setJobId(null);
     setActiveJobId(null);
     router.replace("/create");
@@ -128,19 +133,28 @@ export default function CreateScorePanel() {
       const created = await uploadAudio(
         file,
         (percent) => setUploadPercent(percent),
-        wantEnsemble && polyAvailable ? "polyphonic" : "solo"
+        wantEnsemble && polyAvailable ? "polyphonic" : "solo",
+        {
+          token: session?.access_token,
+          durationSeconds,
+        }
       );
       track("upload_completed");
       track("job_processing_started");
+      if (created.claim_token) {
+        rememberPendingClaim(created.job_id, created.claim_token);
+      }
       setJobId(created.job_id);
       setActiveJobId(created.job_id);
       upsertStoredScore({
         job_id: created.job_id,
         filename: created.filename || file.name,
+        title: created.title,
         status: created.status,
         created_at: created.created_at,
         progress: created.progress,
         source_kind: created.source_kind,
+        duration_seconds: created.duration_seconds,
       });
       router.replace(`/create?job=${created.job_id}`);
     } catch (error) {
@@ -161,12 +175,25 @@ export default function CreateScorePanel() {
     router.replace("/create");
   };
 
-  const retry = () => {
+  const retry = async () => {
     track("retry_started");
     setSubmitError("");
+    if (jobId) {
+      try {
+        await retryJob(jobId);
+      } catch {
+        if (file) {
+          setJobId(null);
+          void startJob();
+        } else {
+          resetToIdle();
+        }
+      }
+      return;
+    }
     if (file) {
       setJobId(null);
-      startJob();
+      void startJob();
       return;
     }
     resetToIdle();
@@ -220,7 +247,7 @@ export default function CreateScorePanel() {
 
       {file && !job && !uploading ? (
         <>
-          <RecordingPreview file={file} />
+          <RecordingPreview file={file} onDuration={setDurationSeconds} />
           {polyAvailable ? (
             <details
               className="ns-advanced"
@@ -281,9 +308,20 @@ export default function CreateScorePanel() {
         <>
           <ProcessingStatus status={job?.status} progress={job?.progress} />
           <p className="mode-hint">
-            You can leave this page. NotaScore keeps working, and My Scores will
-            show progress on this device.
+            You can leave this page. NotaScore keeps working.
           </p>
+          {!user && configured ? (
+            <div className="ns-save-panel">
+              <p>Create a free account to keep this score with you.</p>
+              <Link
+                href={`/signup?next=/score/${job?.job_id || jobId}`}
+                className="ns-btn ns-btn-secondary"
+                onClick={() => track("auth_interruption")}
+              >
+                Save your score
+              </Link>
+            </div>
+          ) : null}
         </>
       ) : null}
 
@@ -292,7 +330,7 @@ export default function CreateScorePanel() {
           <h2>We couldn’t create your score.</h2>
           <p>Something went wrong while processing your recording.</p>
           <div className="ns-page-cta">
-            <Button onClick={retry} disabled={submitting.current}>
+            <Button onClick={() => void retry()} disabled={submitting.current}>
               Try again
             </Button>
             <Button variant="secondary" onClick={resetToIdle}>
@@ -308,7 +346,9 @@ export default function CreateScorePanel() {
             <Link href="/dashboard" className="ns-text-link">
               ← My Scores
             </Link>
-            <h2 className="ns-result-title">{job.filename || "Your score"}</h2>
+            <h2 className="ns-result-title">
+              {job.title || titleFromFilename(job.filename) || "Your score"}
+            </h2>
             <p className="ns-preview-meta">Your score is ready.</p>
           </div>
           <SheetResult
@@ -321,22 +361,24 @@ export default function CreateScorePanel() {
               else track("export_midi");
             }}
           />
-          {!user ? (
+          {!user && configured && (ready || processing) ? (
+            <div className="ns-save-panel">
+              <p>Create a free account to keep this score with you.</p>
+              <Link
+                href={`/signup?next=/score/${job?.job_id || jobId}`}
+                className="ns-btn ns-btn-secondary"
+                onClick={() => track("auth_interruption")}
+              >
+                Save your score
+              </Link>
+            </div>
+          ) : null}
+          {!user && !configured && ready ? (
             <div className="ns-save-panel">
               <p>
-                {configured
-                  ? "Create a free account to keep this score with you."
-                  : "Sign-in is not configured on this workspace yet. You can still download your score."}
+                Sign-in is not configured on this workspace yet. You can still
+                download your score.
               </p>
-              {configured ? (
-                <Link
-                  href={`/signup?next=/results/${job.job_id}`}
-                  className="ns-btn ns-btn-secondary"
-                  onClick={() => track("auth_interruption")}
-                >
-                  Save your score
-                </Link>
-              ) : null}
             </div>
           ) : null}
         </div>

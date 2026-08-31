@@ -73,12 +73,23 @@ My Scores lists jobs from this browser, not account ownership. The backend does 
 
 No transcription-engine changes were made.
 
+## Account-owned scores (Pass 4)
+
+Authenticated scores are rows in the existing `jobs` table with `user_id` set from the Supabase JWT `sub`. There is no second database. FastAPI checks ownership on job/source/result/score routes. Unowned jobs remain readable by UUID until claimed, so create-before-login still works.
+
+Upload now returns a one-time `claim_token` when anonymous. After login, the client calls `POST /scores/claim` (and `POST /scores/claim-unowned` for Pass 3 local IDs). Raw audio is never stored in localStorage.
+
+My Scores (`/dashboard`) loads `GET /scores` for the signed-in user. Stable URLs are `/score/{id}`; `/results/{id}` redirects there.
+
+`localStorage` remains a cache (`notascore-active-job`, `notascore-recent-jobs`), not the source of truth.
+
+No transcription-engine changes were made.
+
 ## Known issues
 
-- `/dashboard` lists scores on this device only. Jobs are not tied to accounts.
-- A file chosen but not yet uploaded cannot survive a full page reload or OAuth redirect.
-- There is no server retry endpoint; Try again uploads again if the file is still in memory.
-- Sign-in is disabled until `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set.
+- My Scores requires a configured Supabase project and `SUPABASE_JWT_SECRET` (or JWKS) on the API.
 - Apple sign-in is not configured.
+- Score thumbnails are placeholders; OSMD does not currently emit a library preview.
+- Undo after delete is not implemented.
 - Billing is not implemented; pricing pages describe structure only.
 - Ensemble transcription may be offline depending on the workspace.

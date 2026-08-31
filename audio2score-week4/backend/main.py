@@ -2,18 +2,27 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from contextlib import asynccontextmanager
 from pathlib import Path
+from pydantic import BaseModel, Field
 import os
 import uuid
 
 import database as db
 import storage as storage_service
 import job_queue as queue_service
+from auth_user import NOT_FOUND_DETAIL, SIGN_IN_DETAIL, user_id_from_authorization
 from modes import POLYPHONIC, canonical_mode
+from ownership import (
+    hash_claim_token,
+    job_visible_to,
+    new_claim_token,
+    sanitize_title,
+    title_from_filename,
+)
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 RESULTS_DIR = Path(os.getenv("RESULTS_DIR", "results"))
@@ -106,14 +115,17 @@ def _safe_download_name(name: str) -> str:
     return Path(name).name.replace('"', "").replace("\r", "").replace("\n", "")
 
 
-def public_job(job: dict) -> dict:
+def public_job(job: dict, *, claim_token: str | None = None) -> dict:
     if not job:
         return {}
 
-    return {
+    payload = {
         "job_id": job.get("id"),
+        "score_id": job.get("id"),
         "status": job.get("status"),
         "filename": job.get("filename"),
+        "title": job.get("title") or title_from_filename(job.get("filename")),
+        "duration_seconds": job.get("duration_seconds"),
         "content_type": job.get("content_type"),
         "size_bytes": job.get("size_bytes"),
         "progress": job.get("progress", 0),
@@ -121,9 +133,70 @@ def public_job(job: dict) -> dict:
         "mode": canonical_mode(job.get("mode")),
         "source_kind": _job_source_kind(job),
         "result_available": bool(job.get("result_storage_key")),
+        "owned": bool(job.get("user_id")),
         "created_at": job.get("created_at"),
         "updated_at": job.get("updated_at"),
     }
+    if claim_token:
+        payload["claim_token"] = claim_token
+    return payload
+
+
+def _optional_user_id(authorization: str | None) -> str | None:
+    return user_id_from_authorization(authorization)
+
+
+def _require_user_id(authorization: str | None) -> str:
+    user_id = user_id_from_authorization(authorization)
+    if not user_id:
+        raise HTTPException(status_code=401, detail=SIGN_IN_DETAIL)
+    return user_id
+
+
+def _visible_job(job_id: str, authorization: str | None) -> dict:
+    job = db.get_job(job_id)
+    if not job_visible_to(job, _optional_user_id(authorization)):
+        raise HTTPException(status_code=404, detail=NOT_FOUND_DETAIL)
+    return job
+
+
+def _parse_duration(value: str | None) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        seconds = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    if seconds < 0 or seconds > 24 * 60 * 60:
+        return None
+    return seconds
+
+
+def _delete_job_files(job: dict) -> None:
+    storage_backend = storage_service.get_storage()
+    try:
+        storage_backend.delete_upload(job.get("storage_key"))
+    except Exception:
+        pass
+    try:
+        storage_backend.delete_result(
+            job.get("result_storage_key"),
+            job_id=job.get("id"),
+        )
+    except Exception:
+        pass
+
+
+class ScorePatch(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+
+
+class ClaimBody(BaseModel):
+    token: str = Field(min_length=8, max_length=200)
+
+
+class ClaimUnownedBody(BaseModel):
+    job_ids: list[str] = Field(default_factory=list, max_length=40)
 
 
 @app.get("/health")
@@ -166,6 +239,9 @@ def health():
             "fast": True,
             "quality": poly_available,
         },
+        "auth": {
+            "jwt": bool(os.getenv("SUPABASE_JWT_SECRET") or os.getenv("SUPABASE_URL")),
+        },
     }
 
 
@@ -173,6 +249,8 @@ def health():
 async def upload(
     file: UploadFile = File(...),
     mode: str = Form("solo"),
+    duration_seconds: str | None = Form(None),
+    authorization: str | None = Header(default=None),
 ):
     if not file.filename:
         raise HTTPException(
@@ -185,6 +263,12 @@ async def upload(
             status_code=400,
             detail="Invalid file type. Allowed types: .wav, .mp3, .m4a, .flac, .mid, .midi",
         )
+
+    owner_id = None
+    if authorization:
+        owner_id = _optional_user_id(authorization)
+        if not owner_id:
+            raise HTTPException(status_code=401, detail=SIGN_IN_DETAIL)
 
     from transcription import parse_transcription_mode, queue_timeout_for_mode
 
@@ -284,11 +368,13 @@ async def upload(
         ) from exc
 
     now = db.utcnow()
+    filename = Path(file.filename).name
+    claim_token = None if owner_id else new_claim_token()
 
     job = {
         "id": job_id,
         "status": "queued",
-        "filename": Path(file.filename).name,
+        "filename": filename,
         "content_type": file.content_type,
         "size_bytes": size,
         "storage_key": storage_key,
@@ -298,6 +384,11 @@ async def upload(
         "created_at": now,
         "updated_at": now,
         "mode": resolved_mode,
+        "user_id": owner_id,
+        "title": title_from_filename(filename),
+        "duration_seconds": _parse_duration(duration_seconds),
+        "claim_token_hash": hash_claim_token(claim_token) if claim_token else None,
+        "deleted_at": None,
     }
 
     db.create_job(job)
@@ -319,31 +410,26 @@ async def upload(
             detail="Queue unavailable. Make sure Redis is running.",
         ) from exc
 
-    return public_job(job)
+    return public_job(job, claim_token=claim_token)
 
 
 @app.get("/jobs")
-def jobs_list(limit: int = 50):
+def jobs_list(
+    limit: int = 50,
+    authorization: str | None = Header(default=None),
+):
+    user_id = _require_user_id(authorization)
     limit = max(1, min(limit, 200))
-
-    jobs = db.list_jobs(limit)
-
-    return [
-        public_job(job)
-        for job in jobs
-    ]
+    jobs = db.list_jobs_for_user(user_id, limit)
+    return [public_job(job) for job in jobs]
 
 
 @app.get("/jobs/{job_id}")
-def job_detail(job_id: str):
-    job = db.get_job(job_id)
-
-    if not job:
-        raise HTTPException(
-            status_code=404,
-            detail="Job not found",
-        )
-
+def job_detail(
+    job_id: str,
+    authorization: str | None = Header(default=None),
+):
+    job = _visible_job(job_id, authorization)
     return public_job(job)
 
 
@@ -361,15 +447,12 @@ def _source_media_type(job: dict) -> str:
 
 
 @app.get("/jobs/{job_id}/source")
-def job_source(job_id: str):
+def job_source(
+    job_id: str,
+    authorization: str | None = Header(default=None),
+):
     """Original uploaded audio (or MIDI) for in-page preview."""
-    job = db.get_job(job_id)
-
-    if not job:
-        raise HTTPException(
-            status_code=404,
-            detail="Job not found",
-        )
+    job = _visible_job(job_id, authorization)
 
     storage_key = job.get("storage_key")
     if not storage_key:
@@ -431,7 +514,11 @@ def _musicxml_to_midi_bytes(musicxml_text: str) -> bytes:
 
 
 @app.get("/jobs/{job_id}/result")
-def job_result(job_id: str, format: str = "musicxml"):
+def job_result(
+    job_id: str,
+    format: str = "musicxml",
+    authorization: str | None = Header(default=None),
+):
     fmt = (format or "musicxml").lower()
 
     if fmt not in ("musicxml", "midi", "midi_score"):
@@ -440,13 +527,7 @@ def job_result(job_id: str, format: str = "musicxml"):
             detail="Unsupported format. Use 'musicxml', 'midi', or 'midi_score'.",
         )
 
-    job = db.get_job(job_id)
-
-    if not job:
-        raise HTTPException(
-            status_code=404,
-            detail="Job not found",
-        )
+    job = _visible_job(job_id, authorization)
 
     if job.get("status") != "completed":
         raise HTTPException(
@@ -551,3 +632,122 @@ def _load_sidecar_midi_bytes(
         return storage_backend.read_result_bytes(filename)
     except Exception:
         return None
+
+
+@app.post("/jobs/{job_id}/retry")
+def job_retry(
+    job_id: str,
+    authorization: str | None = Header(default=None),
+):
+    job = _visible_job(job_id, authorization)
+    if job.get("status") != "failed":
+        raise HTTPException(
+            status_code=409,
+            detail="This score isn’t waiting to be retried.",
+        )
+    if not job.get("storage_key"):
+        raise HTTPException(
+            status_code=409,
+            detail="The original recording is not available.",
+        )
+
+    from transcription import queue_timeout_for_mode
+
+    db.update_job(job_id, status="queued", progress=0, error=None)
+    try:
+        queue_service.enqueue_job(
+            job_id,
+            job_timeout=queue_timeout_for_mode(job.get("mode") or "solo"),
+        )
+    except Exception as exc:
+        db.update_job(job_id, status="failed", error="Failed to enqueue job")
+        raise HTTPException(
+            status_code=503,
+            detail="Queue unavailable. Make sure Redis is running.",
+        ) from exc
+
+    return public_job(db.get_job(job_id))
+
+
+@app.get("/scores")
+def scores_list(
+    limit: int = 100,
+    authorization: str | None = Header(default=None),
+):
+    user_id = _require_user_id(authorization)
+    limit = max(1, min(limit, 200))
+    jobs = db.list_jobs_for_user(user_id, limit)
+    return [public_job(job) for job in jobs]
+
+
+@app.get("/scores/{score_id}")
+def score_detail(
+    score_id: str,
+    authorization: str | None = Header(default=None),
+):
+    job = _visible_job(score_id, authorization)
+    return public_job(job)
+
+
+@app.patch("/scores/{score_id}")
+def score_rename(
+    score_id: str,
+    body: ScorePatch,
+    authorization: str | None = Header(default=None),
+):
+    user_id = _require_user_id(authorization)
+    job = db.get_job(score_id)
+    if not job or job.get("deleted_at") or job.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail=NOT_FOUND_DETAIL)
+    db.update_job(score_id, title=sanitize_title(body.title))
+    return public_job(db.get_job(score_id))
+
+
+@app.delete("/scores/{score_id}")
+def score_delete(
+    score_id: str,
+    authorization: str | None = Header(default=None),
+):
+    user_id = _require_user_id(authorization)
+    job = db.get_job(score_id)
+    if not job or job.get("deleted_at") or job.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail=NOT_FOUND_DETAIL)
+    _delete_job_files(job)
+    db.update_job(score_id, deleted_at=db.utcnow(), claim_token_hash=None)
+    return {"ok": True}
+
+
+@app.post("/scores/claim")
+def score_claim(
+    body: ClaimBody,
+    authorization: str | None = Header(default=None),
+):
+    user_id = _require_user_id(authorization)
+    job = db.get_job_by_claim_hash(hash_claim_token(body.token.strip()))
+    if not job:
+        raise HTTPException(status_code=404, detail=NOT_FOUND_DETAIL)
+    owner = job.get("user_id")
+    if owner and owner != user_id:
+        raise HTTPException(status_code=404, detail=NOT_FOUND_DETAIL)
+    db.update_job(job["id"], user_id=user_id, claim_token_hash=None)
+    return public_job(db.get_job(job["id"]))
+
+
+@app.post("/scores/claim-unowned")
+def score_claim_unowned(
+    body: ClaimUnownedBody,
+    authorization: str | None = Header(default=None),
+):
+    user_id = _require_user_id(authorization)
+    claimed = []
+    for job_id in body.job_ids[:40]:
+        job = db.get_job(job_id)
+        if not job or job.get("deleted_at"):
+            continue
+        owner = job.get("user_id")
+        if owner and owner != user_id:
+            continue
+        if not owner:
+            db.update_job(job_id, user_id=user_id, claim_token_hash=None)
+        claimed.append(public_job(db.get_job(job_id)))
+    return claimed

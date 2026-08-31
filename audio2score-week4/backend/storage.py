@@ -70,6 +70,25 @@ class LocalStorage:
     def read_result_bytes(self, result_storage_key):
         return Path(result_storage_key).read_bytes()
 
+    def delete_upload(self, storage_key):
+        if not storage_key:
+            return
+        path = Path(storage_key)
+        if path.exists():
+            path.unlink()
+        work_dir = path.parent / f"bp_{path.stem}"
+        if work_dir.is_dir():
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+    def delete_result(self, result_storage_key, job_id=None):
+        if result_storage_key:
+            path = Path(result_storage_key)
+            if path.exists():
+                path.unlink()
+            if path.parent.exists() and job_id:
+                for sidecar in path.parent.glob(f"{job_id}.*"):
+                    sidecar.unlink(missing_ok=True)
+
 
 class SupabaseStorage:
     backend = "supabase"
@@ -222,6 +241,34 @@ class SupabaseStorage:
         if isinstance(data, bytes):
             return data
         return bytes(data)
+
+    def delete_upload(self, storage_key):
+        if not storage_key:
+            return
+        try:
+            self._bucket(self.audio_bucket).remove([storage_key])
+        except Exception:
+            return
+
+    def delete_result(self, result_storage_key, job_id=None):
+        keys = []
+        if result_storage_key:
+            keys.append(result_storage_key)
+        if job_id:
+            keys.extend(
+                [
+                    f"{job_id}.musicxml",
+                    f"{job_id}.raw.mid",
+                    f"{job_id}.validated.mid",
+                    f"{job_id}.score.mid",
+                ]
+            )
+        if not keys:
+            return
+        try:
+            self._bucket(self.results_bucket).remove(keys)
+        except Exception:
+            return
 
 
 @lru_cache

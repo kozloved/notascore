@@ -6,6 +6,7 @@ export type StoredScore = {
   created_at?: string;
   progress?: number;
   source_kind?: string;
+  duration_seconds?: number | null;
 };
 
 const ACTIVE_KEY = "notascore-active-job";

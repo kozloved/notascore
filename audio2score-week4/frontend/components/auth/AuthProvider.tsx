@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -14,6 +15,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import { isSupabaseConfigured, supabase } from "../../lib/supabase";
 import { authErrorMessage } from "../../lib/auth-errors";
 import { rememberNextPath, safeNextPath } from "../../lib/redirect";
+import { attachAccountScores } from "../../lib/jobs";
 
 type AuthContextValue = {
   user: User | null;
@@ -36,6 +38,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const attached = useRef(false);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -62,6 +65,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!session?.access_token) {
+      attached.current = false;
+      return;
+    }
+    if (attached.current) return;
+    attached.current = true;
+    void attachAccountScores();
+  }, [session?.access_token]);
 
   const signInWithGoogle = useCallback(async (next?: string) => {
     if (!isSupabaseConfigured) {

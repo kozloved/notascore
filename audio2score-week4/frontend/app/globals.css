@@ -973,13 +973,14 @@ body::before {
   padding: 16px;
 }
 
-.ns-score-card a {
+.ns-score-card-rich {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 12px;
-  align-items: center;
-  text-decoration: none;
-  color: var(--ns-text-primary);
+}
+
+.ns-score-card a {
+  color: inherit;
 }
 
 .ns-empty {
@@ -1895,6 +1896,175 @@ details.raw pre {
   color: var(--ns-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ns-library-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 24px;
+}
+
+.ns-library-search {
+  flex: 1 1 220px;
+}
+
+.ns-library-empty,
+.ns-library-error {
+  margin-top: 32px;
+  color: var(--ns-text-secondary);
+}
+
+.ns-library-empty p,
+.ns-library-error p {
+  margin: 0 0 8px;
+}
+
+.ns-score-card-rich {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ns-score-main {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  text-decoration: none;
+  color: var(--ns-text-primary);
+}
+
+.ns-score-thumb {
+  width: 48px;
+  height: 56px;
+  border-radius: 6px;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 8px,
+      color-mix(in srgb, var(--ns-text-primary) 18%, transparent) 8px 9px
+    ),
+    var(--ns-score-paper);
+  box-shadow: var(--ns-shadow-sm, 0 1px 2px rgb(0 0 0 / 0.08));
+}
+
+.ns-score-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ns-score-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ns-score-meta {
+  color: var(--ns-text-muted);
+  font-size: 0.82rem;
+}
+
+.ns-score-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.ns-score-actions a,
+.ns-score-actions button {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--ns-text-secondary);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ns-score-skeleton {
+  min-height: 88px;
+  background: color-mix(in srgb, var(--ns-surface) 60%, var(--ns-border));
+}
+
+.ns-title-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ns-title-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-family: var(--font-display), "Instrument Serif", Georgia, serif;
+  font-size: 1.6rem;
+  color: var(--ns-text-primary);
+  cursor: text;
+  text-align: left;
+}
+
+.ns-title-input {
+  max-width: 32rem;
+  font-size: 1.2rem;
+}
+
+.ns-title-feedback {
+  color: var(--ns-text-muted);
+  font-size: 0.85rem;
+}
+
+.ns-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--ns-bg) 55%, rgb(0 0 0 / 0.45));
+  display: grid;
+  place-items: center;
+  z-index: var(--ns-z-drawer);
+  padding: 16px;
+}
+
+.ns-dialog {
+  width: min(420px, 100%);
+  background: var(--ns-surface-elevated, var(--ns-surface));
+  border: 1px solid var(--ns-border);
+  border-radius: var(--ns-radius);
+  padding: 24px;
+  box-shadow: var(--ns-shadow);
+}
+
+.ns-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 1.2rem;
+}
+
+.ns-dialog p {
+  margin: 0 0 20px;
+  color: var(--ns-text-secondary);
+}
+
+.ns-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .ns-legal {

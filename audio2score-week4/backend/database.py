@@ -47,11 +47,26 @@ class Job(Base):
     created_at = Column(String, nullable=True)
     updated_at = Column(String, nullable=True)
     mode = Column(String, default="solo")
+    user_id = Column(String, nullable=True, index=True)
+    title = Column(String, nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    claim_token_hash = Column(String, nullable=True, index=True)
+    deleted_at = Column(String, nullable=True)
+
+
+OWNERSHIP_COLUMNS = {
+    "user_id": "VARCHAR",
+    "title": "VARCHAR",
+    "duration_seconds": "INTEGER",
+    "claim_token_hash": "VARCHAR",
+    "deleted_at": "VARCHAR",
+}
 
 
 def init_db():
     Base.metadata.create_all(bind=engine)
     _ensure_job_mode_column()
+    _ensure_job_ownership_columns()
 
 
 def _ensure_job_mode_column():
@@ -65,6 +80,29 @@ def _ensure_job_mode_column():
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE jobs ADD COLUMN mode VARCHAR DEFAULT 'solo'"))
         conn.execute(text("UPDATE jobs SET mode = 'solo' WHERE mode IS NULL"))
+
+
+def _ensure_job_ownership_columns():
+    inspector = inspect(engine)
+    if "jobs" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("jobs")}
+    with engine.begin() as conn:
+        for name, sql_type in OWNERSHIP_COLUMNS.items():
+            if name not in columns:
+                conn.execute(text(f"ALTER TABLE jobs ADD COLUMN {name} {sql_type}"))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_jobs_user_created "
+                "ON jobs (user_id, created_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_jobs_claim_token_hash "
+                "ON jobs (claim_token_hash)"
+            )
+        )
 
 
 def row_to_dict(row):
@@ -104,12 +142,29 @@ def get_job(job_id: str):
         session.close()
 
 
+def get_job_by_claim_hash(token_hash: str):
+    if not token_hash:
+        return None
+    session = SessionLocal()
+    try:
+        row = (
+            session.query(Job)
+            .filter(Job.claim_token_hash == token_hash)
+            .filter(Job.deleted_at.is_(None))
+            .first()
+        )
+        return row_to_dict(row)
+    finally:
+        session.close()
+
+
 def list_jobs(limit: int = 50):
     session = SessionLocal()
 
     try:
         rows = (
             session.query(Job)
+            .filter(Job.deleted_at.is_(None))
             .order_by(Job.created_at.desc())
             .limit(limit)
             .all()
@@ -124,12 +179,33 @@ def list_jobs(limit: int = 50):
         session.close()
 
 
+def list_jobs_for_user(user_id: str, limit: int = 100):
+    session = SessionLocal()
+    try:
+        rows = (
+            session.query(Job)
+            .filter(Job.user_id == user_id)
+            .filter(Job.deleted_at.is_(None))
+            .order_by(Job.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return [row_to_dict(row) for row in rows]
+    finally:
+        session.close()
+
+
 ALLOWED_UPDATE_FIELDS = {
     "status",
     "progress",
     "error",
     "storage_key",
     "result_storage_key",
+    "user_id",
+    "title",
+    "duration_seconds",
+    "claim_token_hash",
+    "deleted_at",
 }
 
 

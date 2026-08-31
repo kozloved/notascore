@@ -1,5 +1,7 @@
 /** In-page MIDI playback with Tone.js (no extra soundfont download). */
 
+import { apiFetch } from "./api-client";
+
 const SYNTH_OPTIONS = {
   oscillator: { type: "triangle" },
   envelope: {
@@ -21,7 +23,7 @@ export function formatClock(seconds) {
 }
 
 export async function fetchArrayBuffer(url) {
-  const response = await fetch(url);
+  const response = await apiFetch(url);
   if (!response.ok) {
     throw new Error(`Could not load preview (${response.status})`);
   }
