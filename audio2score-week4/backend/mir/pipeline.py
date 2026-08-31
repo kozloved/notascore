@@ -206,8 +206,10 @@ class UnderstandingPipeline:
             prediction.instrument
         )
         if run_piano:
-            piano = self.piano_analyzer.analyze(normalized, notes)
-            notes = piano.notes
+            # Metadata only: do not replace transcription velocities/onsets.
+            piano = self.piano_analyzer.analyze(
+                normalized, notes, mutate_velocity=False
+            )
             pedal_events = [(p.time_sec, p.value) for p in piano.pedal_events]
             pedal_obs = [
                 PedalObservation(
@@ -216,7 +218,8 @@ class UnderstandingPipeline:
                 for p in piano.pedal_events
             ]
             print(
-                f"[PianoAnalyzer] refined velocities for {len(notes)} notes "
+                f"[PianoAnalyzer] metadata only "
+                f"(velocities preserved, suggestions={len(piano.velocity_suggestions or [])}) "
                 f"pedal={len(pedal_events)} (job={job_id})"
             )
         self.last_post_piano_notes = list(notes)
@@ -338,10 +341,11 @@ class UnderstandingPipeline:
             f"(job={job_id})"
         )
 
-        # Rewrite validated MIDI now that tempo is known. Do not touch raw.mid.
+        # Rewrite validated MIDI with known tempo, but keep the post-cleaner
+        # note list. Piano / Gemini must not silently replace this snapshot.
         write_job_stage_midi(
             job_validated_midi_path(audio_path, job_id),
-            notes,
+            list(self.last_validated_notes or []),
             bpm=bpm,
             pedal_events=pedal_events,
             split_hands=False,

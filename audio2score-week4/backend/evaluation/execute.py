@@ -17,6 +17,7 @@ from evaluation.metrics import (
     tempo_metrics,
 )
 from evaluation.normalize import NormalizedReference, normalize_reference_midi
+from evaluation.preservation import stage_preservation_bundle
 from evaluation.schema import CaseSpec
 from evaluation.stages import capture_transcription_stages, copy_musicxml
 from mir.pipeline import UnderstandingPipeline
@@ -40,6 +41,7 @@ class CaseResult:
     reference: dict[str, Any] = field(default_factory=dict)
     artifacts: dict[str, Any] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
+    preservation: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -59,6 +61,7 @@ class CaseResult:
             "reference": self.reference,
             "artifacts": self.artifacts,
             "tags": self.tags,
+            "preservation": self.preservation,
             "onset_pitch_f1": (self.notes or {}).get("onset_pitch_f1"),
         }
 
@@ -126,6 +129,7 @@ def evaluate_case(
 
     job_dir = audio_copy.parent / f"bp_{case.case_id}"
     raw_midi = job_dir / f"{case.case_id}.raw.mid"
+    validated_midi = job_dir / f"{case.case_id}.validated.mid"
     score_midi = job_dir / f"{case.case_id}.score.mid"
     musicxml_src = job_dir / f"{case.case_id}.musicxml"
     debug_json = job_dir / f"{case.case_id}.debug.json"
@@ -236,6 +240,14 @@ def evaluate_case(
     )
     result.stages = diagnostics.to_dict()
 
+    result.preservation = stage_preservation_bundle(
+        raw_notes=pipe.last_raw_notes,
+        validated_notes=getattr(pipe, "last_validated_notes", None),
+        structured_events=events,
+        quantized_events=quantized_events,
+        tempo_map=structure.tempo_map if structure is not None else None,
+        fallback_bpm=predicted_tempo or 120.0,
+    )
     result.pipeline = {
         "raw_note_count": (
             len(pipe.last_raw_notes) if pipe.last_raw_notes is not None else None
@@ -281,7 +293,28 @@ def evaluate_case(
         "quantized_events_changed": (
             (debug.extra or {}).get("quantized_events_changed") if debug else None
         ),
+        "raw_event_preservation_rate": (
+            (result.preservation.get("raw_vs_validated") or {}).get(
+                "raw_event_preservation_rate"
+            )
+            if result.preservation
+            else None
+        ),
     }
+
+    alias = {
+        "transcription": "raw_vs_reference_F1",
+        "post_cleaner": "validated_vs_reference_F1",
+        "structured": "structured_vs_reference_F1",
+        "quantized": "quantized_vs_reference_F1",
+    }
+    for stage in diagnostics.stages:
+        key = alias.get(stage.name)
+        if not key:
+            continue
+        f1 = (stage.metrics or {}).get("onset_pitch_f1")
+        if isinstance(f1, (int, float)):
+            result.pipeline[key] = float(f1)
 
     # Prefer structured-stage F1 as the headline when available
     structured_metrics = None
@@ -310,6 +343,7 @@ def evaluate_case(
         if (out / "structured.mid").exists()
         else None,
         "pipeline_raw_midi": str(raw_midi) if raw_midi.exists() else None,
+        "pipeline_validated_midi": str(validated_midi) if validated_midi.exists() else None,
         "pipeline_score_midi": str(score_midi) if score_midi.exists() else None,
         "pipeline_debug_json": str(debug_json) if debug_json.exists() else None,
         "results_dir": str(out),
@@ -344,6 +378,19 @@ def _write_case_files(
         _case_report_markdown(result, diagnostics_text),
         encoding="utf-8",
     )
+    if result.preservation:
+        from evaluation.stage_diff import f1_from_case_result, format_stage_diff
+
+        (out / "stage_diff.txt").write_text(
+            format_stage_diff(
+                result.preservation, f1_by_stage=f1_from_case_result(result)
+            ),
+            encoding="utf-8",
+        )
+        (out / "preservation.json").write_text(
+            json.dumps(result.preservation, indent=2, default=str) + "\n",
+            encoding="utf-8",
+        )
 
 
 def _case_report_markdown(result: CaseResult, diagnostics_text: str) -> str:
@@ -410,6 +457,34 @@ def _case_report_markdown(result: CaseResult, diagnostics_text: str) -> str:
         f"- notation_path: {pipe.get('notation_path')}",
         f"- cleaner suppressions: {pipe.get('cleaner_suppressions')}",
         f"- MusicXML success: {pipe.get('musicxml_success')}",
+        f"- raw_vs_reference_F1: {_fmt(pipe.get('raw_vs_reference_F1'))}",
+        f"- validated_vs_reference_F1: {_fmt(pipe.get('validated_vs_reference_F1'))}",
+        f"- structured_vs_reference_F1: {_fmt(pipe.get('structured_vs_reference_F1'))}",
+        f"- quantized_vs_reference_F1: {_fmt(pipe.get('quantized_vs_reference_F1'))}",
+        "",
+        "## Raw preservation",
+        "",
+    ]
+    preservation = result.preservation or {}
+    rv = preservation.get("raw_vs_validated") or {}
+    qn = preservation.get("quantization") or {}
+    lines += [
+        f"- raw / validated / structured / quantized: "
+        f"{preservation.get('raw_note_count')} / "
+        f"{preservation.get('validated_note_count')} / "
+        f"{preservation.get('structured_note_count')} / "
+        f"{preservation.get('quantized_note_count')}",
+        f"- deleted_from_raw (validated): {rv.get('deleted_from_raw', '—')}",
+        f"- added_vs_raw (validated): {rv.get('added_vs_raw', '—')}",
+        f"- pitch/onset/duration changed vs raw: "
+        f"{rv.get('pitch_changed_vs_raw', '—')} / "
+        f"{rv.get('onset_changed_vs_raw', '—')} / "
+        f"{rv.get('duration_changed_vs_raw', '—')}",
+        f"- raw_event_preservation_rate (validated): "
+        f"{_fmt(rv.get('raw_event_preservation_rate'))}",
+        f"- quantized moved / unchanged: "
+        f"{qn.get('events_moved', '—')} / {qn.get('events_unchanged', '—')}",
+        f"- mean onset shift: {_fmt(qn.get('average_onset_shift_ms'), ' ms')}",
         "",
         "## Stage diagnostics",
         "",

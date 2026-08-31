@@ -72,11 +72,23 @@ def events_to_notes(
     events: Sequence[MusicalEvent],
     tempo_map: TempoMap | None = None,
     fallback_bpm: float = 120.0,
+    *,
+    timing: str = "notation",
 ) -> list[NoteEvent]:
+    """Convert MusicalEvents to NoteEvents.
+
+    timing='notation' (default) uses the beat grid via tempo_map when present.
+    timing='performance' prefers start_time_sec / end_time_sec so structure
+    metadata can be compared against RAW without beat-roundtrip noise.
+    """
     spb = 60.0 / float(fallback_bpm if fallback_bpm else 120.0)
     notes: list[NoteEvent] = []
+    use_performance = timing == "performance"
     for ev in events:
-        if tempo_map is not None:
+        if use_performance and ev.start_time_sec is not None and ev.end_time_sec is not None:
+            start = float(ev.start_time_sec)
+            end = float(ev.end_time_sec)
+        elif tempo_map is not None:
             start = tempo_map.beats_to_seconds(ev.start_beat)
             end = tempo_map.beats_to_seconds(ev.start_beat + ev.duration_beats)
         elif ev.start_time_sec is not None and ev.end_time_sec is not None:
@@ -93,6 +105,7 @@ def events_to_notes(
                 velocity=int(ev.velocity),
                 confidence=float(ev.confidence),
                 hand=ev.hand,
+                note_id=ev.note_id or "",
             )
         )
     return sorted(notes, key=lambda n: (n.start_time, n.pitch))

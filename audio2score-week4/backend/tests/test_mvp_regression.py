@@ -82,6 +82,28 @@ def test_safe_mode_keeps_grace_like_short_notes():
     assert any("micro_note" in d.reason for d in report)
 
 
+def test_safe_mode_does_not_trim_same_pitch_overlap():
+    notes = [
+        _n(60, 0.0, 1.0, vel=80),
+        _n(60, 0.4, 1.2, vel=70),
+    ]
+    cleaned = MIDICleaner(mode=ValidationMode.STRICT_SAFE).clean(notes)
+    assert len(cleaned) == 2
+    assert cleaned[0].end_time == 1.0
+    assert cleaned[1].start_time == 0.4
+
+
+def test_legacy_still_trims_same_pitch_overlap():
+    notes = [
+        _n(60, 0.0, 1.0, vel=80),
+        _n(60, 0.4, 1.2, vel=70),
+    ]
+    cleaned = MIDICleaner().clean(notes)
+    same = [n for n in cleaned if n.pitch == 60]
+    assert len(same) == 2
+    assert same[0].end_time <= same[1].start_time + 1e-9
+
+
 def test_safe_mode_preserves_repeated_notes():
     notes = [
         _n(60, 0.0, 0.20, vel=80),

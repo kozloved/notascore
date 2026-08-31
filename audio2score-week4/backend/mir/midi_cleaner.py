@@ -3,12 +3,15 @@
 Destructive edits are classified KEEP / SUPPRESS / UNCERTAIN with a reason.
 Modes:
 
-    strict_safe         technically invalid MIDI only (MT3 default)
+    strict_safe         technically invalid MIDI only (MT3 default).
+                        Does not trim same-pitch overlaps, drop quiet
+                        notes, snap chords, or rewrite timing.
     conservative        safe + Basic Pitch artifact cleanup (quiet micros,
                         near-duplicate onsets, quiet octave ghosts)
     legacy_aggressive   historical production cleaner, including chord-start
-                        snapping, millisecond drift rounding, and final-note
-                        stretching — kept for A/B and explicit opt-in
+                        snapping, millisecond drift rounding, overlap trim,
+                        and final-note stretching — kept for A/B and explicit
+                        opt-in
 
 MIDICleaner() with no arguments stays on legacy_aggressive so existing unit
 tests of those rules keep their meaning. Production always constructs the
@@ -32,7 +35,10 @@ _MODE_PRESETS: dict[ValidationMode, dict] = {
         "min_duration_sec": 0.0,
         "drop_octave_ghosts": False,
         "suppress_octave_ghosts": False,
-        "trim_overlaps": True,
+        # Overlap trim shortens a still-sounding retrigger. That is a
+        # musical duration guess, not invalid MIDI, so STRICT_SAFE leaves
+        # overlapping same-pitch notes untouched.
+        "trim_overlaps": False,
         "stretch_final_note": False,
         "snap_chords": False,
         "correct_drift": False,

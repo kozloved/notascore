@@ -53,6 +53,41 @@ def test_understanding_pipeline_produces_musicxml(mock_transcribe, tmp_path, mon
 
 
 @patch("adapters.basic_pitch_backend.BasicPitchBackend.transcribe_notes")
+@patch("audio_engine.instrument_classifier.InstrumentClassifier.classify")
+def test_understanding_piano_analysis_does_not_rewrite_notes(
+    mock_classify, mock_transcribe, tmp_path, monkeypatch
+):
+    monkeypatch.delenv("TRANSCRIPTION_ENABLE_PIANO_ANALYSIS", raising=False)
+    monkeypatch.setenv("TRANSCRIPTION_USE_PIANO_ANALYZER", "1")
+    mock_classify.return_value = InstrumentPrediction(
+        instrument=InstrumentKind.PIANO,
+        confidence=0.95,
+    )
+    mock_transcribe.return_value = [
+        NoteEvent(pitch=60, start_time=0.0, end_time=0.5, velocity=80, confidence=1.0, note_id="a"),
+        NoteEvent(pitch=48, start_time=0.0, end_time=1.0, velocity=78, confidence=1.0, note_id="b"),
+        NoteEvent(pitch=64, start_time=0.5, end_time=1.0, velocity=80, confidence=1.0, note_id="c"),
+    ]
+    audio = tmp_path / "piano.wav"
+    sr = 22050
+    t = np.linspace(0, 2, sr * 2)
+    sf.write(str(audio), 0.25 * np.sin(2 * np.pi * 440 * t), sr)
+
+    pipe = UnderstandingPipeline(mode="fast", validation_mode="strict_safe")
+    pipe.transcribe(audio, "piano-meta")
+    by_id = {n.note_id: n for n in pipe.last_raw_notes}
+    for later in (pipe.last_validated_notes, pipe.last_post_piano_notes):
+        assert later is not None
+        got = {n.note_id: n for n in later}
+        assert set(got) == set(by_id)
+        for nid, raw in by_id.items():
+            assert got[nid].velocity == raw.velocity
+            assert got[nid].pitch == raw.pitch
+            assert got[nid].start_time == raw.start_time
+            assert got[nid].end_time == raw.end_time
+
+
+@patch("adapters.basic_pitch_backend.BasicPitchBackend.transcribe_notes")
 def test_fallback_engine_uses_legacy_on_failure(mock_transcribe, tmp_path, monkeypatch):
     mock_transcribe.return_value = []
 

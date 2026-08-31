@@ -25,6 +25,9 @@ def test_basic_pitch_defaults_to_conservative(monkeypatch):
     assert cleaner.snap_chords is False
     assert cleaner.stretch_final_note is False
     assert cleaner.drop_octave_ghosts is True
+    safe = MIDICleaner.for_source("mt3")
+    assert safe.trim_overlaps is False
+    assert safe.merge_threshold_sec == 0.001
 
 
 def test_env_override_validation_mode(monkeypatch):

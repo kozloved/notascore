@@ -103,8 +103,8 @@ Gemini is optional (`TRANSCRIPTION_ENABLE_GEMINI=0` by default) and never requir
 
 | Backend | Default `TRANSCRIPTION_VALIDATION_MODE` | Allowed mutations |
 |---|---|---|
-| `mt3` | `strict_safe` | invalid MIDI clamp, exact duplicates, overlap trim required for piano retrigger |
-| `basic_pitch` | `conservative` | safe + quiet micro-notes + 25 ms same-pitch merge + quiet octave ghosts |
+| `mt3` | `strict_safe` | invalid MIDI clamp, ~1 ms exact same-pitch duplicate merge |
+| `basic_pitch` | `conservative` | safe + quiet micro-notes + 25 ms same-pitch merge + quiet octave ghosts + overlap trim |
 | `midi` ingest | `strict_safe` | none beyond ingest |
 
 Set `TRANSCRIPTION_VALIDATION_MODE=legacy_aggressive` to restore chord-start snapping, millisecond drift rounding, and final-note stretching for A/B.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -21,13 +21,28 @@ class PedalEvent:
 class PianoAnalysis:
     notes: list[NoteEvent]
     pedal_events: list[PedalEvent]
+    velocity_suggestions: list[int] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.velocity_suggestions:
+            self.velocity_suggestions = [int(n.velocity) for n in self.notes]
 
 
 class PianoAudioAnalyzer:
-    """Refine piano note velocities and detect sustain pedal (CC64)."""
+    """Infer piano velocities and sustain pedal (CC64) as analysis metadata.
+
+    By default ``mutate_velocity=True`` so the legacy BasicPitchEngine path
+    keeps rewriting note velocities. The understanding pipeline passes
+    ``mutate_velocity=False``: suggestions stay on PianoAnalysis and the
+    transcription note list is not rewritten.
+    """
 
     def analyze(
-        self, audio: NormalizedAudio, notes: list[NoteEvent]
+        self,
+        audio: NormalizedAudio,
+        notes: list[NoteEvent],
+        *,
+        mutate_velocity: bool = True,
     ) -> PianoAnalysis:
         import librosa
 
@@ -36,7 +51,7 @@ class PianoAudioAnalyzer:
         if not notes or y.size == 0:
             return PianoAnalysis(notes=notes, pedal_events=[])
 
-        refined: list[NoteEvent] = []
+        suggestions: list[int] = []
         onset_env = librosa.onset.onset_strength(y=y, sr=sr)
         max_env = float(np.max(onset_env)) if onset_env.size else 1.0
 
@@ -45,15 +60,21 @@ class PianoAudioAnalyzer:
             frame = min(max(0, frame), len(onset_env) - 1) if onset_env.size else 0
             attack = float(onset_env[frame]) / max(max_env, 1e-8) if onset_env.size else 0.5
             vel = int(min(127, max(20, 30 + attack * 90)))
-            refined.append(
-                replace(
-                    note,
-                    velocity=vel,
-                )
-            )
+            suggestions.append(vel)
+
+        if mutate_velocity:
+            refined = [
+                replace(note, velocity=vel) for note, vel in zip(notes, suggestions)
+            ]
+        else:
+            refined = list(notes)
 
         pedal_events = self._detect_pedal(y, sr, refined)
-        return PianoAnalysis(notes=refined, pedal_events=pedal_events)
+        return PianoAnalysis(
+            notes=refined,
+            pedal_events=pedal_events,
+            velocity_suggestions=suggestions,
+        )
 
     def _detect_pedal(
         self, y: np.ndarray, sr: int, notes: list[NoteEvent]
