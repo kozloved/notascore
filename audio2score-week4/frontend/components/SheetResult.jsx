@@ -50,7 +50,7 @@ async function svgToPng(svg, scale) {
   return { dataUrl: canvas.toDataURL("image/png"), w: canvas.width, h: canvas.height };
 }
 
-export default function SheetResult({ apiUrl, jobId, filename }) {
+export default function SheetResult({ apiUrl, jobId, filename, onExport = undefined }) {
   const containerRef = useRef(null);
   const osmdRef = useRef(null);
   const [previewState, setPreviewState] = useState("loading"); // loading | ready | error
@@ -126,6 +126,7 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
       if (!res.ok) throw new Error(`Failed to download ${ext.toUpperCase()}`);
       const blob = await res.blob();
       triggerDownload(blob, `${stem}.${ext}`);
+      onExport?.(format === "musicxml" ? "musicxml" : "midi");
     } catch (err) {
       setMessage(err?.message || `Failed to download ${ext.toUpperCase()}`);
     } finally {
@@ -157,6 +158,7 @@ export default function SheetResult({ apiUrl, jobId, filename }) {
       }
 
       pdf.save(`${stem}.pdf`);
+      onExport?.("pdf");
     } catch (err) {
       setMessage(err?.message || "Failed to generate PDF");
     } finally {

@@ -6,7 +6,21 @@ export type AnalyticsEvent =
   | "login_started"
   | "signup_started"
   | "signup_completed"
-  | "create_score_clicked";
+  | "create_score_clicked"
+  | "create_page_viewed"
+  | "upload_started"
+  | "upload_completed"
+  | "audio_preview_played"
+  | "score_creation_started"
+  | "auth_interruption"
+  | "job_processing_started"
+  | "job_completed"
+  | "job_failed"
+  | "score_opened"
+  | "export_pdf"
+  | "export_midi"
+  | "export_musicxml"
+  | "retry_started";
 
 /**
  * Lightweight, first-party events. No third-party pixels, no cookies,

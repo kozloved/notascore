@@ -825,9 +825,166 @@ body::before {
   border-color: var(--ns-accent);
 }
 
-.dropzone.is-disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
+.dropzone.is-over {
+  border-color: var(--ns-accent);
+  background: var(--ns-accent-soft);
+}
+
+.ns-create {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ns-preview-name {
+  margin: 0;
+  font-weight: 650;
+  word-break: break-all;
+}
+
+.ns-preview-meta,
+.ns-preview-note {
+  margin: 4px 0 0;
+  color: var(--ns-text-muted);
+  font-size: 0.85rem;
+}
+
+.ns-wave-canvas {
+  width: 100%;
+  height: 72px;
+  margin-top: 12px;
+  color: var(--ns-text-primary);
+}
+
+.ns-preview-transport {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.ns-advanced {
+  border-top: 1px solid var(--ns-border);
+  padding-top: 12px;
+}
+
+.ns-advanced summary {
+  cursor: pointer;
+  color: var(--ns-text-secondary);
+  font-size: 0.9rem;
+}
+
+.ns-advanced-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+  font-size: 0.95rem;
+}
+
+.ns-upload-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ns-process-title {
+  margin: 0 0 16px;
+  font-size: 1.25rem;
+  font-family: var(--font-display), "Instrument Serif", Georgia, serif;
+  font-weight: 400;
+}
+
+.ns-process-stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.ns-process-stage {
+  display: flex;
+  gap: 10px;
+  color: var(--ns-text-muted);
+}
+
+.ns-process-stage.is-current {
+  color: var(--ns-text-primary);
+}
+
+.ns-process-stage.is-done {
+  color: var(--ns-success);
+}
+
+.ns-process-visual {
+  margin-top: 24px;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+.ns-process-wave {
+  width: 100%;
+  height: 48px;
+}
+
+.ns-process-score {
+  width: 100%;
+  padding: 10px;
+}
+
+.ns-fail h2 {
+  margin: 0 0 8px;
+  font-family: var(--font-display), "Instrument Serif", Georgia, serif;
+  font-weight: 400;
+}
+
+.ns-fail p {
+  color: var(--ns-text-secondary);
+}
+
+.ns-result-title {
+  margin: 8px 0 0;
+  font-size: 1.4rem;
+  font-family: var(--font-display), "Instrument Serif", Georgia, serif;
+  font-weight: 400;
+}
+
+.ns-save-panel {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ns-border);
+}
+
+.ns-score-list {
+  list-style: none;
+  margin: 32px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.ns-score-card {
+  border: 1px solid var(--ns-border);
+  border-radius: var(--ns-radius);
+  background: var(--ns-surface);
+  padding: 16px;
+}
+
+.ns-score-card a {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  text-decoration: none;
+  color: var(--ns-text-primary);
+}
+
+.ns-empty {
+  margin-top: 32px;
+  color: var(--ns-text-muted);
 }
 
 .dz-icon {

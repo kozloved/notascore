@@ -61,11 +61,24 @@ Analytics: first-party `track()` events only. No third-party pixels or cookies.
 - `ListenPreview` playback
 - Supabase Google sign-in on `/login` (now also email)
 
+## Create workflow (Pass 3)
+
+`/create` is a staged workspace: empty dropzone → local audio preview → one `POST /upload` → poll `GET /jobs/:id` → paper score.
+
+Job id is stored in the URL (`?job=`) and in `localStorage` (`notascore-active-job`, `notascore-recent-jobs`) so refresh and My Scores can recover server-side work. Files chosen but not yet uploaded stay in memory only.
+
+Instrument detection is not shown: the job API does not return a detected instrument. Ensemble remains an advanced option only when health says polyphonic is available. Default request is solo (“let NotaScore choose”).
+
+My Scores lists jobs from this browser, not account ownership. The backend does not associate jobs with users.
+
+No transcription-engine changes were made.
+
 ## Known issues
 
-- `/dashboard` is not a personal score library yet. Jobs are not tied to accounts.
+- `/dashboard` lists scores on this device only. Jobs are not tied to accounts.
+- A file chosen but not yet uploaded cannot survive a full page reload or OAuth redirect.
+- There is no server retry endpoint; Try again uploads again if the file is still in memory.
 - Sign-in is disabled until `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set.
 - Apple sign-in is not configured.
 - Billing is not implemented; pricing pages describe structure only.
 - Ensemble transcription may be offline depending on the workspace.
-- No frontend unit tests existed; Pass 2 did not add a test runner.
