@@ -46,13 +46,49 @@ def estimate_time_signature(events: list[MusicalEvent]) -> str:
     return DEFAULT_TIME_SIG
 
 
+def _unique_pcs(events: list[MusicalEvent]) -> set[int]:
+    return {int(e.pitch) % 12 for e in events}
+
+
+def _exact_triad_key(pcs: set[int]) -> str | None:
+    """If the texture is only a major or minor triad, return that key."""
+    if len(pcs) != 3:
+        return None
+    major = None
+    minor = None
+    for root in pcs:
+        third_maj = (root + 4) % 12
+        third_min = (root + 3) % 12
+        fifth = (root + 7) % 12
+        if {third_maj, fifth} <= pcs:
+            major = _PC_NAMES[root]
+        if {third_min, fifth} <= pcs:
+            minor = _PC_NAMES[root].lower()
+    if major and not minor:
+        return major
+    if minor and not major:
+        return minor
+    return None
+
+
 def estimate_key(events: list[MusicalEvent]) -> str | None:
     """Return a music21 key name (e.g. 'C' or 'a') when the profile is decisive."""
-    if len(events) < 8:
+    usable = [e for e in events if 36 <= int(e.pitch) <= 96]
+    if len(usable) < 4:
         return None
+    triad = _exact_triad_key(_unique_pcs(usable))
+    if triad:
+        return triad
     hist = [0.0] * 12
-    for ev in events:
-        hist[ev.pitch % 12] += max(ev.duration_beats, 0.25)
+    # Short melodies: unique pitch classes so a repeated dominant/tonic
+    # (or a split last note) does not flip F minor into C.
+    if len(usable) < 16:
+        seen = {int(e.pitch) % 12 for e in usable}
+        for pc in seen:
+            hist[pc] = 1.0
+    else:
+        for ev in usable:
+            hist[ev.pitch % 12] += max(ev.duration_beats, 0.25)
 
     def _corr(profile: tuple[float, ...], shift: int) -> float:
         rotated = [profile[(i - shift) % 12] for i in range(12)]

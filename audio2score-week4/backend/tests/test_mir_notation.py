@@ -151,3 +151,78 @@ def test_estimate_time_signature_defaults_to_four_four():
         for i in range(8)
     ]
     assert estimate_time_signature(events) == "4/4"
+
+
+def test_writer_spells_ab_not_gs_in_f_minor():
+    """MIDI 68 is G# by default; F minor must print A-flat (plain A on the staff)."""
+    from notation_engine.writer import spell_midi_for_key
+
+    spelled = spell_midi_for_key(68, "f")
+    assert spelled.step == "A"
+    assert spelled.alter == -1
+    assert spelled.midi == 68
+
+    events = [
+        MusicalEvent(pitch=p, start_beat=float(i) * 2.0, duration_beats=2.0, hand=Hand.RIGHT)
+        for i, p in enumerate([65, 67, 68, 70, 72])
+    ]
+    meta = ScoreMeta(display_tempo_bpm=80, time_sig_hint="4/4", key_hint="f")
+    score = NotationWriter().write_from_events_direct(events, meta)
+    pitched = [n for n in score.recurse().notes if n.isNote]
+    ab = next(n for n in pitched if n.pitch.midi == 68)
+    assert ab.pitch.step == "A"
+    assert ab.pitch.alter == -1
+    assert not any(n.pitch.step == "G" and n.pitch.alter == 1 for n in pitched)
+
+
+def test_estimate_key_f_minor_short_melody():
+    from notation_engine.meter import estimate_key
+
+    events = [
+        MusicalEvent(pitch=p, start_beat=float(i), duration_beats=1.0)
+        for i, p in enumerate([65, 67, 68, 70, 72, 70, 72])
+    ]
+    assert estimate_key(events) == "f"
+
+
+def test_estimate_key_waltz_d_major_triad():
+    """Case3 is only D–F#–A; afterbeat weight must not flip it to F# minor."""
+    from notation_engine.meter import estimate_key
+
+    events = []
+    for bar in range(4):
+        down = float(bar * 3)
+        events.extend(
+            [
+                MusicalEvent(pitch=38, start_beat=down, duration_beats=0.25),
+                MusicalEvent(pitch=50, start_beat=down, duration_beats=0.25),
+                MusicalEvent(pitch=54, start_beat=down + 1, duration_beats=0.5),
+                MusicalEvent(pitch=57, start_beat=down + 1, duration_beats=0.5),
+                MusicalEvent(pitch=54, start_beat=down + 2, duration_beats=0.5),
+                MusicalEvent(pitch=57, start_beat=down + 2, duration_beats=0.5),
+            ]
+        )
+    assert estimate_key(events) == "D"
+
+
+def test_bass_octave_notated_as_one_chord():
+    """LH D2+D3 should be one glyph (two heads, one stem), not two voices."""
+    events = [
+        MusicalEvent(pitch=38, start_beat=0.0, duration_beats=0.5, velocity=80, hand=Hand.LEFT, voice=0),
+        MusicalEvent(pitch=50, start_beat=0.0, duration_beats=0.5, velocity=80, hand=Hand.LEFT, voice=0),
+        MusicalEvent(pitch=54, start_beat=1.0, duration_beats=0.5, velocity=80, hand=Hand.RIGHT, voice=0),
+        MusicalEvent(pitch=57, start_beat=1.0, duration_beats=0.5, velocity=80, hand=Hand.RIGHT, voice=0),
+    ]
+    meta = ScoreMeta(display_tempo_bpm=88, time_sig_hint="3/4", key_hint="D")
+    score = NotationWriter().write_from_events_direct(events, meta)
+    bass_chords = [
+        n
+        for n in score.recurse().notesAndRests
+        if n.isChord and {p.midi for p in n.pitches} == {38, 50}
+    ]
+    assert len(bass_chords) == 1
+    assert not any(
+        n.isNote and n.pitch.midi in (38, 50)
+        for n in score.recurse().notes
+        if n.isNote
+    )

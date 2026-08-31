@@ -79,7 +79,7 @@ def test_audioset_family_mapping():
     assert scores[InstrumentKind.VOICE] == pytest.approx(0.1)
 
 
-def test_build_tempo_map_keeps_madmom_without_midi_refine():
+def test_build_tempo_map_uses_onset_grid_with_madmom_seed():
     from mir.pipeline import UnderstandingPipeline
     from mir.types import TempoMap, TempoPoint
 
@@ -93,7 +93,49 @@ def test_build_tempo_map_keeps_madmom_without_midi_refine():
         None, None, [i * 0.5 for i in range(8)]
     )
     assert meter == "4/4"
-    assert abs(tempo_map.bpm_at(0.0) - 150.0) < 0.5
+    # Notation uses the onset grid (0.5s → 120 BPM quarters), not the 150 seed.
+    assert abs(tempo_map.bpm_at(0.0) - 120.0) < 3.0
+    assert abs(tempo_map.seconds_to_beats(0.5) - 1.0) < 0.08
+    assert abs(pipeline.last_tracker_map.bpm_at(0.0) - 150.0) < 0.5
+
+
+def test_sparse_quarter_melody_keeps_four_four_with_simple_grouping():
+    from audio_engine.madmom_beats import MadmomBeatResult
+    from mir.pipeline import UnderstandingPipeline
+    from mir.types import Hand, MusicalEvent, TempoMap, TempoPoint
+
+    events = [
+        MusicalEvent(
+            pitch=65 + i,
+            start_beat=float(i),
+            duration_beats=1.0,
+            hand=Hand.RIGHT,
+            start_time_sec=i * 1.5,
+        )
+        for i in range(5)
+    ]
+    events.extend(
+        [
+            MusicalEvent(pitch=70, start_beat=6.0, duration_beats=0.5, hand=Hand.RIGHT),
+            MusicalEvent(pitch=72, start_beat=6.5, duration_beats=1.0, hand=Hand.RIGHT),
+            MusicalEvent(pitch=72, start_beat=7.5, duration_beats=0.5, hand=Hand.RIGHT),
+            MusicalEvent(pitch=22, start_beat=8.75, duration_beats=1.0, hand=Hand.LEFT),
+        ]
+    )
+    pipeline = UnderstandingPipeline()
+    pipeline.beat_tracker.last_source = "madmom"
+    pipeline.beat_tracker.last_beat_result = MadmomBeatResult(
+        tempo_map=TempoMap(points=[TempoPoint(0.0, 0.0, 80.0)]),
+        time_signature="4/4",
+        beat_times=[i * 0.75 for i in range(19)],
+        downbeat_times=[0.0, 3.0, 6.0, 9.0, 12.0],
+        beats_per_bar=4,
+        bpm=80.0,
+        grouping_beats_per_bar=4,
+        grouping_meter="4/4",
+    )
+    decision = pipeline._arbitrate_meter(events)
+    assert decision.meter == "4/4"
 
 
 def test_build_tempo_map_refines_librosa_octave_seed():

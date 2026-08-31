@@ -117,7 +117,29 @@ def test_12_8_tie_uses_mvp_6_8_prior():
     assert decision.meter != "12/8"
 
 
-def test_straight_four_four_stays_four_four():
+def test_duple_downbeats_block_three_four_override_of_simple_grouping():
+    """Case2-style even chords: 4-beat downbeats must not be rewritten as 3/4."""
+    grouping = BeatGroupingEvidence(
+        source="madmom",
+        beats_per_bar=4,
+        grouping_meter="4/4",
+        grouping_beats_per_bar=4,
+        bpm=69.0,
+        downbeat_times=[0.0, 3.45, 6.90, 10.35],
+        beat_times=[i * (60.0 / 69.0) for i in range(20)],
+    )
+    events = []
+    for start, dur, pitches in (
+        (0.0, 4.0, (60, 63, 67)),
+        (4.0, 2.0, (60, 65, 68, 72)),
+        (6.0, 2.0, (60, 65, 67, 71)),
+        (8.0, 4.0, (60, 63, 67)),
+    ):
+        for p in pitches:
+            events.append(_ev(p, start, dur))
+    decision = MeterArbitrator().decide(events, beat_evidence=grouping)
+    assert decision.meter in ("4/4", "2/4")
+    assert decision.extra["downbeat_periodicity"].get("suggests_duple") is True
     grouping = BeatGroupingEvidence(
         source="madmom",
         beats_per_bar=4,

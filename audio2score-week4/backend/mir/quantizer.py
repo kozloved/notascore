@@ -93,7 +93,7 @@ class MeasureQuantizer:
     def _grids_for(self, meter: MeterHypothesis) -> list[float]:
         if meter.time_signature in ("6/8", "12/8"):
             return [0.5, 0.25, 1.0 / 3.0]
-        return [0.25, 0.5, 1.0 / 3.0]
+        return [1.0, 0.5, 0.25, 1.0 / 3.0]
 
     def _quantize_bucket(
         self,
@@ -150,18 +150,33 @@ class MeasureQuantizer:
         measure_end = measure_start + mql
         tuplet_grid = abs(grid - 1.0 / 3.0) < 1e-6
         ordered = sorted(bucket, key=lambda e: (e.start_beat, e.pitch))
+        voice_snapped: dict[int, float] = {}
+        for ev in voice_events:
+            snapped = round(ev.start_beat / grid) * grid
+            voice_snapped[id(ev)] = max(0.0, snapped)
+        snapped_starts = [
+            voice_snapped.get(id(ev), max(0.0, round(ev.start_beat / grid) * grid))
+            for ev in ordered
+        ]
+
         out: list[MusicalEvent] = []
         decisions: list[dict] = []
         total_cost = 0.0
 
         for i, ev in enumerate(ordered):
-            rel = ev.start_beat - measure_start
-            snapped_rel = round(rel / grid) * grid
-            snapped_rel = max(0.0, min(max(mql - grid, 0.0), snapped_rel))
-            start = measure_start + snapped_rel
+            start = snapped_starts[i]
             timing_err = abs(start - ev.start_beat)
 
-            next_start = self._next_onset(ev, ordered[i + 1 :], voice_events)
+            next_start = None
+            for later in snapped_starts[i + 1 :]:
+                if later > start + 1e-8:
+                    next_start = later
+                    break
+            if next_start is None:
+                raw_next = self._next_onset(ev, ordered[i + 1 :], voice_events)
+                if raw_next is not None:
+                    next_start = max(0.0, round(raw_next / grid) * grid)
+
             remaining = 8.0
             if next_start is not None:
                 gap = next_start - start
@@ -173,10 +188,14 @@ class MeasureQuantizer:
             target = min(max(ev.duration_beats, 0.125), remaining)
             orig_end = ev.start_beat + ev.duration_beats
             orig_crosses = orig_end > measure_end + 1e-6
+            if start >= measure_end - 1e-9:
+                measure_remaining = remaining
+            else:
+                measure_remaining = max(0.0, measure_end - start)
             duration, dur_cost = self._score_duration(
                 target=target,
                 remaining=remaining,
-                measure_remaining=max(0.0, measure_end - start),
+                measure_remaining=measure_remaining,
                 orig_crosses=orig_crosses,
                 tuplet_ok=tuplet_grid,
             )
@@ -219,6 +238,14 @@ class MeasureQuantizer:
                 total_cost += 4.0
             else:
                 total_cost += 0.15
+        else:
+            unique_starts = sorted({round(s, 6) for s in snapped_starts})
+            if len(unique_starts) >= 3:
+                gaps = [b - a for a, b in zip(unique_starts, unique_starts[1:])]
+                mean_g = sum(gaps) / len(gaps)
+                var = sum((g - mean_g) ** 2 for g in gaps) / len(gaps)
+                total_cost += 1.1 * (var ** 0.5)
+            total_cost += 0.05 * (0.25 / max(grid, 0.125))
         return out, decisions, total_cost
 
     def _next_onset(
@@ -258,11 +285,11 @@ class MeasureQuantizer:
             rest_pen = 0.0
             if 0 < leftover < cfg.absorb_rest_ql:
                 filled = self._nearest_candidate(remaining, tuplet_ok=tuplet_ok)
-                if filled is not None and abs(filled - remaining) < cfg.absorb_rest_ql:
+                if filled is not None and abs(filled - remaining) <= cfg.absorb_rest_ql:
                     actual = filled
                     leftover = 0.0
-            if 0 < leftover < 0.25:
-                rest_pen = 1.0
+            elif leftover >= 0.25:
+                rest_pen = 0.25
 
             complexity = 0.0
             if d in SIMPLE_DURATIONS:
@@ -307,6 +334,6 @@ class MeasureQuantizer:
         if not cands:
             return None
         best = min(cands, key=lambda d: abs(d - value))
-        if abs(best - value) > 1e-6:
+        if abs(best - value) > self.config.absorb_rest_ql:
             return None
         return best
