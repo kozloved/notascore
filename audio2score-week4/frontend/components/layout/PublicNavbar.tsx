@@ -36,14 +36,17 @@ export default function PublicNavbar() {
             Create a score
           </Link>
         </div>
-        <IconButton
-          className="ns-nav-menu-btn"
-          label={open ? "Close menu" : "Open menu"}
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-        >
-          {open ? <X size={20} /> : <Menu size={20} />}
-        </IconButton>
+        <div className="ns-nav-menu-wrap">
+          <IconButton
+            className="ns-nav-menu-btn"
+            label={open ? "Close menu" : "Open menu"}
+            aria-expanded={open}
+            aria-controls="mobile-nav"
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? <X size={20} /> : <Menu size={20} />}
+          </IconButton>
+        </div>
       </div>
       {open ? (
         <div className="ns-nav-drawer" id="mobile-nav">

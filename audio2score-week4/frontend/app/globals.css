@@ -381,8 +381,12 @@ body::before {
   margin-left: auto;
 }
 
-.ns-nav-menu-btn {
+.ns-nav-menu-wrap {
   margin-left: auto;
+}
+
+.ns-nav-menu-btn {
+  margin-left: 0;
 }
 
 .ns-nav-cta,
@@ -423,6 +427,7 @@ body::before {
     display: flex;
   }
 
+  .ns-nav-menu-wrap,
   .ns-nav-menu-btn,
   .ns-nav-drawer {
     display: none;
@@ -557,6 +562,7 @@ body::before {
 }
 
 @media (min-width: 768px) {
+  .ns-nav-menu-wrap,
   .ns-nav .ns-nav-menu-btn,
   .ns-nav .ns-nav-drawer {
     display: none;
