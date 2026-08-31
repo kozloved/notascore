@@ -556,6 +556,13 @@ body::before {
   cursor: pointer;
 }
 
+@media (min-width: 768px) {
+  .ns-nav .ns-nav-menu-btn,
+  .ns-nav .ns-nav-drawer {
+    display: none;
+  }
+}
+
 .ns-card,
 .card {
   background: var(--ns-surface);
