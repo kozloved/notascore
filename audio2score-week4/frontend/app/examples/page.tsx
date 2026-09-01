@@ -14,8 +14,9 @@ export default function ExamplesPage() {
       <p className="ns-kicker">Examples</p>
       <Display as="h1">See what NotaScore can do.</Display>
       <Text className="tagline" size="body-large">
-        Play the recording, then read the score. This is a real transcription of a
-        short piano figure — labelled as an example, not a concert performance.
+        Play the recording, then read the score. This is a short piano figure
+        transcribed by NotaScore — labelled as an example, not a concert
+        performance.
       </Text>
       <div style={{ marginTop: 40 }}>
         <DemoPreview />

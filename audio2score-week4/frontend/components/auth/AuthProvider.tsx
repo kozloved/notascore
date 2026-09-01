@@ -78,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = useCallback(async (next?: string) => {
     if (!isSupabaseConfigured) {
-      return "Sign-in is not available on this workspace yet.";
+      return "Sign-in isn’t available yet.";
     }
     rememberNextPath(safeNextPath(next));
     const redirectTo = `${window.location.origin}/login`;
@@ -91,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithEmail = useCallback(async (email: string, password: string) => {
     if (!isSupabaseConfigured) {
-      return "Sign-in is not available on this workspace yet.";
+      return "Sign-in isn’t available yet.";
     }
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return error ? authErrorMessage(error) : null;
@@ -100,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUpWithEmail = useCallback(async (email: string, password: string) => {
     if (!isSupabaseConfigured) {
       return {
-        error: "Sign-in is not available on this workspace yet.",
+        error: "Sign-in isn’t available yet.",
         needsVerification: false,
       };
     }
@@ -120,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resetPassword = useCallback(async (email: string) => {
     if (!isSupabaseConfigured) {
-      return "Sign-in is not available on this workspace yet.";
+      return "Sign-in isn’t available yet.";
     }
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/login`,
@@ -130,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resendVerification = useCallback(async (email: string) => {
     if (!isSupabaseConfigured) {
-      return "Sign-in is not available on this workspace yet.";
+      return "Sign-in isn’t available yet.";
     }
     const { error } = await supabase.auth.resend({ type: "signup", email });
     return error ? "We couldn’t send another email. Please try again." : null;

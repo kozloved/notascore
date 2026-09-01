@@ -18,24 +18,24 @@ const sans = Inter({
 });
 
 export const metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://notascore.com"),
   title: {
-    default: "NotaScore — Turn your music into a score",
+    default: "NotaScore — Turn your recordings into editable sheet music",
     template: "%s · NotaScore",
   },
   description:
-    "From recordings to editable sheet music in minutes. Capture ideas. Transcribe performances. Keep your music.",
+    "Give NotaScore a recording and get sheet music you can correct and export.",
   openGraph: {
-    title: "NotaScore — Turn your music into a score.",
+    title: "NotaScore — Turn your recordings into editable sheet music.",
     description:
-      "From recordings to editable sheet music in minutes. Capture ideas. Transcribe performances. Keep your music.",
+      "Give NotaScore a recording and get sheet music you can correct and export.",
     type: "website",
     siteName: "NotaScore",
   },
   twitter: {
     card: "summary",
     title: "NotaScore",
-    description: "Turn your music into a score.",
+    description: "Turn your recordings into editable sheet music.",
   },
   alternates: {
     canonical: "/",

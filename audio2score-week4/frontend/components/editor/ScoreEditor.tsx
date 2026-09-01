@@ -95,12 +95,13 @@ export default function ScoreEditor({
     setPlaying(true);
   };
 
+  const loaded = editor.notes.length > 0 || editor.status === "ready" || editor.status === "saved" || editor.status === "saving";
   const saveLabel =
     editor.status === "saving"
       ? "Saving…"
       : editor.status === "saved"
         ? "Saved"
-        : editor.status === "error"
+        : editor.status === "error" && loaded
           ? "Couldn't save changes"
           : "";
 
@@ -142,7 +143,7 @@ export default function ScoreEditor({
         <div className="ns-editor-actions">
           <p className="ns-editor-save" aria-live="polite">
             {saveLabel}
-            {editor.status === "error" ? (
+            {editor.status === "error" && loaded ? (
               <button type="button" className="ns-text-link" onClick={editor.retrySave}>
                 Try again
               </button>
@@ -161,6 +162,14 @@ export default function ScoreEditor({
 
       {editor.status === "loading" ? (
         <p className="ns-editor-save">Loading the score…</p>
+      ) : null}
+      {editor.status === "error" && !loaded ? (
+        <p className="ns-library-error" role="alert">
+          {editor.error || "We couldn’t load this score."}
+          <button type="button" className="ns-text-link" onClick={() => window.location.reload()}>
+            Try again
+          </button>
+        </p>
       ) : null}
 
       <NoteToolbar

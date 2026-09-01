@@ -1336,6 +1336,13 @@ body::before {
   background: var(--surface-2);
   color: var(--ns-text-primary);
   border: 1px solid var(--ns-border-strong);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 420px) {
+  .formats {
+    grid-template-columns: 1fr;
+  }
 }
 
 .btn-format:not(:disabled):hover {

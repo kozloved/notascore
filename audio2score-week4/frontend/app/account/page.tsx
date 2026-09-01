@@ -29,7 +29,7 @@ function AccountBody() {
       <>
         <Display as="h1">Account</Display>
         <Text className="tagline">
-          Sign-in is not configured on this workspace yet. You can still create a
+          Sign-in isn’t available yet. You can still create a
           score.
         </Text>
         <ThemeToggle />

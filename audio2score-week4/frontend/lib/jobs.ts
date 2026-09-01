@@ -5,14 +5,14 @@ import type { EditableNote } from "./score-editor";
 import { listStoredScores } from "./session-jobs";
 
 async function readError(response: Response, fallback: string): Promise<string> {
-  const data = await response.json().catch(() => ({}));
-  return typeof data?.detail === "string" ? data.detail : fallback;
+  await response.json().catch(() => ({}));
+  return fallback;
 }
 
 export async function getJob(id: string): Promise<Job> {
   const response = await apiFetch(`${API_URL}/jobs/${id}`);
   if (!response.ok) {
-    throw new Error(await readError(response, "Failed to fetch job"));
+    throw new Error(await readError(response, "We couldn’t load this score."));
   }
   return (await response.json()) as Job;
 }

@@ -20,7 +20,7 @@ export default function PublicFooter() {
       <div className="ns-footer-inner">
         <div className="ns-footer-brand">
           <Wordmark href="/" />
-          <p>Turn your music into a score.</p>
+          <p>Turn your recordings into editable sheet music.</p>
         </div>
         <div className="ns-footer-cols">
           <FooterCol title="Product" links={PRODUCT} />

@@ -10,7 +10,7 @@ export const metadata = {
 const STEPS = [
   {
     n: "01",
-    title: "Upload",
+    title: "Choose a recording",
     body: "Upload a recording of your music. Audio or MIDI, as you have it.",
   },
   {

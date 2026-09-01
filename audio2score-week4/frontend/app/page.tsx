@@ -15,7 +15,7 @@ import { Text } from "../components/ui/Text";
 const STEPS = [
   {
     n: "01",
-    title: "Upload",
+    title: "Choose a recording",
     body: "Upload a recording of your music.",
   },
   {
@@ -76,10 +76,9 @@ export default function LandingPage() {
           <div className="ns-hero-grid">
             <div className="ns-hero-copy">
               <p className="ns-kicker">NotaScore</p>
-              <h1 className="ns-display ns-hero-title">Turn your music into a score.</h1>
+              <h1 className="ns-display ns-hero-title">Turn your recordings into editable sheet music.</h1>
               <Text size="body-large" className="ns-hero-lead">
-                From recordings to editable sheet music in minutes.
-                Capture ideas. Transcribe performances. Keep your music.
+                Give NotaScore a recording and get a score you can correct and export.
               </Text>
               <div className="ns-hero-actions">
                 <ButtonLink
@@ -100,8 +99,9 @@ export default function LandingPage() {
 
       <Section id="examples" title="See what NotaScore can do.">
         <p className="ns-section-lead">
-          Give NotaScore audio, and you get sheet music. This example is a real
-          transcription of a short piano figure.
+          Give NotaScore a recording, and you get sheet music you can edit. This
+          example is a short piano figure transcribed by NotaScore — labelled as
+          an example, not a concert performance.
         </p>
         <DemoPreview />
       </Section>

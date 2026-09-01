@@ -31,6 +31,7 @@ export default function DashboardPage() {
   const [query, setQuery] = useState("");
   const [pendingDelete, setPendingDelete] = useState<Job | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   const load = useCallback(async () => {
     if (!configured || !user) return;
@@ -86,6 +87,7 @@ export default function DashboardPage() {
   const onDelete = async () => {
     if (!pendingDelete) return;
     setDeleting(true);
+    setDeleteError("");
     try {
       await deleteScore(pendingDelete.job_id);
       removeStoredScore(pendingDelete.job_id);
@@ -93,7 +95,7 @@ export default function DashboardPage() {
       track("score_deleted");
       setPendingDelete(null);
     } catch {
-      setLoadState("error");
+      setDeleteError("We couldn’t delete this score. Please try again.");
     } finally {
       setDeleting(false);
     }
@@ -108,7 +110,7 @@ export default function DashboardPage() {
         <Text className="tagline">Log in to see the scores saved to your account.</Text>
       ) : (
         <Text className="tagline">
-          Sign-in is not configured on this workspace yet. You can still create a
+          Sign-in isn’t available yet. You can still create a
           score.
         </Text>
       )}
@@ -180,6 +182,11 @@ export default function DashboardPage() {
               </label>
             ) : null}
           </div>
+          {query.trim() && visible.length === 0 ? (
+            <p className="ns-library-empty" role="status">
+              No scores match that search.
+            </p>
+          ) : null}
           <ul className="ns-score-list">
             {visible.map((item) => {
               const title = item.title || titleFromFilename(item.filename);
@@ -225,6 +232,12 @@ export default function DashboardPage() {
             })}
           </ul>
         </>
+      ) : null}
+
+      {deleteError ? (
+        <div className="ns-library-error" role="alert">
+          <p>{deleteError}</p>
+        </div>
       ) : null}
 
       <ConfirmDialog

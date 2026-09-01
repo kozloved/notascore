@@ -121,10 +121,10 @@ export default function SheetResult({
         osmd.render();
         if (interactive) stampNoteIds(osmd, notes, selectedNoteId);
         setPreviewState("ready");
-      } catch (err) {
+      } catch {
         if (!cancelled) {
           setPreviewState("error");
-          setMessage(err?.message || "Could not render the sheet preview");
+          setMessage("We couldn’t show this score.");
         }
       }
     }
@@ -191,8 +191,8 @@ export default function SheetResult({
       const blob = await res.blob();
       triggerDownload(blob, `${stem}.${ext}`);
       onExport?.(format === "musicxml" ? "musicxml" : "midi");
-    } catch (err) {
-      setMessage(err?.message || `Failed to download ${ext.toUpperCase()}`);
+    } catch {
+      setMessage("We couldn’t download this file.");
     } finally {
       setBusy(null);
     }
@@ -234,8 +234,8 @@ export default function SheetResult({
 
       pdf.save(`${stem}.pdf`);
       onExport?.("pdf");
-    } catch (err) {
-      setMessage(err?.message || "Failed to generate PDF");
+    } catch {
+      setMessage("We couldn’t download the PDF.");
     } finally {
       setBusy(null);
     }
@@ -254,7 +254,7 @@ export default function SheetResult({
         )}
         {previewState === "error" && (
           <div className="sheet-status sheet-status-error">
-            {message || "Could not render the sheet preview."}
+            {message || "We couldn’t show this score."}
           </div>
         )}
         {/* Kept mounted and visible so OpenSheetMusicDisplay always has a
@@ -297,7 +297,7 @@ export default function SheetResult({
           aria-label="Download MIDI"
         >
           {busy === "midi" ? <span className="spinner spinner-dark" aria-hidden="true" /> : <FileIcon />}
-          MIDI
+          Download MIDI
         </button>
         <button
           type="button"
@@ -307,7 +307,7 @@ export default function SheetResult({
           aria-label="Download MIDI that matches the score"
         >
           {busy === "midi_score" ? <span className="spinner spinner-dark" aria-hidden="true" /> : <FileIcon />}
-          MIDI (score)
+          Download MIDI (score)
         </button>
         <button
           type="button"
@@ -317,7 +317,7 @@ export default function SheetResult({
           aria-label="Download MusicXML"
         >
           {busy === "musicxml" ? <span className="spinner spinner-dark" aria-hidden="true" /> : <FileIcon />}
-          MusicXML
+          Download MusicXML
         </button>
         <button
           type="button"
@@ -328,7 +328,7 @@ export default function SheetResult({
           title={previewState !== "ready" ? "Preview must finish rendering first" : undefined}
         >
           {busy === "pdf" ? <span className="spinner spinner-dark" aria-hidden="true" /> : <FileIcon />}
-          PDF
+          Download PDF
         </button>
       </div>
 

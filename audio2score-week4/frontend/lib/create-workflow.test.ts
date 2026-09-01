@@ -52,4 +52,7 @@ test("hides raw upload errors", () => {
   );
   assert.equal(message.includes("MT3"), false);
   assert.match(message, /couldn’t send your recording/i);
+  const typeMessage = friendlyUploadError(new Error("Invalid file type"));
+  assert.match(typeMessage, /isn’t supported/i);
+  assert.equal(typeMessage.includes("transcribed"), false);
 });
