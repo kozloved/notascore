@@ -100,8 +100,8 @@ export default function LandingPage() {
       <Section id="examples" title="See what NotaScore can do.">
         <p className="ns-section-lead">
           Give NotaScore a recording, and you get sheet music you can edit. This
-          example is a short piano figure — labelled as an example, not a concert
-          performance.
+          example is a short piano figure transcribed by NotaScore — labelled as
+          an example, not a concert performance.
         </p>
         <DemoPreview />
       </Section>
