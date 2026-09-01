@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import ListenPreview from "./ListenPreview";
 import { apiFetch } from "../lib/api-client";
+import { noteIdFromEvent, stampNoteIds } from "../lib/osmd-map";
 
 function triggerDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -51,7 +52,19 @@ async function svgToPng(svg, scale) {
   return { dataUrl: canvas.toDataURL("image/png"), w: canvas.width, h: canvas.height };
 }
 
-export default function SheetResult({ apiUrl, jobId, filename, onExport = undefined }) {
+export default function SheetResult({
+  apiUrl,
+  jobId,
+  filename,
+  onExport = undefined,
+  interactive = false,
+  revision = 0,
+  notes = [],
+  selectedNoteId = null,
+  onSelectNote = undefined,
+  onSelectPosition = undefined,
+  onBeforeExport = undefined,
+}) {
   const containerRef = useRef(null);
   const osmdRef = useRef(null);
   const [previewState, setPreviewState] = useState("loading"); // loading | ready | error
@@ -68,7 +81,9 @@ export default function SheetResult({ apiUrl, jobId, filename, onExport = undefi
       setMessage("");
 
       try {
-        const res = await apiFetch(`${apiUrl}/jobs/${jobId}/result?format=musicxml`);
+        const res = await apiFetch(
+          `${apiUrl}/jobs/${jobId}/result?format=musicxml&rev=${revision}`
+        );
         if (!res.ok) throw new Error("Could not load the score");
         const xml = await res.text();
         if (cancelled) return;
@@ -104,6 +119,7 @@ export default function SheetResult({ apiUrl, jobId, filename, onExport = undefi
         // holds a few systems (which the progressive blur then acts on).
         osmd.zoom = 0.75;
         osmd.render();
+        if (interactive) stampNoteIds(osmd, notes, selectedNoteId);
         setPreviewState("ready");
       } catch (err) {
         if (!cancelled) {
@@ -117,13 +133,52 @@ export default function SheetResult({ apiUrl, jobId, filename, onExport = undefi
     return () => {
       cancelled = true;
     };
-  }, [apiUrl, jobId]);
+  }, [apiUrl, jobId, revision, interactive]);
+
+  useEffect(() => {
+    if (!interactive || previewState !== "ready" || !osmdRef.current) return;
+    stampNoteIds(osmdRef.current, notes, selectedNoteId);
+  }, [interactive, notes, selectedNoteId, previewState]);
+
+  const onSheetPointer = async (event) => {
+    if (!interactive) return;
+    const fromDom = noteIdFromEvent(event.target);
+    if (fromDom) {
+      onSelectNote?.(fromDom);
+      return;
+    }
+    const osmd = osmdRef.current;
+    if (!osmd?.GraphicSheet || !onSelectPosition) return;
+    try {
+      const { PointF2D } = await import("opensheetmusicdisplay");
+      const graphic = osmd.GraphicSheet;
+      const svgPt = graphic.domToSvg(new PointF2D(event.clientX, event.clientY));
+      const osmdPt = graphic.svgToOsmd(svgPt);
+      const nearest = graphic.GetNearestNote?.(osmdPt, new PointF2D(1.5, 1.5));
+      const nearestId = nearest
+        ? nearest.getNoteheadSVGs?.()?.[0]?.getAttribute?.("data-note-id") ||
+          nearest.getSVGGElement?.()?.getAttribute?.("data-note-id")
+        : null;
+      if (nearestId) {
+        onSelectNote?.(nearestId);
+        return;
+      }
+      const timestamp = graphic.tryGetTimestampFromPosition?.(osmdPt);
+      if (!timestamp || typeof timestamp.RealValue !== "number") return;
+      onSelectPosition(Math.max(0, timestamp.RealValue * 4), 0);
+    } catch {
+      /* click mapping is best-effort */
+    }
+  };
 
   const downloadFromApi = async (format, ext) => {
     setBusy(format);
     setMessage("");
     try {
-      const res = await apiFetch(`${apiUrl}/jobs/${jobId}/result?format=${format}`);
+      if (onBeforeExport) await onBeforeExport();
+      const res = await apiFetch(
+        `${apiUrl}/jobs/${jobId}/result?format=${format}&rev=${Date.now()}`
+      );
       if (!res.ok) throw new Error(`Failed to download ${ext.toUpperCase()}`);
       const blob = await res.blob();
       triggerDownload(blob, `${stem}.${ext}`);
@@ -139,6 +194,17 @@ export default function SheetResult({ apiUrl, jobId, filename, onExport = undefi
     setBusy("pdf");
     setMessage("");
     try {
+      if (onBeforeExport) await onBeforeExport();
+      if (osmdRef.current && containerRef.current) {
+        const fresh = await apiFetch(
+          `${apiUrl}/jobs/${jobId}/result?format=musicxml&rev=${Date.now()}`
+        );
+        if (fresh.ok) {
+          await osmdRef.current.load(await fresh.text());
+          osmdRef.current.render();
+          if (interactive) stampNoteIds(osmdRef.current, notes, selectedNoteId);
+        }
+      }
       const svgs = containerRef.current?.querySelectorAll("svg");
       if (!svgs || svgs.length === 0) {
         throw new Error("Sheet preview is not ready yet");
@@ -170,8 +236,8 @@ export default function SheetResult({ apiUrl, jobId, filename, onExport = undefi
   const pdfDisabled = previewState !== "ready" || busy !== null;
 
   return (
-    <div className="sheet">
-      <div className="sheet-preview-wrap">
+    <div className={"sheet" + (interactive ? " is-editor" : "")}>
+      <div className={"sheet-preview-wrap" + (interactive ? " is-editor" : "")}>
         {previewState === "loading" && (
           <div className="sheet-status">
             <span className="spinner spinner-dark" aria-hidden="true" />
@@ -185,8 +251,21 @@ export default function SheetResult({ apiUrl, jobId, filename, onExport = undefi
         )}
         {/* Kept mounted and visible so OpenSheetMusicDisplay always has a
             non-zero width to lay out against. */}
-        <div ref={containerRef} className="sheet-preview" />
-        {previewState === "ready" && (
+        <div
+          ref={containerRef}
+          className="sheet-preview"
+          onClick={onSheetPointer}
+          onKeyDown={(event) => {
+            if (!interactive) return;
+            if (event.key !== "Enter" && event.key !== " ") return;
+            const id = noteIdFromEvent(event.target);
+            if (id) {
+              event.preventDefault();
+              onSelectNote?.(id);
+            }
+          }}
+        />
+        {previewState === "ready" && !interactive && (
           <>
             <div className="sheet-fade" aria-hidden="true" />
             <div className="sheet-fade-strong" aria-hidden="true" />
@@ -194,7 +273,12 @@ export default function SheetResult({ apiUrl, jobId, filename, onExport = undefi
         )}
       </div>
 
-      <ListenPreview apiUrl={apiUrl} jobId={jobId} filename={filename} />
+      <ListenPreview
+        apiUrl={apiUrl}
+        jobId={jobId}
+        filename={filename}
+        revision={revision}
+      />
 
       <div className="formats">
         <button

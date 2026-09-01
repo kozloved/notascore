@@ -24,7 +24,20 @@ export type AnalyticsEvent =
   | "score_library_viewed"
   | "score_renamed"
   | "score_deleted"
-  | "score_downloaded";
+  | "score_downloaded"
+  | "score_editor_opened"
+  | "note_selected"
+  | "note_pitch_changed"
+  | "note_duration_changed"
+  | "note_moved"
+  | "note_added"
+  | "note_deleted"
+  | "edit_undone"
+  | "edit_redone"
+  | "edit_reset"
+  | "edit_saved"
+  | "edit_save_failed"
+  | "edited_score_exported";
 
 /**
  * Lightweight, first-party events. No third-party pixels, no cookies,

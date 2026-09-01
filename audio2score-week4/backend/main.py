@@ -23,6 +23,15 @@ from ownership import (
     sanitize_title,
     title_from_filename,
 )
+from score_edits import (
+    EditError,
+    build_musicxml_and_midi,
+    edited_keys,
+    extract_from_musicxml,
+    loads_edits,
+    dumps_edits,
+    parse_edits_payload,
+)
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 RESULTS_DIR = Path(os.getenv("RESULTS_DIR", "results"))
@@ -134,6 +143,8 @@ def public_job(job: dict, *, claim_token: str | None = None) -> dict:
         "source_kind": _job_source_kind(job),
         "result_available": bool(job.get("result_storage_key")),
         "owned": bool(job.get("user_id")),
+        "has_edits": bool(job.get("edited_result_storage_key")),
+        "edit_revision": int(job.get("edit_revision") or 0),
         "created_at": job.get("created_at"),
         "updated_at": job.get("updated_at"),
     }
@@ -187,6 +198,82 @@ def _delete_job_files(job: dict) -> None:
         pass
 
 
+def _editor_job(job_id: str, authorization: str | None) -> dict:
+    job = _visible_job(job_id, authorization)
+    owner = job.get("user_id")
+    if owner:
+        user_id = _require_user_id(authorization)
+        if owner != user_id:
+            raise HTTPException(status_code=404, detail=NOT_FOUND_DETAIL)
+    if job.get("status") != "completed" or not job.get("result_storage_key"):
+        raise HTTPException(status_code=409, detail="This score isn’t ready to edit yet.")
+    return job
+
+
+def _read_original_musicxml(job: dict) -> str:
+    storage_backend = storage_service.get_storage()
+    return storage_backend.read_result_text(job["result_storage_key"])
+
+
+def _read_edited_sidecar(job: dict, filename: str, *, text: bool = False):
+    storage_backend = storage_service.get_storage()
+    try:
+        if storage_backend.backend == "local":
+            path = Path(job["result_storage_key"]).with_name(filename)
+            if not path.exists():
+                return None
+            return path.read_text(encoding="utf-8") if text else path.read_bytes()
+        data = (
+            storage_backend.read_result_text(filename)
+            if text
+            else storage_backend.read_result_bytes(filename)
+        )
+        return data
+    except Exception:
+        return None
+
+
+def _write_edited_sidecars(job: dict, json_text: str, musicxml_text: str, midi_bytes: bytes) -> str:
+    storage_backend = storage_service.get_storage()
+    job_id = job["id"]
+    keys = edited_keys(job_id)
+    if storage_backend.backend == "local":
+        parent = Path(job["result_storage_key"]).parent
+        (parent / keys["json"]).write_text(json_text, encoding="utf-8")
+        xml_path = parent / keys["musicxml"]
+        xml_path.write_text(musicxml_text, encoding="utf-8")
+        (parent / keys["midi"]).write_bytes(midi_bytes)
+        return str(xml_path)
+    storage_backend.save_text(keys["json"], json_text, content_type="application/json")
+    storage_backend.save_text(
+        keys["musicxml"],
+        musicxml_text,
+        content_type="application/vnd.recordare.musicxml+xml",
+    )
+    storage_backend.save_bytes(keys["midi"], midi_bytes, content_type="audio/midi")
+    return keys["musicxml"]
+
+
+def _edits_response(job: dict, model: dict, *, has_edits: bool | None = None) -> dict:
+    return {
+        "score_id": job.get("id"),
+        "revision": int(job.get("edit_revision") or 0),
+        "has_edits": bool(job.get("edited_result_storage_key"))
+        if has_edits is None
+        else has_edits,
+        "tempo_bpm": model["tempo_bpm"],
+        "time_signature": model["time_signature"],
+        "notes": model["notes"],
+    }
+
+
+def _load_edit_model(job: dict) -> dict:
+    raw = _read_edited_sidecar(job, f"{job['id']}.edits.json", text=True)
+    if raw:
+        return loads_edits(raw)
+    return extract_from_musicxml(_read_original_musicxml(job))
+
+
 class ScorePatch(BaseModel):
     title: str = Field(min_length=1, max_length=120)
 
@@ -197,6 +284,22 @@ class ClaimBody(BaseModel):
 
 class ClaimUnownedBody(BaseModel):
     job_ids: list[str] = Field(default_factory=list, max_length=40)
+
+
+class ScoreNoteIn(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    pitch: int = Field(ge=0, le=127)
+    start: float = Field(ge=0, le=10000)
+    duration: float = Field(gt=0, le=32)
+    velocity: int = Field(default=64, ge=1, le=127)
+    track: int = Field(default=0, ge=0, le=3)
+
+
+class ScoreEditsIn(BaseModel):
+    revision: int = Field(ge=0)
+    notes: list[ScoreNoteIn] = Field(max_length=4000)
+    tempo_bpm: float | None = None
+    time_signature: str | None = None
 
 
 @app.get("/health")
@@ -552,16 +655,21 @@ def job_result(
             detail="Result file missing",
         )
 
+    edited_key = job.get("edited_result_storage_key")
+    no_store = {"Cache-Control": "no-store"}
+
     if fmt == "musicxml":
+        xml_key = edited_key or result_storage_key
         if storage_backend.backend == "local":
             return FileResponse(
-                path=str(Path(result_storage_key)),
+                path=str(Path(xml_key)),
                 media_type="application/vnd.recordare.musicxml+xml",
                 filename=f"{stem}.musicxml",
+                headers=no_store,
             )
 
         signed_url = storage_backend.get_result_signed_url(
-            result_storage_key,
+            xml_key,
             expires_in=3600,
         )
 
@@ -583,11 +691,24 @@ def job_result(
                 media_type="audio/midi",
                 headers={
                     "Content-Disposition": f'attachment; filename="{stem}.mid"',
+                    **no_store,
                 },
             )
         # Older jobs: fall back to score MIDI derived from MusicXML.
 
     if fmt == "midi_score":
+        edited_midi = _load_sidecar_midi_bytes(
+            storage_backend, job_id, result_storage_key, f"{job_id}.edited.mid"
+        )
+        if edited_key and edited_midi:
+            return Response(
+                content=edited_midi,
+                media_type="audio/midi",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{stem}.score.mid"',
+                    **no_store,
+                },
+            )
         score_bytes = _load_sidecar_midi_bytes(
             storage_backend, job_id, result_storage_key, f"{job_id}.score.mid"
         )
@@ -597,12 +718,14 @@ def job_result(
                 media_type="audio/midi",
                 headers={
                     "Content-Disposition": f'attachment; filename="{stem}.score.mid"',
+                    **no_store,
                 },
             )
 
     # fmt == "midi_score" (or sidecars missing): derive from stored MusicXML.
     try:
-        musicxml_text = storage_backend.read_result_text(result_storage_key)
+        xml_key = edited_key or result_storage_key
+        musicxml_text = storage_backend.read_result_text(xml_key)
         midi_bytes = _musicxml_to_midi_bytes(musicxml_text)
     except Exception as exc:
         raise HTTPException(
@@ -616,6 +739,7 @@ def job_result(
         media_type="audio/midi",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
+            **no_store,
         },
     )
 
@@ -687,6 +811,90 @@ def score_detail(
 ):
     job = _visible_job(score_id, authorization)
     return public_job(job)
+
+
+@app.get("/scores/{score_id}/edits")
+def score_edits_get(
+    score_id: str,
+    authorization: str | None = Header(default=None),
+):
+    job = _visible_job(score_id, authorization)
+    if job.get("status") != "completed" or not job.get("result_storage_key"):
+        raise HTTPException(status_code=409, detail="This score isn’t ready to edit yet.")
+    try:
+        model = _load_edit_model(job)
+    except EditError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Could not load this score for editing.",
+        ) from exc
+    return _edits_response(job, model)
+
+
+@app.put("/scores/{score_id}/edits")
+def score_edits_put(
+    score_id: str,
+    body: ScoreEditsIn,
+    authorization: str | None = Header(default=None),
+):
+    job = _editor_job(score_id, authorization)
+    current_revision = int(job.get("edit_revision") or 0)
+    if body.revision != current_revision:
+        raise HTTPException(
+            status_code=409,
+            detail="This score was updated elsewhere. Reload and try again.",
+        )
+    try:
+        model = parse_edits_payload(body.model_dump())
+        xml_text, midi_bytes = build_musicxml_and_midi(model)
+        json_text = dumps_edits(model)
+        edited_key = _write_edited_sidecars(job, json_text, xml_text, midi_bytes)
+    except EditError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Changes couldn't be saved.",
+        ) from exc
+
+    next_revision = current_revision + 1
+    db.update_job(
+        score_id,
+        edited_result_storage_key=edited_key,
+        edit_revision=next_revision,
+    )
+    job = db.get_job(score_id)
+    return _edits_response(job, model, has_edits=True)
+
+
+@app.post("/scores/{score_id}/edits/reset")
+def score_edits_reset(
+    score_id: str,
+    authorization: str | None = Header(default=None),
+):
+    job = _editor_job(score_id, authorization)
+    storage_backend = storage_service.get_storage()
+    try:
+        storage_backend.delete_edited(score_id, job.get("result_storage_key"))
+    except Exception:
+        pass
+    next_revision = int(job.get("edit_revision") or 0) + 1
+    db.update_job(
+        score_id,
+        edited_result_storage_key=None,
+        edit_revision=next_revision,
+    )
+    job = db.get_job(score_id)
+    try:
+        model = extract_from_musicxml(_read_original_musicxml(job))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Could not restore the original score.",
+        ) from exc
+    return _edits_response(job, model, has_edits=False)
 
 
 @app.patch("/scores/{score_id}")

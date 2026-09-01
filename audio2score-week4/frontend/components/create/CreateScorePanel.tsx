@@ -361,6 +361,11 @@ export default function CreateScorePanel() {
               else track("export_midi");
             }}
           />
+          <div className="ns-page-cta">
+            <Link href={`/score/${job.job_id}`} className="ns-btn ns-btn-primary">
+              Edit score
+            </Link>
+          </div>
           {!user && configured && (ready || processing) ? (
             <div className="ns-save-panel">
               <p>Create a free account to keep this score with you.</p>

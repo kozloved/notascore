@@ -85,6 +85,14 @@ My Scores (`/dashboard`) loads `GET /scores` for the signed-in user. Stable URLs
 
 No transcription-engine changes were made.
 
+## Mini score editor (Pass 5)
+
+`/score/{id}` is a correction layer on top of the stored MusicXML. Notes are edited as `{ id, pitch, start, duration, velocity, track }` on a sixteenth-note grid. OSMD re-renders from MusicXML after save; it is not patched as the source of truth.
+
+Original `{job_id}.musicxml` stays immutable. Edits persist as `{job_id}.edits.json`, `{job_id}.edited.musicxml`, and `{job_id}.edited.mid`. Reset restores the original files.
+
+No transcription-engine changes were made.
+
 ## Known issues
 
 - My Scores requires a configured Supabase project and `SUPABASE_JWT_SECRET` (or JWKS) on the API.

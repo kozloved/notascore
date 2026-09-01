@@ -52,6 +52,8 @@ class Job(Base):
     duration_seconds = Column(Integer, nullable=True)
     claim_token_hash = Column(String, nullable=True, index=True)
     deleted_at = Column(String, nullable=True)
+    edited_result_storage_key = Column(String, nullable=True)
+    edit_revision = Column(Integer, default=0)
 
 
 OWNERSHIP_COLUMNS = {
@@ -62,11 +64,17 @@ OWNERSHIP_COLUMNS = {
     "deleted_at": "VARCHAR",
 }
 
+SCORE_EDIT_COLUMNS = {
+    "edited_result_storage_key": "VARCHAR",
+    "edit_revision": "INTEGER DEFAULT 0",
+}
+
 
 def init_db():
     Base.metadata.create_all(bind=engine)
     _ensure_job_mode_column()
     _ensure_job_ownership_columns()
+    _ensure_score_edit_columns()
 
 
 def _ensure_job_mode_column():
@@ -103,6 +111,17 @@ def _ensure_job_ownership_columns():
                 "ON jobs (claim_token_hash)"
             )
         )
+
+
+def _ensure_score_edit_columns():
+    inspector = inspect(engine)
+    if "jobs" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("jobs")}
+    with engine.begin() as conn:
+        for name, sql_type in SCORE_EDIT_COLUMNS.items():
+            if name not in columns:
+                conn.execute(text(f"ALTER TABLE jobs ADD COLUMN {name} {sql_type}"))
 
 
 def row_to_dict(row):
@@ -206,6 +225,8 @@ ALLOWED_UPDATE_FIELDS = {
     "duration_seconds",
     "claim_token_hash",
     "deleted_at",
+    "edited_result_storage_key",
+    "edit_revision",
 }
 
 

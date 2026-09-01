@@ -19,6 +19,8 @@ export type Job = {
   source_kind?: "audio" | "midi" | string;
   result_available?: boolean;
   owned?: boolean;
+  has_edits?: boolean;
+  edit_revision?: number;
   claim_token?: string;
   created_at?: string;
   updated_at?: string;

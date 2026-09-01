@@ -102,7 +102,7 @@ function TransportRow({
   );
 }
 
-export default function ListenPreview({ apiUrl, jobId, filename }) {
+export default function ListenPreview({ apiUrl, jobId, filename, revision = 0 }) {
   const isMidiSource = /\.midi?$/i.test(filename || "");
   const audioRef = useRef(null);
   const midiPlayerRef = useRef(null);
@@ -119,15 +119,16 @@ export default function ListenPreview({ apiUrl, jobId, filename }) {
   const [sourceSrc, setSourceSrc] = useState(null);
 
   const sourceUrl = `${apiUrl}/jobs/${jobId}/source`;
-  const midiUrl = `${apiUrl}/jobs/${jobId}/result?format=midi`;
-  const scoreUrl = `${apiUrl}/jobs/${jobId}/result?format=midi_score`;
+  const midiUrl = `${apiUrl}/jobs/${jobId}/result?format=midi&rev=${revision}`;
+  const scoreUrl = `${apiUrl}/jobs/${jobId}/result?format=midi_score&rev=${revision}`;
 
   useEffect(() => {
+    midiCacheRef.current = {};
     midiPlayerRef.current = new MidiPreviewPlayer();
     return () => {
       midiPlayerRef.current?.stop();
     };
-  }, [jobId]);
+  }, [jobId, revision]);
 
   useEffect(() => {
     if (isMidiSource) return undefined;

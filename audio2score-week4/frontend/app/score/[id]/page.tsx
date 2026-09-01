@@ -9,7 +9,7 @@ import Button from "../../../components/ui/Button";
 import ConfirmDialog from "../../../components/ui/ConfirmDialog";
 import ProcessingStatus from "../../../components/create/ProcessingStatus";
 import EditableTitle from "../../../components/scores/EditableTitle";
-import SheetResult from "../../../components/SheetResult";
+import ScoreEditor from "../../../components/editor/ScoreEditor";
 import { Text } from "../../../components/ui/Text";
 import { API_URL } from "../../../lib/api";
 import { track } from "../../../lib/analytics";
@@ -120,7 +120,7 @@ export default function ScorePage() {
           ) : null}
           {ready && job ? (
             <div id="download">
-              <SheetResult
+              <ScoreEditor
                 apiUrl={API_URL}
                 jobId={job.job_id}
                 filename={job.filename}

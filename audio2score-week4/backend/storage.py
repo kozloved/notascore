@@ -89,6 +89,18 @@ class LocalStorage:
                 for sidecar in path.parent.glob(f"{job_id}.*"):
                     sidecar.unlink(missing_ok=True)
 
+    def delete_edited(self, job_id, result_storage_key=None):
+        names = (
+            f"{job_id}.edits.json",
+            f"{job_id}.edited.musicxml",
+            f"{job_id}.edited.mid",
+        )
+        parent = LOCAL_RESULTS_DIR
+        if result_storage_key:
+            parent = Path(result_storage_key).parent
+        for name in names:
+            (parent / name).unlink(missing_ok=True)
+
 
 class SupabaseStorage:
     backend = "supabase"
@@ -261,10 +273,24 @@ class SupabaseStorage:
                     f"{job_id}.raw.mid",
                     f"{job_id}.validated.mid",
                     f"{job_id}.score.mid",
+                    f"{job_id}.edits.json",
+                    f"{job_id}.edited.musicxml",
+                    f"{job_id}.edited.mid",
                 ]
             )
         if not keys:
             return
+        try:
+            self._bucket(self.results_bucket).remove(keys)
+        except Exception:
+            return
+
+    def delete_edited(self, job_id, result_storage_key=None):
+        keys = [
+            f"{job_id}.edits.json",
+            f"{job_id}.edited.musicxml",
+            f"{job_id}.edited.mid",
+        ]
         try:
             self._bucket(self.results_bucket).remove(keys)
         except Exception:

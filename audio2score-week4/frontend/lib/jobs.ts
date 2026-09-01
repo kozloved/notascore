@@ -1,6 +1,7 @@
 import { API_URL, type Job } from "./api";
 import { apiFetch } from "./api-client";
 import { consumePendingClaim } from "./pending-claim";
+import type { EditableNote } from "./score-editor";
 import { listStoredScores } from "./session-jobs";
 
 async function readError(response: Response, fallback: string): Promise<string> {
@@ -77,6 +78,53 @@ export async function retryJob(id: string): Promise<Job> {
     throw new Error(await readError(response, "Could not try again"));
   }
   return (await response.json()) as Job;
+}
+
+export type ScoreEditsPayload = {
+  score_id: string;
+  revision: number;
+  has_edits: boolean;
+  tempo_bpm: number;
+  time_signature: string;
+  notes: EditableNote[];
+};
+
+export async function getScoreEdits(id: string): Promise<ScoreEditsPayload> {
+  const response = await apiFetch(`${API_URL}/scores/${id}/edits`);
+  if (!response.ok) {
+    throw new Error(await readError(response, "Could not load this score"));
+  }
+  return (await response.json()) as ScoreEditsPayload;
+}
+
+export async function saveScoreEdits(
+  id: string,
+  body: {
+    revision: number;
+    notes: EditableNote[];
+    tempo_bpm: number;
+    time_signature: string;
+  }
+): Promise<ScoreEditsPayload> {
+  const response = await apiFetch(`${API_URL}/scores/${id}/edits`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Changes couldn't be saved."));
+  }
+  return (await response.json()) as ScoreEditsPayload;
+}
+
+export async function resetScoreEdits(id: string): Promise<ScoreEditsPayload> {
+  const response = await apiFetch(`${API_URL}/scores/${id}/edits/reset`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Could not reset changes"));
+  }
+  return (await response.json()) as ScoreEditsPayload;
 }
 
 export async function attachAccountScores(): Promise<void> {

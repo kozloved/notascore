@@ -5,7 +5,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --experimental-strip-types --test lib/create-workflow.test.ts lib/score-library.test.ts"
+    "test": "node --experimental-strip-types --test lib/create-workflow.test.ts lib/score-library.test.ts lib/score-editor.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.2",
