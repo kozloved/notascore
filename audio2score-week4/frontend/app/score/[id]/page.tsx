@@ -30,6 +30,7 @@ export default function ScorePage() {
   const [confirm, setConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [actionError, setActionError] = useState("");
 
   useEffect(() => {
     if (id) setActiveJobId(id);
@@ -49,6 +50,7 @@ export default function ScorePage() {
   const onDelete = async () => {
     if (!id) return;
     setDeleting(true);
+    setActionError("");
     try {
       await deleteScore(id);
       removeStoredScore(id);
@@ -57,6 +59,7 @@ export default function ScorePage() {
     } catch {
       setDeleting(false);
       setConfirm(false);
+      setActionError("We couldn’t delete this score. Please try again.");
     }
   };
 
@@ -112,14 +115,15 @@ export default function ScorePage() {
                 <Button onClick={() => void onRetry()} loading={retrying}>
                   Try again
                 </Button>
-                <Button variant="secondary" onClick={() => setConfirm(true)}>
-                  Remove
+                <Button variant="secondary" onClick={() => router.push("/create")}>
+                  Choose another recording
                 </Button>
               </div>
             </div>
           ) : null}
           {ready && job ? (
             <div id="download">
+              <p className="ns-kicker">Your score is ready.</p>
               <ScoreEditor
                 apiUrl={API_URL}
                 jobId={job.job_id}
@@ -136,6 +140,11 @@ export default function ScorePage() {
                   Delete score
                 </Button>
               </div>
+              {actionError ? (
+                <p className="ns-library-error" role="alert">
+                  {actionError}
+                </p>
+              ) : null}
             </div>
           ) : null}
         </>

@@ -9,12 +9,12 @@ export default function ContactPage() {
   return (
     <LegalPage
       title="Contact"
-      description="This early workspace does not yet have a public support inbox."
+      description="NotaScore is in private alpha and does not yet have a public support inbox."
     >
       <p>
-        For product issues, use the project repository. We will add a contact
-        address when support is staffed — this page will not pretend that a mailbox
-        exists today.
+        The best way to try NotaScore is to create a score from a recording. We will
+        add a contact address when support is staffed — this page will not pretend
+        that a mailbox exists today.
       </p>
     </LegalPage>
   );

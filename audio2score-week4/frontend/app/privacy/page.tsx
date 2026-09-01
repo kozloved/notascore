@@ -2,7 +2,7 @@ import LegalPage from "../../components/marketing/LegalPage";
 
 export const metadata = {
   title: "Privacy",
-  description: "How NotaScore handles information on this workspace.",
+  description: "How NotaScore handles information.",
 };
 
 export default function PrivacyPage() {

@@ -2,7 +2,7 @@ import LegalPage from "../../components/marketing/LegalPage";
 
 export const metadata = {
   title: "Terms",
-  description: "Terms of use for this early NotaScore workspace.",
+  description: "Terms of use for this early NotaScore product.",
 };
 
 export default function TermsPage() {
@@ -13,7 +13,7 @@ export default function TermsPage() {
     >
       <p>
         NotaScore is offered as an early transcription tool. Scores are a starting
-        point for your own work. Do not rely on this workspace for legal, archival,
+        point for your own work. Do not rely on NotaScore for legal, archival,
         or guaranteed-accuracy use.
       </p>
       <p>You are responsible for having the right to upload the recordings you send.</p>

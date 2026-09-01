@@ -145,7 +145,7 @@ export default function ListenPreview({ apiUrl, jobId, filename, revision = 0 })
         setSourceSrc(objectUrl);
       })
       .catch(() => {
-        if (!cancelled) setError("source", "Could not load the original audio");
+        if (!cancelled) setError("source", "The original recording couldn’t be loaded.");
       });
     return () => {
       cancelled = true;
@@ -206,8 +206,8 @@ export default function ListenPreview({ apiUrl, jobId, filename, revision = 0 })
       await midiPlayerRef.current.play(buffer.slice(0), 0, midiCallbacks(id));
       setClock(id, 0, midiPlayerRef.current.duration);
       setActive(id);
-    } catch (err) {
-      setError(id, err?.message || "Could not play MIDI");
+    } catch {
+      setError(id, "This couldn’t be played.");
       setActive(null);
     } finally {
       setLoading(null);
@@ -238,8 +238,8 @@ export default function ListenPreview({ apiUrl, jobId, filename, revision = 0 })
         setActive(id);
       }
       setClock(id, seconds, midiPlayerRef.current.duration);
-    } catch (err) {
-      setError(id, err?.message || "Could not seek MIDI");
+    } catch {
+      setError(id, "This couldn’t be played.");
     } finally {
       setLoading(null);
     }
@@ -261,8 +261,8 @@ export default function ListenPreview({ apiUrl, jobId, filename, revision = 0 })
       await audio.play();
       setActive("source");
       setError("source", "");
-    } catch (err) {
-      setError("source", err?.message || "Could not play audio");
+    } catch {
+      setError("source", "This recording couldn’t be played.");
     }
   };
 
@@ -276,7 +276,7 @@ export default function ListenPreview({ apiUrl, jobId, filename, revision = 0 })
     <section className="listen" aria-label="Listening previews">
       <h3 className="listen-title">Listen</h3>
       <p className="listen-lead">
-        Compare the original with MIDI and the score MIDI.
+        Compare the original recording with the score.
       </p>
 
       {!isMidiSource && (

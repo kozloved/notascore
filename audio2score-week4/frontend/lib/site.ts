@@ -1,10 +1,10 @@
 export const SITE_NAME = "NotaScore";
-export const SITE_TAGLINE = "Turn your music into a score.";
+export const SITE_TAGLINE = "Turn your recordings into editable sheet music.";
 export const SITE_DESCRIPTION =
-  "From recordings to editable sheet music in minutes. Capture ideas. Transcribe performances. Keep your music.";
+  "Give NotaScore a recording and get sheet music you can correct and export.";
 
 export function siteUrl(): string {
-  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  return process.env.NEXT_PUBLIC_SITE_URL || "https://notascore.com";
 }
 
 export const PUBLIC_NAV = [

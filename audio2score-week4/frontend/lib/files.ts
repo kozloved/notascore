@@ -43,7 +43,7 @@ export function friendlyUploadError(error: unknown): string {
         : "";
   const text = raw.toLowerCase();
   if (text.includes("invalid file type") || text.includes("invalid content type")) {
-    return "This file can’t be transcribed. Please choose a supported audio recording.";
+    return "This file type isn’t supported. Choose MP3, WAV, M4A, FLAC, or MIDI.";
   }
   if (text.includes("too large")) {
     return `This recording is too large. Please choose a file under ${MAX_UPLOAD_MB} MB.`;

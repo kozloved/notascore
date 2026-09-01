@@ -100,7 +100,7 @@ export default function CreateScorePanel() {
       setFileError(
         check.reason === "size"
           ? "This recording is too large. Please choose a file under 25 MB."
-          : "This file can’t be transcribed. Please choose a supported audio recording."
+          : "This file type isn’t supported. Choose MP3, WAV, M4A, FLAC, or MIDI."
       );
       return;
     }
@@ -230,7 +230,7 @@ export default function CreateScorePanel() {
             <span className="dz-title">
               {dragging ? "Drop your recording" : "Drop your recording here"}
             </span>
-            <span className="dz-sub">or browse files · MP3 · WAV · M4A · FLAC</span>
+            <span className="dz-sub">or browse files · MP3 · WAV · M4A · FLAC · MIDI</span>
           </label>
           {fileError ? (
             <Alert tone="error">
@@ -381,8 +381,7 @@ export default function CreateScorePanel() {
           {!user && !configured && ready ? (
             <div className="ns-save-panel">
               <p>
-                Sign-in is not configured on this workspace yet. You can still
-                download your score.
+                Sign-in isn’t available yet. You can still download your score.
               </p>
             </div>
           ) : null}

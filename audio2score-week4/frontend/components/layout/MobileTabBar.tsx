@@ -6,7 +6,7 @@ import { FileMusic, Plus, User } from "lucide-react";
 
 const TABS = [
   { href: "/create", label: "Create", icon: Plus },
-  { href: "/dashboard", label: "Scores", icon: FileMusic },
+  { href: "/dashboard", label: "My Scores", icon: FileMusic },
   { href: "/account", label: "Account", icon: User },
 ];
 

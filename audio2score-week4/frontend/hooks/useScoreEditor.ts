@@ -76,9 +76,9 @@ export function useScoreEditor(scoreId: string | null) {
       setRenderKey((value) => value + 1);
       setStatus("saved");
       track("edit_saved");
-    } catch (err) {
+    } catch {
       setStatus("error");
-      setError(err instanceof Error ? err.message : "Changes couldn't be saved.");
+      setError("Changes couldn't be saved.");
       track("edit_save_failed");
     }
   }, [tempoBpm, timeSignature]);
@@ -112,10 +112,10 @@ export function useScoreEditor(scoreId: string | null) {
         setStatus("ready");
         track("score_editor_opened");
       })
-      .catch((err) => {
+      .catch(() => {
         if (cancelled) return;
         setStatus("error");
-        setError(err instanceof Error ? err.message : "Could not load this score");
+        setError("We couldn’t load this score.");
       });
     return () => {
       cancelled = true;
@@ -228,9 +228,9 @@ export function useScoreEditor(scoreId: string | null) {
       setRenderKey((value) => value + 1);
       setStatus("saved");
       track("edit_reset");
-    } catch (err) {
+    } catch {
       setStatus("error");
-      setError(err instanceof Error ? err.message : "Could not reset changes");
+      setError("We couldn’t reset these changes.");
       track("edit_save_failed");
     }
   }, []);

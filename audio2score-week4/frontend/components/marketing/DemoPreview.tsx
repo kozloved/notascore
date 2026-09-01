@@ -17,6 +17,7 @@ export default function DemoPreview() {
   const [scoreState, setScoreState] = useState<"loading" | "ready" | "error">(
     "loading"
   );
+  const [audioError, setAudioError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,8 +63,14 @@ export default function DemoPreview() {
     track("demo_played");
     audio
       .play()
-      .then(() => setPlaying(true))
-      .catch(() => setPlaying(false));
+      .then(() => {
+        setPlaying(true);
+        setAudioError(false);
+      })
+      .catch(() => {
+        setPlaying(false);
+        setAudioError(true);
+      });
   };
 
   return (
@@ -113,8 +120,9 @@ export default function DemoPreview() {
           </div>
         </div>
         <p className="ns-demo-note">
-          Example — a short piano figure transcribed by NotaScore. Not a concert
-          recording.
+          {audioError
+            ? "The example recording couldn’t be played."
+            : "Example — a short piano figure. Recording → score."}
         </p>
         <audio
           ref={audioRef}
@@ -122,6 +130,7 @@ export default function DemoPreview() {
           preload="metadata"
           onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
           onTimeUpdate={(e) => setProgress(e.currentTarget.currentTime || 0)}
+          onError={() => setAudioError(true)}
           onEnded={() => {
             setPlaying(false);
             setProgress(0);
