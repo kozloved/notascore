@@ -224,6 +224,7 @@ export function useScoreEditor(scoreId: string | null) {
       setRevision(restored.revision);
       setHasEdits(false);
       setSelectedId(null);
+      setInsertAt(null);
       setRenderKey((value) => value + 1);
       setStatus("saved");
       track("edit_reset");
