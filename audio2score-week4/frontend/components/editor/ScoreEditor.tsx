@@ -126,6 +126,9 @@ export default function ScoreEditor({
           >
             Redo
           </Button>
+          <Button variant="secondary" size="sm" onClick={editor.onAdd}>
+            Add note
+          </Button>
           {editor.dirty ? (
             <Button
               variant="ghost"
@@ -160,6 +163,16 @@ export default function ScoreEditor({
         <p className="ns-editor-save">Loading the score…</p>
       ) : null}
 
+      <NoteToolbar
+        note={editor.selected}
+        insertAt={editor.insertAt}
+        onPitch={editor.onPitch}
+        onDuration={editor.onDuration}
+        onMove={editor.onMove}
+        onDelete={editor.onDelete}
+        onAdd={editor.onAdd}
+      />
+
       <SheetResult
         apiUrl={apiUrl}
         jobId={jobId}
@@ -175,16 +188,6 @@ export default function ScoreEditor({
           if (editor.hasEdits || editor.dirty) track("edited_score_exported");
           onExport?.(format);
         }}
-      />
-
-      <NoteToolbar
-        note={editor.selected}
-        insertAt={editor.insertAt}
-        onPitch={editor.onPitch}
-        onDuration={editor.onDuration}
-        onMove={editor.onMove}
-        onDelete={editor.onDelete}
-        onAdd={editor.onAdd}
       />
     </div>
   );

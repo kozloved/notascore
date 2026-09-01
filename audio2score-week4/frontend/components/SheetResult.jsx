@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import ListenPreview from "./ListenPreview";
 import { apiFetch } from "../lib/api-client";
-import { noteIdFromEvent, stampNoteIds } from "../lib/osmd-map";
+import { noteIdAtClientPoint, noteIdFromEvent, stampNoteIds } from "../lib/osmd-map";
 
 function triggerDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -142,9 +142,17 @@ export default function SheetResult({
 
   const onSheetPointer = async (event) => {
     if (!interactive) return;
+    if (osmdRef.current) stampNoteIds(osmdRef.current, notes, selectedNoteId);
     const fromDom = noteIdFromEvent(event.target);
-    if (fromDom) {
-      onSelectNote?.(fromDom);
+    const fromPoint = noteIdAtClientPoint(
+      osmdRef.current,
+      notes,
+      event.clientX,
+      event.clientY
+    );
+    const noteId = fromDom || fromPoint;
+    if (noteId) {
+      onSelectNote?.(noteId);
       return;
     }
     const osmd = osmdRef.current;
@@ -164,8 +172,8 @@ export default function SheetResult({
         return;
       }
       const timestamp = graphic.tryGetTimestampFromPosition?.(osmdPt);
-      if (!timestamp || typeof timestamp.RealValue !== "number") return;
-      onSelectPosition(Math.max(0, timestamp.RealValue * 4), 0);
+      const raw = timestamp && typeof timestamp.RealValue === "number" ? timestamp.RealValue : 0;
+      onSelectPosition(Math.max(0, raw > 8 ? raw : raw * 4), 0);
     } catch {
       /* click mapping is best-effort */
     }
