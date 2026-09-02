@@ -25,11 +25,13 @@ export function Text({
 export function Display({
   children,
   className = "",
+  as: Tag = "p",
 }: {
   children: ReactNode;
   className?: string;
+  as?: "p" | "h1" | "h2";
 }) {
-  return <p className={`ns-display ${className}`.trim()}>{children}</p>;
+  return <Tag className={`ns-display ${className}`.trim()}>{children}</Tag>;
 }
 
 export function Heading({

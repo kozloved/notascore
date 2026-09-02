@@ -18,8 +18,28 @@ const sans = Inter({
 });
 
 export const metadata = {
-  title: "NotaScore",
-  description: "Turn your music into a score. From recordings to editable sheet music in minutes.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
+  title: {
+    default: "NotaScore — Turn your music into a score",
+    template: "%s · NotaScore",
+  },
+  description:
+    "From recordings to editable sheet music in minutes. Capture ideas. Transcribe performances. Keep your music.",
+  openGraph: {
+    title: "NotaScore — Turn your music into a score.",
+    description:
+      "From recordings to editable sheet music in minutes. Capture ideas. Transcribe performances. Keep your music.",
+    type: "website",
+    siteName: "NotaScore",
+  },
+  twitter: {
+    card: "summary",
+    title: "NotaScore",
+    description: "Turn your music into a score.",
+  },
+  alternates: {
+    canonical: "/",
+  },
 };
 
 const themeInitScript = `(function(){try{var t=localStorage.getItem('notascore-theme');var m=(t==='light'||t==='dark')?t:'system';var d=document.documentElement;d.setAttribute('data-theme',m);var dark=m==='dark'||(m!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);d.style.backgroundColor=dark?'#0B1018':'#F6F3EC';d.style.colorScheme=dark?'dark':'light';}catch(e){document.documentElement.setAttribute('data-theme','system');}})();`;

@@ -249,7 +249,7 @@ export default function ListenPreview({ apiUrl, jobId, filename }) {
     <section className="listen" aria-label="Listening previews">
       <h3 className="listen-title">Listen</h3>
       <p className="listen-lead">
-        Compare the original with the raw MIDI and the quantized score MIDI.
+        Compare the original with MIDI and the score MIDI.
       </p>
 
       {!isMidiSource && (
@@ -311,7 +311,7 @@ export default function ListenPreview({ apiUrl, jobId, filename }) {
 
       <TransportRow
         label="MIDI"
-        hint="Raw DAW — unquantized"
+        hint="As performed"
         playing={active === "midi"}
         loading={loading === "midi"}
         current={clocks.midi.current}
@@ -323,7 +323,7 @@ export default function ListenPreview({ apiUrl, jobId, filename }) {
 
       <TransportRow
         label="MIDI (score)"
-        hint="Quantized to the sheet"
+        hint="Matched to the score"
         playing={active === "midi_score"}
         loading={loading === "midi_score"}
         current={clocks.midi_score.current}

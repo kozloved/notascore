@@ -4,15 +4,15 @@ import AppShell from "../../components/layout/AppShell";
 import AuthForm from "../../components/auth/AuthForm";
 
 export const metadata = {
-  title: "Log in",
-  description: "Log in to NotaScore to keep your scores.",
+  title: "Create an account",
+  description: "Create a NotaScore account to save your scores.",
 };
 
-export default function LoginPage() {
+export default function SignupPage() {
   return (
     <AppShell variant="public" width="narrow">
       <Suspense fallback={<p className="ns-tone-muted">Loading…</p>}>
-        <AuthForm mode="login" />
+        <AuthForm mode="signup" />
       </Suspense>
     </AppShell>
   );
