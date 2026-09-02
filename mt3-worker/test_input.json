@@ -1,0 +1,6 @@
+{
+  "input": {
+    "audio_base64": "REPLACE_WITH_BASE64_AUDIO",
+    "filename": "test.wav"
+  }
+}
