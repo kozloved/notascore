@@ -1,9 +1,9 @@
 # NotaScore YourMT3 / MT3-Infer RunPod Serverless worker
 #
-# The image intentionally bakes the YourMT3 checkpoint into the image so a
-# cold worker does not download ~536 MB of weights at request time.
+# IMPORTANT: the model checkpoint is downloaded during image build, not when a
+# user sends a job. This avoids a model download during every cold start.
 #
-# Build for RunPod with:
+# Build on Apple Silicon/other ARM machines with:
 #   docker build --platform linux/amd64 -t <registry>/notascore-yourmt3:0.1 .
 
 FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04
@@ -12,7 +12,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     MT3_CHECKPOINT_DIR=/opt/mt3_checkpoints \
-    MODEL_NAME=yourmt3
+    MODEL_NAME=yourmt3 \
+    MT3_DEVICE=cuda
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 \
@@ -29,42 +30,43 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN ln -sf /usr/bin/python3 /usr/local/bin/python
 RUN python -m pip install --upgrade pip setuptools wheel
 
-# MT3-Infer 0.2.0 was the version already selected by NotaScore.
-# PyTorch 2.7.1 + CUDA 12.6 matches the upstream benchmark environment.
+# The NotaScore repository currently targets mt3-infer 0.2.0.
+# PyTorch 2.7.1 + CUDA 12.6 matches the YourMT3 benchmark environment
+# documented by mt3-infer.
 RUN python -m pip install \
         torch==2.7.1+cu126 \
         torchaudio==2.7.1+cu126 \
-        --index-url https://download.pytorch.org/whl/cu126 \
-    && python -m pip install \
-        'mt3-infer[torch]==0.2.0' \
-        runpod==1.7.13 \
-        numpy
+        --index-url https://download.pytorch.org/whl/cu126
 
-# Download the exact default YourMT3 checkpoint during image build.
-# This is deliberately done at build time, not worker startup.
+COPY requirements.txt /requirements.txt
+RUN python -m pip install --no-cache-dir -r /requirements.txt
+
+# Download the default YourMT3 checkpoint at BUILD time. mt3-infer documents
+# this as the YPTF.MoE+Multi (noPS) checkpoint. The resulting ~536 MB model is
+# stored in the image under /opt/mt3_checkpoints.
 RUN mkdir -p "${MT3_CHECKPOINT_DIR}" \
-    && python - <<'PY'
-from mt3_infer import download_model
-path = download_model("yourmt3")
-print(f"YourMT3 checkpoint ready at: {path}")
-PY
+    && python -c 'from mt3_infer import download_model; print(download_model("yourmt3"))'
 
 COPY handler.py /handler.py
 
-# Fail the build if CUDA + YourMT3 cannot be imported and the checkpoint is absent.
+# Validate that the package can resolve the pre-downloaded checkpoint without
+# attempting another network download. We do not load CUDA weights at build
+# time because Docker builds do not require a GPU.
 RUN python - <<'PY'
 import os
-import torch
 from pathlib import Path
-from mt3_infer import get_model_info
+from mt3_infer import load_model
 
-print("Torch:", torch.__version__)
-print("CUDA available during build:", torch.cuda.is_available())
-print("YourMT3 info:", get_model_info("yourmt3").get("name"))
-checkpoint_root = Path(os.environ["MT3_CHECKPOINT_DIR"])
-if not any(checkpoint_root.rglob("*")):
-    raise SystemExit("ERROR: YourMT3 checkpoint was not downloaded into the image")
-print("Checkpoint files present under:", checkpoint_root)
+root = Path(os.environ["MT3_CHECKPOINT_DIR"])
+files = [p for p in root.rglob("*") if p.is_file()]
+if not files:
+    raise SystemExit("ERROR: YourMT3 checkpoint is missing from the image")
+print(f"Checkpoint files: {len(files)}")
+print(f"Checkpoint bytes: {sum(p.stat().st_size for p in files):,}")
+model = load_model("yourmt3", device="cpu", auto_download=False)
+print("YourMT3 CPU checkpoint load: OK")
+# Release references before the build layer ends.
+del model
 PY
 
 CMD ["python", "-u", "/handler.py"]
