@@ -7,6 +7,7 @@ import {
   validateRecording,
   friendlyUploadError,
 } from "./files.ts";
+import { uploadMode } from "./modes.ts";
 import {
   mapBackendStatus,
   currentStage,
@@ -50,9 +51,15 @@ test("hides raw upload errors", () => {
   const message = friendlyUploadError(
     new Error("Polyphonic mode is not configured. Set MT3_ENDPOINT")
   );
-  assert.equal(message.includes("MT3"), false);
-  assert.match(message, /couldn’t send your recording/i);
+  assert.equal(message.includes("MT3_ENDPOINT"), false);
+  assert.match(message, /polyphonic isn’t available/i);
   const typeMessage = friendlyUploadError(new Error("Invalid file type"));
   assert.match(typeMessage, /isn’t supported/i);
   assert.equal(typeMessage.includes("transcribed"), false);
+});
+
+test("create UI sends polyphonic unless the file is MIDI", () => {
+  assert.equal(uploadMode({ selected: "solo", midi: false }), "solo");
+  assert.equal(uploadMode({ selected: "polyphonic", midi: false }), "polyphonic");
+  assert.equal(uploadMode({ selected: "polyphonic", midi: true }), "solo");
 });

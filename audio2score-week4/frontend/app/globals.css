@@ -1008,6 +1008,11 @@ body::before {
   margin-top: 16px;
 }
 
+.ns-create > .mode-block:first-child {
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
 .mode-block .ns-segment {
   display: flex;
   width: 100%;

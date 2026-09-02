@@ -45,6 +45,13 @@ export function friendlyUploadError(error: unknown): string {
   if (text.includes("invalid file type") || text.includes("invalid content type")) {
     return "This file type isn’t supported. Choose MP3, WAV, M4A, FLAC, or MIDI.";
   }
+  if (
+    text.includes("polyphonic mode is not configured") ||
+    text.includes("mt3_endpoint") ||
+    text.includes("mt3_transcribe_command")
+  ) {
+    return "Polyphonic isn’t available right now. Choose Solo, or try again when the MT3 worker is connected.";
+  }
   if (text.includes("too large")) {
     return `This recording is too large. Please choose a file under ${MAX_UPLOAD_MB} MB.`;
   }
