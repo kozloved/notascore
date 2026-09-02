@@ -14,6 +14,15 @@ export function parseMode(raw?: string | null): TranscriptionMode {
   return ALIASES[String(raw).toLowerCase()] ?? "solo";
 }
 
+/** MIDI skips note detection. Audio uses the mode the musician selected. */
+export function uploadMode(args: {
+  selected: TranscriptionMode;
+  midi: boolean;
+}): TranscriptionMode {
+  if (args.midi) return "solo";
+  return args.selected === "polyphonic" ? "polyphonic" : "solo";
+}
+
 export function polyphonicAvailable(health: unknown): boolean {
   if (!health || typeof health !== "object") return false;
   const payload = health as {

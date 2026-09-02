@@ -287,3 +287,51 @@ def test_invalid_mode_rejected(tmp_path, monkeypatch):
             data={"mode": "ultra"},
         )
     assert response.status_code == 400
+
+
+def test_polyphonic_upload_stores_mode_when_mt3_configured(tmp_path, monkeypatch):
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    import main as app_main
+
+    monkeypatch.setenv("MT3_ENDPOINT", "http://gpu.example/transcribe")
+    captured = {}
+
+    def fake_enqueue(job_id, job_timeout=None, **_kwargs):
+        captured["job_id"] = job_id
+        captured["timeout"] = job_timeout
+
+    monkeypatch.setattr(app_main.queue_service, "enqueue_job", fake_enqueue)
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"RIFF")
+    with TestClient(app_main.app) as client:
+        response = client.post(
+            "/upload",
+            files={"file": ("a.wav", wav.read_bytes(), "audio/wav")},
+            data={"mode": "polyphonic"},
+        )
+    assert response.status_code == 202
+    body = response.json()
+    assert body["mode"] == "polyphonic"
+    assert captured["job_id"] == body["job_id"]
+    assert captured["timeout"] == 900
+
+
+def test_solo_upload_stores_solo_mode(tmp_path, monkeypatch):
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    import main as app_main
+
+    monkeypatch.setattr(app_main.queue_service, "enqueue_job", lambda *a, **k: None)
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"RIFF")
+    with TestClient(app_main.app) as client:
+        response = client.post(
+            "/upload",
+            files={"file": ("a.wav", wav.read_bytes(), "audio/wav")},
+            data={"mode": "solo"},
+        )
+    assert response.status_code == 202
+    assert response.json()["mode"] == "solo"

@@ -6,12 +6,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Upload } from "lucide-react";
 
 import { track } from "../../lib/analytics";
-import { uploadAudio } from "../../lib/api";
+import { uploadAudio, type TranscriptionMode } from "../../lib/api";
 import {
   friendlyUploadError,
+  isMidiFilename,
   validateRecording,
 } from "../../lib/files";
-import { polyphonicAvailable } from "../../lib/modes";
+import { parseMode, polyphonicAvailable, uploadMode } from "../../lib/modes";
 import { rememberPendingClaim } from "../../lib/pending-claim";
 import {
   getActiveJobId,
@@ -25,6 +26,7 @@ import { useJobPoll } from "../../hooks/useJobPoll";
 import Alert from "../ui/Alert";
 import Button from "../ui/Button";
 import Card from "../ui/Card";
+import SegmentedControl from "../ui/SegmentedControl";
 import SheetResult from "../SheetResult";
 import ProcessingStatus from "./ProcessingStatus";
 import RecordingPreview from "./RecordingPreview";
@@ -46,8 +48,7 @@ export default function CreateScorePanel() {
   const [uploading, setUploading] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [jobId, setJobId] = useState<string | null>(null);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [wantEnsemble, setWantEnsemble] = useState(false);
+  const [mode, setMode] = useState<TranscriptionMode>("solo");
   const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
 
   const { job, error: pollError } = useJobPoll(jobId, (next) => {
@@ -57,6 +58,11 @@ export default function CreateScorePanel() {
 
   useEffect(() => {
     track("create_page_viewed");
+    try {
+      setMode(parseMode(localStorage.getItem("notascore-mode")));
+    } catch {
+      /* ignore */
+    }
     fetch(`${API_URL}/health`)
       .then(async (response) => {
         if (response.ok) setHealth(await response.json());
@@ -83,6 +89,16 @@ export default function CreateScorePanel() {
   }, [job]);
 
   const polyAvailable = polyphonicAvailable(health);
+  const midiFile = Boolean(file && isMidiFilename(file.name));
+  const selectedMode = uploadMode({ selected: mode, midi: midiFile });
+  const changeMode = (next: TranscriptionMode) => {
+    setMode(next);
+    try {
+      localStorage.setItem("notascore-mode", next);
+    } catch {
+      /* ignore */
+    }
+  };
   const phase =
     uploading
       ? "uploading"
@@ -133,7 +149,7 @@ export default function CreateScorePanel() {
       const created = await uploadAudio(
         file,
         (percent) => setUploadPercent(percent),
-        wantEnsemble && polyAvailable ? "polyphonic" : "solo",
+        selectedMode,
         {
           token: session?.access_token,
           durationSeconds,
@@ -205,10 +221,42 @@ export default function CreateScorePanel() {
     job && job.status !== "completed" && job.status !== "failed"
   );
 
+  const modePicker = (
+    <div className="mode-block">
+      <SegmentedControl
+        label="Transcription mode"
+        value={selectedMode}
+        onChange={changeMode}
+        disabled={uploading}
+        options={[
+          {
+            value: "solo",
+            label: "Solo",
+            description: "Basic Pitch",
+          },
+          {
+            value: "polyphonic",
+            label: "Polyphonic",
+            description: "MT3",
+            disabled: midiFile,
+          },
+        ]}
+      />
+      <p className="mode-hint">
+        {midiFile
+          ? "MIDI files skip note detection — the score is written from the file."
+          : polyAvailable
+            ? "Solo uses Basic Pitch. Polyphonic sends the recording to the MT3 worker."
+            : "Solo uses Basic Pitch. Polyphonic needs the MT3 worker — it isn’t connected right now."}
+      </p>
+    </div>
+  );
+
   return (
     <Card id="create" className="ns-create">
       {phase === "idle" || (fileError && !file && !job) ? (
         <>
+          {modePicker}
           <input
             id="audio-file"
             className="file-input"
@@ -248,27 +296,7 @@ export default function CreateScorePanel() {
       {file && !job && !uploading ? (
         <>
           <RecordingPreview file={file} onDuration={setDurationSeconds} />
-          {polyAvailable ? (
-            <details
-              className="ns-advanced"
-              open={advancedOpen}
-              onToggle={(e) => setAdvancedOpen((e.target as HTMLDetailsElement).open)}
-            >
-              <summary>Advanced options</summary>
-              <label className="ns-advanced-row">
-                <input
-                  type="checkbox"
-                  checked={wantEnsemble}
-                  onChange={(e) => setWantEnsemble(e.target.checked)}
-                />
-                Several parts at once
-              </label>
-              <p className="mode-hint">
-                Leave this off to let NotaScore choose. Use it only for piano or
-                overlapping parts.
-              </p>
-            </details>
-          ) : null}
+          {modePicker}
           <Button
             onClick={startJob}
             disabled={submitting.current}
