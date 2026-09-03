@@ -16,6 +16,7 @@ import { parseMode, polyphonicAvailable, uploadMode } from "../../lib/modes";
 import { rememberPendingClaim } from "../../lib/pending-claim";
 import {
   getActiveJobId,
+  listStoredScores,
   setActiveJobId,
   upsertStoredScore,
 } from "../../lib/session-jobs";
@@ -52,8 +53,14 @@ export default function CreateScorePanel() {
   const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
 
   const { job, error: pollError } = useJobPoll(jobId, (next) => {
-    if (next.status === "completed") track("job_completed");
-    if (next.status === "failed") track("job_failed");
+    if (next.status === "completed") {
+      track("job_completed");
+      setActiveJobId(null);
+    }
+    if (next.status === "failed") {
+      track("job_failed");
+      setActiveJobId(null);
+    }
   });
 
   useEffect(() => {
@@ -76,7 +83,14 @@ export default function CreateScorePanel() {
       return;
     }
     const stored = getActiveJobId();
-    if (stored) setJobId(stored);
+    if (!stored) return;
+    const entry = listStoredScores().find((s) => s.job_id === stored);
+    const terminal = entry?.status === "completed" || entry?.status === "failed";
+    if (terminal) {
+      setActiveJobId(null);
+      return;
+    }
+    setJobId(stored);
   }, [urlJob]);
 
   const opened = useRef(false);
