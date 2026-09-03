@@ -122,7 +122,18 @@ NEXT_PUBLIC_API_URL=/api
 CORS_ORIGIN=https://notascore.com,https://www.notascore.com
 ```
 
-Leave `MT3_ENDPOINT` empty until Vast.ai is up. Solo works without a GPU.
+Leave `MT3_ENDPOINT` empty until a GPU worker is configured. Solo works without a GPU.
+
+For RunPod Serverless YourMT3:
+
+```env
+MT3_ENDPOINT=https://api.runpod.ai/v2/g40wir5ey71e3/runsync
+MT3_API_KEY=<RunPod API key>
+MT3_MODEL=yourmt3
+MT3_TIMEOUT_SECONDS=300
+```
+
+Keep `MT3_API_KEY` in `.env.production` on the VPS only. Never commit it.
 
 Start:
 
@@ -150,9 +161,20 @@ Open `https://notascore.com` and upload a short Solo `.wav`.
 
 ---
 
-## 6. Point Polyphonic at Vast.ai (optional)
+## 6. Point Polyphonic at RunPod Serverless (or Vast.ai)
 
-Same as before. On the VPS, edit `.env.production`:
+On the VPS, edit `.env.production`.
+
+RunPod Serverless:
+
+```env
+MT3_ENDPOINT=https://api.runpod.ai/v2/g40wir5ey71e3/runsync
+MT3_API_KEY=<RunPod API key>
+MT3_MODEL=yourmt3
+MT3_TIMEOUT_SECONDS=300
+```
+
+Legacy Vast.ai HTTP worker:
 
 ```env
 MT3_ENDPOINT=http://<vast-public-ip>:<mapped-port>/transcribe
@@ -164,9 +186,10 @@ MT3_MODEL=yourmt3
 docker compose --env-file .env.production --profile tunnel up -d api worker
 curl -fsS http://127.0.0.1/api/health
 # modes.polyphonic should be true
+# polyphonic.provider should be runpod when using api.runpod.ai
 ```
 
-GPU setup: [../gpu-worker/README.md](../gpu-worker/README.md). Destroy the Vast.ai instance when you are not using Polyphonic.
+GPU HTTP worker setup: [../gpu-worker/README.md](../gpu-worker/README.md). Destroy a Vast.ai instance when you are not using it.
 
 ---
 

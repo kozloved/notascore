@@ -219,6 +219,9 @@ def test_health_includes_quality(monkeypatch):
     assert payload["polyphonic"]["available"] is False
     assert payload["polyphonic"]["model"] == "yourmt3"
     assert payload["polyphonic"]["toolkit_version"] == "0.2.0"
+    assert payload["polyphonic"]["provider"] == "none"
+    assert payload["polyphonic"]["endpoint_configured"] is False
+    assert "api_key" not in payload["polyphonic"]
     assert payload["modes"]["solo"] is True
     assert payload["modes"]["polyphonic"] is False
     assert payload["modes"]["fast"] is True
