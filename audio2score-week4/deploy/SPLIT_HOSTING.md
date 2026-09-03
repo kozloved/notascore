@@ -7,27 +7,34 @@ Browser
   → Cloudflare Tunnel
        → VPS (Docker Compose: nginx + Next.js + FastAPI + Redis + Solo worker)
                             │
-                            │  Polyphonic jobs only: POST audio, get MIDI
+                            │  Polyphonic jobs only: MT3Backend → MIDI
                             ▼
-       Vast.ai GPU  (YourMT3 via mt3-infer 0.2.0)
+       RunPod Serverless YourMT3  (or Vast.ai HTTP worker)
 ```
 
 | Piece | Where | GPU? | Cost |
 |---|---|---|---|
 | Site (frontend + API + Redis + Solo jobs) | Cheap VPS + Cloudflare Tunnel | No | ~$5–6/month (Hetzner CX22) |
-| Polyphonic model | Vast.ai dedicated GPU | Yes | Paid by the hour; destroy when idle |
+| Polyphonic model | RunPod Serverless (or Vast.ai) | Yes | Paid per GPU second; keep the endpoint |
 
-**RunPod is not free.** Prefer Vast.ai for the GPU and a VPS for the site.
+The browser never talks to RunPod. Only the backend `MT3Backend` does.
 
 ## 1. Site (CPU) — VPS
 
 Follow [VPS.md](VPS.md). Compose starts Redis, API, worker, frontend, nginx, and `cloudflared`.
 
 ```env
-MT3_ENDPOINT=http://<vast-public-ip>:<mapped-port>/transcribe
-MT3_API_KEY=the-same-secret-as-the-gpu
+MT3_ENDPOINT=https://api.runpod.ai/v2/g40wir5ey71e3/runsync
+MT3_API_KEY=<RunPod API key>
 MT3_MODEL=yourmt3
 MT3_TIMEOUT_SECONDS=300
+```
+
+Or a Vast.ai HTTP worker:
+
+```env
+MT3_ENDPOINT=http://<vast-public-ip>:<mapped-port>/transcribe
+MT3_API_KEY=the-same-secret-as-the-gpu
 ```
 
 `GET https://notascore.com/api/health` should show `modes.polyphonic: true` after the GPU worker is up.

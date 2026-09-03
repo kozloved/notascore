@@ -96,31 +96,48 @@ Basic Pitch on this machine. Same cleaner → CMR → grand-staff path as before
 
 ### Polyphonic (YourMT3)
 
-Polyphonic never falls back to Solo. Configure a GPU worker **or** a command that writes **MIDI** (not MusicXML):
+Polyphonic never falls back to Solo. The backend `MT3Backend` calls a remote GPU and expects **MIDI**. The rest of the job pipeline is unchanged.
+
+**RunPod Serverless** (JSON `input.audio_base64` → `midi_base64`):
 
 ```env
-MT3_ENDPOINT=http://127.0.0.1:8090/transcribe
-MT3_API_KEY=
+MT3_ENDPOINT=https://api.runpod.ai/v2/g40wir5ey71e3/runsync
+MT3_API_KEY=<RunPod API key>
 MT3_MODEL=yourmt3
 MT3_TIMEOUT_SECONDS=300
 ```
 
-The worker must accept `POST` with multipart field `file` and respond with MIDI bytes (`audio/midi`) or JSON `{"midi_base64":"..."}`.
+`MT3_API_KEY` stays on the API / worker only. Do not put it in the frontend or commit it.
 
-Alternatively:
+A URL without `/runsync` is normalized to `/runsync`. Manual check (same adapter as production jobs):
+
+```text
+cd audio2score-week4/backend
+python scripts/run_runpod_mt3.py path/to/clip.wav
+```
+
+**Legacy HTTP worker** (multipart `file` → MIDI bytes or `{"midi_base64":"..."}`):
+
+```env
+MT3_ENDPOINT=http://127.0.0.1:8090/transcribe
+MT3_API_KEY=
+```
+
+Alternatively a local command that writes MIDI to `{output}`:
 
 ```env
 MT3_TRANSCRIBE_COMMAND=python scripts/example_mt3.py {input} {output}
 MT3_TIMEOUT_SECONDS=300
 ```
 
-`{output}` is a `.mid` path. Dummy helpers:
+Dummy helpers:
 
 ```text
 backend/scripts/example_mt3.py
 backend/scripts/example_mt3_http.py
+backend/scripts/run_runpod_mt3.py
 ```
 
-`GET /health` includes `modes.polyphonic` (and the legacy alias `quality.available`). The UI greys out Polyphonic until a worker is configured.
+`GET /health` includes `modes.polyphonic`, `polyphonic.provider` (`runpod` | `http` | `command` | `none`), and the legacy alias `quality.available`. It never includes `MT3_API_KEY`. The UI greys out Polyphonic until a worker is configured.
 
-To run **real** YourMT3, put `gpu-worker/` on a Vast.ai GPU (12 GB+) and set `MT3_ENDPOINT` to its `/transcribe` URL. See [gpu-worker/README.md](gpu-worker/README.md) and [deploy/SPLIT_HOSTING.md](deploy/SPLIT_HOSTING.md).
+Vast.ai / local GPU HTTP worker: [gpu-worker/README.md](gpu-worker/README.md) and [deploy/SPLIT_HOSTING.md](deploy/SPLIT_HOSTING.md).

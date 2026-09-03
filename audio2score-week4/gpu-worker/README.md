@@ -77,11 +77,13 @@ On Vast.ai you can also point the instance at this image after you push it to a 
 
 ## 3. RunPod (alternative GPU)
 
-Same worker. Use a **PyTorch + CUDA** template, expose HTTP **8090**, then `./start.sh`. Public URL looks like:
+Production Polyphonic uses **RunPod Serverless** from the NotaScore backend (`MT3_ENDPOINT=https://api.runpod.ai/v2/<id>/runsync`). That path does not use this HTTP `/transcribe` server.
+
+This folder is the **HTTP** worker (multipart `file` → MIDI). For a traditional RunPod pod, use a **PyTorch + CUDA** template, expose HTTP **8090**, then `./start.sh`. Public URL looks like:
 
 `https://<pod-id>-8090.proxy.runpod.net`
 
-RunPod is not free. Vast.ai interruptible GPUs are usually cheaper for the same VRAM.
+Do not put `MT3_API_KEY` in the browser. Point the VPS API/worker at the endpoint.
 
 ## 4. Point NotaScore at it
 
