@@ -75,15 +75,36 @@ docker run --gpus all -p 8090:8090 \
 
 On Vast.ai you can also point the instance at this image after you push it to a registry.
 
-## 3. RunPod (alternative GPU)
+## 3. RunPod Serverless
 
-Production Polyphonic uses **RunPod Serverless** from the NotaScore backend (`MT3_ENDPOINT=https://api.runpod.ai/v2/<id>/runsync`). That path does not use this HTTP `/transcribe` server.
+There is **no pod-proxy URL** for Serverless. The only address is:
 
-This folder is the **HTTP** worker (multipart `file` → MIDI). For a traditional RunPod pod, use a **PyTorch + CUDA** template, expose HTTP **8090**, then `./start.sh`. Public URL looks like:
+```
+https://api.runpod.ai/v2/<endpoint-id>/runsync
+```
 
-`https://<pod-id>-8090.proxy.runpod.net`
+The image must run `handler.py` (RunPod protocol: JSON `input.audio_base64` → `midi_base64`). `kozloved/notascore-yourmt3:0.1` started the HTTP server only, so `/runsync` could not return MIDI.
 
-Do not put `MT3_API_KEY` in the browser. Point the VPS API/worker at the endpoint.
+Build and push a new tag after pulling this folder:
+
+```bash
+cd audio2score-week4/gpu-worker
+docker build -t kozloved/notascore-yourmt3:0.2 .
+docker push kozloved/notascore-yourmt3:0.2
+```
+
+In RunPod **Serverless → Endpoints**, set the worker image to `kozloved/notascore-yourmt3:0.2`. RunPod sets `RUNPOD_ENDPOINT_ID`; `start.sh` then starts `handler.py`.
+
+On the VPS `.env.production`:
+
+```env
+MT3_ENDPOINT=https://api.runpod.ai/v2/<endpoint-id>/runsync
+MT3_API_KEY=<your RunPod API key from RunPod Settings → API Keys>
+```
+
+`MT3_API_KEY` must be the RunPod account API key, not a random worker secret. Recreate `api` and `worker` after editing.
+
+Do not put `MT3_API_KEY` in the browser.
 
 ## 4. Point NotaScore at it
 

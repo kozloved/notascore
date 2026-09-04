@@ -24,7 +24,7 @@ COPY requirements.txt .
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
-COPY mt3_gpu_worker.py start.sh ./
+COPY mt3_gpu_worker.py handler.py start.sh ./
 RUN chmod +x start.sh
 
 EXPOSE 8090
