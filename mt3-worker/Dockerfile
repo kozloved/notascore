@@ -4,7 +4,7 @@
 # user sends a job. This avoids a model download during every cold start.
 #
 # Build on Apple Silicon/other ARM machines with:
-#   docker build --platform linux/amd64 -t <registry>/notascore-yourmt3:0.1 .
+#   docker build --platform linux/amd64 -t <registry>/notascore-yourmt3:0.3 .
 
 # RunPod GPUs are linux/amd64. On an Apple Silicon Mac you MUST pass
 #   docker build --platform linux/amd64
@@ -42,7 +42,8 @@ RUN python -m pip install \
         --index-url https://download.pytorch.org/whl/cu126
 
 COPY requirements.txt /requirements.txt
-RUN python -m pip install --no-cache-dir -r /requirements.txt
+RUN python -m pip install --no-cache-dir -r /requirements.txt \
+    && python -c "import transformers; v=transformers.__version__; assert v.startswith('4.43.'), v"
 
 # Download the default YourMT3 checkpoint at BUILD time. mt3-infer documents
 # this as the YPTF.MoE+Multi (noPS) checkpoint. The resulting ~536 MB model is
@@ -52,6 +53,7 @@ RUN mkdir -p "${MT3_CHECKPOINT_DIR}" \
 
 COPY handler.py /handler.py
 COPY payload.py /payload.py
+COPY gpu_compat.py /gpu_compat.py
 
 # Validate that the package can resolve the pre-downloaded checkpoint without
 # attempting another network download. We do not load CUDA weights at build
@@ -67,8 +69,11 @@ if not files:
     raise SystemExit("ERROR: YourMT3 checkpoint is missing from the image")
 print(f"Checkpoint files: {len(files)}")
 print(f"Checkpoint bytes: {sum(p.stat().st_size for p in files):,}")
+import transformers
+assert transformers.__version__.startswith("4.43."), transformers.__version__
 model = load_model("yourmt3", device="cpu", auto_download=False)
 print("YourMT3 CPU checkpoint load: OK")
+print("transformers", transformers.__version__)
 # Release references before the build layer ends.
 del model
 PY

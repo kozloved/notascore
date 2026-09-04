@@ -18,15 +18,17 @@ from pathlib import Path
 import runpod
 import soundfile as sf
 
+from gpu_compat import refuse_unsupported_cuda
 from payload import audio_base64_from_job
 
 print("[MT3] worker boot: importing YourMT3...")
 _model_load_started = time.perf_counter()
 
-from mt3_infer import load_model  # noqa: E402
-
 MODEL_NAME = os.getenv("MODEL_NAME", "yourmt3")
 DEVICE = os.getenv("MT3_DEVICE", "cuda")
+refuse_unsupported_cuda(DEVICE)
+
+from mt3_infer import load_model  # noqa: E402
 
 MODEL = load_model(MODEL_NAME, device=DEVICE, auto_download=False)
 MODEL_LOAD_SECONDS = time.perf_counter() - _model_load_started

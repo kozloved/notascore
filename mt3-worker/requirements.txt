@@ -1,5 +1,9 @@
 runpod==1.7.13
 mt3-infer[torch]==0.2.0
-transformers>=4.38.2,<5.0
+# YourMT3 (t5mod) is incompatible with transformers>=4.44.
+# A looser pin pulled 4.5x and crashed decoder generate with:
+#   TypeError: 'NoneType' object is not subscriptable
+#   (cache_position is None in modeling_t5.py)
+transformers==4.43.4
 soundfile>=0.12,<1
 numpy>=1.26,<3
