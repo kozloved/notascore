@@ -1,4 +1,6 @@
-FROM pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime
+# RunPod GPUs are linux/amd64. Building this on an Apple Silicon Mac without
+# --platform linux/amd64 produces an arm64 image that RunPod cannot pull.
+FROM --platform=linux/amd64 pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
