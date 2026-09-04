@@ -85,15 +85,23 @@ https://api.runpod.ai/v2/<endpoint-id>/runsync
 
 The image must run `handler.py` (RunPod protocol: JSON `input.audio_base64` → `midi_base64`). `kozloved/notascore-yourmt3:0.1` started the HTTP server only, so `/runsync` could not return MIDI.
 
-Build and push a new tag after pulling this folder:
+RunPod workers are **linux/amd64**. If you build on an Apple Silicon Mac without `--platform linux/amd64`, Docker Hub stores an arm64 image and RunPod fails with `IMAGE_PULL_ERROR` / `no matching manifest for linux/amd64`.
+
+Build and push from this folder (slow on a Mac because it emulates amd64):
 
 ```bash
 cd audio2score-week4/gpu-worker
-docker build -t kozloved/notascore-yourmt3:0.2 .
-docker push kozloved/notascore-yourmt3:0.2
+docker buildx build --platform linux/amd64 -t kozloved/notascore-yourmt3:0.2 --push .
 ```
 
-In RunPod **Serverless → Endpoints**, set the worker image to `kozloved/notascore-yourmt3:0.2`. RunPod sets `RUNPOD_ENDPOINT_ID`; `start.sh` then starts `handler.py`.
+Or:
+
+```bash
+chmod +x build-and-push.sh
+./build-and-push.sh kozloved/notascore-yourmt3:0.2
+```
+
+Confirm the Hub tag shows `linux/amd64` before redeploying. In RunPod **Serverless → Endpoints**, set the worker image to `kozloved/notascore-yourmt3:0.2` and **redeploy**.
 
 On the VPS `.env.production`:
 
