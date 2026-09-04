@@ -124,11 +124,11 @@ CORS_ORIGIN=https://notascore.com,https://www.notascore.com
 
 Leave `MT3_ENDPOINT` empty until a GPU worker is configured. Solo works without a GPU.
 
-For RunPod Serverless YourMT3:
+For RunPod Serverless YourMT3, copy the endpoint ID from the RunPod console URL (`/endpoint/<ID>`):
 
 ```env
-MT3_ENDPOINT=https://api.runpod.ai/v2/g40wir5ey71e3/runsync
-MT3_API_KEY=<RunPod API key>
+MT3_ENDPOINT=https://api.runpod.ai/v2/<ENDPOINT_ID>/runsync
+MT3_API_KEY=<RunPod API key from Settings → API Keys>
 MT3_MODEL=yourmt3
 MT3_TIMEOUT_SECONDS=300
 ```

@@ -1,0 +1,13 @@
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.wav
+*.mp3
+*.mid
+*.midi
+.env
+__pycache__/

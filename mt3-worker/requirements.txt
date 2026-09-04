@@ -1,0 +1,5 @@
+runpod==1.7.13
+mt3-infer[torch]==0.2.0
+transformers>=4.38.2,<5.0
+soundfile>=0.12,<1
+numpy>=1.26,<3

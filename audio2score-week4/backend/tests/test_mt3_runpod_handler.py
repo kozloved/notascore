@@ -55,6 +55,46 @@ def test_serverless_missing_audio_base64():
         serverless.transcribe_event({"input": {"filename": "x.wav"}})
 
 
+def test_serverless_accepts_double_wrapped_input():
+    midi_bytes = _one_note_midi_bytes(64)
+
+    def fake_transcribe(_path: str) -> bytes:
+        return midi_bytes
+
+    event = {
+        "id": "sync-test",
+        "input": {
+            "input": {
+                "audio_base64": base64.b64encode(b"RIFF").decode(),
+                "filename": "recording.wav",
+            }
+        },
+    }
+    with patch.object(serverless, "get_model", return_value=object()):
+        with patch.object(serverless, "transcribe_audio_path", side_effect=fake_transcribe):
+            result = serverless.handler(event)
+    assert base64.b64decode(result["midi_base64"])[:4] == b"MThd"
+
+
+def test_serverless_accepts_runpod_job_envelope():
+    midi_bytes = _one_note_midi_bytes(61)
+
+    def fake_transcribe(_path: str) -> bytes:
+        return midi_bytes
+
+    event = {
+        "id": "sync-test",
+        "input": {
+            "audio_base64": base64.b64encode(b"RIFF").decode(),
+            "filename": "clip.wav",
+        },
+    }
+    with patch.object(serverless, "get_model", return_value=object()):
+        with patch.object(serverless, "transcribe_audio_path", side_effect=fake_transcribe):
+            result = serverless.handler(event)
+    assert result["model"] == "yourmt3"
+
+
 def test_serverless_accepts_top_level_input_fields():
     midi_bytes = _one_note_midi_bytes(60)
 

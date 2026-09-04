@@ -300,6 +300,11 @@ def _parse_runpod_body(body: bytes) -> bytes:
 
     output = payload.get("output")
     if isinstance(output, dict):
+        nested_error = output.get("error")
+        if nested_error and not output.get("midi_base64"):
+            raise _transcription_error(
+                f"RunPod transcription service failed. {_safe_error_detail(str(nested_error))}"
+            )
         timing = output.get("timing")
         if isinstance(timing, dict):
             inference = timing.get("inference_seconds")
