@@ -9,3 +9,4 @@ transformers==4.43.4
 librosa
 soundfile
 pretty_midi
+runpod
