@@ -42,9 +42,9 @@ from mir.models import (
 from mir.phrase_detector import PhraseDetector
 from mir.pipeline_config import (
     PipelineConfig,
-    QuantizationMode,
     load_pipeline_config,
     piano_analysis_enabled,
+    quantization_snaps_display_tempo,
 )
 from mir.raw_midi import (
     job_raw_midi_path,
@@ -609,7 +609,7 @@ class UnderstandingPipeline:
         return decision
 
     def _display_bpm(self, bpm: float) -> int:
-        if self.config.quantization_mode == QuantizationMode.OFF:
+        if not quantization_snaps_display_tempo(self.config.quantization_mode):
             return max(1, int(round(float(bpm))))
         return snap_to_standard_tempo(bpm)
 

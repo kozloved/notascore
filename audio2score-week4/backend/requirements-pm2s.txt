@@ -7,8 +7,10 @@
 #
 # Then on the worker:
 #   TRANSCRIPTION_HAND_SEPARATOR=pm2s
+#   TRANSCRIPTION_QUANTIZATION_MODE=pm2s
 #   PM2S_REPO=/opt/pm2s
 #
-# Weights download from Zenodo on first use (RNNHandPartModel.pth).
-# Only the hand-part processor is invoked; PM2S quantization is not used.
+# Weights download from Zenodo on first use
+# (RNNHandPartModel.pth, RNNJointQuantisationModel.pth, RNNJointBeatModel.pth).
+# Hands and quantization are independent flags.
 torch

@@ -155,11 +155,14 @@ class MeasureQuantizer:
         self,
         config: QuantizerConfig | None = None,
         mode: QuantizationMode | str | None = None,
+        pm2s_processor=None,
     ):
         self.config = config or QuantizerConfig()
         self.mode = parse_quantization_mode(mode) if mode else QuantizationMode.ADAPTIVE
         self.last_summary: dict = {}
         self.last_events: list[MusicalEvent] = []
+        self._pm2s_processor = pm2s_processor
+        self._pm2s_load_failed = False
 
     def quantize(
         self,
@@ -172,6 +175,8 @@ class MeasureQuantizer:
             return [], []
         if self.mode == QuantizationMode.OFF:
             return self._identity(events)
+        if self.mode == QuantizationMode.PM2S:
+            return self._quantize_pm2s(events)
 
         grouped: dict[tuple[int, int], list[MusicalEvent]] = {}
         for ev in events:
@@ -239,6 +244,40 @@ class MeasureQuantizer:
         self.last_events = list(out)
         self.last_summary = summarize_quantization(events, out, decisions)
         return out, decisions
+
+    def _quantize_pm2s(
+        self, events: list[MusicalEvent]
+    ) -> tuple[list[MusicalEvent], list[dict]]:
+        try:
+            processor = self._load_pm2s_processor()
+            if processor is None:
+                print("[PM2S] quantizer unavailable; keeping transcribed timing")
+                return self._identity(events)
+            from mir.pm2s_quantizer import apply_pm2s_rhythm
+
+            out, decisions = apply_pm2s_rhythm(events, processor)
+        except Exception as exc:
+            print(f"[PM2S] quantizer failed ({exc}); keeping transcribed timing")
+            return self._identity(events)
+        self.last_events = list(out)
+        self.last_summary = summarize_quantization(events, out, decisions)
+        self.last_summary["engine"] = "pm2s"
+        return out, decisions
+
+    def _load_pm2s_processor(self):
+        if self._pm2s_processor is not None:
+            return self._pm2s_processor
+        if self._pm2s_load_failed:
+            return None
+        try:
+            from mir.pm2s_quantizer import load_pm2s_quantisation_processor
+
+            self._pm2s_processor = load_pm2s_quantisation_processor()
+            return self._pm2s_processor
+        except Exception as exc:
+            print(f"[PM2S] quantizer model unavailable ({exc})")
+            self._pm2s_load_failed = True
+            return None
 
     @staticmethod
     def _restore_missing(
@@ -535,7 +574,11 @@ def summarize_quantization(
         if start_changed or dur_changed:
             changed += 1
         grid = d.get("selected_grid", d.get("grid"))
-        if grid is not None and abs(float(grid) - (1.0 / 3.0)) < 1e-6:
+        try:
+            grid_f = float(grid) if grid is not None else None
+        except (TypeError, ValueError):
+            grid_f = None
+        if grid_f is not None and abs(grid_f - (1.0 / 3.0)) < 1e-6:
             triplets += 1
     orig_ids = {e.note_id for e in original if e.note_id}
     q_ids = {e.note_id for e in quantized if e.note_id}

@@ -33,7 +33,12 @@ from mir.types import Hand, MusicalEvent, ScoreMeta, TempoMap
 from notation_engine.meter import bar_length, estimate_key, estimate_time_signature
 from notation_engine.plan import NotationPlanner
 from notation_engine.quantize import quantize_events
-from mir.pipeline_config import QuantizationMode, parse_quantization_mode
+from mir.pipeline_config import (
+    QuantizationMode,
+    parse_quantization_mode,
+    quantization_skips_legacy_grid,
+    quantization_snaps_display_tempo,
+)
 
 CHORD_START_WINDOW = 0.08
 CHORD_DURATION_RATIO = 0.5
@@ -299,7 +304,7 @@ class NotationWriter:
         )
         quantized = (
             list(events)
-            if mode == QuantizationMode.OFF
+            if quantization_skips_legacy_grid(mode)
             else quantize_events(events, quantize_divisors)
         )
         ts_str = meta.time_sig_hint or estimate_time_signature(quantized)
@@ -445,7 +450,7 @@ class NotationWriter:
             if quantization_mode is not None
             else self.last_quantization_mode
         )
-        if mode != QuantizationMode.OFF:
+        if not quantization_skips_legacy_grid(mode):
             score.quantize(
                 quarterLengthDivisors=quantize_divisors,
                 processOffsets=True,
@@ -464,7 +469,7 @@ class NotationWriter:
         from transcription import snap_to_standard_tempo
 
         last_bpm = float(meta.display_tempo_bpm or 120)
-        snap = self.last_quantization_mode != QuantizationMode.OFF
+        snap = quantization_snaps_display_tempo(self.last_quantization_mode)
         for pt in tempo_map.sorted_points():
             if pt.time_sec <= 1e-6:
                 continue

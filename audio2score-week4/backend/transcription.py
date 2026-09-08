@@ -269,12 +269,16 @@ class BasicPitchEngine:
         aligned.write(str(midi_path))
 
         score = converter.parse(str(midi_path))
-        from mir.pipeline_config import QuantizationMode, env_str, parse_quantization_mode
+        from mir.pipeline_config import (
+            env_str,
+            parse_quantization_mode,
+            quantization_skips_legacy_grid,
+        )
 
         quant_mode = parse_quantization_mode(
             env_str("TRANSCRIPTION_QUANTIZATION_MODE", "off")
         )
-        if quant_mode != QuantizationMode.OFF:
+        if not quantization_skips_legacy_grid(quant_mode):
             score.quantize(
                 quarterLengthDivisors=QUANTIZE_DIVISORS,
                 processOffsets=True,

@@ -23,7 +23,11 @@ from mir.quantizer import (
     duration_pieces,
     tie_chain,
 )
-from mir.pipeline_config import QuantizationMode, parse_quantization_mode
+from mir.pipeline_config import (
+    QuantizationMode,
+    parse_quantization_mode,
+    quantization_spells_writable,
+)
 from mir.types import Hand, InstrumentKind, MusicalEvent, ScoreMeta
 from notation_engine.meter import estimate_key
 
@@ -327,7 +331,7 @@ class NotationPlanner:
         if cursor < mql - 1e-8:
             elements.extend(self._rests(cursor, mql - cursor, voice_id))
 
-        if self.quantizer.mode == QuantizationMode.OFF:
+        if quantization_spells_writable(self.quantizer.mode):
             elements = self._spell_writable(elements, mql, voice_id)
 
         self._assert_sum(elements, mql, voice_id)
@@ -440,7 +444,7 @@ class NotationPlanner:
             return
         if total > mql:
             extra = total - mql
-            if self.quantizer.mode == QuantizationMode.OFF:
+            if quantization_spells_writable(self.quantizer.mode):
                 extra = (
                     int(extra / SMALLEST_WRITABLE + 1e-12) * SMALLEST_WRITABLE
                 )
@@ -461,7 +465,7 @@ class NotationPlanner:
         gap = mql - total
         last = elements[-1]
         last_end = last.start_q + last.duration_q
-        if self.quantizer.mode == QuantizationMode.OFF:
+        if quantization_spells_writable(self.quantizer.mode):
             for d in duration_pieces(gap, allow_empty=True, max_total=gap):
                 elements.append(
                     PlannedRest(start_q=last_end, duration_q=d, voice=voice_id)

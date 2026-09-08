@@ -1,8 +1,8 @@
 """Opt-in PM2S RNN piano hand assignment.
 
-PM2S (ISMIR 2022, cheriell/PM2S) is trained on performance MIDI. We use only
-the hand-part head. Quantization, beat, key, and time-signature heads are not
-called, so transcribed onsets and durations stay untouched.
+PM2S (ISMIR 2022, cheriell/PM2S) is trained on performance MIDI. This module
+is the hand-part head only. Rhythm is separate: set
+TRANSCRIPTION_QUANTIZATION_MODE=pm2s to try the quantization RNN.
 
 Default production path stays on the Viterbi HandSeparator. Set
 TRANSCRIPTION_HAND_SEPARATOR=pm2s to try this on a worker that has torch plus
@@ -57,7 +57,7 @@ def events_to_note_seq(
     return np.asarray(rows, dtype=np.float64), list(ordered)
 
 
-def _prepend_pm2s_repo() -> None:
+def prepend_pm2s_repo() -> None:
     repo = os.getenv("PM2S_REPO", "").strip()
     if repo and repo not in sys.path:
         sys.path.insert(0, repo)
@@ -65,7 +65,7 @@ def _prepend_pm2s_repo() -> None:
 
 def pm2s_importable() -> bool:
     """True when the PM2S package can be imported. Does not load weights."""
-    _prepend_pm2s_repo()
+    prepend_pm2s_repo()
     try:
         import pm2s.features.hand_part  # noqa: F401
 
@@ -74,7 +74,7 @@ def pm2s_importable() -> bool:
         return False
 
 
-def _as_labels(raw: Any, n: int) -> np.ndarray | None:
+def as_note_vector(raw: Any, n: int) -> np.ndarray | None:
     try:
         arr = np.asarray(raw)
     except Exception:
@@ -128,7 +128,7 @@ class Pm2sHandSeparator:
             return self._processor
         if self._load_failed:
             return None
-        _prepend_pm2s_repo()
+        prepend_pm2s_repo()
         try:
             from pm2s.features.hand_part import RNNHandPartProcessor
 
@@ -146,7 +146,7 @@ class Pm2sHandSeparator:
 
         note_seq, ordered = events_to_note_seq(events)
         raw = processor.process_note_seq(note_seq)
-        labels = _as_labels(raw, len(ordered))
+        labels = as_note_vector(raw, len(ordered))
         if labels is None:
             raise RuntimeError(
                 f"PM2S hand output length {getattr(raw, 'shape', type(raw))} "

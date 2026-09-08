@@ -30,6 +30,7 @@ class QuantizationMode(str, Enum):
     ADAPTIVE = "adaptive"
     STRICT_GRID = "strict_grid"
     OFF = "off"
+    PM2S = "pm2s"
 
 
 class HandSeparatorMode(str, Enum):
@@ -73,6 +74,10 @@ QUANTIZATION_ALIASES = {
     "disabled": QuantizationMode.OFF,
     "0": QuantizationMode.OFF,
     "false": QuantizationMode.OFF,
+    "pm2s": QuantizationMode.PM2S,
+    "pm25": QuantizationMode.PM2S,
+    "pm2s_quant": QuantizationMode.PM2S,
+    "neural": QuantizationMode.PM2S,
 }
 
 # Source-aware MVP defaults. MT3 is treated as the pitch/timing source of truth.
@@ -131,9 +136,23 @@ def parse_quantization_mode(value: str | QuantizationMode | None) -> Quantizatio
     if key not in QUANTIZATION_ALIASES:
         raise ValueError(
             f"Unknown TRANSCRIPTION_QUANTIZATION_MODE={value!r}. "
-            "Use adaptive | strict_grid | off."
+            "Use adaptive | strict_grid | off | pm2s."
         )
     return QUANTIZATION_ALIASES[key]
+
+
+def quantization_skips_legacy_grid(mode: QuantizationMode) -> bool:
+    """OFF keeps raw beats. PM2S already rewrote beats in MeasureQuantizer."""
+    return mode in (QuantizationMode.OFF, QuantizationMode.PM2S)
+
+
+def quantization_spells_writable(mode: QuantizationMode) -> bool:
+    """Spell MusicXML with tied 64th-based note types instead of a 16th grid."""
+    return mode in (QuantizationMode.OFF, QuantizationMode.PM2S)
+
+
+def quantization_snaps_display_tempo(mode: QuantizationMode) -> bool:
+    return mode in (QuantizationMode.ADAPTIVE, QuantizationMode.STRICT_GRID)
 
 
 def parse_hand_separator_mode(

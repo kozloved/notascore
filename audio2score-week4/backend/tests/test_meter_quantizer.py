@@ -208,3 +208,84 @@ def test_pipeline_config_defaults_to_quantization_off(monkeypatch):
     assert load_pipeline_config().quantization_mode == QuantizationMode.OFF
     assert parse_quantization_mode("off") == QuantizationMode.OFF
     assert parse_quantization_mode("identity") == QuantizationMode.OFF
+    assert parse_quantization_mode("pm2s") == QuantizationMode.PM2S
+    assert parse_quantization_mode("pm25") == QuantizationMode.PM2S
+
+
+class _FakePm2sQuant:
+    def __init__(self, onsets, values):
+        self.onsets = onsets
+        self.values = values
+        self.seen = None
+
+    def process_note_seq(self, note_seq):
+        self.seen = note_seq
+        return self.onsets, self.values
+
+
+def test_pm2s_quantizer_rewrites_beats_not_pitches():
+    events = [
+        _ev(72, 0.11, 0.37),
+        _ev(48, 0.51, 0.41, hand=Hand.LEFT),
+    ]
+    events[0].note_id = "r"
+    events[1].note_id = "l"
+    events[0].start_time_sec = 0.05
+    events[1].start_time_sec = 0.25
+    fake = _FakePm2sQuant([0.0, 1.0], [1.0, 2.0])
+    q, decisions = MeasureQuantizer(mode="pm2s", pm2s_processor=fake).quantize(
+        events, MeterEstimator().select(events)
+    )
+    by_id = {e.note_id: e for e in q}
+    assert by_id["r"].pitch == 72
+    assert by_id["l"].pitch == 48
+    assert by_id["r"].start_beat == 0.0
+    assert by_id["l"].start_beat == 1.0
+    assert by_id["r"].duration_beats == 1.0
+    assert by_id["l"].duration_beats == 2.0
+    assert by_id["r"].start_time_sec == 0.05
+    assert by_id["r"].hand == Hand.RIGHT
+    assert by_id["l"].hand == Hand.LEFT
+    assert all(d.get("reason") == "pm2s_quant" for d in decisions)
+    assert fake.seen is not None
+    assert list(fake.seen[:, 0]) == [72.0, 48.0]
+
+
+def test_pm2s_quantizer_falls_back_to_identity_on_failure():
+    class Boom:
+        def process_note_seq(self, note_seq):
+            raise RuntimeError("no weights")
+
+    events = [_ev(72, 0.11, 0.37)]
+    q, decisions = MeasureQuantizer(mode="pm2s", pm2s_processor=Boom()).quantize(
+        events, MeterEstimator().select(events)
+    )
+    assert q[0].start_beat == 0.11
+    assert q[0].duration_beats == 0.37
+    assert all(d.get("reason") == "off_identity" for d in decisions)
+
+
+def test_pm2s_quantizer_missing_processor_keeps_timing():
+    q = MeasureQuantizer(mode="pm2s")
+    q._pm2s_load_failed = True
+    events = [_ev(60, 0.2, 0.3)]
+    out, decisions = q.quantize(events, MeterEstimator().select(events))
+    assert out[0].start_beat == 0.2
+    assert all(d.get("reason") == "off_identity" for d in decisions)
+
+
+def test_pm2s_quantizer_feeds_notation_plan():
+    events = [
+        _ev(72, 0.11, 0.37),
+        _ev(48, 0.0, 2.0, hand=Hand.LEFT),
+    ]
+    planner = NotationPlanner()
+    planner.quantizer._pm2s_processor = _FakePm2sQuant([0.0, 1.0], [1.0, 1.0])
+    plan, decisions = planner.build(
+        events,
+        meta=ScoreMeta(display_tempo_bpm=120, time_sig_hint="4/4"),
+        quantization_mode="pm2s",
+    )
+    assert plan.measures
+    assert all(d.get("reason") == "pm2s_quant" for d in decisions)
+    assert planner.quantizer.last_summary.get("engine") == "pm2s"
