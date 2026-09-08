@@ -10,6 +10,7 @@ import math
 from dataclasses import dataclass
 
 from mir.models import MeterHypothesis, staff_for_hand
+from mir.pipeline_config import QuantizationMode, parse_quantization_mode
 from mir.types import MusicalEvent, copy_event
 
 
@@ -34,6 +35,11 @@ DURATION_CANDIDATES = (
 SIMPLE_DURATIONS = {4.0, 2.0, 1.0, 0.5, 0.25, 0.125}
 DOTTED_DURATIONS = {3.0, 1.5, 0.75, 0.375}
 TUPLET_DURATIONS = {2.0 / 3.0, 1.0 / 3.0}
+
+# MusicXML needs a named note type. "off" snaps starts to 32nds and durations
+# to a single writable value, without the adaptive "prettier notation" rewrite.
+OFF_START_GRID = 0.125
+OFF_DURATIONS = DURATION_CANDIDATES + (0.0625,)
 
 VOICE_SUM_TOLERANCE = 0.08
 
@@ -73,8 +79,13 @@ def measure_index_for_onset(
 
 
 class MeasureQuantizer:
-    def __init__(self, config: QuantizerConfig | None = None):
+    def __init__(
+        self,
+        config: QuantizerConfig | None = None,
+        mode: QuantizationMode | str | None = None,
+    ):
         self.config = config or QuantizerConfig()
+        self.mode = parse_quantization_mode(mode) if mode else QuantizationMode.ADAPTIVE
         self.last_summary: dict = {}
         self.last_events: list[MusicalEvent] = []
 
@@ -87,6 +98,8 @@ class MeasureQuantizer:
             self.last_summary = _empty_quantizer_summary()
             self.last_events = []
             return [], []
+        if self.mode == QuantizationMode.OFF:
+            return self._identity(events)
 
         grouped: dict[tuple[int, int], list[MusicalEvent]] = {}
         for ev in events:
@@ -122,6 +135,40 @@ class MeasureQuantizer:
         out.sort(key=lambda e: (e.start_beat, e.pitch, e.voice))
         if len(out) < len(events):
             out, decisions = self._restore_missing(events, out, decisions)
+        self.last_events = list(out)
+        self.last_summary = summarize_quantization(events, out, decisions)
+        return out, decisions
+
+    def _identity(
+        self, events: list[MusicalEvent]
+    ) -> tuple[list[MusicalEvent], list[dict]]:
+        """Keep timing close to the transcription.
+
+        Does not pick a 'nicer' notation (no triplet vs 16th scoring, no
+        measure-level rewrite). Snaps each note independently onto a 32nd
+        onset grid and the nearest writable duration so MusicXML can export.
+        """
+        out: list[MusicalEvent] = []
+        decisions: list[dict] = []
+        start_grid = OFF_START_GRID
+        for ev in events:
+            start = round(float(ev.start_beat) / start_grid) * start_grid
+            raw_dur = max(start_grid, float(ev.duration_beats))
+            dur = min(OFF_DURATIONS, key=lambda candidate: abs(candidate - raw_dur))
+            copied = copy_event(ev, start_beat=start, duration_beats=dur)
+            out.append(copied)
+            decisions.append(
+                {
+                    "note_id": ev.note_id,
+                    "raw_start": ev.start_beat,
+                    "quantized_start": start,
+                    "raw_duration": ev.duration_beats,
+                    "quantized_duration": dur,
+                    "grid": start_grid,
+                    "selected_grid": start_grid,
+                    "reason": "off_fine_grid",
+                }
+            )
         self.last_events = list(out)
         self.last_summary = summarize_quantization(events, out, decisions)
         return out, decisions

@@ -42,6 +42,7 @@ from mir.models import (
 from mir.phrase_detector import PhraseDetector
 from mir.pipeline_config import (
     PipelineConfig,
+    QuantizationMode,
     load_pipeline_config,
     piano_analysis_enabled,
 )
@@ -279,7 +280,7 @@ class UnderstandingPipeline:
             tempo_map,
             prediction.instrument,
             segments,
-            display_bpm=snap_to_standard_tempo(bpm),
+            display_bpm=self._display_bpm(bpm),
             instrument_confidence=prediction.confidence,
             time_sig_hint=decision.meter,
         )
@@ -364,6 +365,7 @@ class UnderstandingPipeline:
             quantize_divisors=QUANTIZE_DIVISORS,
             fallback_bpm=bpm,
             structure=structure,
+            quantization_mode=self.config.quantization_mode,
         )
         self.last_quantized_events = list(self.notation.last_quantized_events)
         self._attach_notation_debug(job_id, out_dir)
@@ -462,7 +464,7 @@ class UnderstandingPipeline:
             tempo_map,
             InstrumentKind.PIANO,
             [],
-            display_bpm=snap_to_standard_tempo(bpm),
+            display_bpm=self._display_bpm(bpm),
             instrument_confidence=0.9,
             time_sig_hint=decision.meter,
         )
@@ -518,6 +520,7 @@ class UnderstandingPipeline:
             quantize_divisors=QUANTIZE_DIVISORS,
             fallback_bpm=bpm,
             structure=structure,
+            quantization_mode=self.config.quantization_mode,
         )
         self.last_quantized_events = list(self.notation.last_quantized_events)
         self.last_gemini_enabled = bool(self.config.enable_gemini)
@@ -604,6 +607,11 @@ class UnderstandingPipeline:
             f"reason={decision.reason} override={decision.was_hint_overridden}"
         )
         return decision
+
+    def _display_bpm(self, bpm: float) -> int:
+        if self.config.quantization_mode == QuantizationMode.OFF:
+            return max(1, int(round(float(bpm))))
+        return snap_to_standard_tempo(bpm)
 
     def _apply_mir_layers(self, events: list[MusicalEvent]) -> list[MusicalEvent]:
         if not self.use_mir_layers:

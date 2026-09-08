@@ -17,6 +17,7 @@ from mir.models import (
     staff_for_hand,
 )
 from mir.quantizer import MeasureQuantizer, VOICE_SUM_TOLERANCE
+from mir.pipeline_config import QuantizationMode, parse_quantization_mode
 from mir.types import Hand, InstrumentKind, MusicalEvent, ScoreMeta
 from notation_engine.meter import estimate_key
 
@@ -50,7 +51,10 @@ class NotationPlanner:
         meta: ScoreMeta | None = None,
         structure: MusicalStructure | None = None,
         fallback_bpm: float = 120.0,
+        quantization_mode: QuantizationMode | str | None = None,
     ) -> tuple[NotationPlan, list[dict]]:
+        if quantization_mode is not None:
+            self.quantizer.mode = parse_quantization_mode(quantization_mode)
         meter = self._resolve_meter(events, meta, structure)
         quantized, decisions = self.quantizer.quantize(events, meter)
         bpm = (meta.display_tempo_bpm if meta else None) or int(fallback_bpm)

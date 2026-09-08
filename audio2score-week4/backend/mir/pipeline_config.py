@@ -29,6 +29,7 @@ class ValidationMode(str, Enum):
 class QuantizationMode(str, Enum):
     ADAPTIVE = "adaptive"
     STRICT_GRID = "strict_grid"
+    OFF = "off"
 
 
 VALIDATION_ALIASES = {
@@ -48,6 +49,13 @@ QUANTIZATION_ALIASES = {
     "strict": QuantizationMode.STRICT_GRID,
     "strict_grid": QuantizationMode.STRICT_GRID,
     "grid": QuantizationMode.STRICT_GRID,
+    "off": QuantizationMode.OFF,
+    "none": QuantizationMode.OFF,
+    "identity": QuantizationMode.OFF,
+    "raw": QuantizationMode.OFF,
+    "disabled": QuantizationMode.OFF,
+    "0": QuantizationMode.OFF,
+    "false": QuantizationMode.OFF,
 }
 
 # Source-aware MVP defaults. MT3 is treated as the pitch/timing source of truth.
@@ -106,7 +114,7 @@ def parse_quantization_mode(value: str | QuantizationMode | None) -> Quantizatio
     if key not in QUANTIZATION_ALIASES:
         raise ValueError(
             f"Unknown TRANSCRIPTION_QUANTIZATION_MODE={value!r}. "
-            "Use adaptive | strict_grid."
+            "Use adaptive | strict_grid | off."
         )
     return QUANTIZATION_ALIASES[key]
 
@@ -203,7 +211,7 @@ def load_pipeline_config(
         mode=mode,
         validation_mode=resolve_validation_mode(resolved_backend, validation_mode),
         quantization_mode=parse_quantization_mode(
-            env_str("TRANSCRIPTION_QUANTIZATION_MODE", "adaptive")
+            env_str("TRANSCRIPTION_QUANTIZATION_MODE", "off")
         ),
         enable_gemini=gemini_flag_enabled(),
         enable_piano_analysis=piano_analysis_enabled(resolved_backend),

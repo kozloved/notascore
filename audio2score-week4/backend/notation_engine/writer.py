@@ -33,6 +33,7 @@ from mir.types import Hand, MusicalEvent, ScoreMeta, TempoMap
 from notation_engine.meter import bar_length, estimate_key, estimate_time_signature
 from notation_engine.plan import NotationPlanner
 from notation_engine.quantize import quantize_events
+from mir.pipeline_config import QuantizationMode, parse_quantization_mode
 
 CHORD_START_WINDOW = 0.08
 CHORD_DURATION_RATIO = 0.5
@@ -49,6 +50,7 @@ class NotationWriter:
         self.last_quantized_events: list = []
         self.last_fallback_used: bool = False
         self.last_fallback_error: str | None = None
+        self.last_quantization_mode: QuantizationMode = QuantizationMode.ADAPTIVE
 
     def notation_debug_payload(self) -> dict:
         plan = self.last_plan
@@ -73,6 +75,7 @@ class NotationWriter:
         quantize_divisors: tuple[int, ...] = (4, 3),
         fallback_bpm: float = 120.0,
         structure=None,
+        quantization_mode: QuantizationMode | str | None = None,
     ) -> str:
         out_dir = Path(audio_path).parent / f"bp_{job_id}"
         out_dir.mkdir(exist_ok=True)
@@ -84,6 +87,7 @@ class NotationWriter:
                 quantize_divisors=quantize_divisors,
                 fallback_bpm=fallback_bpm,
                 structure=structure,
+                quantization_mode=quantization_mode,
             )
         except Exception as exc:
             print(f"[Notation] grand staff failed ({exc!s}), MIDI round-trip")
@@ -91,7 +95,12 @@ class NotationWriter:
                 self.last_fallback_used = True
                 self.last_fallback_error = f"{type(exc).__name__}: {exc}"
             score = self._score_via_midi(
-                events, meta, out_dir / f"{job_id}.mid", quantize_divisors, fallback_bpm
+                events,
+                meta,
+                out_dir / f"{job_id}.mid",
+                quantize_divisors,
+                fallback_bpm,
+                quantization_mode=quantization_mode,
             )
 
         xml_path = out_dir / f"{job_id}.musicxml"
@@ -105,6 +114,7 @@ class NotationWriter:
         meta: ScoreMeta,
         quantize_divisors: tuple[int, ...] = (4, 3),
         structure=None,
+        quantization_mode: QuantizationMode | str | None = None,
     ) -> stream.Score:
         """Build a music21 score without writing files (tests / production path)."""
         return self._score_via_plan_or_legacy(
@@ -113,6 +123,7 @@ class NotationWriter:
             quantize_divisors=quantize_divisors,
             fallback_bpm=float(meta.display_tempo_bpm or 120),
             structure=structure,
+            quantization_mode=quantization_mode,
         )
 
     def _score_via_plan_or_legacy(
@@ -123,7 +134,14 @@ class NotationWriter:
         quantize_divisors: tuple[int, ...],
         fallback_bpm: float,
         structure=None,
+        quantization_mode: QuantizationMode | str | None = None,
     ) -> stream.Score:
+        mode = (
+            parse_quantization_mode(quantization_mode)
+            if quantization_mode is not None
+            else QuantizationMode.ADAPTIVE
+        )
+        self.last_quantization_mode = mode
         self.last_plan = None
         self.last_quantization_decisions = []
         self.last_quantization_summary = {}
@@ -136,6 +154,7 @@ class NotationWriter:
                 meta=meta,
                 structure=structure,
                 fallback_bpm=fallback_bpm,
+                quantization_mode=mode,
             )
             score = self.score_from_plan(plan, meta=meta)
             self.last_plan = plan
@@ -160,6 +179,7 @@ class NotationWriter:
                 meta,
                 quantize_divisors=quantize_divisors,
                 fallback_bpm=fallback_bpm,
+                quantization_mode=mode,
             )
 
     def write_from_plan(self, plan: NotationPlan) -> stream.Score:
@@ -270,8 +290,18 @@ class NotationWriter:
         meta: ScoreMeta,
         quantize_divisors: tuple[int, ...] = (4, 3),
         fallback_bpm: float = 120.0,
+        quantization_mode: QuantizationMode | str | None = None,
     ) -> stream.Score:
-        quantized = quantize_events(events, quantize_divisors)
+        mode = (
+            parse_quantization_mode(quantization_mode)
+            if quantization_mode is not None
+            else self.last_quantization_mode
+        )
+        quantized = (
+            list(events)
+            if mode == QuantizationMode.OFF
+            else quantize_events(events, quantize_divisors)
+        )
         ts_str = meta.time_sig_hint or estimate_time_signature(quantized)
         key_name = meta.key_hint or estimate_key(quantized)
         bpm = meta.display_tempo_bpm or int(fallback_bpm)
@@ -382,6 +412,7 @@ class NotationWriter:
         midi_path: Path,
         quantize_divisors: tuple[int, ...],
         fallback_bpm: float,
+        quantization_mode: QuantizationMode | str | None = None,
     ) -> stream.Score:
         from music21 import converter
         import pretty_midi
@@ -409,13 +440,19 @@ class NotationWriter:
             midi.instruments.append(pretty_midi.Instrument(program=0))
         midi.write(str(midi_path))
         score = converter.parse(str(midi_path))
-        score.quantize(
-            quarterLengthDivisors=quantize_divisors,
-            processOffsets=True,
-            processDurations=True,
-            inPlace=True,
-            recurse=True,
+        mode = (
+            parse_quantization_mode(quantization_mode)
+            if quantization_mode is not None
+            else self.last_quantization_mode
         )
+        if mode != QuantizationMode.OFF:
+            score.quantize(
+                quarterLengthDivisors=quantize_divisors,
+                processOffsets=True,
+                processDurations=True,
+                inPlace=True,
+                recurse=True,
+            )
         self._insert_metronome_at_beat(score, 0.0, int(bpm))
         self._apply_tempo_map(score, meta)
         return score
@@ -427,17 +464,20 @@ class NotationWriter:
         from transcription import snap_to_standard_tempo
 
         last_bpm = float(meta.display_tempo_bpm or 120)
+        snap = self.last_quantization_mode != QuantizationMode.OFF
         for pt in tempo_map.sorted_points():
             if pt.time_sec <= 1e-6:
                 continue
-            snapped = float(snap_to_standard_tempo(pt.bpm))
-            if abs(snapped - last_bpm) / max(last_bpm, 1.0) < 0.08:
+            next_bpm = (
+                float(snap_to_standard_tempo(pt.bpm)) if snap else float(pt.bpm)
+            )
+            if abs(next_bpm - last_bpm) / max(last_bpm, 1.0) < 0.08:
                 continue
             offset = tempo_map.seconds_to_beats(pt.time_sec)
             if offset <= 0:
                 continue
-            self._insert_metronome_at_beat(score, offset, int(snapped))
-            last_bpm = snapped
+            self._insert_metronome_at_beat(score, offset, int(round(next_bpm)))
+            last_bpm = next_bpm
 
     @staticmethod
     def _insert_metronome_at_beat(score, beat: float, bpm: int) -> None:

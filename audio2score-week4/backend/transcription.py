@@ -269,15 +269,22 @@ class BasicPitchEngine:
         aligned.write(str(midi_path))
 
         score = converter.parse(str(midi_path))
-        score.quantize(
-            quarterLengthDivisors=QUANTIZE_DIVISORS,
-            processOffsets=True,
-            processDurations=True,
-            inPlace=True,
-            recurse=True,
-        )
+        from mir.pipeline_config import QuantizationMode, env_str, parse_quantization_mode
 
-        display_bpm = snap_to_standard_tempo(bpm)
+        quant_mode = parse_quantization_mode(
+            env_str("TRANSCRIPTION_QUANTIZATION_MODE", "off")
+        )
+        if quant_mode != QuantizationMode.OFF:
+            score.quantize(
+                quarterLengthDivisors=QUANTIZE_DIVISORS,
+                processOffsets=True,
+                processDurations=True,
+                inPlace=True,
+                recurse=True,
+            )
+            display_bpm = snap_to_standard_tempo(bpm)
+        else:
+            display_bpm = max(1, int(round(float(bpm))))
         marks = list(score.recurse().getElementsByClass(m21tempo.MetronomeMark))
         if marks:
             for mark in marks:

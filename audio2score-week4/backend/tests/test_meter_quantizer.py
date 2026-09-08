@@ -104,3 +104,31 @@ def test_ties_across_measures():
                 )
     tied = [n for n in notes if n.tie]
     assert tied, "held note across a barline should be tied"
+
+
+def test_quantization_off_keeps_raw_beats():
+    events = [
+        _ev(72, 0.11, 0.37),
+        _ev(74, 0.51, 0.41),
+    ]
+    q, decisions = MeasureQuantizer(mode="off").quantize(
+        events, MeterEstimator().select(events)
+    )
+    assert [round(e.start_beat, 4) for e in q] == [0.125, 0.5]
+    assert [round(e.duration_beats, 4) for e in q] == [0.375, 0.375]
+    assert all(d.get("reason") == "off_fine_grid" for d in decisions)
+    adaptive, _ = MeasureQuantizer(mode="adaptive").quantize(
+        events, MeterEstimator().select(events)
+    )
+    assert [e.start_beat for e in q] != [e.start_beat for e in adaptive] or [
+        e.duration_beats for e in q
+    ] != [e.duration_beats for e in adaptive]
+
+
+def test_pipeline_config_defaults_to_quantization_off(monkeypatch):
+    monkeypatch.delenv("TRANSCRIPTION_QUANTIZATION_MODE", raising=False)
+    from mir.pipeline_config import QuantizationMode, load_pipeline_config, parse_quantization_mode
+
+    assert load_pipeline_config().quantization_mode == QuantizationMode.OFF
+    assert parse_quantization_mode("off") == QuantizationMode.OFF
+    assert parse_quantization_mode("identity") == QuantizationMode.OFF
