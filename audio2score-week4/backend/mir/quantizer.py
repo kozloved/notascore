@@ -36,10 +36,24 @@ SIMPLE_DURATIONS = {4.0, 2.0, 1.0, 0.5, 0.25, 0.125}
 DOTTED_DURATIONS = {3.0, 1.5, 0.75, 0.375}
 TUPLET_DURATIONS = {2.0 / 3.0, 1.0 / 3.0}
 
-# MusicXML needs a named note type. "off" snaps starts to 32nds and durations
-# to a single writable value, without the adaptive "prettier notation" rewrite.
-OFF_START_GRID = 0.125
-OFF_DURATIONS = DURATION_CANDIDATES + (0.0625,)
+# MusicXML needs named note types. Off-mode spelling uses these values (no
+# tuplets, no 32nd-grid snap). 64th = 0.0625 ql is the smallest unit.
+WRITABLE_DURATIONS = (
+    4.0,
+    3.0,
+    2.0,
+    1.5,
+    1.0,
+    0.75,
+    0.5,
+    0.375,
+    0.25,
+    0.1875,
+    0.125,
+    0.09375,
+    0.0625,
+)
+SMALLEST_WRITABLE = 0.0625
 
 VOICE_SUM_TOLERANCE = 0.08
 
@@ -56,6 +70,64 @@ class QuantizerConfig:
     # 16th grid belong to the next measure. Stops a 2 ms-early downbeat from
     # being clamped to the last 16th of the previous bar.
     barline_pull_beats: float = 0.125
+
+
+def snap_writable_length(quarter_length: float, *, allow_empty: bool = False) -> float:
+    """Round a duration to the nearest 64th, the smallest MusicXML unit we spell."""
+    ql = float(quarter_length)
+    if ql <= 1e-9:
+        return 0.0
+    steps = int(round(ql / SMALLEST_WRITABLE))
+    if steps <= 0:
+        return 0.0 if allow_empty else SMALLEST_WRITABLE
+    return steps * SMALLEST_WRITABLE
+
+
+def duration_pieces(
+    quarter_length: float,
+    *,
+    allow_empty: bool = False,
+    max_total: float | None = None,
+) -> list[float]:
+    """Split a duration into named note values that sum to a 64th-rounded length.
+
+    Does not invent tuplets. Leftover smaller than a 64th is dropped unless
+    ``allow_empty`` is false, in which case a single 64th is emitted.
+    """
+    snapped = snap_writable_length(quarter_length, allow_empty=allow_empty)
+    if max_total is not None:
+        cap_steps = int(math.floor((float(max_total) + 1e-12) / SMALLEST_WRITABLE))
+        cap = max(0.0, cap_steps * SMALLEST_WRITABLE)
+        snapped = min(snapped, cap)
+        if snapped <= 1e-9:
+            return []
+    if snapped <= 1e-9:
+        return []
+    remaining = snapped
+    pieces: list[float] = []
+    for d in WRITABLE_DURATIONS:
+        while remaining >= d - 1e-12:
+            pieces.append(d)
+            remaining -= d
+        if remaining < SMALLEST_WRITABLE - 1e-12:
+            break
+    if remaining > 1e-9:
+        pieces.append(SMALLEST_WRITABLE)
+    if not pieces and not allow_empty:
+        return [SMALLEST_WRITABLE]
+    return pieces
+
+
+def tie_chain(piece_count: int, existing: str | None) -> list[str | None]:
+    """Ties for a duration split, merged with an existing barline tie."""
+    if piece_count <= 0:
+        return []
+    if piece_count == 1:
+        return [existing]
+    ties: list[str | None] = ["continue"] * piece_count
+    ties[0] = "start" if existing in (None, "start") else "continue"
+    ties[-1] = "stop" if existing in (None, "stop") else "continue"
+    return ties
 
 
 def measure_index_for_onset(
@@ -142,31 +214,26 @@ class MeasureQuantizer:
     def _identity(
         self, events: list[MusicalEvent]
     ) -> tuple[list[MusicalEvent], list[dict]]:
-        """Keep timing close to the transcription.
+        """Keep transcribed onsets and durations.
 
-        Does not pick a 'nicer' notation (no triplet vs 16th scoring, no
-        measure-level rewrite). Snaps each note independently onto a 32nd
-        onset grid and the nearest writable duration so MusicXML can export.
+        MusicXML still needs named note types. That spelling (tied 64th-based
+        values, not a 32nd onset grid) happens in NotationPlanner, not here.
         """
         out: list[MusicalEvent] = []
         decisions: list[dict] = []
-        start_grid = OFF_START_GRID
         for ev in events:
-            start = round(float(ev.start_beat) / start_grid) * start_grid
-            raw_dur = max(start_grid, float(ev.duration_beats))
-            dur = min(OFF_DURATIONS, key=lambda candidate: abs(candidate - raw_dur))
-            copied = copy_event(ev, start_beat=start, duration_beats=dur)
+            copied = copy_event(ev)
             out.append(copied)
             decisions.append(
                 {
                     "note_id": ev.note_id,
                     "raw_start": ev.start_beat,
-                    "quantized_start": start,
+                    "quantized_start": ev.start_beat,
                     "raw_duration": ev.duration_beats,
-                    "quantized_duration": dur,
-                    "grid": start_grid,
-                    "selected_grid": start_grid,
-                    "reason": "off_fine_grid",
+                    "quantized_duration": ev.duration_beats,
+                    "grid": None,
+                    "selected_grid": None,
+                    "reason": "off_identity",
                 }
             )
         self.last_events = list(out)

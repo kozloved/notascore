@@ -114,15 +114,90 @@ def test_quantization_off_keeps_raw_beats():
     q, decisions = MeasureQuantizer(mode="off").quantize(
         events, MeterEstimator().select(events)
     )
-    assert [round(e.start_beat, 4) for e in q] == [0.125, 0.5]
-    assert [round(e.duration_beats, 4) for e in q] == [0.375, 0.375]
-    assert all(d.get("reason") == "off_fine_grid" for d in decisions)
+    assert [round(e.start_beat, 4) for e in q] == [0.11, 0.51]
+    assert [round(e.duration_beats, 4) for e in q] == [0.37, 0.41]
+    assert all(d.get("reason") == "off_identity" for d in decisions)
     adaptive, _ = MeasureQuantizer(mode="adaptive").quantize(
         events, MeterEstimator().select(events)
     )
     assert [e.start_beat for e in q] != [e.start_beat for e in adaptive] or [
         e.duration_beats for e in q
     ] != [e.duration_beats for e in adaptive]
+
+
+def test_duration_pieces_uses_named_note_types():
+    from mir.quantizer import WRITABLE_DURATIONS, duration_pieces, snap_writable_length
+
+    assert snap_writable_length(0.37) == 0.375
+    assert duration_pieces(0.37) == [0.375]
+    assert duration_pieces(1.7) == [1.5, 0.1875]
+    assert duration_pieces(0.04, allow_empty=True) == []
+    assert duration_pieces(0.04, allow_empty=False) == [0.0625]
+    assert duration_pieces(0.5, max_total=0.25) == [0.25]
+    for piece in duration_pieces(1.7) + duration_pieces(0.37) + duration_pieces(0.41):
+        assert piece in WRITABLE_DURATIONS
+
+
+def test_tie_chain_merges_barline_ties():
+    from mir.quantizer import tie_chain
+
+    assert tie_chain(1, None) == [None]
+    assert tie_chain(1, "start") == ["start"]
+    assert tie_chain(3, None) == ["start", "continue", "stop"]
+    assert tie_chain(3, "start") == ["start", "continue", "continue"]
+    assert tie_chain(3, "stop") == ["continue", "continue", "stop"]
+    assert tie_chain(2, "continue") == ["continue", "continue"]
+
+
+def test_quantization_off_spells_writable_musicxml(tmp_path):
+    from mir.quantizer import WRITABLE_DURATIONS
+    from mir.models import PlannedNote, PlannedRest
+    from notation_engine.writer import NotationWriter
+
+    events = [
+        _ev(72, 0.07, 1.7),
+        MusicalEvent(
+            pitch=48, start_beat=0.0, duration_beats=2.0, hand=Hand.LEFT, voice=0, velocity=70
+        ),
+    ]
+    plan, _ = NotationPlanner().build(
+        events,
+        meta=ScoreMeta(display_tempo_bpm=120, time_sig_hint="4/4"),
+        quantization_mode="off",
+    )
+    rh_notes = [
+        el
+        for measure in plan.measures
+        for staff in measure.staves
+        if staff.staff_id == 0
+        for voice in staff.voices
+        for el in voice.elements
+        if isinstance(el, PlannedNote)
+    ]
+    assert rh_notes
+    # 0.07 rests as a 64th (0.0625), not the old 32nd grid (0.125).
+    assert abs(rh_notes[0].start_q - 0.0625) < 1e-9
+    assert all(
+        any(abs(el.duration_q - allowed) < 1e-9 for allowed in WRITABLE_DURATIONS)
+        for measure in plan.measures
+        for staff in measure.staves
+        for voice in staff.voices
+        for el in voice.elements
+        if isinstance(el, (PlannedNote, PlannedRest))
+    )
+    # 1.7 becomes tied pieces (dotted half + dotted 32nd), not one rounded value.
+    assert len(rh_notes) >= 2
+    assert {round(n.duration_q, 6) for n in rh_notes} >= {1.5, 0.1875}
+
+    xml = NotationWriter().write_musicxml(
+        events,
+        ScoreMeta(display_tempo_bpm=120, time_sig_hint="4/4"),
+        job_id="off-tied",
+        audio_path=tmp_path / "clip.wav",
+        quantization_mode="off",
+    )
+    assert "score-partwise" in xml.lower()
+    assert "<tie" in xml.lower()
 
 
 def test_pipeline_config_defaults_to_quantization_off(monkeypatch):

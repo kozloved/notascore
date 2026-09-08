@@ -16,7 +16,13 @@ from mir.models import (
     PlannedVoice,
     staff_for_hand,
 )
-from mir.quantizer import MeasureQuantizer, VOICE_SUM_TOLERANCE
+from mir.quantizer import (
+    MeasureQuantizer,
+    SMALLEST_WRITABLE,
+    VOICE_SUM_TOLERANCE,
+    duration_pieces,
+    tie_chain,
+)
 from mir.pipeline_config import QuantizationMode, parse_quantization_mode
 from mir.types import Hand, InstrumentKind, MusicalEvent, ScoreMeta
 from notation_engine.meter import estimate_key
@@ -321,8 +327,67 @@ class NotationPlanner:
         if cursor < mql - 1e-8:
             elements.extend(self._rests(cursor, mql - cursor, voice_id))
 
+        if self.quantizer.mode == QuantizationMode.OFF:
+            elements = self._spell_writable(elements, mql, voice_id)
+
         self._assert_sum(elements, mql, voice_id)
         return elements
+
+    def _spell_writable(self, elements: list, mql: float, voice_id: int) -> list:
+        """Encode off-mode timing as tied named note types (no 32nd-grid snap)."""
+        spelled: list = []
+        cursor = 0.0
+        for el in elements:
+            remaining_bar = max(0.0, mql - cursor)
+            if remaining_bar <= 1e-8:
+                break
+            if isinstance(el, PlannedRest):
+                for d in duration_pieces(
+                    el.duration_q, allow_empty=True, max_total=remaining_bar
+                ):
+                    spelled.append(
+                        PlannedRest(start_q=cursor, duration_q=d, voice=voice_id)
+                    )
+                    cursor += d
+                    remaining_bar = max(0.0, mql - cursor)
+                continue
+
+            orig_end = el.start_q + el.duration_q
+            dur = min(max(0.0, orig_end - cursor), remaining_bar)
+            pieces = duration_pieces(dur, allow_empty=False, max_total=remaining_bar)
+            if not pieces:
+                continue
+            ties = tie_chain(len(pieces), el.tie)
+            for i, d in enumerate(pieces):
+                spelled.append(
+                    PlannedNote(
+                        pitches=list(el.pitches),
+                        start_q=cursor,
+                        duration_q=d,
+                        voice=el.voice,
+                        velocity=el.velocity,
+                        tie=ties[i],
+                        event_ids=list(el.event_ids),
+                        articulations=list(el.articulations) if i == 0 else [],
+                        dynamic=el.dynamic if i == 0 else None,
+                    )
+                )
+                cursor += d
+
+        if cursor < mql - 1e-8:
+            for d in duration_pieces(
+                mql - cursor, allow_empty=True, max_total=mql - cursor
+            ):
+                spelled.append(
+                    PlannedRest(start_q=cursor, duration_q=d, voice=voice_id)
+                )
+                cursor += d
+        if not spelled:
+            for d in duration_pieces(mql, allow_empty=False, max_total=mql):
+                spelled.append(
+                    PlannedRest(start_q=0.0, duration_q=d, voice=voice_id)
+                )
+        return spelled
 
     def _same_chord(self, seed: tuple, item: tuple) -> bool:
         seed_ev, seed_start, seed_dur, _ = seed
@@ -375,6 +440,12 @@ class NotationPlanner:
             return
         if total > mql:
             extra = total - mql
+            if self.quantizer.mode == QuantizationMode.OFF:
+                extra = (
+                    int(extra / SMALLEST_WRITABLE + 1e-12) * SMALLEST_WRITABLE
+                )
+                if extra <= 1e-12:
+                    return
             for el in reversed(elements):
                 if extra <= 1e-9:
                     break
@@ -390,6 +461,13 @@ class NotationPlanner:
         gap = mql - total
         last = elements[-1]
         last_end = last.start_q + last.duration_q
+        if self.quantizer.mode == QuantizationMode.OFF:
+            for d in duration_pieces(gap, allow_empty=True, max_total=gap):
+                elements.append(
+                    PlannedRest(start_q=last_end, duration_q=d, voice=voice_id)
+                )
+                last_end += d
+            return
         if isinstance(last, PlannedRest):
             last.duration_q += gap
         else:
