@@ -1,8 +1,13 @@
 """Hand separation: context-aware Viterbi, not a middle-C gate."""
 
 from mir.cmr_builder import notes_to_events
-from mir.hand_separator import HandSeparator, RegisterSplitHandSeparator
+from mir.hand_separator import (
+    HandSeparator,
+    RegisterSplitHandSeparator,
+    build_hand_separator,
+)
 from mir.pipeline import UnderstandingPipeline
+from mir.pm2s_hands import Pm2sHandSeparator, events_to_note_seq
 from mir.types import (
     Hand,
     InstrumentKind,
@@ -14,7 +19,7 @@ from mir.types import (
 )
 
 
-def _ev(pitch, start, dur=0.5, role=None, velocity=80, hand=Hand.UNKNOWN, hand_locked=False):
+def _ev(pitch, start, dur=0.5, role=None, velocity=80, hand=Hand.UNKNOWN, hand_locked=False, note_id=""):
     return MusicalEvent(
         pitch=pitch,
         start_beat=start,
@@ -24,6 +29,7 @@ def _ev(pitch, start, dur=0.5, role=None, velocity=80, hand=Hand.UNKNOWN, hand_l
         hand=hand,
         hand_locked=hand_locked,
         hand_confidence=1.0 if hand != Hand.UNKNOWN else 0.0,
+        note_id=note_id,
     )
 
 
@@ -249,10 +255,110 @@ def test_roles_do_not_pre_populate_hands_in_cmr():
     assert all(e.hand_locked is False for e in events)
 
 
-def test_pipeline_uses_context_aware_separator():
+def test_pipeline_uses_context_aware_separator(monkeypatch):
+    monkeypatch.delenv("TRANSCRIPTION_HAND_SEPARATOR", raising=False)
     pipeline = UnderstandingPipeline()
     assert type(pipeline.hand_separator) is HandSeparator
     assert not hasattr(pipeline.hand_separator, "SPLIT_PITCH")
+
+
+def test_pipeline_uses_pm2s_when_configured(monkeypatch):
+    monkeypatch.setenv("TRANSCRIPTION_HAND_SEPARATOR", "pm2s")
+    pipeline = UnderstandingPipeline()
+    assert type(pipeline.hand_separator) is Pm2sHandSeparator
+
+
+class _FakePm2s:
+    def __init__(self, labels):
+        self.labels = labels
+        self.seen = None
+
+    def process_note_seq(self, note_seq):
+        self.seen = note_seq
+        return self.labels
+
+
+def test_pm2s_assigns_by_label_without_changing_notes():
+    events = [
+        _ev(72, 0.0, note_id="r", hand=Hand.UNKNOWN),
+        _ev(48, 0.0, note_id="l", hand=Hand.UNKNOWN),
+        _ev(76, 1.0, note_id="r2", hand=Hand.UNKNOWN),
+        _ev(36, 1.0, note_id="l2", hand=Hand.UNKNOWN),
+    ]
+    events[0].start_time_sec = 0.0
+    events[1].start_time_sec = 0.0
+    events[2].start_time_sec = 0.5
+    events[3].start_time_sec = 0.5
+    fake = _FakePm2s([0, 1, 0, 1])
+    sep = Pm2sHandSeparator(processor=fake)
+    original = [(e.note_id, e.pitch, e.start_beat, e.duration_beats) for e in events]
+    out = sep.separate(events)
+    assert [(e.note_id, e.pitch, e.start_beat, e.duration_beats) for e in out] == original
+    by_id = {e.note_id: e for e in out}
+    # events_to_note_seq sorts by onset then pitch: 48, 72, 36, 76
+    assert by_id["l"].hand == Hand.LEFT
+    assert by_id["r"].hand == Hand.RIGHT
+    assert by_id["l2"].hand == Hand.LEFT
+    assert by_id["r2"].hand == Hand.RIGHT
+    assert out[0].note_id == "r"
+    assert sep.last_source == "pm2s"
+    assert fake.seen is not None
+    assert list(fake.seen[:, 0]) == [48.0, 72.0, 36.0, 76.0]
+
+
+def test_pm2s_respects_hand_locked():
+    locked = _ev(60, 0.0, hand=Hand.LEFT, hand_locked=True)
+    free = _ev(64, 0.0, hand=Hand.UNKNOWN)
+    sep = Pm2sHandSeparator(processor=_FakePm2s([1, 1]))
+    out = sep.separate([locked, free])
+    assert out[0].hand == Hand.LEFT
+    assert out[1].hand == Hand.RIGHT
+
+
+def test_pm2s_falls_back_to_viterbi_when_processor_fails():
+    class Boom:
+        def process_note_seq(self, note_seq):
+            raise RuntimeError("no weights")
+
+    events = [_ev(48, 0.0, role="bass"), _ev(72, 0.0, role="melody")]
+    sep = Pm2sHandSeparator(processor=Boom())
+    out = sep.separate(events)
+    assert sep.last_source == "viterbi_fallback"
+    assert {e.pitch: e.hand for e in out}[48] == Hand.LEFT
+    assert {e.pitch: e.hand for e in out}[72] == Hand.RIGHT
+
+
+def test_pm2s_falls_back_when_output_length_mismatches():
+    events = [_ev(48, 0.0), _ev(72, 0.0)]
+    sep = Pm2sHandSeparator(processor=_FakePm2s([0]))
+    out = sep.separate(events)
+    assert sep.last_source == "viterbi_fallback"
+    assert len(out) == 2
+
+
+def test_pm2s_hand_flip_env(monkeypatch):
+    monkeypatch.setenv("TRANSCRIPTION_PM2S_HAND_FLIP", "1")
+    events = [_ev(48, 0.0, note_id="l"), _ev(72, 0.0, note_id="r")]
+    # Sorted by pitch: 48 then 72, labels 0,1 would be L,R; flip makes them R,L.
+    sep = Pm2sHandSeparator(processor=_FakePm2s([0, 1]))
+    out = sep.separate(events)
+    by_id = {e.note_id: e for e in out}
+    assert by_id["l"].hand == Hand.RIGHT
+    assert by_id["r"].hand == Hand.LEFT
+
+
+def test_build_hand_separator_pm25_alias():
+    sep = build_hand_separator("pm25", processor=_FakePm2s([0]))
+    assert type(sep) is Pm2sHandSeparator
+
+
+def test_events_to_note_seq_uses_seconds_not_beats():
+    ev = _ev(64, 4.0, dur=2.0)
+    ev.start_time_sec = 1.25
+    ev.end_time_sec = 1.75
+    seq, ordered = events_to_note_seq([ev])
+    assert ordered[0] is ev
+    assert list(seq[0]) == [64.0, 1.25, 0.5, 80.0]
 
 
 def test_legacy_split_still_available():

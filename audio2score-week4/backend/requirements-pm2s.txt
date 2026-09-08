@@ -1,0 +1,14 @@
+# Optional PM2S hand-part RNN for TRANSCRIPTION_HAND_SEPARATOR=pm2s.
+# Do not add this to the default backend image. PM2S is not on PyPI and has
+# no setup.py; clone the repo and put it on PYTHONPATH.
+#
+#   pip install torch
+#   git clone --depth 1 https://github.com/cheriell/PM2S.git /opt/pm2s
+#
+# Then on the worker:
+#   TRANSCRIPTION_HAND_SEPARATOR=pm2s
+#   PM2S_REPO=/opt/pm2s
+#
+# Weights download from Zenodo on first use (RNNHandPartModel.pth).
+# Only the hand-part processor is invoked; PM2S quantization is not used.
+torch

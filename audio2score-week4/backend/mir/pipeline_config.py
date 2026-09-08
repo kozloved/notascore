@@ -32,6 +32,13 @@ class QuantizationMode(str, Enum):
     OFF = "off"
 
 
+class HandSeparatorMode(str, Enum):
+    """How piano notes are assigned to left / right staves."""
+
+    VITERBI = "viterbi"
+    PM2S = "pm2s"
+
+
 VALIDATION_ALIASES = {
     "safe": ValidationMode.STRICT_SAFE,
     "strict": ValidationMode.STRICT_SAFE,
@@ -41,6 +48,16 @@ VALIDATION_ALIASES = {
     "legacy": ValidationMode.LEGACY_AGGRESSIVE,
     "legacy_aggressive": ValidationMode.LEGACY_AGGRESSIVE,
     "aggressive": ValidationMode.LEGACY_AGGRESSIVE,
+}
+
+HAND_SEPARATOR_ALIASES = {
+    "viterbi": HandSeparatorMode.VITERBI,
+    "default": HandSeparatorMode.VITERBI,
+    "context": HandSeparatorMode.VITERBI,
+    "dp": HandSeparatorMode.VITERBI,
+    "pm2s": HandSeparatorMode.PM2S,
+    "pm25": HandSeparatorMode.PM2S,
+    "pm2s_hands": HandSeparatorMode.PM2S,
 }
 
 QUANTIZATION_ALIASES = {
@@ -119,6 +136,22 @@ def parse_quantization_mode(value: str | QuantizationMode | None) -> Quantizatio
     return QUANTIZATION_ALIASES[key]
 
 
+def parse_hand_separator_mode(
+    value: str | HandSeparatorMode | None,
+) -> HandSeparatorMode:
+    if value is None or str(value).strip() == "":
+        return HandSeparatorMode.VITERBI
+    if isinstance(value, HandSeparatorMode):
+        return value
+    key = str(value).strip().lower()
+    if key not in HAND_SEPARATOR_ALIASES:
+        raise ValueError(
+            f"Unknown TRANSCRIPTION_HAND_SEPARATOR={value!r}. "
+            "Use viterbi | pm2s."
+        )
+    return HAND_SEPARATOR_ALIASES[key]
+
+
 def resolve_validation_mode(
     source_backend: str | None = None,
     explicit: str | ValidationMode | None = None,
@@ -174,6 +207,7 @@ class PipelineConfig:
     mode: str = "solo"
     validation_mode: ValidationMode = ValidationMode.CONSERVATIVE
     quantization_mode: QuantizationMode = QuantizationMode.ADAPTIVE
+    hand_separator: HandSeparatorMode = HandSeparatorMode.VITERBI
     enable_gemini: bool = False
     enable_piano_analysis: bool = True
     enable_mir_layers: bool = True
@@ -189,6 +223,7 @@ class PipelineConfig:
             "mode": self.mode,
             "validation_mode": self.validation_mode.value,
             "quantization_mode": self.quantization_mode.value,
+            "hand_separator": self.hand_separator.value,
             "enable_gemini": self.enable_gemini,
             "enable_piano_analysis": self.enable_piano_analysis,
             "enable_mir_layers": self.enable_mir_layers,
@@ -212,6 +247,9 @@ def load_pipeline_config(
         validation_mode=resolve_validation_mode(resolved_backend, validation_mode),
         quantization_mode=parse_quantization_mode(
             env_str("TRANSCRIPTION_QUANTIZATION_MODE", "off")
+        ),
+        hand_separator=parse_hand_separator_mode(
+            env_str("TRANSCRIPTION_HAND_SEPARATOR", "viterbi")
         ),
         enable_gemini=gemini_flag_enabled(),
         enable_piano_analysis=piano_analysis_enabled(resolved_backend),

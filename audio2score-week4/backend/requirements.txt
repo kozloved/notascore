@@ -28,4 +28,8 @@ madmom @ git+https://github.com/CPJKU/madmom.git
 # Optional AudioSet instrument tagging (not beat tracking):
 #   pip install tensorflow-hub          # YAMNet
 #   pip install panns-inference         # PANNs CNN14 (PyTorch, ~300MB weights)
+#
+# Optional PM2S piano hand split (TRANSCRIPTION_HAND_SEPARATOR=pm2s).
+# Not installed by default — torch is large and the Viterbi splitter is the
+# production default. See requirements-pm2s.txt.
 

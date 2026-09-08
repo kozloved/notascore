@@ -25,7 +25,7 @@ from mir.articulation import ArticulationDetector
 from mir.cmr_builder import build_score_meta, notes_to_events
 from mir.debug import PipelineDebug
 from mir.dynamics import DynamicsExtractor
-from mir.hand_separator import HandSeparator
+from mir.hand_separator import build_hand_separator
 from mir.meter import MeterEstimator
 from mir.meter_arbitrator import BeatGroupingEvidence, MeterArbitrator
 from mir.midi_cleaner import MIDICleaner
@@ -103,7 +103,7 @@ class UnderstandingPipeline:
         self.piano_analyzer = PianoAudioAnalyzer()
         self.chord_detector = ChordDetector()
         self.role_separator = MelodyAccompanimentSeparator()
-        self.hand_separator = HandSeparator()
+        self.hand_separator = build_hand_separator(self.config.hand_separator)
         self.voice_separator = VoiceSeparator()
         self.dynamics = DynamicsExtractor()
         self.articulation = ArticulationDetector()
@@ -693,6 +693,10 @@ class UnderstandingPipeline:
                 "role_confidence": role.confidence,
                 "validation_mode": self.config.validation_mode.value,
                 "quantization_mode": self.config.quantization_mode.value,
+                "hand_separator": self.config.hand_separator.value,
+                "hand_separator_source": getattr(
+                    self.hand_separator, "last_source", "viterbi"
+                ),
                 "gemini_enabled": bool(self.config.enable_gemini),
                 "gemini_applied": 0,
                 "backend": backend_name,

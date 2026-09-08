@@ -117,6 +117,7 @@ Set `TRANSCRIPTION_VALIDATION_MODE=legacy_aggressive` to restore chord-start sna
 | `TRANSCRIPTION_BACKEND` | `basic_pitch` | Solo detector; Polyphonic jobs force `mt3` |
 | `TRANSCRIPTION_VALIDATION_MODE` | source-aware | `safe` / `conservative` / `legacy_aggressive` |
 | `TRANSCRIPTION_QUANTIZATION_MODE` | `off` | `off` keeps transcribed timing. `adaptive` / `strict_grid` snap to a notation grid |
+| `TRANSCRIPTION_HAND_SEPARATOR` | `viterbi` | `viterbi` = context-aware DP. `pm2s` = PM2S hand-part RNN only (opt-in; falls back to viterbi). Not piano_svsep. |
 | `TRANSCRIPTION_ENABLE_GEMINI` | `false` | Alias that can disable `ENABLE_GEMINI_MUSIC_ANALYSIS` |
 | `TRANSCRIPTION_ENABLE_PIANO_ANALYSIS` | source-aware | Off for MT3 (keeps model velocities) |
 | `TRANSCRIPTION_ENABLE_MIR_LAYERS` | `true` | Alias of `TRANSCRIPTION_USE_MIR_LAYERS` |

@@ -329,6 +329,7 @@ def health():
         "pipeline_fallback": os.getenv("TRANSCRIPTION_PIPELINE_FALLBACK", "1"),
         "validation_mode": cfg.validation_mode.value,
         "quantization_mode": cfg.quantization_mode.value,
+        "hand_separator": cfg.hand_separator.value,
         "enable_gemini": cfg.enable_gemini,
         "canonical": cfg.to_dict(),
         "basic_pitch": bp,

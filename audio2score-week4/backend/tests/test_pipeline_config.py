@@ -1,9 +1,13 @@
 """Canonical pipeline configuration."""
 
+import pytest
+
 from mir.midi_cleaner import MIDICleaner
 from mir.pipeline_config import (
+    HandSeparatorMode,
     ValidationMode,
     load_pipeline_config,
+    parse_hand_separator_mode,
     resolve_validation_mode,
 )
 
@@ -28,6 +32,25 @@ def test_basic_pitch_defaults_to_conservative(monkeypatch):
     safe = MIDICleaner.for_source("mt3")
     assert safe.trim_overlaps is False
     assert safe.merge_threshold_sec == 0.001
+
+
+def test_hand_separator_defaults_to_viterbi(monkeypatch):
+    monkeypatch.delenv("TRANSCRIPTION_HAND_SEPARATOR", raising=False)
+    cfg = load_pipeline_config()
+    assert cfg.hand_separator == HandSeparatorMode.VITERBI
+    assert parse_hand_separator_mode("pm2s") == HandSeparatorMode.PM2S
+    assert parse_hand_separator_mode("pm25") == HandSeparatorMode.PM2S
+    assert parse_hand_separator_mode("") == HandSeparatorMode.VITERBI
+
+
+def test_hand_separator_env_override(monkeypatch):
+    monkeypatch.setenv("TRANSCRIPTION_HAND_SEPARATOR", "pm2s")
+    assert load_pipeline_config().hand_separator == HandSeparatorMode.PM2S
+
+
+def test_unknown_hand_separator_rejected():
+    with pytest.raises(ValueError, match="TRANSCRIPTION_HAND_SEPARATOR"):
+        parse_hand_separator_mode("piano_svsep")
 
 
 def test_env_override_validation_mode(monkeypatch):

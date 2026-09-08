@@ -479,3 +479,20 @@ class HandSeparator:
             prev = self._update_reps(prev, frame, assign)
         self.last_decisions = decisions
         return assigned
+
+
+def build_hand_separator(
+    mode: str | None = None,
+    *,
+    processor=None,
+    fallback: HandSeparator | None = None,
+):
+    """Construct the configured piano hand splitter. Default is Viterbi."""
+    from mir.pipeline_config import HandSeparatorMode, parse_hand_separator_mode
+
+    resolved = parse_hand_separator_mode(mode)
+    if resolved is HandSeparatorMode.PM2S:
+        from mir.pm2s_hands import Pm2sHandSeparator
+
+        return Pm2sHandSeparator(processor=processor, fallback=fallback)
+    return HandSeparator()
