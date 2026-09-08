@@ -36,6 +36,23 @@ def job_input(job: object) -> dict:
     return current if isinstance(current, dict) else {}
 
 
+def is_warmup_job(job: object) -> bool:
+    """True when the client only wants the worker to boot and stay idle."""
+    if not isinstance(job, dict):
+        return False
+    current: dict = job
+    for _ in range(4):
+        flag = current.get("warmup")
+        if flag is True or flag in (1, "1", "true", "True", "yes"):
+            return True
+        inner = current.get("input")
+        if isinstance(inner, dict):
+            current = inner
+            continue
+        break
+    return False
+
+
 def audio_base64_from_job(job: object) -> tuple[str | None, str | None]:
     payload = job_input(job)
     raw = None

@@ -348,6 +348,17 @@ def health():
     }
 
 
+@app.post("/mt3/warmup")
+def mt3_warmup():
+    """Boot a RunPod worker while the musician is still on Create.
+
+    Does not keep a min worker. Returns immediately after queueing /run.
+    """
+    from adapters.mt3_backend import start_runpod_warmup
+
+    return start_runpod_warmup()
+
+
 @app.post("/upload", status_code=202)
 async def upload(
     file: UploadFile = File(...),

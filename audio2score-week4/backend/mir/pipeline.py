@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from adapters.basic_pitch_backend import BasicPitchBackend
@@ -124,6 +126,7 @@ class UnderstandingPipeline:
         self.last_quantized_events: list | None = None
         self.last_clean_decisions: list | None = None
         self.last_gemini_applied: int = 0
+        self._prefetched_tempo = None
         self.last_gemini_enabled: bool = False
 
     def transcribe(self, audio_path: str | Path, job_id: str) -> str:
@@ -132,8 +135,6 @@ class UnderstandingPipeline:
             return self.transcribe_midi(audio_path, job_id)
 
         normalized = self.normalizer.normalize(audio_path)
-        prediction = self.classifier.classify(normalized)
-        segments = self.segmenter.segment(normalized)
 
         out_dir = audio_path.parent / f"bp_{job_id}"
         out_dir.mkdir(exist_ok=True)
@@ -158,9 +159,12 @@ class UnderstandingPipeline:
             f"piano_analysis={self.config.enable_piano_analysis} "
             f"(job={job_id})"
         )
+        notes, prediction, segments = self._transcribe_with_cpu_overlap(
+            backend, transcribe_path, normalized
+        )
         notes = [
             n.ensure_ids(i)
-            for i, n in enumerate(backend.transcribe_notes(transcribe_path))
+            for i, n in enumerate(notes)
         ]
         notes = [
             n
@@ -364,6 +368,35 @@ class UnderstandingPipeline:
         self.last_quantized_events = list(self.notation.last_quantized_events)
         self._attach_notation_debug(job_id, out_dir)
         return xml
+
+    def _prefetch_cpu(self, normalized):
+        started = time.perf_counter()
+        prediction = self.classifier.classify(normalized)
+        segments = self.segmenter.segment(normalized)
+        if _use_beat_tracker():
+            tracked = self.beat_tracker.track_stable(normalized)
+            self._prefetched_tempo = (
+                tracked,
+                self.beat_tracker.last_time_signature,
+            )
+        print(
+            f"[Pipeline] cpu_prep_seconds={time.perf_counter() - started:.2f}"
+        )
+        return prediction, segments
+
+    def _transcribe_with_cpu_overlap(self, backend, transcribe_path, normalized):
+        """Run remote/local transcription in parallel with CPU prep."""
+        started = time.perf_counter()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            notes_fut = pool.submit(backend.transcribe_notes, transcribe_path)
+            cpu_fut = pool.submit(self._prefetch_cpu, normalized)
+            notes = notes_fut.result()
+            prediction, segments = cpu_fut.result()
+        print(
+            f"[Pipeline] overlap_wall_seconds={time.perf_counter() - started:.2f} "
+            f"backend={backend.name}"
+        )
+        return notes, prediction, segments
 
     def transcribe_midi(self, midi_path: str | Path, job_id: str) -> str:
         """CMR entry for an uploaded MIDI file (no Basic Pitch)."""
@@ -683,8 +716,12 @@ class UnderstandingPipeline:
         self, normalized, audio_path, onsets: list[float]
     ) -> tuple[TempoMap, str | None]:
         if _use_beat_tracker():
-            tracked = self.beat_tracker.track_stable(normalized)
-            meter = self.beat_tracker.last_time_signature
+            if self._prefetched_tempo is not None:
+                tracked, meter = self._prefetched_tempo
+                self._prefetched_tempo = None
+            else:
+                tracked = self.beat_tracker.track_stable(normalized)
+                meter = self.beat_tracker.last_time_signature
             source = self.beat_tracker.last_source
             seed = tracked.bpm_at(0.0)
             # madmom already owns the beat grid; MIDI-onset refine was for librosa

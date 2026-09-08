@@ -91,6 +91,10 @@ export async function uploadAudio(
   });
 }
 
+export function warmupMt3(): void {
+  void fetch(`${API_URL}/mt3/warmup`, { method: "POST" }).catch(() => {});
+}
+
 export function resultDownloadUrl(jobId: string): string {
   return `${API_URL}/jobs/${jobId}/result`;
 }

@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2].parent / "mt3-worker"
 sys.path.insert(0, str(ROOT))
 
-from payload import audio_base64_from_job, job_input  # noqa: E402
+from payload import audio_base64_from_job, is_warmup_job, job_input  # noqa: E402
 
 
 def test_run_sync_shape():
@@ -60,3 +60,11 @@ def test_placeholder_still_detected_as_present():
 def test_missing():
     raw, name = audio_base64_from_job({"input": {"filename": "x.wav"}})
     assert raw is None
+
+
+def test_warmup_flag_nested_and_console():
+    assert is_warmup_job({"input": {"warmup": True}}) is True
+    assert is_warmup_job({"warmup": "true"}) is True
+    assert is_warmup_job({"input": {"input": {"warmup": 1}}}) is True
+    assert is_warmup_job({"input": {"audio_base64": "QUJD"}}) is False
+    assert is_warmup_job({}) is False

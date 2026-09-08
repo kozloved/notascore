@@ -194,6 +194,49 @@ def test_quality_pipeline_uses_mt3_not_basic_pitch(
     assert "<staves>2</staves>" in xml.lower()
 
 
+@patch("mir.pipeline.AudioSegmenter.segment", return_value=[])
+@patch("audio_engine.instrument_classifier.InstrumentClassifier.classify")
+@patch("adapters.mt3_backend.MT3Backend.transcribe_notes")
+def test_mt3_pipeline_overlaps_cpu_prep_with_transcription(
+    mock_mt3, mock_classify, _mock_segment, tmp_path, monkeypatch
+):
+    import threading
+
+    from mir.types import InstrumentKind, InstrumentPrediction
+
+    monkeypatch.setenv("TRANSCRIPTION_USE_BEAT_TRACKER", "0")
+    monkeypatch.setenv("MT3_ENDPOINT", "http://gpu.example/transcribe")
+    started_mt3 = threading.Event()
+    started_cpu = threading.Event()
+
+    def slow_mt3(_path):
+        started_mt3.set()
+        assert started_cpu.wait(1.0), "CPU prep did not overlap transcription"
+        return [
+            NoteEvent(pitch=60, start_time=0.0, end_time=0.5, velocity=80, confidence=1.0),
+            NoteEvent(pitch=64, start_time=0.5, end_time=1.0, velocity=80, confidence=1.0),
+            NoteEvent(pitch=48, start_time=0.0, end_time=1.0, velocity=70, confidence=1.0),
+        ]
+
+    def slow_classify(_audio):
+        started_cpu.set()
+        assert started_mt3.wait(1.0), "transcription did not overlap CPU prep"
+        return InstrumentPrediction(instrument=InstrumentKind.PIANO, confidence=0.9)
+
+    mock_mt3.side_effect = slow_mt3
+    mock_classify.side_effect = slow_classify
+
+    audio = tmp_path / "overlap.wav"
+    sr = 22050
+    t = np.linspace(0, 1, sr, endpoint=False)
+    sf.write(str(audio), 0.2 * np.sin(2 * np.pi * 440 * t), sr)
+
+    xml = UnderstandingPipeline(backend_name="mt3").transcribe(audio, "overlap-job")
+    assert "score-partwise" in xml.lower()
+    mock_mt3.assert_called_once()
+    mock_classify.assert_called_once()
+
+
 def test_queue_timeout_quality_uses_mt3_budget(monkeypatch):
     monkeypatch.setenv("MT3_TIMEOUT_SECONDS", "300")
     assert queue_timeout_for_mode("fast") == 600
@@ -230,6 +273,41 @@ def test_health_includes_quality(monkeypatch):
     from intelligence.config import DEFAULT_MODEL
 
     assert payload["gemini"]["default_model"] == DEFAULT_MODEL
+
+
+def test_mt3_warmup_endpoint_queues_run(monkeypatch):
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    import adapters.mt3_backend as mt3
+    import main as app_main
+
+    mt3._LAST_WARMUP_MONOTONIC = 0.0
+    monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/abc123/runsync")
+    monkeypatch.setenv("MT3_API_KEY", "rp-secret")
+    captured = {}
+
+    class _Resp:
+        def read(self):
+            return b'{"id":"w1"}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_urlopen(request, timeout=None):
+        captured["url"] = request.full_url
+        return _Resp()
+
+    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
+    with TestClient(app_main.app) as client:
+        response = client.post("/mt3/warmup")
+    assert response.status_code == 200
+    assert response.json() == {"started": True}
+    assert captured["url"].endswith("/run")
+    assert "runsync" not in captured["url"]
 
 
 def test_quality_upload_rejected_when_unconfigured(tmp_path, monkeypatch):

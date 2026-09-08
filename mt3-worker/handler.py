@@ -19,7 +19,7 @@ import runpod
 import soundfile as sf
 
 from gpu_compat import refuse_unsupported_cuda
-from payload import audio_base64_from_job
+from payload import audio_base64_from_job, is_warmup_job
 
 print("[MT3] worker boot: importing YourMT3...")
 _model_load_started = time.perf_counter()
@@ -77,10 +77,26 @@ def handler(job: dict):
         return {"error": str(exc)}
 
 
+def _warmup_payload():
+    print("[MT3] warmup — model already loaded, skipping inference", flush=True)
+    return {
+        "ok": True,
+        "warmup": True,
+        "model": MODEL_NAME,
+        "timing": {
+            "model_load_seconds": round(MODEL_LOAD_SECONDS, 3),
+            "inference_seconds": 0.0,
+            "total_seconds": 0.0,
+        },
+    }
+
+
 def _transcribe_job(job: dict):
     started = time.perf_counter()
     if not isinstance(job, dict):
         job = {}
+    if is_warmup_job(job):
+        return _warmup_payload()
 
     with tempfile.TemporaryDirectory(prefix="notascore-mt3-") as tmp:
         audio_path = _decode_audio(job, Path(tmp))

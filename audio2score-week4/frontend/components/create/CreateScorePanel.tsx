@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Upload } from "lucide-react";
 
 import { track } from "../../lib/analytics";
-import { uploadAudio, type TranscriptionMode } from "../../lib/api";
+import { uploadAudio, warmupMt3, type TranscriptionMode } from "../../lib/api";
 import {
   friendlyUploadError,
   isMidiFilename,
@@ -105,6 +105,15 @@ export default function CreateScorePanel() {
   const polyAvailable = polyphonicAvailable(health);
   const midiFile = Boolean(file && isMidiFilename(file.name));
   const selectedMode = uploadMode({ selected: mode, midi: midiFile });
+  const warmedWorker = useRef(false);
+
+  useEffect(() => {
+    if (!polyAvailable || selectedMode !== "polyphonic" || midiFile) return;
+    if (warmedWorker.current) return;
+    warmedWorker.current = true;
+    warmupMt3();
+  }, [polyAvailable, selectedMode, midiFile]);
+
   const changeMode = (next: TranscriptionMode) => {
     setMode(next);
     try {
@@ -141,6 +150,13 @@ export default function CreateScorePanel() {
     setJobId(null);
     setActiveJobId(null);
     router.replace("/create");
+    if (
+      polyAvailable &&
+      uploadMode({ selected: mode, midi: isMidiFilename(next.name) }) ===
+        "polyphonic"
+    ) {
+      warmupMt3();
+    }
   };
 
   const onDrop = (event: React.DragEvent) => {
