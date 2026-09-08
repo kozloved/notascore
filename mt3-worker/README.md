@@ -45,8 +45,12 @@ https://www.runpod.io/console/serverless
 
 Keep **min workers at 0** so you are not billed for an idle GPU all day.
 The Create page starts a short warmup job when Polyphonic is selected, so
-the worker can boot while the musician picks a file. After a job, the
-worker should stay up for a few minutes in case they retry.
+the worker can boot while the musician picks a file. If they Create while
+the worker is still **Initializing**, RunPod shows two jobs (warmup +
+recording). NotaScore now polls `/status` for up to 10 minutes instead of
+failing when `/runsync` hits 300s.
+
+After a job, the worker should stay up for a few minutes in case they retry.
 
 - Image: `kozloved/notascore-yourmt3:0.3`
 - GPU: RTX 4090 (or A40 / L40 / 3090 if 4090 queues)

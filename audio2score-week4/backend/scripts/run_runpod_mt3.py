@@ -33,7 +33,7 @@ def _require_env() -> None:
     endpoint = (os.getenv("MT3_ENDPOINT") or "").strip()
     api_key = (os.getenv("MT3_API_KEY") or "").strip()
     if not endpoint:
-        print("Set MT3_ENDPOINT to the RunPod /runsync URL.", file=sys.stderr)
+        print("Set MT3_ENDPOINT to the RunPod endpoint URL.", file=sys.stderr)
         sys.exit(2)
     if not api_key:
         print("Set MT3_API_KEY (RunPod API key). Do not commit it.", file=sys.stderr)
@@ -126,7 +126,7 @@ def main() -> None:
         help="POST /upload mode=polyphonic on a running API instead of calling the adapter directly",
     )
     parser.add_argument("--api-url", default="http://127.0.0.1:8000")
-    parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--timeout", type=int, default=600)
     args = parser.parse_args()
     _require_env()
 
