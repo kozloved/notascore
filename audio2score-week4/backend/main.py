@@ -350,10 +350,7 @@ def health():
 
 @app.post("/mt3/warmup")
 def mt3_warmup():
-    """Boot a RunPod worker while the musician is still on Create.
-
-    Does not keep a min worker. Returns immediately after queueing /run.
-    """
+    """Kept so older Create pages do not 404. Does not queue a RunPod job."""
     from adapters.mt3_backend import start_runpod_warmup
 
     return start_runpod_warmup()
