@@ -131,7 +131,8 @@ def test_duration_pieces_uses_named_note_types():
     assert snap_writable_length(0.37) == 0.375
     assert duration_pieces(0.37) == [0.375]
     assert duration_pieces(1.7) == [1.5, 0.1875]
-    assert duration_pieces(0.04, allow_empty=True) == []
+    assert duration_pieces(0.02, allow_empty=True) == []
+    assert duration_pieces(0.04, allow_empty=True) == [0.0625]
     assert duration_pieces(0.04, allow_empty=False) == [0.0625]
     assert duration_pieces(0.5, max_total=0.25) == [0.25]
     for piece in duration_pieces(1.7) + duration_pieces(0.37) + duration_pieces(0.41):
