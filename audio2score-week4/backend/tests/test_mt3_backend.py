@@ -270,6 +270,9 @@ def test_health_includes_quality(monkeypatch):
     assert payload["modes"]["fast"] is True
     assert payload["modes"]["quality"] is False
     assert payload["gemini"]["enabled"] is False
+    assert "pm2s" in payload
+    assert "importable" in payload["pm2s"]
+    assert "ready" in payload["pm2s"]
     from intelligence.config import DEFAULT_MODEL
 
     assert payload["gemini"]["default_model"] == DEFAULT_MODEL

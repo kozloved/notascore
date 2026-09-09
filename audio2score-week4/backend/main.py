@@ -309,6 +309,7 @@ def health():
     from audio_engine.beat_tracker import beat_status
     from intelligence.config import gemini_status
     from mir.pipeline_config import load_pipeline_config
+    from mir.pm2s_hands import pm2s_status
 
     bp = basic_pitch_settings()
     mt3 = mt3_status()
@@ -337,6 +338,7 @@ def health():
         "quality": mt3,
         "gemini": gemini,
         "beat": beat_status(),
+        "pm2s": pm2s_status(),
         "modes": {
             "solo": True,
             "polyphonic": poly_available,

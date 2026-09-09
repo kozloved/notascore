@@ -1,16 +1,23 @@
-# Optional PM2S hand-part RNN for TRANSCRIPTION_HAND_SEPARATOR=pm2s.
+# Optional PM2S piano hand-part + quantization RNNs.
 # Do not add this to the default backend image. PM2S is not on PyPI and has
 # no setup.py; clone the repo and put it on PYTHONPATH.
 #
-#   pip install torch
+# Fastest path:
+#   audio2score-week4/backend/scripts/setup_pm2s.sh
+#
+# Manual:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
 #   git clone --depth 1 https://github.com/cheriell/PM2S.git /opt/pm2s
 #
-# Then on the worker:
+# Then on the worker (testing only — production stays viterbi / off):
 #   TRANSCRIPTION_HAND_SEPARATOR=pm2s
 #   TRANSCRIPTION_QUANTIZATION_MODE=pm2s
+#   TRANSCRIPTION_PM2S_REQUIRED=1
 #   PM2S_REPO=/opt/pm2s
 #
-# Weights download from Zenodo on first use
+# Weights download from Zenodo on first use, or via setup_pm2s.sh
 # (RNNHandPartModel.pth, RNNJointQuantisationModel.pth, RNNJointBeatModel.pth).
 # Hands and quantization are independent flags.
+# TRANSCRIPTION_PM2S_REQUIRED=1 fails the job if weights are missing (no silent fallback).
 torch
+pandas

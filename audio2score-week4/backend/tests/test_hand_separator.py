@@ -315,7 +315,9 @@ def test_pm2s_respects_hand_locked():
     assert out[1].hand == Hand.RIGHT
 
 
-def test_pm2s_falls_back_to_viterbi_when_processor_fails():
+def test_pm2s_falls_back_to_viterbi_when_processor_fails(monkeypatch):
+    monkeypatch.delenv("TRANSCRIPTION_PM2S_REQUIRED", raising=False)
+
     class Boom:
         def process_note_seq(self, note_seq):
             raise RuntimeError("no weights")
@@ -326,6 +328,20 @@ def test_pm2s_falls_back_to_viterbi_when_processor_fails():
     assert sep.last_source == "viterbi_fallback"
     assert {e.pitch: e.hand for e in out}[48] == Hand.LEFT
     assert {e.pitch: e.hand for e in out}[72] == Hand.RIGHT
+
+
+def test_pm2s_required_raises_when_processor_fails(monkeypatch):
+    monkeypatch.setenv("TRANSCRIPTION_PM2S_REQUIRED", "1")
+
+    class Boom:
+        def process_note_seq(self, note_seq):
+            raise RuntimeError("no weights")
+
+    import pytest
+
+    sep = Pm2sHandSeparator(processor=Boom())
+    with pytest.raises(RuntimeError, match="PM2S hand split failed"):
+        sep.separate([_ev(48, 0.0), _ev(72, 0.0)])
 
 
 def test_pm2s_falls_back_when_output_length_mismatches():

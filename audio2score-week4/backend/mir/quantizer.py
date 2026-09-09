@@ -10,7 +10,7 @@ import math
 from dataclasses import dataclass
 
 from mir.models import MeterHypothesis, staff_for_hand
-from mir.pipeline_config import QuantizationMode, parse_quantization_mode
+from mir.pipeline_config import QuantizationMode, parse_quantization_mode, pm2s_required
 from mir.types import MusicalEvent, copy_event
 
 
@@ -251,12 +251,22 @@ class MeasureQuantizer:
         try:
             processor = self._load_pm2s_processor()
             if processor is None:
+                if pm2s_required():
+                    raise RuntimeError(
+                        "PM2S quantizer unavailable and TRANSCRIPTION_PM2S_REQUIRED=1. "
+                        "Run scripts/setup_pm2s.sh or set TRANSCRIPTION_PM2S_REQUIRED=0."
+                    )
                 print("[PM2S] quantizer unavailable; keeping transcribed timing")
                 return self._identity(events)
             from mir.pm2s_quantizer import apply_pm2s_rhythm
 
             out, decisions = apply_pm2s_rhythm(events, processor)
         except Exception as exc:
+            if pm2s_required():
+                raise RuntimeError(
+                    f"PM2S quantizer failed ({exc}). "
+                    "Set TRANSCRIPTION_PM2S_REQUIRED=0 to keep transcribed timing."
+                ) from exc
             print(f"[PM2S] quantizer failed ({exc}); keeping transcribed timing")
             return self._identity(events)
         self.last_events = list(out)
@@ -277,6 +287,8 @@ class MeasureQuantizer:
         except Exception as exc:
             print(f"[PM2S] quantizer model unavailable ({exc})")
             self._pm2s_load_failed = True
+            if pm2s_required():
+                raise
             return None
 
     @staticmethod

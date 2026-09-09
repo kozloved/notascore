@@ -31,5 +31,6 @@ madmom @ git+https://github.com/CPJKU/madmom.git
 #
 # Optional PM2S piano hands / quantization
 # (TRANSCRIPTION_HAND_SEPARATOR=pm2s, TRANSCRIPTION_QUANTIZATION_MODE=pm2s).
-# Not installed by default — torch is large. See requirements-pm2s.txt.
+# Not installed by default — torch is large. See requirements-pm2s.txt
+# and scripts/setup_pm2s.sh.
 

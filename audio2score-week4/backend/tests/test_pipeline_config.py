@@ -43,6 +43,14 @@ def test_hand_separator_defaults_to_viterbi(monkeypatch):
     assert parse_hand_separator_mode("") == HandSeparatorMode.VITERBI
 
 
+def test_pm2s_required_defaults_off(monkeypatch):
+    monkeypatch.delenv("TRANSCRIPTION_PM2S_REQUIRED", raising=False)
+    cfg = load_pipeline_config()
+    assert cfg.pm2s_required is False
+    monkeypatch.setenv("TRANSCRIPTION_PM2S_REQUIRED", "1")
+    assert load_pipeline_config().pm2s_required is True
+
+
 def test_hand_separator_env_override(monkeypatch):
     monkeypatch.setenv("TRANSCRIPTION_HAND_SEPARATOR", "pm2s")
     assert load_pipeline_config().hand_separator == HandSeparatorMode.PM2S
