@@ -104,12 +104,12 @@ Polyphonic never falls back to Solo. The backend `MT3Backend` calls a remote GPU
 MT3_ENDPOINT=https://api.runpod.ai/v2/g40wir5ey71e3/runsync
 MT3_API_KEY=<RunPod API key>
 MT3_MODEL=yourmt3
-MT3_TIMEOUT_SECONDS=300
+MT3_TIMEOUT_SECONDS=600
 ```
 
 `MT3_API_KEY` stays on the API / worker only. Do not put it in the frontend or commit it.
 
-A URL without `/runsync` is normalized to `/runsync`. Manual check (same adapter as production jobs):
+The adapter queues `/run` and polls `/status` so a 5-minute worker boot does not fail the site job. `/runsync` in the env URL is still accepted. Manual check (same adapter as production jobs):
 
 ```text
 cd audio2score-week4/backend
@@ -127,7 +127,7 @@ Alternatively a local command that writes MIDI to `{output}`:
 
 ```env
 MT3_TRANSCRIBE_COMMAND=python scripts/example_mt3.py {input} {output}
-MT3_TIMEOUT_SECONDS=300
+MT3_TIMEOUT_SECONDS=600
 ```
 
 Dummy helpers:

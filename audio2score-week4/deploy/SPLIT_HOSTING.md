@@ -24,6 +24,12 @@ stays billed for a few minutes after a job (or after the Create-page warmup),
 then scales to zero. Flash Boot helps the next host reuse the image; it does
 not replace Idle Timeout.
 
+The VPS queues RunPod with `/run` and polls `/status` for up to
+`MT3_TIMEOUT_SECONDS` (default 600). Do not rely on `/runsync`: that HTTP call
+gives up at ~300s, which is shorter than a cold start. Selecting Polyphonic
+may show **2 jobs in queue** (warmup + the real recording). That is expected.
+Leave the site job running until the worker leaves Initializing.
+
 ## 1. Site (CPU) — VPS
 
 Follow [VPS.md](VPS.md). Compose starts Redis, API, worker, frontend, nginx, and `cloudflared`.
@@ -32,7 +38,7 @@ Follow [VPS.md](VPS.md). Compose starts Redis, API, worker, frontend, nginx, and
 MT3_ENDPOINT=https://api.runpod.ai/v2/g40wir5ey71e3/runsync
 MT3_API_KEY=<RunPod API key>
 MT3_MODEL=yourmt3
-MT3_TIMEOUT_SECONDS=300
+MT3_TIMEOUT_SECONDS=600
 ```
 
 Or a Vast.ai HTTP worker:
