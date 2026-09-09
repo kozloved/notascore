@@ -155,6 +155,11 @@ def quantization_snaps_display_tempo(mode: QuantizationMode) -> bool:
     return mode in (QuantizationMode.ADAPTIVE, QuantizationMode.STRICT_GRID)
 
 
+def pm2s_required() -> bool:
+    """When true, missing PM2S weights/imports fail the job instead of falling back."""
+    return env_bool("TRANSCRIPTION_PM2S_REQUIRED", default=False)
+
+
 def parse_hand_separator_mode(
     value: str | HandSeparatorMode | None,
 ) -> HandSeparatorMode:
@@ -227,6 +232,7 @@ class PipelineConfig:
     validation_mode: ValidationMode = ValidationMode.CONSERVATIVE
     quantization_mode: QuantizationMode = QuantizationMode.ADAPTIVE
     hand_separator: HandSeparatorMode = HandSeparatorMode.VITERBI
+    pm2s_required: bool = False
     enable_gemini: bool = False
     enable_piano_analysis: bool = True
     enable_mir_layers: bool = True
@@ -243,6 +249,7 @@ class PipelineConfig:
             "validation_mode": self.validation_mode.value,
             "quantization_mode": self.quantization_mode.value,
             "hand_separator": self.hand_separator.value,
+            "pm2s_required": self.pm2s_required,
             "enable_gemini": self.enable_gemini,
             "enable_piano_analysis": self.enable_piano_analysis,
             "enable_mir_layers": self.enable_mir_layers,
@@ -270,6 +277,7 @@ def load_pipeline_config(
         hand_separator=parse_hand_separator_mode(
             env_str("TRANSCRIPTION_HAND_SEPARATOR", "viterbi")
         ),
+        pm2s_required=pm2s_required(),
         enable_gemini=gemini_flag_enabled(),
         enable_piano_analysis=piano_analysis_enabled(resolved_backend),
         enable_mir_layers=_flag_with_alias(

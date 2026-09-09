@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mir.pm2s_hands import as_note_vector, events_to_note_seq, prepend_pm2s_repo
+from mir.pm2s_hands import as_note_vector, events_to_note_seq, prepare_pm2s_runtime
 from mir.types import MusicalEvent, copy_event
 
 # Match mir.quantizer.SMALLEST_WRITABLE without importing that module.
@@ -17,7 +17,7 @@ _MIN_DURATION = 0.0625
 
 
 def load_pm2s_quantisation_processor() -> Any:
-    prepend_pm2s_repo()
+    prepare_pm2s_runtime()
     from pm2s.features.quantisation import RNNJointQuantisationProcessor
 
     return RNNJointQuantisationProcessor()

@@ -18,8 +18,10 @@ from typing import Any, Sequence
 import numpy as np
 
 from mir.hand_separator import HandDecision, HandSeparator
-from mir.pipeline_config import env_bool
+from mir.pipeline_config import env_bool, env_str, pm2s_required
 from mir.types import Hand, MusicalEvent, copy_event
+
+_PM2S_WEIGHT_KEYS = ("beat", "quantisation", "hand_part")
 
 # Training labels in PM2S `dev/data/data_utils.py`: 0 left, 1 right.
 _PM2S_HAND = {0: Hand.LEFT, 1: Hand.RIGHT}
@@ -63,6 +65,29 @@ def prepend_pm2s_repo() -> None:
         sys.path.insert(0, repo)
 
 
+def patch_torch_load_for_pm2s() -> None:
+    """CPU map_location + weights_only=False so Zenodo checkpoints load on torch 2.x."""
+    import torch
+
+    if getattr(torch.load, "_pm2s_patched", False):
+        return
+
+    orig = torch.load
+
+    def _load(*args, **kwargs):
+        kwargs.setdefault("map_location", "cpu")
+        kwargs.setdefault("weights_only", False)
+        return orig(*args, **kwargs)
+
+    _load._pm2s_patched = True  # type: ignore[attr-defined]
+    torch.load = _load
+
+
+def prepare_pm2s_runtime() -> None:
+    prepend_pm2s_repo()
+    patch_torch_load_for_pm2s()
+
+
 def pm2s_importable() -> bool:
     """True when the PM2S package can be imported. Does not load weights."""
     prepend_pm2s_repo()
@@ -72,6 +97,55 @@ def pm2s_importable() -> bool:
         return True
     except Exception:
         return False
+
+
+def pm2s_weight_paths() -> dict[str, str]:
+    prepend_pm2s_repo()
+    try:
+        from pm2s.constants import model_state_dict_paths
+    except Exception:
+        return {}
+    out: dict[str, str] = {}
+    for key in _PM2S_WEIGHT_KEYS:
+        info = model_state_dict_paths.get(key) or {}
+        path = str(info.get("state_dict_path") or "")
+        if path:
+            out[key] = path
+    return out
+
+
+def pm2s_weights_present() -> bool:
+    paths = pm2s_weight_paths()
+    return bool(paths) and all(os.path.isfile(p) for p in paths.values())
+
+
+def pm2s_ready() -> bool:
+    return pm2s_importable() and pm2s_weights_present()
+
+
+def pm2s_status() -> dict:
+    """Health payload: importable / weights on disk. Does not load models."""
+    from mir.pipeline_config import load_pipeline_config
+
+    cfg = load_pipeline_config()
+    weights = {}
+    for key, path in pm2s_weight_paths().items():
+        weights[key] = os.path.isfile(path)
+    importable = pm2s_importable()
+    ready = importable and bool(weights) and all(weights.values())
+    return {
+        "importable": importable,
+        "ready": ready,
+        "repo": env_str("PM2S_REPO"),
+        "required": pm2s_required(),
+        "weights": weights,
+        "hand_separator": cfg.hand_separator.value,
+        "quantization_mode": cfg.quantization_mode.value,
+        "enabled": (
+            cfg.hand_separator.value == "pm2s"
+            or cfg.quantization_mode.value == "pm2s"
+        ),
+    }
 
 
 def as_note_vector(raw: Any, n: int) -> np.ndarray | None:
@@ -114,6 +188,12 @@ class Pm2sHandSeparator:
         try:
             return self._separate_pm2s(events)
         except Exception as exc:
+            if pm2s_required():
+                raise RuntimeError(
+                    f"PM2S hand split failed ({exc}). "
+                    "Set TRANSCRIPTION_PM2S_REQUIRED=0 to fall back to Viterbi, "
+                    "or run scripts/setup_pm2s.sh."
+                ) from exc
             print(f"[PM2S] hand split failed ({exc}); falling back to Viterbi")
             return self._fallback_separate(events)
 
@@ -127,16 +207,27 @@ class Pm2sHandSeparator:
         if self._processor is not None:
             return self._processor
         if self._load_failed:
+            if pm2s_required():
+                raise RuntimeError(
+                    "PM2S hand model unavailable and TRANSCRIPTION_PM2S_REQUIRED=1. "
+                    "Run scripts/setup_pm2s.sh or set TRANSCRIPTION_PM2S_REQUIRED=0."
+                )
             return None
-        prepend_pm2s_repo()
+        prepare_pm2s_runtime()
         try:
             from pm2s.features.hand_part import RNNHandPartProcessor
 
             self._processor = RNNHandPartProcessor()
             return self._processor
         except Exception as exc:
-            print(f"[PM2S] hand model unavailable ({exc}); falling back to Viterbi")
             self._load_failed = True
+            if pm2s_required():
+                raise RuntimeError(
+                    f"PM2S hand model unavailable ({exc}). "
+                    "Set TRANSCRIPTION_PM2S_REQUIRED=0 to fall back to Viterbi, "
+                    "or run scripts/setup_pm2s.sh."
+                ) from exc
+            print(f"[PM2S] hand model unavailable ({exc}); falling back to Viterbi")
             return None
 
     def _separate_pm2s(self, events: list[MusicalEvent]) -> list[MusicalEvent]:

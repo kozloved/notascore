@@ -251,7 +251,9 @@ def test_pm2s_quantizer_rewrites_beats_not_pitches():
     assert list(fake.seen[:, 0]) == [72.0, 48.0]
 
 
-def test_pm2s_quantizer_falls_back_to_identity_on_failure():
+def test_pm2s_quantizer_falls_back_to_identity_on_failure(monkeypatch):
+    monkeypatch.delenv("TRANSCRIPTION_PM2S_REQUIRED", raising=False)
+
     class Boom:
         def process_note_seq(self, note_seq):
             raise RuntimeError("no weights")
@@ -263,6 +265,21 @@ def test_pm2s_quantizer_falls_back_to_identity_on_failure():
     assert q[0].start_beat == 0.11
     assert q[0].duration_beats == 0.37
     assert all(d.get("reason") == "off_identity" for d in decisions)
+
+
+def test_pm2s_required_raises_on_quantizer_failure(monkeypatch):
+    import pytest
+
+    monkeypatch.setenv("TRANSCRIPTION_PM2S_REQUIRED", "1")
+
+    class Boom:
+        def process_note_seq(self, note_seq):
+            raise RuntimeError("no weights")
+
+    with pytest.raises(RuntimeError, match="PM2S quantizer failed"):
+        MeasureQuantizer(mode="pm2s", pm2s_processor=Boom()).quantize(
+            [_ev(72, 0.11, 0.37)], MeterEstimator().select([_ev(72, 0.11, 0.37)])
+        )
 
 
 def test_pm2s_quantizer_missing_processor_keeps_timing():

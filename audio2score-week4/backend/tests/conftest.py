@@ -6,6 +6,16 @@ import numpy as np
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def isolate_pm2s_env(request, monkeypatch):
+    """Keep unit tests on viterbi/off even if local .env enables PM2S."""
+    if request.node.get_closest_marker("pm2s"):
+        return
+    monkeypatch.setenv("TRANSCRIPTION_HAND_SEPARATOR", "viterbi")
+    monkeypatch.setenv("TRANSCRIPTION_QUANTIZATION_MODE", "off")
+    monkeypatch.delenv("TRANSCRIPTION_PM2S_REQUIRED", raising=False)
+
+
 @pytest.fixture
 def sample_rate():
     return 22050
