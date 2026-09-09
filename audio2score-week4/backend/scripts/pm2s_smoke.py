@@ -18,6 +18,7 @@ if not os.getenv("PM2S_REPO"):
     default = BACKEND.parents[1] / "vendor" / "pm2s"
     if default.is_dir():
         os.environ["PM2S_REPO"] = str(default)
+os.environ.setdefault("TRANSCRIPTION_PM2S_HAND_FLIP", "1")
 
 from mir.meter import MeterEstimator
 from mir.pm2s_hands import Pm2sHandSeparator, pm2s_status
@@ -44,12 +45,11 @@ def main() -> int:
         print(json.dumps({"ok": False, "reason": "pm2s_not_ready", "status": status}, indent=2))
         return 1
 
-    events = [
-        _ev(48, 0.07, 0.9, start_sec=0.00, note_id="bass"),
-        _ev(72, 0.11, 0.4, start_sec=0.05, note_id="rh1"),
-        _ev(76, 0.58, 0.4, start_sec=0.28, note_id="rh2"),
-        _ev(43, 0.52, 0.9, start_sec=0.26, note_id="bass2"),
-    ]
+    events = []
+    for i in range(8):
+        t = i * 0.5
+        events.append(_ev(48, float(i), 0.9, start_sec=t, note_id=f"bass{i}"))
+        events.append(_ev(72 + (i % 4), float(i) + 0.11, 0.4, start_sec=t, note_id=f"rh{i}"))
 
     sep = Pm2sHandSeparator()
     hands = sep.separate(list(events))

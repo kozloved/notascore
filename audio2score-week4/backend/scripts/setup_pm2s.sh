@@ -28,6 +28,7 @@ else
 fi
 
 "$PIP" install torch --index-url https://download.pytorch.org/whl/cpu
+"$PIP" install pandas
 
 WEIGHT_ROOT="$PM2S_REPO/pm2s/_model_state_dicts"
 mkdir -p "$WEIGHT_ROOT/beat" "$WEIGHT_ROOT/quantisation" "$WEIGHT_ROOT/hand_part"

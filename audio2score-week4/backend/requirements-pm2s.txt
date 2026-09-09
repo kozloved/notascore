@@ -20,3 +20,4 @@
 # Hands and quantization are independent flags.
 # TRANSCRIPTION_PM2S_REQUIRED=1 fails the job if weights are missing (no silent fallback).
 torch
+pandas

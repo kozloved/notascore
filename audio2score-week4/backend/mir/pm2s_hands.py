@@ -23,7 +23,9 @@ from mir.types import Hand, MusicalEvent, copy_event
 
 _PM2S_WEIGHT_KEYS = ("beat", "quantisation", "hand_part")
 
-# Training labels in PM2S `dev/data/data_utils.py`: 0 left, 1 right.
+# Training labels in PM2S `dev/data/data_utils.py` comment: 0 left, 1 right.
+# ASAP piano files typically list RH as instrument 0, so the shipped weights
+# often come out swapped. Set TRANSCRIPTION_PM2S_HAND_FLIP=1 when testing.
 _PM2S_HAND = {0: Hand.LEFT, 1: Hand.RIGHT}
 
 

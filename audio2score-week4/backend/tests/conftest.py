@@ -14,6 +14,7 @@ def isolate_pm2s_env(request, monkeypatch):
     monkeypatch.setenv("TRANSCRIPTION_HAND_SEPARATOR", "viterbi")
     monkeypatch.setenv("TRANSCRIPTION_QUANTIZATION_MODE", "off")
     monkeypatch.delenv("TRANSCRIPTION_PM2S_REQUIRED", raising=False)
+    monkeypatch.delenv("TRANSCRIPTION_PM2S_HAND_FLIP", raising=False)
 
 
 @pytest.fixture

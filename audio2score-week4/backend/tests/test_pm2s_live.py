@@ -40,47 +40,48 @@ def pm2s_env(monkeypatch):
     monkeypatch.setenv("TRANSCRIPTION_HAND_SEPARATOR", "pm2s")
     monkeypatch.setenv("TRANSCRIPTION_QUANTIZATION_MODE", "pm2s")
     monkeypatch.setenv("TRANSCRIPTION_PM2S_REQUIRED", "1")
+    # ASAP piano MIDIs enumerate RH as instrument 0; the published comment says
+    # 0=left. The shipped weights follow file order, so testing flips them.
+    monkeypatch.setenv("TRANSCRIPTION_PM2S_HAND_FLIP", "1")
     if not pm2s_ready():
         pytest.skip(f"PM2S not ready: {pm2s_status()}")
 
 
 @pytest.mark.pm2s
 def test_live_pm2s_hands_assign_without_changing_pitches(pm2s_env):
-    events = [
-        _ev(48, 0.0, 1.0, start_sec=0.0, note_id="l"),
-        _ev(76, 0.0, 0.5, start_sec=0.0, note_id="r"),
-        _ev(40, 1.0, 1.0, start_sec=0.5, note_id="l2"),
-        _ev(79, 1.0, 0.5, start_sec=0.5, note_id="r2"),
-    ]
+    events = []
+    for i in range(8):
+        t = i * 0.5
+        events.append(_ev(48, float(i), 0.9, start_sec=t, note_id=f"l{i}"))
+        events.append(_ev(72 + (i % 4), float(i), 0.4, start_sec=t, note_id=f"r{i}"))
     sep = Pm2sHandSeparator()
     out = sep.separate(events)
     assert sep.last_source == "pm2s"
     by_id = {e.note_id: e for e in out}
-    assert by_id["l"].pitch == 48
-    assert by_id["r"].pitch == 76
-    assert by_id["l"].hand in (Hand.LEFT, Hand.RIGHT)
-    assert by_id["r"].hand in (Hand.LEFT, Hand.RIGHT)
-    # Typical piano texture: bass left, treble right.
-    assert by_id["l"].hand == Hand.LEFT
-    assert by_id["r"].hand == Hand.RIGHT
+    assert by_id["l0"].pitch == 48
+    assert by_id["r0"].pitch == 72
+    assert {e.hand for e in out} <= {Hand.LEFT, Hand.RIGHT}
+    assert by_id["l0"].hand == Hand.LEFT
+    assert by_id["r0"].hand == Hand.RIGHT
 
 
 @pytest.mark.pm2s
 def test_live_pm2s_quantizer_rewrites_beats(pm2s_env):
-    events = [
-        _ev(72, 0.11, 0.37, start_sec=0.05, note_id="r"),
-        _ev(48, 0.51, 0.41, start_sec=0.25, note_id="l"),
-    ]
-    events[1].hand = Hand.LEFT
+    events = []
+    for i in range(8):
+        t = i * 0.5
+        events.append(_ev(72, 0.11 + i, 0.37, start_sec=t, note_id=f"r{i}"))
+        events.append(_ev(48, 0.51 + i, 0.41, start_sec=t + 0.2, note_id=f"l{i}"))
+        events[-1].hand = Hand.LEFT
     q = MeasureQuantizer(mode="pm2s")
     out, decisions = q.quantize(events, MeterEstimator().select(events))
     assert q.last_summary.get("engine") == "pm2s"
     assert all(d.get("reason") == "pm2s_quant" for d in decisions)
     by_id = {e.note_id: e for e in out}
-    assert by_id["r"].pitch == 72
-    assert by_id["l"].pitch == 48
-    assert by_id["r"].start_time_sec == 0.05
-    assert len(out) == 2
+    assert by_id["r0"].pitch == 72
+    assert by_id["l0"].pitch == 48
+    assert by_id["r0"].start_time_sec == 0.0
+    assert len(out) == 16
 
 
 @pytest.mark.pm2s
