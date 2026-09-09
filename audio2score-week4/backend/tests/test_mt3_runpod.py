@@ -301,39 +301,16 @@ def test_runpod_live_adapter_if_configured(tmp_path):
     assert notes, "live RunPod transcription returned no notes"
 
 
-def test_warmup_posts_async_run_not_runsync(monkeypatch):
-    import adapters.mt3_backend as mt3
-
+def test_warmup_does_not_queue_runpod(monkeypatch):
     monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/g40wir5ey71e3/runsync")
     monkeypatch.setenv("MT3_API_KEY", "rp-secret")
-    mt3._LAST_WARMUP_MONOTONIC = 0.0
-    captured = {}
-
-    def fake_urlopen(request, timeout=None):
-        captured["url"] = request.full_url
-        captured["timeout"] = timeout
-        captured["body"] = json.loads(request.data)
-        captured["authorization"] = request.get_header("Authorization")
-        return _FakeResponse(b'{"id":"x","status":"IN_QUEUE"}')
-
-    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
-    result = start_runpod_warmup()
-    assert result == {"started": True}
-    assert captured["url"] == "https://api.runpod.ai/v2/g40wir5ey71e3/run"
-    assert captured["url"].endswith("/run")
-    assert "runsync" not in captured["url"]
-    assert captured["body"] == {"input": {"warmup": True}}
-    assert captured["authorization"] == "Bearer rp-secret"
-    assert captured["timeout"] == 8
-
-    skipped = start_runpod_warmup()
-    assert skipped == {"started": False, "reason": "cooldown"}
+    with patch("adapters.mt3_backend.urllib.request.urlopen") as mock_open:
+        result = start_runpod_warmup()
+        mock_open.assert_not_called()
+    assert result == {"started": False, "reason": "disabled"}
 
 
-def test_warmup_skipped_when_not_runpod(monkeypatch):
-    import adapters.mt3_backend as mt3
-
-    mt3._LAST_WARMUP_MONOTONIC = 0.0
+def test_warmup_disabled_when_not_runpod(monkeypatch):
     monkeypatch.setenv("MT3_ENDPOINT", "http://gpu.example/transcribe")
     monkeypatch.setenv("MT3_API_KEY", "secret")
-    assert start_runpod_warmup() == {"started": False, "reason": "not_runpod"}
+    assert start_runpod_warmup() == {"started": False, "reason": "disabled"}

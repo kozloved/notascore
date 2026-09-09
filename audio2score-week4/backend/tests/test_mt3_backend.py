@@ -275,39 +275,20 @@ def test_health_includes_quality(monkeypatch):
     assert payload["gemini"]["default_model"] == DEFAULT_MODEL
 
 
-def test_mt3_warmup_endpoint_queues_run(monkeypatch):
+def test_mt3_warmup_endpoint_does_not_queue_run(monkeypatch):
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
 
-    import adapters.mt3_backend as mt3
     import main as app_main
 
-    mt3._LAST_WARMUP_MONOTONIC = 0.0
     monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/abc123/runsync")
     monkeypatch.setenv("MT3_API_KEY", "rp-secret")
-    captured = {}
-
-    class _Resp:
-        def read(self):
-            return b'{"id":"w1"}'
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return False
-
-    def fake_urlopen(request, timeout=None):
-        captured["url"] = request.full_url
-        return _Resp()
-
-    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
-    with TestClient(app_main.app) as client:
-        response = client.post("/mt3/warmup")
+    with patch("adapters.mt3_backend.urllib.request.urlopen") as mock_open:
+        with TestClient(app_main.app) as client:
+            response = client.post("/mt3/warmup")
+        mock_open.assert_not_called()
     assert response.status_code == 200
-    assert response.json() == {"started": True}
-    assert captured["url"].endswith("/run")
-    assert "runsync" not in captured["url"]
+    assert response.json() == {"started": False, "reason": "disabled"}
 
 
 def test_quality_upload_rejected_when_unconfigured(tmp_path, monkeypatch):

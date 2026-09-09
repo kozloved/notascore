@@ -44,9 +44,9 @@ The build downloads the ~536 MB checkpoint. It is slow. Tag `0.3` pins `transfor
 https://www.runpod.io/console/serverless
 
 Keep **min workers at 0** so you are not billed for an idle GPU all day.
-The Create page starts a short warmup job when Polyphonic is selected, so
-the worker can boot while the musician picks a file. After a job, the
-worker should stay up for a few minutes in case they retry.
+Do **not** send a warmup job before the recording. Two jobs on one worker
+(pre-request + transcribe) freeze Serverless on Initializing. After a job,
+the worker should stay up for a few minutes in case they retry.
 
 - Image: `kozloved/notascore-yourmt3:0.3`
 - GPU: RTX 4090 (or A40 / L40 / 3090 if 4090 queues)
