@@ -74,6 +74,7 @@ class QuantizerConfig:
     # being clamped to the last 16th of the previous bar.
     barline_pull_beats: float = 0.125
     chord_window_beats: float = 0.08
+    max_onset_move: float = 0.22
 
 
 def snap_writable_length(quarter_length: float, *, allow_empty: bool = False) -> float:
@@ -354,7 +355,9 @@ def summarize_quantization(
             grid_f = float(grid) if grid is not None else None
         except (TypeError, ValueError):
             grid_f = None
-        if grid_f is not None and abs(grid_f - (1.0 / 3.0)) < 1e-6:
+        if grid_f is not None and (
+            abs(grid_f - (1.0 / 3.0)) < 1e-6 or abs(grid_f - (1.0 / 6.0)) < 1e-6
+        ):
             triplets += 1
     orig_ids = {e.note_id for e in original if e.note_id}
     q_ids = {e.note_id for e in quantized if e.note_id}
@@ -366,6 +369,10 @@ def summarize_quantization(
         "events_removed": max(0, len(original) - len(quantized)),
         "average_onset_displacement": (sum(onset_disp) / len(onset_disp)) if onset_disp else 0.0,
         "average_duration_displacement": (sum(dur_disp) / len(dur_disp)) if dur_disp else 0.0,
+        "mean_onset_displacement": (sum(onset_disp) / len(onset_disp)) if onset_disp else 0.0,
+        "mean_duration_displacement": (sum(dur_disp) / len(dur_disp)) if dur_disp else 0.0,
+        "max_onset_displacement": max(onset_disp) if onset_disp else 0.0,
+        "max_duration_displacement": max(dur_disp) if dur_disp else 0.0,
         "triplet_decisions": triplets,
         "removed_events": removed_ids,
     }
