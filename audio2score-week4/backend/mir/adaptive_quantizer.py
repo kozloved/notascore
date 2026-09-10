@@ -1103,6 +1103,25 @@ def validate_notation(
     return out, decisions
 
 
+def _unique_preserved_timing(decisions: list[dict]) -> int:
+    """Count unique events whose timing was intentionally left off-grid.
+
+    Decisions already flag every cluster member. Do not add cluster.preserved
+    on top of that or the same note is counted twice.
+    """
+    seen: set[str] = set()
+    unlabeled = 0
+    for decision in decisions:
+        if not decision.get("preserved_timing"):
+            continue
+        nid = str(decision.get("note_id") or "")
+        if nid:
+            seen.add(nid)
+        else:
+            unlabeled += 1
+    return len(seen) + unlabeled
+
+
 def quality_metrics(
     raw: list[MusicalEvent],
     notation: list[MusicalEvent],
@@ -1122,13 +1141,17 @@ def quality_metrics(
         abs(float(d.get("quantized_duration", 0)) - float(d.get("raw_duration", 0)))
         for d in decisions
     ]
+    from mir.quantizer import measure_index_for_onset
+
     moved = sum(1 for x in onset_disp if x > EPS)
     tiny_rests = 0
     overlaps = 0
+    invalid_duration_events = 0
     measure_violations = 0
     grouped: dict[tuple[int, int], list[MusicalEvent]] = {}
     for ev in notation:
         grouped.setdefault((staff_for_hand(ev.hand, ev.pitch), int(ev.voice)), []).append(ev)
+    raw_map = {e.note_id: e for e in raw if e.note_id}
     for group in grouped.values():
         ordered = sorted(group, key=lambda e: (e.start_beat, e.pitch))
         for i, ev in enumerate(ordered):
@@ -1144,8 +1167,20 @@ def quality_metrics(
                 if ev.start_beat + ev.duration_beats > nxt.start_beat + 1e-6:
                     overlaps += 1
             if ev.duration_beats <= EPS:
+                invalid_duration_events += 1
+            src = raw_map.get(ev.note_id) if ev.note_id else None
+            orig_crosses = (
+                _raw_crosses_barline(src, mql, barline_pull) if src is not None else False
+            )
+            idx = measure_index_for_onset(
+                ev.start_beat, mql, pull_beats=barline_pull
+            )
+            measure_end = (idx + 1) * mql
+            if (
+                not orig_crosses
+                and ev.start_beat + ev.duration_beats > measure_end + EPS
+            ):
                 measure_violations += 1
-    raw_map = {e.note_id: e for e in raw if e.note_id}
     preserved_duration = 0
     for ev in notation:
         src = raw_map.get(ev.note_id)
@@ -1174,12 +1209,10 @@ def quality_metrics(
         "chord_alignments": sum(1 for c in analysis.clusters if len(c.indices) >= 2),
         "triplet_groups": analysis.triplet_groups,
         "tiny_rests": tiny_rests,
+        "invalid_duration_events": invalid_duration_events,
         "measure_violations": measure_violations,
         "overlaps_detected": overlaps,
-        "fallback_preserved": sum(
-            1 for d in decisions if d.get("preserved_timing")
-        )
-        + sum(1 for c in analysis.clusters if c.preserved),
+        "fallback_preserved": _unique_preserved_timing(decisions),
         "events_removed": max(0, len(raw) - len(notation)),
         "identity_valid": bool(identity.get("identity_valid")),
         "duplicate_note_ids": int(identity.get("duplicate_note_ids") or 0),
@@ -1210,6 +1243,7 @@ def _empty_quality_summary() -> dict:
         "chord_alignments": 0,
         "triplet_groups": 0,
         "tiny_rests": 0,
+        "invalid_duration_events": 0,
         "measure_violations": 0,
         "overlaps_detected": 0,
         "fallback_preserved": 0,
