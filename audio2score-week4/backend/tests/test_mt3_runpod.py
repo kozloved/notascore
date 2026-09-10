@@ -335,6 +335,48 @@ def test_runpod_invalid_json(tmp_path, monkeypatch):
         MT3Backend().transcribe_notes(audio)
 
 
+def test_runpod_json_string_output_is_unwrapped(tmp_path, monkeypatch):
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"RIFF")
+    midi_bytes = _one_note_midi_bytes(66)
+    monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/g40wir5ey71e3/runsync")
+    monkeypatch.setenv("MT3_API_KEY", "rp-secret")
+
+    def fake_urlopen(request, timeout=None):
+        inner = {
+            "midi_base64": base64.b64encode(midi_bytes).decode(),
+            "model": "yourmt3",
+        }
+        return _FakeResponse(
+            json.dumps({"status": "COMPLETED", "output": json.dumps(inner)}).encode()
+        )
+
+    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
+    notes = MT3Backend().transcribe_notes(audio)
+    assert notes[0].pitch == 66
+
+
+def test_runpod_completed_handler_error_fails_job(tmp_path, monkeypatch):
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"RIFF")
+    monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/g40wir5ey71e3/runsync")
+    monkeypatch.setenv("MT3_API_KEY", "rp-secret")
+
+    def fake_urlopen(request, timeout=None):
+        return _FakeResponse(
+            json.dumps(
+                {
+                    "status": "COMPLETED",
+                    "output": {"error": "Missing input.audio_base64"},
+                }
+            ).encode()
+        )
+
+    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(TranscriptionError, match="Missing input.audio_base64"):
+        MT3Backend().transcribe_notes(audio)
+
+
 def test_runpod_missing_midi_base64(tmp_path, monkeypatch):
     audio = tmp_path / "clip.wav"
     audio.write_bytes(b"RIFF")

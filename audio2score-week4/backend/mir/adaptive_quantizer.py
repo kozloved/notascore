@@ -15,9 +15,13 @@ untouched. One scoring model picks a rhythmic interpretation:
 Hard constraints (never scored away):
 
 * note count / ids / pitches / velocities preserved
-* duration > 0 and duration <= available space
+* duration > 0
 * no invented barline crossings
-* no same-voice overlaps
+* same-voice structure remains writable
+
+The quantizer performs rhythmic interpretation (onset snap) and duration
+spelling. It is not a note-cleaning stage: overlaps and sustains from the
+raw performance are kept unless they violate a hard notation constraint.
 """
 
 from __future__ import annotations
@@ -151,6 +155,10 @@ class QuantizationReport:
     engine: str = "adaptive"
 
 
+class QuantizerIdentityError(ValueError):
+    """Raised when notation events cannot be matched to raw events by note_id."""
+
+
 def quantize_notation(
     events: list[MusicalEvent],
     meter: MeterHypothesis,
@@ -195,17 +203,32 @@ def quantize_notation(
     )
 
     selected_grids = select_measure_grids(ctx)
+    # A. Rhythmic interpretation: snap onsets to a local grid.
     snapped = snap_onsets(ctx, selected_grids)
     snapped = align_chords(ctx, snapped)
     snapped = resolve_onset_collisions(ctx, snapped)
+    # B. Notation duration spelling: named values, including legitimate ties.
     snapped = quantize_durations(ctx, snapped, selected_grids)
-    snapped = clamp_voice_overlaps(snapped)
+    # C. Performance cleanup: only genuine same-voice structural violations.
+    snapped, overlap_shortened = clamp_voice_overlaps(ctx, snapped)
     snapped, decisions = validate_notation(ctx, snapped, selected_grids)
     snapped = restore_identity(raw, snapped)
+    identity = validate_identity_invariants(raw, snapped)
     snapped.sort(key=lambda e: (e.start_beat, e.pitch, e.voice))
 
     summary = summarize_quantization(raw, snapped, decisions)
-    summary.update(quality_metrics(raw, snapped, analysis, decisions))
+    summary.update(
+        quality_metrics(
+            raw,
+            snapped,
+            analysis,
+            decisions,
+            overlap_shortened=overlap_shortened,
+            identity=identity,
+            mql=ctx.mql,
+            barline_pull=ctx.barline_pull,
+        )
+    )
     summary["engine"] = "adaptive"
     summary["pattern"] = analysis.pattern
     summary["triplet_evidence"] = analysis.triplet_evidence
@@ -663,15 +686,68 @@ def _duration_candidates(tuplet_ok: bool) -> tuple[float, ...]:
     return tuple(sorted(set(cands), reverse=True))
 
 
-def _available_space(
+def _raw_by_id(events: list[MusicalEvent]) -> dict[str, MusicalEvent]:
+    by_id: dict[str, MusicalEvent] = {}
+    duplicates: list[str] = []
+    for ev in events:
+        if not ev.note_id:
+            continue
+        if ev.note_id in by_id:
+            duplicates.append(ev.note_id)
+            continue
+        by_id[ev.note_id] = ev
+    if duplicates:
+        raise QuantizerIdentityError(
+            "duplicate note IDs in events: " + ", ".join(sorted(set(duplicates)))
+        )
+    return by_id
+
+
+def _lookup_raw(
+    by_id: dict[str, MusicalEvent], ev: MusicalEvent, fallback: MusicalEvent
+) -> MusicalEvent:
+    if ev.note_id and ev.note_id in by_id:
+        return by_id[ev.note_id]
+    return fallback
+
+
+def _raw_crosses_barline(raw: MusicalEvent, mql: float, pull: float) -> bool:
+    from mir.quantizer import measure_index_for_onset
+
+    idx = measure_index_for_onset(raw.start_beat, mql, pull_beats=pull)
+    measure_end = (idx + 1) * mql
+    return raw.start_beat + raw.duration_beats > measure_end + EPS
+
+
+def _raw_overlaps(earlier: MusicalEvent, later: MusicalEvent) -> bool:
+    if earlier.pitch == later.pitch:
+        return False
+    return earlier.start_beat + earlier.duration_beats > later.start_beat + EPS
+
+
+def _duration_cap(
+    *,
     start: float,
+    target: float,
     next_start: float | None,
     measure_end: float,
     orig_crosses: bool,
+    orig_overlaps_next: bool,
 ) -> float:
-    remaining = 8.0 if next_start is None else max(0.0, next_start - start)
-    if not orig_crosses:
-        remaining = min(remaining, max(0.0, measure_end - start))
+    """Room for duration spelling, not a cleaner.
+
+    Next-onset and the barline constrain the cap only when the raw note did
+    not already occupy that space.
+    """
+    if orig_crosses:
+        cap = max(target, MIN_DURATION)
+        if next_start is not None and not orig_overlaps_next:
+            cap = min(cap, max(MIN_DURATION, next_start - start))
+        return cap
+    remaining = 8.0
+    if next_start is not None and not orig_overlaps_next:
+        remaining = min(remaining, max(0.0, next_start - start))
+    remaining = min(remaining, max(0.0, measure_end - start))
     return remaining
 
 
@@ -756,19 +832,35 @@ def quantize_durations(
         key = (staff_for_hand(ev.hand, ev.pitch), int(ev.voice))
         grouped.setdefault(key, []).append(i)
 
+    raw_map = _raw_by_id(ctx.raw_events)
     for indices in grouped.values():
         indices.sort(key=lambda i: (out[i].start_beat, out[i].pitch))
         for pos, i in enumerate(indices):
             ev = out[i]
-            raw = ctx.raw_events[i]
-            nxt = _next_onset(out, indices, pos, ev.start_beat)
+            raw = _lookup_raw(raw_map, ev, ctx.raw_events[i])
+            nxt_ev = _next_event(out, indices, pos, ev.start_beat)
+            nxt = None if nxt_ev is None else nxt_ev.start_beat
+            raw_next = (
+                None
+                if nxt_ev is None
+                else _lookup_raw(raw_map, nxt_ev, nxt_ev)
+            )
+            orig_overlaps_next = (
+                raw_next is not None and _raw_overlaps(raw, raw_next)
+            )
+            orig_crosses = _raw_crosses_barline(raw, ctx.mql, ctx.barline_pull)
             measure_idx = measure_index_for_onset(
                 ev.start_beat, ctx.mql, pull_beats=ctx.barline_pull
             )
             measure_end = (measure_idx + 1) * ctx.mql
-            orig_end = raw.start_beat + raw.duration_beats
-            orig_crosses = orig_end > measure_end + EPS
-            cap = _available_space(ev.start_beat, nxt, measure_end, orig_crosses)
+            cap = _duration_cap(
+                start=ev.start_beat,
+                target=raw.duration_beats,
+                next_start=nxt,
+                measure_end=measure_end,
+                orig_crosses=orig_crosses,
+                orig_overlaps_next=orig_overlaps_next,
+            )
             grid = _grid_for_measure(selected_grids, measure_idx, ctx)
             tuplet_ok = abs(grid - TRIPLET_GRID) < EPS
             duration = _choose_duration(
@@ -787,18 +879,33 @@ def quantize_durations(
     return out
 
 
-def _next_onset(
+def _next_event(
     events: list[MusicalEvent], indices: list[int], pos: int, start: float
-) -> float | None:
+) -> MusicalEvent | None:
     for j in indices[pos + 1 :]:
         if events[j].start_beat > start + EPS:
-            return events[j].start_beat
+            return events[j]
     return None
 
 
-def clamp_voice_overlaps(events: list[MusicalEvent]) -> list[MusicalEvent]:
-    """Same-voice later onsets must not be overlapped. Chords (same start) may share."""
+def _next_onset(
+    events: list[MusicalEvent], indices: list[int], pos: int, start: float
+) -> float | None:
+    nxt = _next_event(events, indices, pos, start)
+    return None if nxt is None else nxt.start_beat
+
+
+def clamp_voice_overlaps(
+    ctx: QuantizationContext, events: list[MusicalEvent]
+) -> tuple[list[MusicalEvent], int]:
+    """Clamp only genuine same-voice structural violations.
+
+    Different-pitch overlaps that already existed in the raw performance are
+    kept. Same-pitch collisions and overlaps invented by snapping are not.
+    """
     out = [copy_event(ev) for ev in events]
+    raw_map = _raw_by_id(ctx.raw_events)
+    shortened = 0
     grouped: dict[tuple[int, int], list[int]] = {}
     for i, ev in enumerate(out):
         key = (staff_for_hand(ev.hand, ev.pitch), int(ev.voice))
@@ -806,27 +913,43 @@ def clamp_voice_overlaps(events: list[MusicalEvent]) -> list[MusicalEvent]:
     for indices in grouped.values():
         indices.sort(key=lambda i: (out[i].start_beat, out[i].pitch))
         for pos, i in enumerate(indices):
-            nxt = _next_onset(out, indices, pos, out[i].start_beat)
-            if nxt is None:
+            nxt_ev = _next_event(out, indices, pos, out[i].start_beat)
+            if nxt_ev is None:
                 continue
-            room = nxt - out[i].start_beat
+            raw = _lookup_raw(raw_map, out[i], ctx.raw_events[i])
+            raw_next = _lookup_raw(raw_map, nxt_ev, nxt_ev)
+            if _raw_overlaps(raw, raw_next):
+                continue
+            room = nxt_ev.start_beat - out[i].start_beat
             if out[i].duration_beats > room + EPS:
                 out[i] = copy_event(
                     out[i], duration_beats=max(MIN_DURATION, room)
                 )
-    return out
+                shortened += 1
+    return out, shortened
 
 
 def restore_identity(
     raw: list[MusicalEvent], notation: list[MusicalEvent]
 ) -> list[MusicalEvent]:
-    """Pitches, velocities, and ids always come from the raw copy.
+    """Copy performance identity from raw by ``note_id``.
 
-    ``notation`` must still be in the same order as ``raw``.
+    Notation contributes only ``start_beat`` and ``duration_beats``. List
+    order is ignored. Missing IDs are not repaired by attaching a neighbor.
     """
+    by_id = _raw_by_id(raw)
     out: list[MusicalEvent] = []
-    for src, got in zip(raw, notation):
+    missing: list[str] = []
+    for got in notation:
         duration = max(MIN_DURATION, float(got.duration_beats))
+        if not got.note_id:
+            out.append(copy_event(got, duration_beats=duration))
+            continue
+        src = by_id.get(got.note_id)
+        if src is None:
+            missing.append(got.note_id)
+            out.append(copy_event(got, duration_beats=duration))
+            continue
         out.append(
             copy_event(
                 src,
@@ -834,7 +957,89 @@ def restore_identity(
                 duration_beats=duration,
             )
         )
+    if missing:
+        raise QuantizerIdentityError(
+            "notation events have no matching raw note_id: "
+            + ", ".join(missing)
+        )
     return out
+
+
+def validate_identity_invariants(
+    raw: list[MusicalEvent], notation: list[MusicalEvent]
+) -> dict:
+    """Hard identity check. Never repairs by attaching the wrong note."""
+    raw_ids = [e.note_id for e in raw]
+    notation_ids = [e.note_id for e in notation]
+    labeled_raw = [i for i in raw_ids if i]
+    labeled_notation = [i for i in notation_ids if i]
+    use_ids = bool(labeled_raw or labeled_notation)
+    dup_raw = sorted({i for i in labeled_raw if labeled_raw.count(i) > 1})
+    dup_notation = sorted({i for i in labeled_notation if labeled_notation.count(i) > 1})
+    duplicates = sorted(set(dup_raw + dup_notation))
+    pitch_mismatches = 0
+    velocity_mismatches = 0
+    raw_map = {e.note_id: e for e in raw if e.note_id and e.note_id not in dup_raw}
+    if use_ids:
+        for ev in notation:
+            if not ev.note_id or ev.note_id in dup_notation:
+                continue
+            src = raw_map.get(ev.note_id)
+            if src is None:
+                continue
+            if src.pitch != ev.pitch:
+                pitch_mismatches += 1
+            if src.velocity != ev.velocity:
+                velocity_mismatches += 1
+        missing = sorted(set(labeled_raw) - set(labeled_notation))
+        extra = sorted(set(labeled_notation) - set(labeled_raw))
+        ids_ok = sorted(labeled_raw) == sorted(labeled_notation)
+    else:
+        # Legacy unlabeled events: compare identity by list position only.
+        for src, ev in zip(raw, notation):
+            if src.pitch != ev.pitch:
+                pitch_mismatches += 1
+            if src.velocity != ev.velocity:
+                velocity_mismatches += 1
+        missing = []
+        extra = []
+        ids_ok = True
+    count_ok = len(raw) == len(notation)
+    identity_valid = (
+        count_ok
+        and ids_ok
+        and not duplicates
+        and pitch_mismatches == 0
+        and velocity_mismatches == 0
+        and not missing
+        and not extra
+    )
+    report = {
+        "identity_valid": identity_valid,
+        "duplicate_note_ids": len(duplicates),
+        "pitch_mismatches": pitch_mismatches,
+        "velocity_mismatches": velocity_mismatches,
+        "missing_note_ids": missing,
+        "extra_note_ids": extra,
+    }
+    if not identity_valid:
+        reasons = []
+        if not count_ok:
+            reasons.append(f"count {len(notation)} != {len(raw)}")
+        if duplicates:
+            reasons.append(f"duplicate ids {duplicates}")
+        if missing:
+            reasons.append(f"missing ids {missing}")
+        if extra:
+            reasons.append(f"extra ids {extra}")
+        if pitch_mismatches:
+            reasons.append(f"pitch mismatches {pitch_mismatches}")
+        if velocity_mismatches:
+            reasons.append(f"velocity mismatches {velocity_mismatches}")
+        raise QuantizerIdentityError(
+            "quantizer identity invariant failed: " + "; ".join(reasons)
+        )
+    return report
 
 
 def validate_notation(
@@ -846,13 +1051,15 @@ def validate_notation(
 
     out = [copy_event(ev) for ev in events]
     decisions: list[dict] = []
+    raw_map = _raw_by_id(ctx.raw_events)
     for i, ev in enumerate(out):
-        raw = ctx.raw_events[i]
+        raw = _lookup_raw(
+            raw_map, ev, ctx.raw_events[i] if i < len(ctx.raw_events) else ev
+        )
         idx = measure_index_for_onset(ev.start_beat, ctx.mql, pull_beats=ctx.barline_pull)
         grid = _grid_for_measure(selected_grids, idx, ctx)
         measure_end = (idx + 1) * ctx.mql
-        orig_end = raw.start_beat + raw.duration_beats
-        orig_crosses = orig_end > measure_end + EPS
+        orig_crosses = _raw_crosses_barline(raw, ctx.mql, ctx.barline_pull)
         if not orig_crosses and ev.start_beat + ev.duration_beats > measure_end + EPS:
             room = max(MIN_DURATION, measure_end - ev.start_beat)
             out[i] = copy_event(ev, duration_beats=min(ev.duration_beats, room))
@@ -901,6 +1108,11 @@ def quality_metrics(
     notation: list[MusicalEvent],
     analysis: RhythmicAnalysis,
     decisions: list[dict],
+    *,
+    overlap_shortened: int = 0,
+    identity: dict | None = None,
+    mql: float = 4.0,
+    barline_pull: float = 0.125,
 ) -> dict:
     onset_disp = [
         abs(float(d.get("quantized_start", 0)) - float(d.get("raw_start", 0)))
@@ -933,6 +1145,23 @@ def quality_metrics(
                     overlaps += 1
             if ev.duration_beats <= EPS:
                 measure_violations += 1
+    raw_map = {e.note_id: e for e in raw if e.note_id}
+    preserved_duration = 0
+    for ev in notation:
+        src = raw_map.get(ev.note_id)
+        if src is None:
+            continue
+        if abs(ev.duration_beats - src.duration_beats) <= 0.06:
+            preserved_duration += 1
+    barline_splits = sum(
+        1 for src in raw if _raw_crosses_barline(src, mql, barline_pull)
+    )
+    identity = identity or {
+        "identity_valid": False,
+        "duplicate_note_ids": 0,
+        "pitch_mismatches": 0,
+        "velocity_mismatches": 0,
+    }
     mean_onset = (sum(onset_disp) / len(onset_disp)) if onset_disp else 0.0
     mean_dur = (sum(dur_disp) / len(dur_disp)) if dur_disp else 0.0
     return {
@@ -952,6 +1181,13 @@ def quality_metrics(
         )
         + sum(1 for c in analysis.clusters if c.preserved),
         "events_removed": max(0, len(raw) - len(notation)),
+        "identity_valid": bool(identity.get("identity_valid")),
+        "duplicate_note_ids": int(identity.get("duplicate_note_ids") or 0),
+        "pitch_mismatches": int(identity.get("pitch_mismatches") or 0),
+        "velocity_mismatches": int(identity.get("velocity_mismatches") or 0),
+        "notes_shortened_for_overlap": overlap_shortened,
+        "notes_preserved_duration": preserved_duration,
+        "barline_splits_required": barline_splits,
     }
 
 
@@ -977,5 +1213,12 @@ def _empty_quality_summary() -> dict:
         "measure_violations": 0,
         "overlaps_detected": 0,
         "fallback_preserved": 0,
+        "identity_valid": True,
+        "duplicate_note_ids": 0,
+        "pitch_mismatches": 0,
+        "velocity_mismatches": 0,
+        "notes_shortened_for_overlap": 0,
+        "notes_preserved_duration": 0,
+        "barline_splits_required": 0,
         "engine": "adaptive",
     }
