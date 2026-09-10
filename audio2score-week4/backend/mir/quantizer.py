@@ -163,7 +163,7 @@ class MeasureQuantizer:
         pm2s_processor=None,
     ):
         self.config = config or QuantizerConfig()
-        self.mode = parse_quantization_mode(mode) if mode else QuantizationMode.ADAPTIVE
+        self.mode = parse_quantization_mode(mode)
         self.last_summary: dict = {}
         self.last_events: list[MusicalEvent] = []
         self.last_raw_events: list[MusicalEvent] = []
@@ -178,7 +178,7 @@ class MeasureQuantizer:
         meter: MeterHypothesis,
     ) -> tuple[list[MusicalEvent], list[dict]]:
         self.last_raw_events = [copy_event(ev) for ev in events]
-        if not events:
+        if not events and self.mode != QuantizationMode.PERFORMANCE:
             self.last_summary = _empty_quantizer_summary()
             self.last_events = []
             self.last_notation_events = []
@@ -189,7 +189,10 @@ class MeasureQuantizer:
         if self.mode == QuantizationMode.PM2S:
             return self._quantize_pm2s(events)
 
-        from mir.adaptive_quantizer import quantize_notation
+        if self.mode == QuantizationMode.PERFORMANCE:
+            from mir.performance_score import quantize_notation
+        else:
+            from mir.adaptive_quantizer import quantize_notation
 
         out, decisions, report = quantize_notation(
             self.last_raw_events,

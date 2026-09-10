@@ -154,7 +154,11 @@ class NotationPlanner:
             n_measures = max(1, int(round(end_beat / meter.measure_quarter_length)))
 
         measures: list[PlannedMeasure] = []
-        for i in range(n_measures):
+        if self.quantizer.mode == QuantizationMode.PERFORMANCE:
+            from notation_engine.exact_plan import build_exact_measures
+
+            measures = build_exact_measures(quantized, self.quantizer.last_report, meter, key_name)
+        for i in range(0 if self.quantizer.mode == QuantizationMode.PERFORMANCE else n_measures):
             start = i * meter.measure_quarter_length
             measures.append(
                 self._build_measure(
@@ -789,4 +793,3 @@ class NotationPlanner:
                 elements.extend(added)
             else:
                 last.duration_q += gap
-

@@ -58,7 +58,7 @@ class NotationWriter:
         self.last_quantized_events: list = []
         self.last_fallback_used: bool = False
         self.last_fallback_error: str | None = None
-        self.last_quantization_mode: QuantizationMode = QuantizationMode.ADAPTIVE
+        self.last_quantization_mode: QuantizationMode = parse_quantization_mode(None)
         self.last_job_id: str | None = None
         self.last_source_event_count: int = 0
         self.last_plan_failure: bool = False
@@ -120,6 +120,8 @@ class NotationWriter:
                 quantization_mode=quantization_mode,
             )
         except Exception as exc:
+            if self.last_quantization_mode == QuantizationMode.PERFORMANCE:
+                raise
             print(f"[Notation] grand staff failed ({exc!s}), MIDI round-trip")
             if not self.last_fallback_used:
                 self.last_fallback_used = True
@@ -137,6 +139,9 @@ class NotationWriter:
         try:
             self._export_musicxml(score, xml_path)
         except Exception as exc:
+            if self.last_quantization_mode == QuantizationMode.PERFORMANCE:
+                self.last_export_failure = True
+                raise
             print(f"[Notation] MusicXML export failed ({exc!s}), MIDI round-trip")
             self.last_export_failure = True
             if not self.last_fallback_used:
@@ -188,7 +193,7 @@ class NotationWriter:
         mode = (
             parse_quantization_mode(quantization_mode)
             if quantization_mode is not None
-            else QuantizationMode.ADAPTIVE
+            else parse_quantization_mode(None)
         )
         self.last_quantization_mode = mode
         self.last_plan = None
@@ -214,6 +219,9 @@ class NotationWriter:
             )
         except Exception as exc:
             reason = f"{type(exc).__name__}: {exc}"
+            if mode == QuantizationMode.PERFORMANCE:
+                self.last_plan_failure = True
+                raise
             print(f"[Notation] NotationPlanner failed ({reason}); falling back to legacy build_score")
             self.last_plan_failure = True
             self.last_fallback_used = True
@@ -248,6 +256,9 @@ class NotationWriter:
             return score
         except Exception as exc:
             reason = f"{type(exc).__name__}: {exc}"
+            if mode == QuantizationMode.PERFORMANCE:
+                self.last_conversion_failure = True
+                raise
             print(
                 f"[Notation] music21 conversion failed ({reason}); "
                 "falling back to legacy build_score"
@@ -398,6 +409,8 @@ class NotationWriter:
             return None
         if isinstance(el, PlannedRest):
             rest = self._rest_for_length(ql)
+            if rest is not None:
+                self._apply_planned_rhythm(rest, el)
             if rest is not None and getattr(el, "hidden", False):
                 rest.hideObjectOnPrint = True
                 try:
@@ -420,6 +433,7 @@ class NotationWriter:
         else:
             n = m21chord.Chord(pitches)
         n.quarterLength = ql
+        self._apply_planned_rhythm(n, el)
         try:
             n.volume.velocity = int(el.velocity)
         except Exception:
@@ -435,6 +449,17 @@ class NotationWriter:
         if dynamic in ("p", "pp", "mp", "mf", "f", "ff", "fff"):
             n.expressions.append(m21dyn.Dynamic(dynamic))
         return n
+
+    @staticmethod
+    def _apply_planned_rhythm(obj, element):
+        for beam_type, direction in getattr(element, "beams", []):
+            obj.beams.append(beam_type, direction)
+        planned = getattr(element, "tuplet", None)
+        if planned is not None:
+            tuplets = obj.duration.tuplets
+            if len(tuplets) != 1 or (tuplets[0].numberNotesActual, tuplets[0].numberNotesNormal) != (planned.actual, planned.normal):
+                raise ValueError("Export duration disagrees with planned tuplet ratio")
+            tuplets[0].type = planned.boundary
 
     def _clef(self, name: str):
         if name == "bass":
@@ -818,6 +843,13 @@ class NotationWriter:
 
     def _sanitize_export_durations(self, score) -> None:
         """Replace MusicXML-inexpressible durations and trim voices to the bar."""
+        if self.last_quantization_mode == QuantizationMode.PERFORMANCE:
+            for element in score.recurse().notesAndRests:
+                if element.quarterLength <= 0 or element.duration.type in (None, "inexpressible", "complex", ""):
+                    raise ValueError("Performance plan contains an unspellable duration")
+            if self.last_fit_trim_count:
+                raise ValueError("Performance plan required destructive bar fitting")
+            return
         victims = []
         for n in score.recurse().notesAndRests:
             ql = float(getattr(n, "quarterLength", 0.0) or 0.0)

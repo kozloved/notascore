@@ -27,6 +27,7 @@ class ValidationMode(str, Enum):
 
 
 class QuantizationMode(str, Enum):
+    PERFORMANCE = "performance"
     ADAPTIVE = "adaptive"
     STRICT_GRID = "strict_grid"
     OFF = "off"
@@ -62,6 +63,7 @@ HAND_SEPARATOR_ALIASES = {
 }
 
 QUANTIZATION_ALIASES = {
+    "performance": QuantizationMode.PERFORMANCE,
     "adaptive": QuantizationMode.ADAPTIVE,
     "notation": QuantizationMode.ADAPTIVE,
     "strict": QuantizationMode.STRICT_GRID,
@@ -129,21 +131,21 @@ def parse_validation_mode(value: str | ValidationMode | None) -> ValidationMode 
 
 def parse_quantization_mode(value: str | QuantizationMode | None) -> QuantizationMode:
     if value is None or str(value).strip() == "":
-        return QuantizationMode.ADAPTIVE
+        return QuantizationMode.PERFORMANCE
     if isinstance(value, QuantizationMode):
         return value
     key = str(value).strip().lower()
     if key not in QUANTIZATION_ALIASES:
         raise ValueError(
             f"Unknown TRANSCRIPTION_QUANTIZATION_MODE={value!r}. "
-            "Use adaptive | strict_grid | off | pm2s."
+            "Use performance | adaptive | strict_grid | off | pm2s."
         )
     return QUANTIZATION_ALIASES[key]
 
 
 def quantization_skips_legacy_grid(mode: QuantizationMode) -> bool:
     """OFF keeps raw beats. PM2S already rewrote beats in MeasureQuantizer."""
-    return mode in (QuantizationMode.OFF, QuantizationMode.PM2S)
+    return mode in (QuantizationMode.OFF, QuantizationMode.PM2S, QuantizationMode.PERFORMANCE)
 
 
 def quantization_spells_writable(mode: QuantizationMode) -> bool:
@@ -230,7 +232,7 @@ class PipelineConfig:
     backend: str = "basic_pitch"
     mode: str = "solo"
     validation_mode: ValidationMode = ValidationMode.CONSERVATIVE
-    quantization_mode: QuantizationMode = QuantizationMode.ADAPTIVE
+    quantization_mode: QuantizationMode = QuantizationMode.PERFORMANCE
     hand_separator: HandSeparatorMode = HandSeparatorMode.VITERBI
     pm2s_required: bool = False
     enable_gemini: bool = False
@@ -272,7 +274,7 @@ def load_pipeline_config(
         mode=mode,
         validation_mode=resolve_validation_mode(resolved_backend, validation_mode),
         quantization_mode=parse_quantization_mode(
-            env_str("TRANSCRIPTION_QUANTIZATION_MODE", "adaptive")
+            env_str("TRANSCRIPTION_QUANTIZATION_MODE", "performance")
         ),
         hand_separator=parse_hand_separator_mode(
             env_str("TRANSCRIPTION_HAND_SEPARATOR", "viterbi")

@@ -26,7 +26,7 @@ def test_voices_are_not_flattened_into_chords():
         ),
     ]
     meta = ScoreMeta(display_tempo_bpm=120)
-    plan, _ = NotationPlanner().build(events, meta=meta)
+    plan, _ = NotationPlanner().build(events, meta=meta, quantization_mode="adaptive")
     score = NotationWriter().score_from_plan(plan)
     rh = score.parts[0]
     voices = list(rh.recurse().getElementsByClass(stream.Voice))

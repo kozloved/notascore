@@ -37,7 +37,7 @@ def _meta(ts="4/4", bpm=120) -> ScoreMeta:
 
 
 def _build(events, ts="4/4"):
-    return NotationPlanner().build(events, meta=_meta(ts))
+    return NotationPlanner().build(events, meta=_meta(ts), quantization_mode="adaptive")
 
 
 def _voice_notes(plan, staff_id=0, voice_id=None):
@@ -499,6 +499,7 @@ def test_planner_failure_is_classified_separately_from_conversion(tmp_path):
         [_ev(72, 0.0, 1.0)],
         _meta(),
         job_id="plan-fail",
+        quantization_mode="adaptive",
         audio_path=tmp_path / "clip.wav",
     )
     payload = writer.notation_debug_payload()
@@ -521,6 +522,7 @@ def test_conversion_failure_does_not_look_like_planner_failure(tmp_path):
         [_ev(72, 0.0, 1.0, Hand.RIGHT), _ev(48, 0.0, 1.0, Hand.LEFT)],
         _meta(),
         job_id="conv-fail",
+        quantization_mode="adaptive",
         audio_path=tmp_path / "clip.wav",
     )
     payload = writer.notation_debug_payload()
@@ -542,7 +544,8 @@ def test_hidden_secondary_rests_export_print_object_no(tmp_path):
     ]
     writer = NotationWriter()
     xml = writer.write_musicxml(
-        events, _meta(), job_id="hidden-rest", audio_path=tmp_path / "clip.wav"
+        events, _meta(), job_id="hidden-rest", audio_path=tmp_path / "clip.wav",
+        quantization_mode="adaptive",
     )
     _assert_no_printed_rest_over_notes(writer.last_plan)
     assert "print-object=\"no\"" in xml or "print-object='no'" in xml

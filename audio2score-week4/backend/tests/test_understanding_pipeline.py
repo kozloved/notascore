@@ -27,6 +27,7 @@ def test_get_engine_explicit_legacy(monkeypatch):
 @patch("adapters.basic_pitch_backend.BasicPitchBackend.transcribe_notes")
 def test_understanding_pipeline_produces_musicxml(mock_transcribe, tmp_path, monkeypatch):
     monkeypatch.setenv("TRANSCRIPTION_USE_MIR_LAYERS", "1")
+    monkeypatch.delenv("TRANSCRIPTION_QUANTIZATION_MODE", raising=False)
 
     mock_transcribe.return_value = [
         NoteEvent(pitch=60, start_time=0.0, end_time=0.5, velocity=80, confidence=1.0),
@@ -39,7 +40,9 @@ def test_understanding_pipeline_produces_musicxml(mock_transcribe, tmp_path, mon
     t = np.linspace(0, 2, sr * 2)
     sf.write(str(audio), 0.2 * np.sin(2 * np.pi * 440 * t), sr)
 
-    xml = UnderstandingPipeline().transcribe(audio, "understanding-test")
+    pipeline = UnderstandingPipeline()
+    xml = pipeline.transcribe(audio, "understanding-test")
+    assert pipeline.notation.last_quantization_summary["engine"] == "performance"
     lower = xml.lower()
     assert "score-partwise" in lower or "<?xml" in xml
     assert "<rest" in lower

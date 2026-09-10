@@ -146,6 +146,14 @@ class MusicalStructure:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class PlannedTuplet:
+    actual: int
+    normal: int
+    boundary: Optional[str]
+    group_id: str
+
+
 @dataclass
 class PlannedNote:
     pitches: list[int]
@@ -157,6 +165,8 @@ class PlannedNote:
     event_ids: list[str] = field(default_factory=list)
     articulations: list[str] = field(default_factory=list)
     dynamic: Optional[str] = None
+    beams: list[tuple[str, Optional[str]]] = field(default_factory=list)
+    tuplet: Optional[PlannedTuplet] = None
 
 
 @dataclass
@@ -165,6 +175,7 @@ class PlannedRest:
     duration_q: float
     voice: int
     hidden: bool = False
+    tuplet: Optional[PlannedTuplet] = None
 
 
 PlannedElement = Union[PlannedNote, PlannedRest]

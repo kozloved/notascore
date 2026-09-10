@@ -30,7 +30,7 @@ def _meta(ts="4/4", bpm=120, **kwargs) -> ScoreMeta:
 
 
 def _build(events, ts="4/4"):
-    return NotationPlanner().build(events, meta=_meta(ts))
+    return NotationPlanner().build(events, meta=_meta(ts), quantization_mode="adaptive")
 
 
 def _notes(plan, staff_id=0, voice_id=None):
@@ -336,7 +336,8 @@ def test_write_musicxml_falls_back_to_legacy_build_score(tmp_path):
 
     writer.planner.build = boom
     xml = writer.write_musicxml(
-        events, _meta("4/4"), job_id="legacy-fallback", audio_path=tmp_path / "clip.wav"
+        events, _meta("4/4"), job_id="legacy-fallback", audio_path=tmp_path / "clip.wav",
+        quantization_mode="adaptive",
     )
     assert writer.last_fallback_used is True
     assert writer.last_fallback_error is not None
