@@ -272,7 +272,7 @@ def load_pipeline_config(
         mode=mode,
         validation_mode=resolve_validation_mode(resolved_backend, validation_mode),
         quantization_mode=parse_quantization_mode(
-            env_str("TRANSCRIPTION_QUANTIZATION_MODE", "off")
+            env_str("TRANSCRIPTION_QUANTIZATION_MODE", "adaptive")
         ),
         hand_separator=parse_hand_separator_mode(
             env_str("TRANSCRIPTION_HAND_SEPARATOR", "viterbi")

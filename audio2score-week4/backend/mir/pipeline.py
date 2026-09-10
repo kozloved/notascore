@@ -125,6 +125,7 @@ class UnderstandingPipeline:
         self.last_validated_notes: list | None = None
         self.last_post_piano_notes: list | None = None
         self.last_quantized_events: list | None = None
+        self.last_notation_notes: list | None = None
         self.last_clean_decisions: list | None = None
         self.last_gemini_applied: int = 0
         self._prefetched_tempo = None
@@ -368,6 +369,7 @@ class UnderstandingPipeline:
             quantization_mode=self.config.quantization_mode,
         )
         self.last_quantized_events = list(self.notation.last_quantized_events)
+        self.last_notation_notes = list(self.last_quantized_events)
         self._attach_notation_debug(job_id, out_dir)
         return xml
 
@@ -523,6 +525,7 @@ class UnderstandingPipeline:
             quantization_mode=self.config.quantization_mode,
         )
         self.last_quantized_events = list(self.notation.last_quantized_events)
+        self.last_notation_notes = list(self.last_quantized_events)
         self.last_gemini_enabled = bool(self.config.enable_gemini)
         self.last_gemini_applied = int(enhanced.applied)
         self._attach_notation_debug(job_id, out_dir)

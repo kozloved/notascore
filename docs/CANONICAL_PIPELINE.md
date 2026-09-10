@@ -93,8 +93,9 @@ AUDIO
   → RAW MIDI                 {job}.raw.mid        (never overwritten)
   → source-aware validation  {job}.validated.mid
   → musical interpretation   (meter, tempo map, hands, voices)
-  → conservative quantization (notation stage only; early downbeats are
-     pulled to the next bar instead of clamped to the previous 16th)
+     → conservative quantization (notation stage only; early downbeats are
+     pulled to the next bar instead of clamped to the previous 16th).
+     Raw MT3 MIDI is never overwritten; notation_notes is a derived copy.
   → NotationPlan → MusicXML / {job}.score.mid
 ```
 
@@ -116,7 +117,7 @@ Set `TRANSCRIPTION_VALIDATION_MODE=legacy_aggressive` to restore chord-start sna
 |---|---|---|
 | `TRANSCRIPTION_BACKEND` | `basic_pitch` | Solo detector; Polyphonic jobs force `mt3` |
 | `TRANSCRIPTION_VALIDATION_MODE` | source-aware | `safe` / `conservative` / `legacy_aggressive` |
-| `TRANSCRIPTION_QUANTIZATION_MODE` | `off` | `off` keeps transcribed timing. `adaptive` / `strict_grid` snap to a notation grid. `pm2s` is the PM2S quantization RNN (opt-in; falls back to off unless `TRANSCRIPTION_PM2S_REQUIRED=1`). |
+| `TRANSCRIPTION_QUANTIZATION_MODE` | `adaptive` | `off` keeps transcribed timing. `adaptive` builds a separate notation grid (meter-aware, chord-preserving). `strict_grid` snaps to sixteenths. `pm2s` is the PM2S quantization RNN (opt-in; falls back to off unless `TRANSCRIPTION_PM2S_REQUIRED=1`). |
 | `TRANSCRIPTION_HAND_SEPARATOR` | `viterbi` | `viterbi` = context-aware DP. `pm2s` = PM2S hand-part RNN only (opt-in; falls back to viterbi unless `TRANSCRIPTION_PM2S_REQUIRED=1`). Not piano_svsep. |
 | `TRANSCRIPTION_PM2S_REQUIRED` | `false` | Fail the job if PM2S was requested but weights/imports are missing. Testing only. |
 | `TRANSCRIPTION_ENABLE_GEMINI` | `false` | Alias that can disable `ENABLE_GEMINI_MUSIC_ANALYSIS` |

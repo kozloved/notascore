@@ -201,11 +201,11 @@ def test_quantization_off_spells_writable_musicxml(tmp_path):
     assert "<tie" in xml.lower()
 
 
-def test_pipeline_config_defaults_to_quantization_off(monkeypatch):
+def test_pipeline_config_defaults_to_adaptive_quantization(monkeypatch):
     monkeypatch.delenv("TRANSCRIPTION_QUANTIZATION_MODE", raising=False)
     from mir.pipeline_config import QuantizationMode, load_pipeline_config, parse_quantization_mode
 
-    assert load_pipeline_config().quantization_mode == QuantizationMode.OFF
+    assert load_pipeline_config().quantization_mode == QuantizationMode.ADAPTIVE
     assert parse_quantization_mode("off") == QuantizationMode.OFF
     assert parse_quantization_mode("identity") == QuantizationMode.OFF
     assert parse_quantization_mode("pm2s") == QuantizationMode.PM2S
