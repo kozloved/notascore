@@ -18,6 +18,8 @@ from adapters.mt3_backend import (
     is_runpod_endpoint,
     mt3_status,
     normalize_mt3_endpoint,
+    runpod_async_url,
+    runpod_status_url,
 )
 from transcription import TranscriptionError
 
@@ -66,6 +68,12 @@ def test_normalize_runpod_endpoint():
     )
     assert is_runpod_endpoint(base) is True
     assert is_runpod_endpoint("https://abc-8090.proxy.runpod.net/transcribe") is False
+    assert runpod_async_url(base) == f"{base}/run"
+    assert runpod_async_url(f"{base}/runsync") == f"{base}/run"
+    assert runpod_status_url(base, "job-1") == f"{base}/status/job-1"
+    assert runpod_async_url("http://gpu.example/transcribe") == (
+        "http://gpu.example/transcribe"
+    )
 
 
 def test_runpod_json_request_and_midi(tmp_path, monkeypatch):
@@ -98,20 +106,20 @@ def test_runpod_json_request_and_midi(tmp_path, monkeypatch):
     monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
     notes = MT3Backend().transcribe_notes(audio)
 
-    assert captured["url"] == "https://api.runpod.ai/v2/g40wir5ey71e3/runsync"
-    assert captured["url"].count("runsync") == 1
+    assert captured["url"] == "https://api.runpod.ai/v2/g40wir5ey71e3/run"
+    assert "runsync" not in captured["url"]
     assert captured["authorization"] == "Bearer rp-secret"
     assert captured["content_type"] == "application/json"
     assert captured["accept"] == "application/json"
-    assert captured["timeout"] == 300
+    assert captured["timeout"] == 30
     assert captured["body"]["input"]["filename"] == "recording.wav"
     assert base64.b64decode(captured["body"]["input"]["audio_base64"]) == b"RIFF-AUDIO"
     assert "rp-secret" not in json.dumps(captured["body"])
     assert [n.pitch for n in notes] == [64]
 
 
-def test_polyphonic_transcription_posts_exactly_one_runsync(tmp_path, monkeypatch):
-    """One MT3Backend.transcribe_notes call → one RunPod /runsync, no /run warmup."""
+def test_polyphonic_transcription_posts_run_not_runsync(tmp_path, monkeypatch):
+    """One MT3Backend.transcribe_notes call → one RunPod /run, no warmup."""
     audio = tmp_path / "poly.wav"
     audio.write_bytes(b"RIFF-AUDIO")
     midi_bytes = _one_note_midi_bytes(60)
@@ -133,17 +141,161 @@ def test_polyphonic_transcription_posts_exactly_one_runsync(tmp_path, monkeypatc
     notes = MT3Backend().transcribe_notes(audio)
     assert notes
     assert len(calls) == 1
-    assert calls[0] == "https://api.runpod.ai/v2/g40wir5ey71e3/runsync"
-    assert calls[0].endswith("/runsync")
-    assert "/run/" not in calls[0]
-    assert not calls[0].endswith("/run")
+    assert calls[0] == "https://api.runpod.ai/v2/g40wir5ey71e3/run"
+    assert calls[0].endswith("/run")
+    assert "runsync" not in calls[0]
+
+
+def test_runpod_polls_status_through_cold_start(tmp_path, monkeypatch):
+    audio = tmp_path / "recording.wav"
+    audio.write_bytes(b"RIFF-AUDIO")
+    midi_bytes = _one_note_midi_bytes(64)
+    monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/g40wir5ey71e3/runsync")
+    monkeypatch.setenv("MT3_API_KEY", "rp-secret")
+    monkeypatch.delenv("MT3_TRANSCRIBE_COMMAND", raising=False)
+    monkeypatch.setattr("adapters.mt3_backend.time.sleep", lambda _seconds: None)
+
+    calls = []
+
+    def fake_urlopen(request, timeout=None):
+        calls.append(request.full_url)
+        if request.full_url.endswith("/run"):
+            assert request.get_method() == "POST"
+            return _FakeResponse(
+                json.dumps({"id": "job-cold", "status": "IN_QUEUE"}).encode()
+            )
+        if request.full_url.endswith("/status/job-cold"):
+            assert request.get_method() == "GET"
+            seen = sum(1 for url in calls if url.endswith("/status/job-cold"))
+            if seen < 3:
+                return _FakeResponse(
+                    json.dumps(
+                        {
+                            "id": "job-cold",
+                            "status": "IN_QUEUE" if seen == 1 else "IN_PROGRESS",
+                            "delayTime": 280000,
+                        }
+                    ).encode()
+                )
+            return _FakeResponse(
+                json.dumps(
+                    {
+                        "id": "job-cold",
+                        "status": "COMPLETED",
+                        "delayTime": 310000,
+                        "output": {
+                            "midi_base64": base64.b64encode(midi_bytes).decode(),
+                            "model": "yourmt3",
+                        },
+                    }
+                ).encode()
+            )
+        raise AssertionError(request.full_url)
+
+    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
+    notes = MT3Backend().transcribe_notes(audio)
+    assert [n.pitch for n in notes] == [64]
+    assert calls[0].endswith("/run")
+    assert "runsync" not in "".join(calls)
+    assert calls.count("https://api.runpod.ai/v2/g40wir5ey71e3/status/job-cold") == 3
+
+
+def test_runpod_poll_timeout_while_queued(tmp_path, monkeypatch):
+    audio = tmp_path / "recording.wav"
+    audio.write_bytes(b"RIFF-AUDIO")
+    monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/g40wir5ey71e3/runsync")
+    monkeypatch.setenv("MT3_API_KEY", "rp-secret")
+    monkeypatch.setenv("MT3_TIMEOUT_SECONDS", "1")
+
+    clock = {"now": 100.0}
+
+    def fake_monotonic():
+        return clock["now"]
+
+    def fake_sleep(seconds):
+        clock["now"] += max(seconds, 1)
+
+    def fake_urlopen(request, timeout=None):
+        if request.full_url.endswith("/run"):
+            return _FakeResponse(
+                json.dumps({"id": "job-stuck", "status": "IN_QUEUE"}).encode()
+            )
+        return _FakeResponse(
+            json.dumps({"id": "job-stuck", "status": "IN_QUEUE"}).encode()
+        )
+
+    monkeypatch.setattr("adapters.mt3_backend.time.monotonic", fake_monotonic)
+    monkeypatch.setattr("adapters.mt3_backend.time.sleep", fake_sleep)
+    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(TranscriptionError, match="timed out after 600 seconds"):
+        MT3Backend().transcribe_notes(audio)
+
+
+def test_runpod_legacy_300s_env_waits_ten_minutes(tmp_path, monkeypatch):
+    audio = tmp_path / "recording.wav"
+    audio.write_bytes(b"RIFF-AUDIO")
+    monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/g40wir5ey71e3/runsync")
+    monkeypatch.setenv("MT3_API_KEY", "rp-secret")
+    monkeypatch.setenv("MT3_TIMEOUT_SECONDS", "300")
+
+    clock = {"now": 0.0}
+
+    def fake_monotonic():
+        return clock["now"]
+
+    def fake_sleep(seconds):
+        clock["now"] += max(seconds, 1)
+
+    def fake_urlopen(request, timeout=None):
+        if request.full_url.endswith("/run"):
+            return _FakeResponse(
+                json.dumps({"id": "job-legacy", "status": "IN_QUEUE"}).encode()
+            )
+        return _FakeResponse(
+            json.dumps({"id": "job-legacy", "status": "IN_QUEUE"}).encode()
+        )
+
+    monkeypatch.setattr("adapters.mt3_backend.time.monotonic", fake_monotonic)
+    monkeypatch.setattr("adapters.mt3_backend.time.sleep", fake_sleep)
+    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(TranscriptionError, match="timed out after 600 seconds"):
+        MT3Backend().transcribe_notes(audio)
+    assert clock["now"] >= 600
+
+
+def test_warmup_shaped_output_is_not_treated_as_midi(tmp_path, monkeypatch):
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"RIFF")
+    monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/g40wir5ey71e3/runsync")
+    monkeypatch.setenv("MT3_API_KEY", "rp-secret")
+
+    def fake_urlopen(request, timeout=None):
+        return _FakeResponse(
+            json.dumps(
+                {
+                    "status": "COMPLETED",
+                    "output": {
+                        "ok": True,
+                        "warmup": True,
+                        "model": "yourmt3",
+                        "timing": {"inference_seconds": 0.0, "total_seconds": 0.0},
+                    },
+                }
+            ).encode()
+        )
+
+    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(TranscriptionError, match="skipped inference"):
+        MT3Backend().transcribe_notes(audio)
 
 
 def test_warmup_entrypoint_removed():
     import adapters.mt3_backend as mt3
 
     assert not hasattr(mt3, "start_runpod_warmup")
-    assert not hasattr(mt3, "runpod_async_url")
+    assert runpod_async_url("https://api.runpod.ai/v2/abc") == (
+        "https://api.runpod.ai/v2/abc/run"
+    )
 
 
 def test_runpod_top_level_midi_base64(tmp_path, monkeypatch):
@@ -156,8 +308,8 @@ def test_runpod_top_level_midi_base64(tmp_path, monkeypatch):
     monkeypatch.setenv("MT3_API_KEY", "rp-secret")
 
     def fake_urlopen(request, timeout=None):
-        assert request.full_url.endswith("/runsync")
-        assert request.full_url.count("runsync") == 1
+        assert request.full_url.endswith("/run")
+        assert "runsync" not in request.full_url
         body = {
             "midi_base64": base64.b64encode(midi_bytes).decode(),
             "model": "yourmt3",
@@ -246,11 +398,11 @@ def test_runpod_timeout(tmp_path, monkeypatch):
     monkeypatch.setenv("MT3_TIMEOUT_SECONDS", "12")
 
     def fake_urlopen(request, timeout=None):
-        assert timeout == 12
+        assert timeout == 30
         raise URLError(TimeoutError("timed out"))
 
     monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
-    with pytest.raises(TranscriptionError, match="timed out after 12 seconds"):
+    with pytest.raises(TranscriptionError, match="timed out after 600 seconds"):
         MT3Backend().transcribe_notes(audio)
 
 

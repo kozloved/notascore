@@ -351,7 +351,9 @@ export default function CreateScorePanel() {
         <>
           <ProcessingStatus status={job?.status} progress={job?.progress} />
           <p className="mode-hint">
-            You can leave this page. NotaScore keeps working.
+            {job?.mode === "polyphonic" || selectedMode === "polyphonic"
+              ? "The first Polyphonic job after idle can take several minutes while the GPU worker starts. You can leave this page. NotaScore keeps working."
+              : "You can leave this page. NotaScore keeps working."}
           </p>
           {!user && configured ? (
             <div className="ns-save-panel">

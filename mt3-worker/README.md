@@ -44,8 +44,9 @@ The build downloads the ~536 MB checkpoint. It is slow. Tag `0.3` pins `transfor
 https://www.runpod.io/console/serverless
 
 Keep **min workers at 0** so you are not billed for an idle GPU all day.
-Create does not send a warmup job. The first polyphonic transcription is
-the only RunPod `/runsync` request. After a job, the worker should stay up
+Create does not send a warmup job. The first polyphonic transcription
+queues with `/run` and polls `/status` until MIDI is ready (cold start
+often takes more than five minutes). After a job, the worker should stay up
 for a few minutes in case they retry.
 
 - Image: `kozloved/notascore-yourmt3:0.3`

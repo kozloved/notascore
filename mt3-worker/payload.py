@@ -37,7 +37,13 @@ def job_input(job: object) -> dict:
 
 
 def is_warmup_job(job: object) -> bool:
-    """True when the client only wants the worker to boot and stay idle."""
+    """True when the client only wants the worker to boot and stay idle.
+
+    Never skip inference when audio is present. A warmup flag plus a real
+    clip must still be transcribed.
+    """
+    if audio_base64_from_job(job)[0]:
+        return False
     if not isinstance(job, dict):
         return False
     current: dict = job
