@@ -715,6 +715,8 @@ def _choose_duration(
             complexity = 0.0
         elif actual in DOTTED_DURATIONS or d in DOTTED_DURATIONS:
             complexity = 0.18
+        elif d in TUPLET_DURATIONS:
+            complexity = 0.12
         else:
             complexity = 1.0
         tuplet_pen = 0.0
