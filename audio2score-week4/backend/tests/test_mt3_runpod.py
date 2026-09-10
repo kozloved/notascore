@@ -18,8 +18,6 @@ from adapters.mt3_backend import (
     is_runpod_endpoint,
     mt3_status,
     normalize_mt3_endpoint,
-    runpod_async_url,
-    start_runpod_warmup,
 )
 from transcription import TranscriptionError
 
@@ -68,11 +66,6 @@ def test_normalize_runpod_endpoint():
     )
     assert is_runpod_endpoint(base) is True
     assert is_runpod_endpoint("https://abc-8090.proxy.runpod.net/transcribe") is False
-    assert runpod_async_url(base) == f"{base}/run"
-    assert runpod_async_url(f"{base}/runsync") == f"{base}/run"
-    assert runpod_async_url("http://gpu.example/transcribe") == (
-        "http://gpu.example/transcribe"
-    )
 
 
 def test_runpod_json_request_and_midi(tmp_path, monkeypatch):
@@ -115,6 +108,42 @@ def test_runpod_json_request_and_midi(tmp_path, monkeypatch):
     assert base64.b64decode(captured["body"]["input"]["audio_base64"]) == b"RIFF-AUDIO"
     assert "rp-secret" not in json.dumps(captured["body"])
     assert [n.pitch for n in notes] == [64]
+
+
+def test_polyphonic_transcription_posts_exactly_one_runsync(tmp_path, monkeypatch):
+    """One MT3Backend.transcribe_notes call → one RunPod /runsync, no /run warmup."""
+    audio = tmp_path / "poly.wav"
+    audio.write_bytes(b"RIFF-AUDIO")
+    midi_bytes = _one_note_midi_bytes(60)
+    monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/g40wir5ey71e3/runsync")
+    monkeypatch.setenv("MT3_API_KEY", "rp-secret")
+    monkeypatch.delenv("MT3_TRANSCRIBE_COMMAND", raising=False)
+
+    calls: list[str] = []
+
+    def fake_urlopen(request, timeout=None):
+        calls.append(request.full_url)
+        payload = {
+            "status": "COMPLETED",
+            "output": {"midi_base64": base64.b64encode(midi_bytes).decode()},
+        }
+        return _FakeResponse(json.dumps(payload).encode())
+
+    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
+    notes = MT3Backend().transcribe_notes(audio)
+    assert notes
+    assert len(calls) == 1
+    assert calls[0] == "https://api.runpod.ai/v2/g40wir5ey71e3/runsync"
+    assert calls[0].endswith("/runsync")
+    assert "/run/" not in calls[0]
+    assert not calls[0].endswith("/run")
+
+
+def test_warmup_entrypoint_removed():
+    import adapters.mt3_backend as mt3
+
+    assert not hasattr(mt3, "start_runpod_warmup")
+    assert not hasattr(mt3, "runpod_async_url")
 
 
 def test_runpod_top_level_midi_base64(tmp_path, monkeypatch):
@@ -299,41 +328,3 @@ def test_runpod_live_adapter_if_configured(tmp_path):
     sf.write(str(audio), 0.2 * np.sin(2 * np.pi * 440 * t), sr)
     notes = MT3Backend().transcribe_notes(audio)
     assert notes, "live RunPod transcription returned no notes"
-
-
-def test_warmup_posts_async_run_not_runsync(monkeypatch):
-    import adapters.mt3_backend as mt3
-
-    monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/g40wir5ey71e3/runsync")
-    monkeypatch.setenv("MT3_API_KEY", "rp-secret")
-    mt3._LAST_WARMUP_MONOTONIC = 0.0
-    captured = {}
-
-    def fake_urlopen(request, timeout=None):
-        captured["url"] = request.full_url
-        captured["timeout"] = timeout
-        captured["body"] = json.loads(request.data)
-        captured["authorization"] = request.get_header("Authorization")
-        return _FakeResponse(b'{"id":"x","status":"IN_QUEUE"}')
-
-    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
-    result = start_runpod_warmup()
-    assert result == {"started": True}
-    assert captured["url"] == "https://api.runpod.ai/v2/g40wir5ey71e3/run"
-    assert captured["url"].endswith("/run")
-    assert "runsync" not in captured["url"]
-    assert captured["body"] == {"input": {"warmup": True}}
-    assert captured["authorization"] == "Bearer rp-secret"
-    assert captured["timeout"] == 8
-
-    skipped = start_runpod_warmup()
-    assert skipped == {"started": False, "reason": "cooldown"}
-
-
-def test_warmup_skipped_when_not_runpod(monkeypatch):
-    import adapters.mt3_backend as mt3
-
-    mt3._LAST_WARMUP_MONOTONIC = 0.0
-    monkeypatch.setenv("MT3_ENDPOINT", "http://gpu.example/transcribe")
-    monkeypatch.setenv("MT3_API_KEY", "secret")
-    assert start_runpod_warmup() == {"started": False, "reason": "not_runpod"}

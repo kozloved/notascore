@@ -20,9 +20,8 @@ Browser
 The browser never talks to RunPod. Only the backend `MT3Backend` does.
 
 Keep **min workers at 0**. Set **Idle Timeout to 300 seconds** so a worker
-stays billed for a few minutes after a job (or after the Create-page warmup),
-then scales to zero. Flash Boot helps the next host reuse the image; it does
-not replace Idle Timeout.
+stays billed for a few minutes after a job, then scales to zero. Flash Boot
+helps the next host reuse the image; it does not replace Idle Timeout.
 
 ## 1. Site (CPU) — VPS
 

@@ -196,6 +196,45 @@ def test_quality_pipeline_uses_mt3_not_basic_pitch(
 
 @patch("mir.pipeline.AudioSegmenter.segment", return_value=[])
 @patch("audio_engine.instrument_classifier.InstrumentClassifier.classify")
+def test_polyphonic_pipeline_makes_one_runsync(
+    mock_classify, _mock_segment, tmp_path, monkeypatch
+):
+    """Create → one processing job → one MT3 /runsync. No warmup /run."""
+    from mir.types import InstrumentKind, InstrumentPrediction
+
+    midi_bytes = _one_note_midi_bytes(64)
+    monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/g40wir5ey71e3/runsync")
+    monkeypatch.setenv("MT3_API_KEY", "rp-secret")
+    monkeypatch.delenv("MT3_TRANSCRIBE_COMMAND", raising=False)
+    monkeypatch.setenv("TRANSCRIPTION_USE_BEAT_TRACKER", "0")
+    mock_classify.return_value = InstrumentPrediction(
+        instrument=InstrumentKind.PIANO, confidence=0.9
+    )
+    calls: list[str] = []
+
+    def fake_urlopen(request, timeout=None):
+        calls.append(request.full_url)
+        payload = {
+            "status": "COMPLETED",
+            "output": {"midi_base64": base64.b64encode(midi_bytes).decode()},
+        }
+        return _FakeResponse(json.dumps(payload).encode(), "application/json")
+
+    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
+    audio = tmp_path / "poly.wav"
+    sr = 22050
+    t = np.linspace(0, 1, sr, endpoint=False)
+    sf.write(str(audio), 0.2 * np.sin(2 * np.pi * 440 * t), sr)
+
+    xml = UnderstandingPipeline(backend_name="mt3").transcribe(audio, "one-runsync")
+    assert "score-partwise" in xml.lower()
+    assert len(calls) == 1
+    assert calls[0].endswith("/runsync")
+    assert not any(url.rstrip("/").endswith("/run") for url in calls)
+
+
+@patch("mir.pipeline.AudioSegmenter.segment", return_value=[])
+@patch("audio_engine.instrument_classifier.InstrumentClassifier.classify")
 @patch("adapters.mt3_backend.MT3Backend.transcribe_notes")
 def test_mt3_pipeline_overlaps_cpu_prep_with_transcription(
     mock_mt3, mock_classify, _mock_segment, tmp_path, monkeypatch
@@ -278,39 +317,29 @@ def test_health_includes_quality(monkeypatch):
     assert payload["gemini"]["default_model"] == DEFAULT_MODEL
 
 
-def test_mt3_warmup_endpoint_queues_run(monkeypatch):
+def test_mt3_warmup_endpoint_removed(monkeypatch):
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
 
     import adapters.mt3_backend as mt3
     import main as app_main
 
-    mt3._LAST_WARMUP_MONOTONIC = 0.0
     monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/abc123/runsync")
     monkeypatch.setenv("MT3_API_KEY", "rp-secret")
-    captured = {}
-
-    class _Resp:
-        def read(self):
-            return b'{"id":"w1"}'
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return False
+    called = {"urlopen": 0}
 
     def fake_urlopen(request, timeout=None):
-        captured["url"] = request.full_url
-        return _Resp()
+        called["urlopen"] += 1
+        raise AssertionError("warmup must not call RunPod")
 
     monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
     with TestClient(app_main.app) as client:
         response = client.post("/mt3/warmup")
-    assert response.status_code == 200
-    assert response.json() == {"started": True}
-    assert captured["url"].endswith("/run")
-    assert "runsync" not in captured["url"]
+        health = client.get("/health")
+    assert response.status_code == 404
+    assert health.status_code == 200
+    assert called["urlopen"] == 0
+    assert not hasattr(mt3, "start_runpod_warmup")
 
 
 def test_quality_upload_rejected_when_unconfigured(tmp_path, monkeypatch):

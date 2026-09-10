@@ -22,8 +22,6 @@ import shlex
 import socket
 import subprocess
 import tempfile
-import threading
-import time
 import urllib.error
 import urllib.request
 import uuid
@@ -89,14 +87,6 @@ def normalize_mt3_endpoint(url: str) -> str:
     return urlunparse(parsed._replace(path=path, query=""))
 
 
-def runpod_async_url(url: str) -> str:
-    """Queue a job with /run. Warmup must not wait on /runsync."""
-    sync = normalize_mt3_endpoint(url)
-    if sync.endswith("/runsync"):
-        return sync[: -len("runsync")] + "run"
-    return sync
-
-
 def mt3_provider(endpoint: str = "", command: str = "") -> str:
     if is_runpod_endpoint(endpoint):
         return "runpod"
@@ -140,50 +130,6 @@ def mt3_status() -> dict:
         "supported_models": list(MT3_MODELS),
         "provider": settings["provider"],
     }
-
-
-_WARMUP_LOCK = threading.Lock()
-_LAST_WARMUP_MONOTONIC = 0.0
-_WARMUP_COOLDOWN_SECONDS = 45.0
-
-
-def start_runpod_warmup() -> dict:
-    """Ask RunPod to boot a worker without waiting for MIDI.
-
-    Uses /run (async). Min workers stay 0. The worker remains billed only until
-    Idle Timeout after this ping (or after the real job, if it arrives first).
-    """
-    global _LAST_WARMUP_MONOTONIC
-    settings = mt3_settings()
-    endpoint = settings["endpoint"]
-    api_key = settings["api_key"]
-    if not is_runpod_endpoint(endpoint):
-        return {"started": False, "reason": "not_runpod"}
-    if not api_key:
-        return {"started": False, "reason": "missing_key"}
-
-    now = time.monotonic()
-    with _WARMUP_LOCK:
-        if now - _LAST_WARMUP_MONOTONIC < _WARMUP_COOLDOWN_SECONDS:
-            return {"started": False, "reason": "cooldown"}
-        _LAST_WARMUP_MONOTONIC = now
-
-    url = runpod_async_url(endpoint)
-    body = json.dumps({"input": {"warmup": True}}).encode("utf-8")
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-    print(f"[MT3] warmup endpoint={url}")
-    request = urllib.request.Request(url, data=body, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=8) as response:
-            response.read()
-    except Exception as exc:
-        print(f"[MT3] warmup failed {type(exc).__name__}: {exc}")
-        return {"started": False, "reason": "request_failed"}
-    return {"started": True}
 
 
 def _transcription_error(message: str):
