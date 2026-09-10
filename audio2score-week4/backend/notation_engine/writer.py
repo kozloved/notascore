@@ -27,8 +27,10 @@ from music21 import (
     tempo as m21tempo,
     tie as m21tie,
 )
+from music21.base import Music21Object
 
 from mir.models import NotationPlan, PlannedRest
+from mir.quantizer import SMALLEST_WRITABLE, snap_writable_length
 from mir.types import Hand, MusicalEvent, ScoreMeta, TempoMap
 from notation_engine.meter import bar_length, estimate_key, estimate_time_signature
 from notation_engine.plan import NotationPlanner
@@ -109,8 +111,26 @@ class NotationWriter:
             )
 
         xml_path = out_dir / f"{job_id}.musicxml"
-        score.write("musicxml", fp=str(xml_path))
-        score.write("midi", fp=str(out_dir / f"{job_id}.score.mid"))
+        try:
+            self._export_musicxml(score, xml_path)
+        except Exception as exc:
+            print(f"[Notation] MusicXML export failed ({exc!s}), MIDI round-trip")
+            if not self.last_fallback_used:
+                self.last_fallback_used = True
+                self.last_fallback_error = f"{type(exc).__name__}: {exc}"
+            score = self._score_via_midi(
+                events,
+                meta,
+                out_dir / f"{job_id}.mid",
+                quantize_divisors,
+                fallback_bpm,
+                quantization_mode=quantization_mode,
+            )
+            self._export_musicxml(score, xml_path)
+        try:
+            score.write("midi", fp=str(out_dir / f"{job_id}.score.mid"))
+        except Exception as exc:
+            print(f"[Notation] score MIDI write failed ({exc!s})")
         return xml_path.read_text(encoding="utf-8")
 
     def write_from_events_direct(
@@ -197,7 +217,7 @@ class NotationWriter:
         md = m21meta.Metadata()
         md.movementName = None
         md.composer = None
-        score.insert(0, md)
+        self._safe_insert(score, 0, md)
 
         n_staves = 0
         for measure in plan.measures:
@@ -210,9 +230,9 @@ class NotationWriter:
             part = stream.PartStaff(id=f"P1-Staff{sid + 1}")
             part.partName = "Piano" if n_staves >= 2 else "Music"
             part.partAbbreviation = "Pno." if n_staves >= 2 else "Mus."
-            part.insert(0, instrument.Piano())
+            self._safe_insert(part, 0, instrument.Piano())
             parts.append(part)
-            score.insert(0, part)
+            self._safe_insert(score, 0, part)
 
         if n_staves >= 2:
             group = layout.StaffGroup(
@@ -222,34 +242,39 @@ class NotationWriter:
                 symbol="brace",
                 barTogether=True,
             )
-            score.insert(0, group)
+            self._safe_insert(score, 0, group)
 
         for mi, measure_plan in enumerate(plan.measures):
             by_staff = {s.staff_id: s for s in measure_plan.staves}
+            measure_ql = max(float(measure_plan.duration_beats or 0.0), SMALLEST_WRITABLE)
             for sid, part in enumerate(parts):
                 staff = by_staff.get(sid)
                 m = stream.Measure(number=measure_plan.number)
-                m.duration.quarterLength = measure_plan.duration_beats
+                m.duration.quarterLength = measure_ql
                 if mi == 0:
                     clef_name = staff.clef if staff else ("treble" if sid == 0 else "bass")
-                    m.insert(0, self._clef(clef_name))
-                    m.insert(0, meter.TimeSignature(plan.time_signature))
-                    try:
-                        m.insert(0, m21key.Key(plan.key_signature))
-                    except Exception:
-                        m.insert(0, m21key.Key("C"))
+                    self._safe_insert(m, 0, self._clef(clef_name))
+                    self._safe_insert(m, 0, self._time_signature(plan.time_signature))
+                    self._safe_insert(m, 0, self._key_signature(plan.key_signature))
                 if staff is None:
                     rest_voice = stream.Voice(id="1")
-                    rest_voice.append(
-                        m21note.Rest(quarterLength=measure_plan.duration_beats)
-                    )
-                    m.insert(0, rest_voice)
+                    rest = self._rest_for_length(measure_ql)
+                    if rest is not None:
+                        rest_voice.append(rest)
+                    self._safe_insert(m, 0, rest_voice)
                 else:
                     for vplan in staff.voices:
                         voice = stream.Voice(id=str(vplan.voice_id + 1))
                         for el in vplan.elements:
-                            voice.append(self._element_to_m21(el))
-                        m.insert(0, voice)
+                            m21el = self._element_to_m21(el)
+                            if m21el is not None:
+                                voice.append(m21el)
+                        if not list(voice.notesAndRests):
+                            rest = self._rest_for_length(measure_ql)
+                            if rest is not None:
+                                voice.append(rest)
+                        self._fit_stream_to_quarter_length(voice, measure_ql)
+                        self._safe_insert(m, 0, voice)
                 part.append(m)
 
         bpm = int(plan.tempo_bpm)
@@ -263,31 +288,112 @@ class NotationWriter:
         return score
 
     def _element_to_m21(self, el):
+        ql = float(getattr(el, "duration_q", 0.0) or 0.0)
+        if ql <= 1e-8:
+            return None
         if isinstance(el, PlannedRest):
-            return m21note.Rest(quarterLength=float(el.duration_q))
-        if len(el.pitches) == 1:
-            n = m21note.Note(midi=int(el.pitches[0]))
+            return self._rest_for_length(ql)
+        pitches: list[int] = []
+        for raw in getattr(el, "pitches", None) or []:
+            try:
+                midi = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= midi <= 127:
+                pitches.append(midi)
+        if not pitches:
+            return self._rest_for_length(ql)
+        if len(pitches) == 1:
+            n = m21note.Note(midi=pitches[0])
         else:
-            n = m21chord.Chord([int(p) for p in el.pitches])
-        n.quarterLength = float(el.duration_q)
+            n = m21chord.Chord(pitches)
+        n.quarterLength = ql
         try:
             n.volume.velocity = int(el.velocity)
         except Exception:
             pass
-        if el.tie:
+        if getattr(el, "tie", None) in ("start", "stop", "continue"):
             n.tie = m21tie.Tie(el.tie)
-        if "staccato" in el.articulations:
+        arts = getattr(el, "articulations", None) or []
+        if "staccato" in arts:
             n.articulations.append(articulations.Staccato())
-        if "legato" in el.articulations:
+        if "legato" in arts:
             n.articulations.append(articulations.Tenuto())
-        if el.dynamic in ("p", "pp", "mp", "mf", "f", "ff", "fff"):
-            n.expressions.append(m21dyn.Dynamic(el.dynamic))
+        dynamic = getattr(el, "dynamic", None)
+        if dynamic in ("p", "pp", "mp", "mf", "f", "ff", "fff"):
+            n.expressions.append(m21dyn.Dynamic(dynamic))
         return n
 
     def _clef(self, name: str):
         if name == "bass":
             return clef.BassClef()
         return clef.TrebleClef()
+
+    @staticmethod
+    def _time_signature(value) -> meter.TimeSignature:
+        try:
+            ts = meter.TimeSignature(value or "4/4")
+            if float(ts.barDuration.quarterLength) <= 0:
+                raise ValueError("empty bar duration")
+            return ts
+        except Exception:
+            return meter.TimeSignature("4/4")
+
+    @staticmethod
+    def _key_signature(value):
+        try:
+            if not value:
+                return m21key.Key("C")
+            return m21key.Key(str(value))
+        except Exception:
+            return m21key.Key("C")
+
+    @staticmethod
+    def _rest_for_length(ql: float):
+        ql = float(ql or 0.0)
+        if ql <= 1e-8:
+            return None
+        # music21 coerces Rest(quarterLength=0) to a quarter rest.
+        if ql < 1e-6:
+            return None
+        return m21note.Rest(quarterLength=ql)
+
+    @staticmethod
+    def _safe_insert(container, offset, obj) -> bool:
+        """Insert only real music21 objects.
+
+        ``Stream.insert(0, None)`` is parsed as one-arg ``insert(0)`` and raises
+        ``Cannot insert item 0 to stream -- is it a music21 object?``.
+        """
+        if obj is None or not isinstance(obj, Music21Object):
+            return False
+        container.insert(offset, obj)
+        return True
+
+    @staticmethod
+    def _fit_stream_to_quarter_length(container, mql: float) -> None:
+        """Keep a voice inside the bar so music21 makeTies cannot insert None."""
+        mql = float(mql or 0.0)
+        if mql <= 1e-8:
+            return
+        overflow = float(container.highestTime) - mql
+        if overflow <= 1e-6:
+            return
+        for el in reversed(list(container.notesAndRests)):
+            if overflow <= 1e-6:
+                break
+            ql = float(el.quarterLength or 0.0)
+            if ql <= overflow + 1e-9:
+                container.remove(el)
+                overflow -= ql
+                continue
+            el.quarterLength = ql - overflow
+            overflow = 0.0
+            if float(el.quarterLength) <= 1e-8:
+                container.remove(el)
+        if not list(container.notesAndRests):
+            rest = m21note.Rest(quarterLength=mql)
+            container.append(rest)
 
     def build_score(
         self,
@@ -337,9 +443,9 @@ class NotationWriter:
         md = m21meta.Metadata()
         md.movementName = None
         md.composer = None
-        score.insert(0, md)
-        score.insert(0, rh)
-        score.insert(0, lh)
+        self._safe_insert(score, 0, md)
+        self._safe_insert(score, 0, rh)
+        self._safe_insert(score, 0, lh)
         group = layout.StaffGroup(
             [rh, lh],
             name="Piano",
@@ -347,7 +453,7 @@ class NotationWriter:
             symbol="brace",
             barTogether=True,
         )
-        score.insert(0, group)
+        self._safe_insert(score, 0, group)
         score.makeNotation(inPlace=True, refStreamOrTimeRange=[0.0, end_beat])
         # Metronome marks must live in a measure. A score-level mark survives
         # in memory but music21 omits it from MusicXML, so OSMD never draws BPM.
@@ -368,29 +474,42 @@ class NotationWriter:
         part = stream.PartStaff(id=staff_id)
         part.partName = "Piano"
         part.partAbbreviation = "Pno."
-        part.insert(0, instrument.Piano())
-        part.insert(0, staff_clef)
-        part.insert(0, meter.TimeSignature(ts_str))
+        self._safe_insert(part, 0, instrument.Piano())
+        self._safe_insert(part, 0, staff_clef)
+        self._safe_insert(part, 0, self._time_signature(ts_str))
         if key_name:
-            try:
-                part.insert(0, m21key.Key(key_name))
-            except Exception:
-                pass
+            self._safe_insert(part, 0, self._key_signature(key_name))
 
         for start, group in _chord_clusters(events):
-            part.insert(start, self._m21_element(group))
+            self._safe_insert(part, start, self._m21_element(group))
 
         if not events:
-            part.insert(0, m21note.Rest(quarterLength=max(end_beat, 1.0)))
+            rest = self._rest_for_length(max(end_beat, 1.0))
+            if rest is not None:
+                self._safe_insert(part, 0, rest)
         return part
 
     def _m21_element(self, group: list[MusicalEvent]):
-        duration = max(e.duration_beats for e in group)
-        if len(group) == 1:
-            el = m21note.Note(group[0].pitch)
+        if not group:
+            return None
+        duration = max(float(e.duration_beats or 0.0) for e in group)
+        if duration <= 1e-8:
+            return None
+        pitches: list[int] = []
+        for ev in group:
+            try:
+                midi = int(ev.pitch)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= midi <= 127:
+                pitches.append(midi)
+        if not pitches:
+            return self._rest_for_length(duration)
+        if len(pitches) == 1:
+            el = m21note.Note(midi=pitches[0])
             el.volume.velocity = max(1, min(127, int(group[0].velocity)))
         else:
-            el = m21chord.Chord([e.pitch for e in group])
+            el = m21chord.Chord(pitches)
             el.volume.velocity = max(
                 1, min(127, int(sum(e.velocity for e in group) / len(group)))
             )
@@ -484,8 +603,7 @@ class NotationWriter:
             self._insert_metronome_at_beat(score, offset, int(round(next_bpm)))
             last_bpm = next_bpm
 
-    @staticmethod
-    def _insert_metronome_at_beat(score, beat: float, bpm: int) -> None:
+    def _insert_metronome_at_beat(self, score, beat: float, bpm: int) -> None:
         """Put a metronome mark inside the measure that OSMD/MusicXML will export."""
         mark = m21tempo.MetronomeMark(number=int(bpm))
         try:
@@ -493,9 +611,12 @@ class NotationWriter:
         except Exception:
             pass
         part = score.parts[0] if getattr(score, "parts", None) else score
-        measures = list(part.getElementsByClass("Measure"))
+        try:
+            measures = list(part.getElementsByClass("Measure"))
+        except Exception:
+            measures = []
         if not measures:
-            part.insert(max(0.0, float(beat)), mark)
+            self._safe_insert(part, max(0.0, float(beat)), mark)
             return
         for meas in measures:
             start = float(meas.offset)
@@ -513,14 +634,64 @@ class NotationWriter:
                 if existing:
                     existing[0].number = int(bpm)
                     return
-                meas.insert(local, mark)
+                self._safe_insert(meas, local, mark)
                 return
         first = measures[0]
         existing = list(first.getElementsByClass(m21tempo.MetronomeMark))
         if existing:
             existing[0].number = int(bpm)
             return
-        first.insert(0, mark)
+        self._safe_insert(first, 0, mark)
+
+    def _export_musicxml(self, score, xml_path: Path) -> None:
+        self._sanitize_export_durations(score)
+        try:
+            score.write("musicxml", fp=str(xml_path))
+            return
+        except Exception as exc:
+            print(
+                f"[Notation] MusicXML write failed ({exc!s}); "
+                "retrying without makeNotation"
+            )
+            self._sanitize_export_durations(score)
+            score.write("musicxml", fp=str(xml_path), makeNotation=False)
+
+    def _sanitize_export_durations(self, score) -> None:
+        """Replace MusicXML-inexpressible durations and trim voices to the bar."""
+        victims = []
+        for n in score.recurse().notesAndRests:
+            ql = float(getattr(n, "quarterLength", 0.0) or 0.0)
+            dtype = getattr(getattr(n, "duration", None), "type", None)
+            if ql <= 1e-8:
+                victims.append(n)
+                continue
+            if dtype in (None, "inexpressible", "complex", ""):
+                snapped = snap_writable_length(ql, allow_empty=True)
+                if snapped <= 1e-9:
+                    victims.append(n)
+                else:
+                    n.quarterLength = snapped
+        for n in victims:
+            site = n.activeSite
+            if site is None:
+                continue
+            try:
+                site.remove(n)
+            except Exception:
+                pass
+        for voice in score.recurse().getElementsByClass(stream.Voice):
+            measure = voice.getContextByClass(stream.Measure)
+            mql = 4.0
+            if measure is not None:
+                try:
+                    mql = float(measure.barDuration.quarterLength)
+                except Exception:
+                    mql = float(getattr(measure.duration, "quarterLength", 4.0) or 4.0)
+            self._fit_stream_to_quarter_length(voice, mql)
+            if not list(voice.notesAndRests):
+                rest = self._rest_for_length(mql)
+                if rest is not None:
+                    voice.append(rest)
 
 
 def _staff_for(ev: MusicalEvent) -> str:

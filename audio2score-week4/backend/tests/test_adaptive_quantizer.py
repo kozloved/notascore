@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import pretty_midi
+import pytest
 
-from mir.adaptive_quantizer import _choose_duration
+from mir.adaptive_quantizer import (
+    QuantizerIdentityError,
+    _choose_duration,
+    _raw_by_id,
+    restore_identity,
+    validate_identity_invariants,
+)
 from mir.models import MeterHypothesis, PlannedNote, PlannedRest
 from mir.pipeline import UnderstandingPipeline
 from mir.quantizer import MeasureQuantizer, QuantizerConfig
-from mir.types import Hand, MusicalEvent, ScoreMeta
+from mir.types import Hand, MusicalEvent, ScoreMeta, copy_event
 from notation_engine.plan import NotationPlanner
 
 
@@ -64,6 +71,7 @@ QUALITY_METRIC_KEYS = (
     "chord_alignments",
     "triplet_groups",
     "tiny_rests",
+    "invalid_duration_events",
     "measure_violations",
     "overlaps_detected",
     "fallback_preserved",
@@ -362,6 +370,7 @@ def test_quality_metrics_are_reported():
     assert q.last_summary["events_removed"] == 0
     assert q.last_summary["overlaps_detected"] == 0
     assert q.last_summary["measure_violations"] == 0
+    assert q.last_summary["invalid_duration_events"] == 0
     assert q.last_summary["mean_onset_displacement"] >= 0
     assert q.last_summary["max_onset_displacement"] >= q.last_summary["mean_onset_displacement"]
 
@@ -553,3 +562,153 @@ def test_k_extreme_timing_is_not_dragged_onto_a_distant_grid():
     assert abs(outlier.start_beat - 2.40) <= 0.18 + 1e-9
     assert abs(outlier.start_beat - 2.0) > 0.15
     assert abs(outlier.start_beat - 3.0) > 0.15
+
+
+def test_identity_restored_after_notation_reorder():
+    raw = [
+        _ev(60, 0.03, 0.90, note_id="a", velocity=71),
+        _ev(64, 0.50, 0.40, note_id="b", velocity=90),
+        _ev(67, 1.02, 0.40, note_id="c", velocity=64),
+    ]
+    reordered = [
+        copy_event(raw[2], start_beat=1.0, duration_beats=0.5, pitch=1, velocity=2),
+        copy_event(raw[0], start_beat=0.0, duration_beats=1.0, pitch=3, velocity=4),
+        copy_event(raw[1], start_beat=0.5, duration_beats=0.5, pitch=5, velocity=6),
+    ]
+    restored = restore_identity(raw, reordered)
+    by_id = _by_id(restored)
+    assert by_id["a"].pitch == 60 and by_id["a"].velocity == 71
+    assert by_id["b"].pitch == 64 and by_id["b"].velocity == 90
+    assert by_id["c"].pitch == 67 and by_id["c"].velocity == 64
+    assert abs(by_id["a"].start_beat - 0.0) < 1e-9
+    assert abs(by_id["b"].start_beat - 0.5) < 1e-9
+    assert abs(by_id["c"].start_beat - 1.0) < 1e-9
+    assert abs(by_id["a"].duration_beats - 1.0) < 1e-9
+
+
+def test_duplicate_raw_note_id_raises():
+    raw = [
+        _ev(60, 0.0, 1.0, note_id="a", velocity=70),
+        _ev(64, 1.0, 1.0, note_id="a", velocity=80),
+    ]
+    with pytest.raises(QuantizerIdentityError, match="duplicate"):
+        _raw_by_id(raw)
+    with pytest.raises(QuantizerIdentityError, match="duplicate"):
+        restore_identity(raw, raw)
+
+
+def test_missing_notation_note_id_fails_invariants():
+    raw = [
+        _ev(60, 0.0, 1.0, note_id="a", velocity=70),
+        _ev(64, 1.0, 1.0, note_id="b", velocity=80),
+    ]
+    notation = [_ev(60, 0.0, 1.0, note_id="a", velocity=70)]
+    with pytest.raises(QuantizerIdentityError):
+        validate_identity_invariants(raw, notation)
+
+
+def test_extra_notation_note_id_fails_invariants():
+    raw = [
+        _ev(60, 0.0, 1.0, note_id="a", velocity=70),
+        _ev(64, 1.0, 1.0, note_id="b", velocity=80),
+    ]
+    notation = [
+        _ev(60, 0.0, 1.0, note_id="a", velocity=70),
+        _ev(64, 1.0, 1.0, note_id="b", velocity=80),
+        _ev(67, 2.0, 1.0, note_id="c", velocity=81),
+    ]
+    with pytest.raises(QuantizerIdentityError):
+        validate_identity_invariants(raw, notation)
+
+
+def test_pitch_mismatch_fails_invariants():
+    raw = [_ev(60, 0.0, 1.0, note_id="a", velocity=70)]
+    notation = [_ev(61, 0.0, 1.0, note_id="a", velocity=70)]
+    with pytest.raises(QuantizerIdentityError, match="pitch"):
+        validate_identity_invariants(raw, notation)
+
+
+def test_velocity_mismatch_fails_invariants():
+    raw = [_ev(60, 0.0, 1.0, note_id="a", velocity=70)]
+    notation = [_ev(60, 0.0, 1.0, note_id="a", velocity=99)]
+    with pytest.raises(QuantizerIdentityError, match="velocity"):
+        validate_identity_invariants(raw, notation)
+
+
+def test_genuine_overlap_is_not_cleaned_by_quantizer():
+    events = [
+        _ev(72, 0.0, 1.0, note_id="held", velocity=80),
+        _ev(76, 0.5, 1.0, note_id="entry", velocity=81),
+    ]
+    original = [
+        (e.note_id, e.pitch, e.start_beat, e.duration_beats, e.velocity) for e in events
+    ]
+    q = MeasureQuantizer(mode="adaptive")
+    notation, _ = q.quantize(events, _meter_44())
+    after = [
+        (e.note_id, e.pitch, e.start_beat, e.duration_beats, e.velocity) for e in events
+    ]
+    assert after == original
+    by_id = _by_id(notation)
+    held = by_id["held"]
+    entry = by_id["entry"]
+    assert held.pitch == 72 and held.velocity == 80
+    assert entry.pitch == 76 and entry.velocity == 81
+    assert held.start_beat + held.duration_beats > entry.start_beat + 0.25
+    assert abs(held.duration_beats - 1.0) <= 0.06
+    assert q.last_summary["notes_shortened_for_overlap"] == 0
+    assert q.last_summary["identity_valid"] is True
+    assert q.last_summary["events_removed"] == 0
+
+
+def test_barline_crossing_duration_is_preserved_for_ties():
+    events = [_ev(72, 3.0, 2.0, note_id="hold", velocity=88)]
+    q = MeasureQuantizer(mode="adaptive")
+    notation, _ = q.quantize(events, _meter_44())
+    hold = notation[0]
+    assert hold.note_id == "hold"
+    assert hold.pitch == 72 and hold.velocity == 88
+    assert abs(hold.start_beat - 3.0) < 0.02
+    assert abs(hold.duration_beats - 2.0) <= 0.06
+    assert hold.start_beat + hold.duration_beats > 4.0 + 1e-9
+    assert q.last_summary["barline_splits_required"] >= 1
+    assert q.last_summary["measure_violations"] == 0
+
+
+def test_fallback_preserved_does_not_double_count_cluster_members():
+    from mir.adaptive_quantizer import ChordCluster, RhythmicAnalysis, quality_metrics
+
+    raw = [_ev(72, 0.40, 0.5, note_id="a")]
+    notation = [_ev(72, 0.40, 0.5, note_id="a")]
+    analysis = RhythmicAnalysis(
+        clusters=[
+            ChordCluster(indices=[0], raw_onset=0.40, preserved=True),
+        ]
+    )
+    decisions = [
+        {
+            "note_id": "a",
+            "quantized_start": 0.40,
+            "raw_start": 0.40,
+            "quantized_duration": 0.5,
+            "raw_duration": 0.5,
+            "preserved_timing": True,
+        }
+    ]
+    metrics = quality_metrics(raw, notation, analysis, decisions)
+    assert metrics["fallback_preserved"] == 1
+
+
+def test_measure_violations_count_invented_barline_overflow_not_zero_durations():
+    from mir.adaptive_quantizer import RhythmicAnalysis, quality_metrics
+
+    raw = [_ev(72, 3.0, 0.5, note_id="inside")]
+    notation = [_ev(72, 3.0, 2.0, note_id="inside")]
+    metrics = quality_metrics(raw, notation, RhythmicAnalysis(), [])
+    assert metrics["measure_violations"] == 1
+    assert metrics["invalid_duration_events"] == 0
+
+    zero = [_ev(72, 0.0, 0.0, note_id="z")]
+    zero_metrics = quality_metrics(zero, zero, RhythmicAnalysis(), [])
+    assert zero_metrics["invalid_duration_events"] == 1
+    assert zero_metrics["measure_violations"] == 0
