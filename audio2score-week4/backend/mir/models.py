@@ -164,6 +164,7 @@ class PlannedRest:
     start_q: float
     duration_q: float
     voice: int
+    hidden: bool = False
 
 
 PlannedElement = Union[PlannedNote, PlannedRest]

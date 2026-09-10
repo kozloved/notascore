@@ -30,7 +30,11 @@ from mir.pipeline_config import (
 from mir.types import Hand, InstrumentKind, MusicalEvent, ScoreMeta
 from notation_engine.meter import estimate_key
 
-CHORD_DURATION_RATIO = 0.5
+# Near-equal durations only. A quarter + a half at the same onset must not
+# become one chord with the longer duration (that destroys voice timing).
+CHORD_DURATION_RATIO = 0.85
+# Gaps smaller than a 64th rest are absorbed instead of spelled as clutter.
+REST_MIN_QL = 0.0625
 REST_CANDIDATES = (
     4.0,
     3.0,
@@ -45,6 +49,76 @@ REST_CANDIDATES = (
     0.25,
     0.125,
 )
+TIMELINE_TOL = 1e-6
+
+
+def log_notation_invariant(kind: str, **fields) -> None:
+    """Compact invariant log. Never dump whole music21/plan objects."""
+    parts = [f"{key}={fields[key]}" for key in fields if fields[key] is not None]
+    print("[NotationInvariant] " + kind + ((" " + " ".join(parts)) if parts else ""))
+
+
+def validate_voice_timeline(elements, measure_length: float) -> list[dict]:
+    """Return issues for a single-voice measure timeline.
+
+    Validation is independent of input list order. Same-voice overlap is an
+    error; gaps, overflow, and non-positive durations are also reported.
+    """
+    mql = float(measure_length)
+    issues: list[dict] = []
+    ordered = sorted(
+        enumerate(elements or []),
+        key=lambda item: (
+            float(getattr(item[1], "start_q", 0.0) or 0.0),
+            float(getattr(item[1], "duration_q", 0.0) or 0.0),
+            item[0],
+        ),
+    )
+    cursor = 0.0
+    total = 0.0
+    prev_end = None
+    for _, el in ordered:
+        kind = type(el).__name__
+        start = float(getattr(el, "start_q", 0.0) or 0.0)
+        dur = float(getattr(el, "duration_q", 0.0) or 0.0)
+        end = start + dur
+        pitches = getattr(el, "pitches", None)
+        event_ids = getattr(el, "event_ids", None)
+        base = {
+            "element": kind,
+            "start": start,
+            "duration": dur,
+            "end": end,
+            "measure_length": mql,
+            "event_ids": list(event_ids or []),
+            "pitch": list(pitches) if pitches else None,
+            "tie": getattr(el, "tie", None),
+        }
+        if dur < -TIMELINE_TOL:
+            issues.append({**base, "reason": "negative_duration"})
+        elif dur <= TIMELINE_TOL:
+            issues.append({**base, "reason": "zero_duration"})
+        if start < -TIMELINE_TOL:
+            issues.append({**base, "reason": "starts_before_zero"})
+        if end > mql + 1e-6:
+            issues.append({**base, "reason": "ends_after_measure"})
+        if prev_end is not None and start < prev_end - 1e-6:
+            issues.append({**base, "reason": "overlap", "previous_end": prev_end})
+        elif prev_end is not None and start > prev_end + 1e-6:
+            issues.append({**base, "reason": "gap", "previous_end": prev_end})
+        total += max(0.0, dur)
+        cursor = max(cursor, end)
+        prev_end = end if prev_end is None else max(prev_end, end)
+    if abs(total - mql) > VOICE_SUM_TOLERANCE:
+        issues.append(
+            {
+                "reason": "sum_mismatch",
+                "duration": total,
+                "measure_length": mql,
+                "end": cursor,
+            }
+        )
+    return issues
 
 
 class NotationPlanner:
@@ -93,7 +167,11 @@ class NotationPlanner:
                 )
             )
 
-        extra = {"meter_confidence": meter.confidence, "quantization": quant_summary}
+        extra = {
+            "meter_confidence": meter.confidence,
+            "quantization": quant_summary,
+            "invariant_issues": self._collect_plan_issues(measures),
+        }
         if meta and meta.extra:
             if meta.extra.get("meter_decision"):
                 extra["meter_decision"] = meta.extra["meter_decision"]
@@ -221,14 +299,32 @@ class NotationPlanner:
             if not voices_map:
                 voices_map[0] = []
 
+            primary_vid = min(voices_map)
+            extra_vid = max(voices_map) + 1
             planned_voices = []
-            for vid, items in sorted(voices_map.items()):
-                planned_voices.append(
-                    PlannedVoice(
-                        voice_id=vid,
-                        elements=self._fill_voice(items, mql, voice_id=vid),
+            occupied: set[int] = set()
+            for orig_vid, items in sorted(voices_map.items()):
+                lanes = self._serial_lanes(items)
+                for i, lane in enumerate(lanes):
+                    if i == 0 and orig_vid not in occupied:
+                        vid = orig_vid
+                    else:
+                        vid = extra_vid
+                        extra_vid += 1
+                    occupied.add(vid)
+                    planned_voices.append(
+                        PlannedVoice(
+                            voice_id=vid,
+                            elements=self._fill_voice(
+                                lane,
+                                mql,
+                                voice_id=vid,
+                                hide_spacer_rests=vid != primary_vid,
+                                measure_number=number,
+                                staff_id=sid,
+                            ),
+                        )
                     )
-                )
             staves.append(
                 PlannedStaff(
                     staff_id=sid,
@@ -256,9 +352,85 @@ class NotationPlanner:
             return "bass" if median < 53 else "treble"
         return "treble" if median > 67 else "bass"
 
-    def _fill_voice(self, items: list, mql: float, voice_id: int = 0) -> list:
+    def _collect_plan_issues(self, measures: list[PlannedMeasure]) -> list[dict]:
+        issues: list[dict] = []
+        for measure in measures:
+            for staff in measure.staves:
+                for voice in staff.voices:
+                    for issue in validate_voice_timeline(
+                        voice.elements, measure.duration_beats
+                    ):
+                        packed = {
+                            "measure": measure.number,
+                            "staff": staff.staff_id,
+                            "voice": voice.voice_id,
+                            **issue,
+                        }
+                        issues.append(packed)
+                        if issue.get("reason") in (
+                            "overlap",
+                            "ends_after_measure",
+                            "negative_duration",
+                            "zero_duration",
+                            "starts_before_zero",
+                        ):
+                            log_notation_invariant("INVALID", **packed)
+        return issues
+
+    def _serial_lanes(self, items: list) -> list[list]:
+        """Split a MIR voice into lanes that can be spelled without overlap.
+
+        Same-onset notes with compatible durations stay together (chords).
+        Different-duration same-onset notes and mid-note overlaps get their
+        own lane so genuine polyphony is not serialized into overflow.
+        """
         if not items:
-            return [PlannedRest(start_q=0.0, duration_q=mql, voice=voice_id)]
+            return [[]]
+        ordered = sorted(items, key=lambda it: (it[1], it[0].pitch))
+        lanes: list[list] = []
+        for item in ordered:
+            placed = False
+            for lane in lanes:
+                if self._fits_lane(lane, item):
+                    lane.append(item)
+                    placed = True
+                    break
+            if not placed:
+                lanes.append([item])
+        return lanes
+
+    def _fits_lane(self, lane: list, item: tuple) -> bool:
+        _ev, start, dur, _tie = item
+        end = start + dur
+        for other in lane:
+            _oev, ostart, odur, _otie = other
+            oend = ostart + odur
+            if abs(start - ostart) <= TIMELINE_TOL and self._compatible_duration(
+                dur, odur
+            ):
+                continue
+            if start < oend - TIMELINE_TOL and ostart < end - TIMELINE_TOL:
+                return False
+        return True
+
+    def _fill_voice(
+        self,
+        items: list,
+        mql: float,
+        voice_id: int = 0,
+        hide_spacer_rests: bool = False,
+        measure_number: int = 0,
+        staff_id: int = 0,
+    ) -> list:
+        if not items:
+            return [
+                PlannedRest(
+                    start_q=0.0,
+                    duration_q=mql,
+                    voice=voice_id,
+                    hidden=False,
+                )
+            ]
 
         items = sorted(items, key=lambda it: (it[1], it[0].pitch))
         chords: list[list] = []
@@ -270,13 +442,12 @@ class NotationPlanner:
 
         elements: list = []
         cursor = 0.0
-        voice_id = items[0][0].voice
         for group in chords:
             start = group[0][1]
             dur = max(it[2] for it in group)
-            if start < cursor - 1e-8:
-                # Same-onset leftovers with incompatible duration: fold into the
-                # previous chord rather than overlapping the voice timeline.
+            if not elements and 0.0 < start < REST_MIN_QL:
+                start = 0.0
+            if start < cursor - TIMELINE_TOL:
                 prev = next(
                     (
                         el
@@ -285,19 +456,46 @@ class NotationPlanner:
                     ),
                     None,
                 )
-                if prev is not None and abs(prev.start_q - start) < 1e-6:
+                if prev is not None and abs(prev.start_q - start) < TIMELINE_TOL:
                     extra = sorted({it[0].pitch for it in group})
                     prev.pitches = sorted(set(prev.pitches) | set(extra))
-                    prev.duration_q = max(prev.duration_q, dur)
-                    cursor = max(cursor, start + prev.duration_q)
+                    ids = [it[0].note_id for it in group if it[0].note_id]
+                    prev.event_ids = list(dict.fromkeys([*prev.event_ids, *ids]))
                     continue
+                log_notation_invariant(
+                    "INVALID",
+                    measure=measure_number,
+                    staff=staff_id,
+                    voice=voice_id,
+                    element="PlannedNote",
+                    start=start,
+                    duration=dur,
+                    end=start + dur,
+                    measure_length=mql,
+                    event_ids=[it[0].note_id for it in group if it[0].note_id],
+                    pitch=sorted({it[0].pitch for it in group}),
+                    reason="same_voice_overlap",
+                )
                 start = cursor
-            if start > cursor + 1e-8:
+            if start > cursor + REST_MIN_QL - TIMELINE_TOL:
                 gap = start - cursor
-                elements.extend(self._rests(cursor, gap, voice_id))
+                elements.extend(
+                    self._rests(
+                        cursor,
+                        gap,
+                        voice_id,
+                        hidden=hide_spacer_rests,
+                    )
+                )
+                cursor = start
+            elif start > cursor + TIMELINE_TOL:
+                # Tiny gap: keep the voice serial without a 32nd-or-smaller rest.
+                prev = elements[-1] if elements else None
+                if prev is not None:
+                    prev.duration_q += start - cursor
                 cursor = start
             dur = min(dur, max(0.0, mql - start))
-            if dur <= 1e-8:
+            if dur <= TIMELINE_TOL:
                 continue
             pitches = sorted({it[0].pitch for it in group})
             ties = {it[3] for it in group if it[3]}
@@ -327,29 +525,73 @@ class NotationPlanner:
             )
             cursor = max(cursor, start + dur)
 
-        if cursor < mql - 1e-8:
-            elements.extend(self._rests(cursor, mql - cursor, voice_id))
+        leftover = mql - cursor
+        if leftover >= REST_MIN_QL - TIMELINE_TOL:
+            elements.extend(
+                self._rests(
+                    cursor,
+                    leftover,
+                    voice_id,
+                    hidden=hide_spacer_rests,
+                )
+            )
+        elif leftover > TIMELINE_TOL and elements:
+            elements[-1].duration_q += leftover
 
         if quantization_spells_writable(self.quantizer.mode):
-            elements = self._spell_writable(elements, mql, voice_id)
+            elements = self._spell_writable(
+                elements,
+                mql,
+                voice_id,
+                hide_spacer_rests=hide_spacer_rests,
+            )
 
-        self._assert_sum(elements, mql, voice_id)
+        self._assert_sum(elements, mql, voice_id, hide_spacer_rests=hide_spacer_rests)
+        for issue in validate_voice_timeline(elements, mql):
+            if issue.get("reason") in (
+                "overlap",
+                "ends_after_measure",
+                "negative_duration",
+                "zero_duration",
+                "starts_before_zero",
+            ):
+                log_notation_invariant(
+                    "INVALID",
+                    measure=measure_number,
+                    staff=staff_id,
+                    voice=voice_id,
+                    **issue,
+                )
         return elements
 
-    def _spell_writable(self, elements: list, mql: float, voice_id: int) -> list:
+    def _spell_writable(
+        self,
+        elements: list,
+        mql: float,
+        voice_id: int,
+        hide_spacer_rests: bool = False,
+    ) -> list:
         """Encode off-mode timing as tied named note types (no 32nd-grid snap)."""
         spelled: list = []
         cursor = 0.0
         for el in elements:
             remaining_bar = max(0.0, mql - cursor)
-            if remaining_bar <= 1e-8:
+            if remaining_bar <= TIMELINE_TOL:
                 break
             if isinstance(el, PlannedRest):
+                hidden = bool(getattr(el, "hidden", False) or hide_spacer_rests)
                 for d in duration_pieces(
                     el.duration_q, allow_empty=True, max_total=remaining_bar
                 ):
+                    if d < REST_MIN_QL - TIMELINE_TOL:
+                        continue
                     spelled.append(
-                        PlannedRest(start_q=cursor, duration_q=d, voice=voice_id)
+                        PlannedRest(
+                            start_q=cursor,
+                            duration_q=d,
+                            voice=voice_id,
+                            hidden=hidden,
+                        )
                     )
                     cursor += d
                     remaining_bar = max(0.0, mql - cursor)
@@ -377,18 +619,34 @@ class NotationPlanner:
                 )
                 cursor += d
 
-        if cursor < mql - 1e-8:
+        leftover = mql - cursor
+        if leftover >= REST_MIN_QL - TIMELINE_TOL:
             for d in duration_pieces(
-                mql - cursor, allow_empty=True, max_total=mql - cursor
+                leftover, allow_empty=True, max_total=leftover
             ):
+                if d < REST_MIN_QL - TIMELINE_TOL:
+                    continue
                 spelled.append(
-                    PlannedRest(start_q=cursor, duration_q=d, voice=voice_id)
+                    PlannedRest(
+                        start_q=cursor,
+                        duration_q=d,
+                        voice=voice_id,
+                        hidden=hide_spacer_rests,
+                    )
                 )
                 cursor += d
+        elif leftover > TIMELINE_TOL and spelled:
+            spelled[-1].duration_q += leftover
+            cursor = mql
         if not spelled:
             for d in duration_pieces(mql, allow_empty=False, max_total=mql):
                 spelled.append(
-                    PlannedRest(start_q=0.0, duration_q=d, voice=voice_id)
+                    PlannedRest(
+                        start_q=0.0 if not spelled else cursor,
+                        duration_q=d,
+                        voice=voice_id,
+                        hidden=False,
+                    )
                 )
         return spelled
 
@@ -399,7 +657,7 @@ class NotationPlanner:
             return False
         if staff_for_hand(ev.hand, ev.pitch) != staff_for_hand(seed_ev.hand, seed_ev.pitch):
             return False
-        if abs(start - seed_start) > 1e-6:
+        if abs(start - seed_start) > TIMELINE_TOL:
             return False
         return self._compatible_duration(seed_dur, dur)
 
@@ -410,23 +668,51 @@ class NotationPlanner:
             return True
         return short >= long * CHORD_DURATION_RATIO - 1e-9
 
-    def _rests(self, start: float, duration: float, voice: int) -> list[PlannedRest]:
+    def _rests(
+        self,
+        start: float,
+        duration: float,
+        voice: int,
+        hidden: bool = False,
+    ) -> list[PlannedRest]:
         parts: list[PlannedRest] = []
         remaining = duration
         cursor = start
-        if remaining <= 1e-8:
+        if remaining <= TIMELINE_TOL:
+            return parts
+        if remaining < REST_MIN_QL - TIMELINE_TOL:
             return parts
         for d in REST_CANDIDATES:
             while remaining >= d - 1e-9:
-                parts.append(PlannedRest(start_q=cursor, duration_q=d, voice=voice))
+                parts.append(
+                    PlannedRest(
+                        start_q=cursor,
+                        duration_q=d,
+                        voice=voice,
+                        hidden=hidden,
+                    )
+                )
                 cursor += d
                 remaining -= d
-        if remaining > 1e-6:
-            parts.append(PlannedRest(start_q=cursor, duration_q=remaining, voice=voice))
+        if remaining >= REST_MIN_QL - TIMELINE_TOL:
+            parts.append(
+                PlannedRest(
+                    start_q=cursor,
+                    duration_q=remaining,
+                    voice=voice,
+                    hidden=hidden,
+                )
+            )
         return parts
 
-    def _assert_sum(self, elements: list, mql: float, voice_id: int = 0) -> None:
-        self._repair_sum(elements, mql, voice_id)
+    def _assert_sum(
+        self,
+        elements: list,
+        mql: float,
+        voice_id: int = 0,
+        hide_spacer_rests: bool = False,
+    ) -> None:
+        self._repair_sum(elements, mql, voice_id, hide_spacer_rests=hide_spacer_rests)
         total = sum(getattr(el, "duration_q", 0.0) for el in elements)
         if abs(total - mql) > VOICE_SUM_TOLERANCE:
             raise ValueError(
@@ -434,15 +720,30 @@ class NotationPlanner:
                 f"expected measure duration {mql:.4f}"
             )
 
-    def _repair_sum(self, elements: list, mql: float, voice_id: int) -> None:
+    def _repair_sum(
+        self,
+        elements: list,
+        mql: float,
+        voice_id: int,
+        hide_spacer_rests: bool = False,
+    ) -> None:
         if not elements:
-            elements.append(PlannedRest(start_q=0.0, duration_q=mql, voice=voice_id))
+            elements.append(
+                PlannedRest(
+                    start_q=0.0,
+                    duration_q=mql,
+                    voice=voice_id,
+                    hidden=False,
+                )
+            )
             return
         total = sum(el.duration_q for el in elements)
-        if abs(total - mql) <= 1e-6:
+        if abs(total - mql) <= TIMELINE_TOL:
             return
         if total > mql:
             extra = total - mql
+            # Prefer trimming trailing rests (including hidden spacers) rather
+            # than shortening sounding notes.
             for el in reversed(elements):
                 if extra <= 1e-9:
                     break
@@ -450,22 +751,42 @@ class NotationPlanner:
                     shrink = min(el.duration_q, extra)
                     el.duration_q -= shrink
                     extra -= shrink
-                elif el.duration_q > extra:
-                    el.duration_q -= extra
+            if extra > 1e-9:
+                last = elements[-1]
+                if last.duration_q > extra:
+                    last.duration_q -= extra
                     extra = 0.0
-            elements[:] = [el for el in elements if el.duration_q > 1e-8]
+            elements[:] = [el for el in elements if el.duration_q > TIMELINE_TOL]
             return
         gap = mql - total
         last = elements[-1]
         last_end = last.start_q + last.duration_q
+        if gap < REST_MIN_QL - TIMELINE_TOL:
+            last.duration_q += gap
+            return
         if quantization_spells_writable(self.quantizer.mode):
             for d in duration_pieces(gap, allow_empty=True, max_total=gap):
+                if d < REST_MIN_QL - TIMELINE_TOL:
+                    continue
                 elements.append(
-                    PlannedRest(start_q=last_end, duration_q=d, voice=voice_id)
+                    PlannedRest(
+                        start_q=last_end,
+                        duration_q=d,
+                        voice=voice_id,
+                        hidden=hide_spacer_rests,
+                    )
                 )
                 last_end += d
+            leftover = mql - sum(el.duration_q for el in elements)
+            if leftover > TIMELINE_TOL:
+                elements[-1].duration_q += leftover
             return
         if isinstance(last, PlannedRest):
             last.duration_q += gap
         else:
-            elements.extend(self._rests(last_end, gap, voice_id))
+            added = self._rests(last_end, gap, voice_id, hidden=hide_spacer_rests)
+            if added:
+                elements.extend(added)
+            else:
+                last.duration_q += gap
+

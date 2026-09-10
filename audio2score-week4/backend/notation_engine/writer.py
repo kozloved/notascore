@@ -10,6 +10,7 @@ Legacy build_score() remains as a fallback if the planner raises.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from music21 import (
@@ -33,7 +34,7 @@ from mir.models import NotationPlan, PlannedRest
 from mir.quantizer import SMALLEST_WRITABLE, snap_writable_length
 from mir.types import Hand, MusicalEvent, ScoreMeta, TempoMap
 from notation_engine.meter import bar_length, estimate_key, estimate_time_signature
-from notation_engine.plan import NotationPlanner
+from notation_engine.plan import NotationPlanner, log_notation_invariant, validate_voice_timeline
 from notation_engine.quantize import quantize_events
 from mir.pipeline_config import (
     QuantizationMode,
@@ -58,17 +59,36 @@ class NotationWriter:
         self.last_fallback_used: bool = False
         self.last_fallback_error: str | None = None
         self.last_quantization_mode: QuantizationMode = QuantizationMode.ADAPTIVE
+        self.last_job_id: str | None = None
+        self.last_source_event_count: int = 0
+        self.last_plan_failure: bool = False
+        self.last_conversion_failure: bool = False
+        self.last_export_failure: bool = False
+        self.last_fit_trim_count: int = 0
+        self.last_invariant_issues: list[dict] = []
 
     def notation_debug_payload(self) -> dict:
         plan = self.last_plan
+        plan_ok = plan is not None and not self.last_plan_failure
         return {
             "notation_path": (
                 "legacy_build_score" if self.last_fallback_used else "notation_plan"
             ),
+            "notation_mode": self.last_quantization_mode.value,
+            "notation_plan_success": plan_ok and not self.last_conversion_failure,
+            "notation_plan_failure": self.last_plan_failure,
+            "legacy_fallback_used": self.last_fallback_used,
+            "music21_conversion_failure": self.last_conversion_failure,
+            "musicxml_export_failure": self.last_export_failure,
             "notation_fallback_error": self.last_fallback_error,
             "fallback_used": self.last_fallback_used,
+            "job_id": self.last_job_id,
+            "source_event_count": self.last_source_event_count,
+            "quantized_event_count": len(self.last_quantized_events or []),
             "time_signature": plan.time_signature if plan else None,
             "measure_count": len(plan.measures) if plan else 0,
+            "fit_trim_count": self.last_fit_trim_count,
+            "invariant_issues": list(self.last_invariant_issues),
             "quantization_decisions": list(self.last_quantization_decisions),
             "quantization_summary": dict(self.last_quantization_summary),
         }
@@ -86,6 +106,9 @@ class NotationWriter:
     ) -> str:
         out_dir = Path(audio_path).parent / f"bp_{job_id}"
         out_dir.mkdir(exist_ok=True)
+        self.last_job_id = job_id
+        self.last_source_event_count = len(events)
+        self.last_export_failure = False
 
         try:
             score = self._score_via_plan_or_legacy(
@@ -115,6 +138,7 @@ class NotationWriter:
             self._export_musicxml(score, xml_path)
         except Exception as exc:
             print(f"[Notation] MusicXML export failed ({exc!s}), MIDI round-trip")
+            self.last_export_failure = True
             if not self.last_fallback_used:
                 self.last_fallback_used = True
                 self.last_fallback_error = f"{type(exc).__name__}: {exc}"
@@ -173,6 +197,13 @@ class NotationWriter:
         self.last_quantized_events = []
         self.last_fallback_used = False
         self.last_fallback_error = None
+        self.last_plan_failure = False
+        self.last_conversion_failure = False
+        self.last_fit_trim_count = 0
+        self.last_invariant_issues = []
+        self.last_source_event_count = len(events)
+        plan = None
+        decisions: list[dict] = []
         try:
             plan, decisions = self.planner.build(
                 events,
@@ -181,6 +212,20 @@ class NotationWriter:
                 fallback_bpm=fallback_bpm,
                 quantization_mode=mode,
             )
+        except Exception as exc:
+            reason = f"{type(exc).__name__}: {exc}"
+            print(f"[Notation] NotationPlanner failed ({reason}); falling back to legacy build_score")
+            self.last_plan_failure = True
+            self.last_fallback_used = True
+            self.last_fallback_error = reason
+            return self.build_score(
+                events,
+                meta,
+                quantize_divisors=quantize_divisors,
+                fallback_bpm=fallback_bpm,
+                quantization_mode=mode,
+            )
+        try:
             score = self.score_from_plan(plan, meta=meta)
             self.last_plan = plan
             self.last_quantization_decisions = decisions
@@ -188,17 +233,30 @@ class NotationWriter:
                 (plan.extra or {}).get("quantization") or {}
             )
             self.last_quantized_events = list(self.planner.quantizer.last_events)
+            self.last_invariant_issues = list(
+                (plan.extra or {}).get("invariant_issues") or []
+            )
             print(
                 f"[Notation] NotationPlan "
+                f"job={self.last_job_id or '-'} "
+                f"mode={mode.value} "
+                f"source_events={len(events)} "
+                f"quantized_events={len(self.last_quantized_events)} "
                 f"({plan.time_signature}, {len(plan.measures)} measures, "
                 f"{len(decisions)} quantized events)"
             )
             return score
         except Exception as exc:
             reason = f"{type(exc).__name__}: {exc}"
-            print(f"[Notation] NotationPlanner failed ({reason}); falling back to legacy build_score")
+            print(
+                f"[Notation] music21 conversion failed ({reason}); "
+                "falling back to legacy build_score"
+            )
+            self.last_conversion_failure = True
             self.last_fallback_used = True
             self.last_fallback_error = reason
+            self.last_plan = plan
+            self.last_quantization_decisions = decisions
             return self.build_score(
                 events,
                 meta,
@@ -260,22 +318,69 @@ class NotationWriter:
                     rest_voice = stream.Voice(id="1")
                     rest = self._rest_for_length(measure_ql)
                     if rest is not None:
-                        rest_voice.append(rest)
+                        self._safe_append(rest_voice, rest)
                     self._safe_insert(m, 0, rest_voice)
                 else:
                     for vplan in staff.voices:
                         voice = stream.Voice(id=str(vplan.voice_id + 1))
+                        for issue in validate_voice_timeline(vplan.elements, measure_ql):
+                            if issue.get("reason") in (
+                                "overlap",
+                                "ends_after_measure",
+                                "negative_duration",
+                                "zero_duration",
+                                "starts_before_zero",
+                            ):
+                                log_notation_invariant(
+                                    "INVALID",
+                                    job_id=self.last_job_id,
+                                    notation_mode=self.last_quantization_mode.value,
+                                    measure=measure_plan.number,
+                                    staff=sid,
+                                    voice=vplan.voice_id,
+                                    **issue,
+                                )
                         for el in vplan.elements:
                             m21el = self._element_to_m21(el)
-                            if m21el is not None:
-                                voice.append(m21el)
+                            converted = m21el is not None
+                            if not converted:
+                                log_notation_invariant(
+                                    "SKIP",
+                                    job_id=self.last_job_id,
+                                    measure=measure_plan.number,
+                                    staff=sid,
+                                    voice=vplan.voice_id,
+                                    element=type(el).__name__,
+                                    start=getattr(el, "start_q", None),
+                                    duration=getattr(el, "duration_q", None),
+                                    event_ids=list(getattr(el, "event_ids", None) or []),
+                                    pitch=list(getattr(el, "pitches", None) or []),
+                                    tie=getattr(el, "tie", None),
+                                    converted=False,
+                                )
+                            self._safe_append(voice, m21el)
                         if not list(voice.notesAndRests):
                             rest = self._rest_for_length(measure_ql)
-                            if rest is not None:
-                                voice.append(rest)
-                        self._fit_stream_to_quarter_length(voice, measure_ql)
+                            self._safe_append(voice, rest)
+                        before_trim = self.last_fit_trim_count
+                        self._fit_stream_to_quarter_length(
+                            voice,
+                            measure_ql,
+                            measure_number=measure_plan.number,
+                            staff_id=sid,
+                            voice_id=vplan.voice_id,
+                        )
+                        if self.last_fit_trim_count > before_trim:
+                            log_notation_invariant(
+                                "TRIM",
+                                job_id=self.last_job_id,
+                                measure=measure_plan.number,
+                                staff=sid,
+                                voice=vplan.voice_id,
+                                measure_length=measure_ql,
+                            )
                         self._safe_insert(m, 0, voice)
-                part.append(m)
+                self._safe_append(part, m)
 
         bpm = int(plan.tempo_bpm)
         if meta and meta.display_tempo_bpm:
@@ -292,7 +397,14 @@ class NotationWriter:
         if ql <= 1e-8:
             return None
         if isinstance(el, PlannedRest):
-            return self._rest_for_length(ql)
+            rest = self._rest_for_length(ql)
+            if rest is not None and getattr(el, "hidden", False):
+                rest.hideObjectOnPrint = True
+                try:
+                    rest.style.hideObjectOnPrint = True
+                except Exception:
+                    pass
+            return rest
         pitches: list[int] = []
         for raw in getattr(el, "pitches", None) or []:
             try:
@@ -371,29 +483,74 @@ class NotationWriter:
         return True
 
     @staticmethod
-    def _fit_stream_to_quarter_length(container, mql: float) -> None:
-        """Keep a voice inside the bar so music21 makeTies cannot insert None."""
+    def _safe_append(container, obj) -> bool:
+        if obj is None or not isinstance(obj, Music21Object):
+            return False
+        container.append(obj)
+        return True
+
+    def _fit_stream_to_quarter_length(
+        self,
+        container,
+        mql: float,
+        measure_number: int | None = None,
+        staff_id: int | None = None,
+        voice_id: int | None = None,
+    ) -> int:
+        """Last-resort bar clamp. Valid plans must not need this.
+
+        Overflow is logged rather than silently deleting musical material.
+        """
         mql = float(mql or 0.0)
         if mql <= 1e-8:
-            return
+            return 0
         overflow = float(container.highestTime) - mql
         if overflow <= 1e-6:
-            return
+            return 0
+        trimmed = 0
         for el in reversed(list(container.notesAndRests)):
             if overflow <= 1e-6:
                 break
             ql = float(el.quarterLength or 0.0)
+            cls = type(el).__name__
             if ql <= overflow + 1e-9:
                 container.remove(el)
                 overflow -= ql
+                trimmed += 1
+                log_notation_invariant(
+                    "TRIM",
+                    job_id=self.last_job_id,
+                    measure=measure_number,
+                    staff=staff_id,
+                    voice=voice_id,
+                    element=cls,
+                    duration=ql,
+                    measure_length=mql,
+                    action="remove",
+                )
                 continue
             el.quarterLength = ql - overflow
+            trimmed += 1
+            log_notation_invariant(
+                "TRIM",
+                job_id=self.last_job_id,
+                measure=measure_number,
+                staff=staff_id,
+                voice=voice_id,
+                element=cls,
+                duration=ql,
+                end=ql - overflow,
+                measure_length=mql,
+                action="shorten",
+            )
             overflow = 0.0
             if float(el.quarterLength) <= 1e-8:
                 container.remove(el)
         if not list(container.notesAndRests):
             rest = m21note.Rest(quarterLength=mql)
-            container.append(rest)
+            self._safe_append(container, rest)
+        self.last_fit_trim_count += trimmed
+        return trimmed
 
     def build_score(
         self,
@@ -647,7 +804,6 @@ class NotationWriter:
         self._sanitize_export_durations(score)
         try:
             score.write("musicxml", fp=str(xml_path))
-            return
         except Exception as exc:
             print(
                 f"[Notation] MusicXML write failed ({exc!s}); "
@@ -655,6 +811,10 @@ class NotationWriter:
             )
             self._sanitize_export_durations(score)
             score.write("musicxml", fp=str(xml_path), makeNotation=False)
+        xml = xml_path.read_text(encoding="utf-8")
+        cleaned = _strip_forced_musicxml_layout(xml)
+        if cleaned != xml:
+            xml_path.write_text(cleaned, encoding="utf-8")
 
     def _sanitize_export_durations(self, score) -> None:
         """Replace MusicXML-inexpressible durations and trim voices to the bar."""
@@ -690,8 +850,55 @@ class NotationWriter:
             self._fit_stream_to_quarter_length(voice, mql)
             if not list(voice.notesAndRests):
                 rest = self._rest_for_length(mql)
-                if rest is not None:
-                    voice.append(rest)
+                self._safe_append(voice, rest)
+
+
+def iter_invalid_stream_objects(score) -> list[tuple[str, object]]:
+    """Return (site, obj) pairs that are not music21 objects."""
+    bad: list[tuple[str, object]] = []
+    try:
+        sites = [score, *score.recurse()]
+    except Exception:
+        sites = [score]
+    for site in sites:
+        try:
+            children = list(site)
+        except Exception:
+            continue
+        site_name = type(site).__name__
+        for child in children:
+            if child is None or not isinstance(child, Music21Object):
+                bad.append((site_name, child))
+    return bad
+
+
+def _strip_forced_musicxml_layout(xml: str) -> str:
+    """Remove explicit system/page breaks and measure widths.
+
+    OSMD packs measures from available page width. Forced MusicXML breaks
+    produce one-bar-per-line scores even when the music is short.
+    """
+    cleaned = re.sub(r'\snew-system="yes"', "", xml, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\snew-page="yes"', "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"<system-layout>[\s\S]*?</system-layout>",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"<page-layout>[\s\S]*?</page-layout>",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r'(<measure\b[^>]*?)\s+width="[^"]*"',
+        r"\1",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    return cleaned
 
 
 def _staff_for(ev: MusicalEvent) -> str:
