@@ -196,10 +196,10 @@ def test_quality_pipeline_uses_mt3_not_basic_pitch(
 
 @patch("mir.pipeline.AudioSegmenter.segment", return_value=[])
 @patch("audio_engine.instrument_classifier.InstrumentClassifier.classify")
-def test_polyphonic_pipeline_makes_one_runsync(
+def test_polyphonic_pipeline_queues_one_runpod_job(
     mock_classify, _mock_segment, tmp_path, monkeypatch
 ):
-    """Create → one processing job → one MT3 /runsync. No warmup /run."""
+    """Create → one processing job → one MT3 /run. No warmup."""
     from mir.types import InstrumentKind, InstrumentPrediction
 
     midi_bytes = _one_note_midi_bytes(64)
@@ -226,11 +226,11 @@ def test_polyphonic_pipeline_makes_one_runsync(
     t = np.linspace(0, 1, sr, endpoint=False)
     sf.write(str(audio), 0.2 * np.sin(2 * np.pi * 440 * t), sr)
 
-    xml = UnderstandingPipeline(backend_name="mt3").transcribe(audio, "one-runsync")
+    xml = UnderstandingPipeline(backend_name="mt3").transcribe(audio, "one-run")
     assert "score-partwise" in xml.lower()
     assert len(calls) == 1
-    assert calls[0].endswith("/runsync")
-    assert not any(url.rstrip("/").endswith("/run") for url in calls)
+    assert calls[0].endswith("/run")
+    assert "runsync" not in calls[0]
 
 
 @patch("mir.pipeline.AudioSegmenter.segment", return_value=[])

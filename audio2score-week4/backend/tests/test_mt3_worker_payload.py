@@ -68,3 +68,6 @@ def test_warmup_flag_nested_and_console():
     assert is_warmup_job({"input": {"input": {"warmup": 1}}}) is True
     assert is_warmup_job({"input": {"audio_base64": "QUJD"}}) is False
     assert is_warmup_job({}) is False
+    assert is_warmup_job(
+        {"input": {"warmup": True, "audio_base64": "QUJD"}}
+    ) is False

@@ -31,7 +31,7 @@ Follow [VPS.md](VPS.md). Compose starts Redis, API, worker, frontend, nginx, and
 MT3_ENDPOINT=https://api.runpod.ai/v2/g40wir5ey71e3/runsync
 MT3_API_KEY=<RunPod API key>
 MT3_MODEL=yourmt3
-MT3_TIMEOUT_SECONDS=300
+MT3_TIMEOUT_SECONDS=600
 ```
 
 Or a Vast.ai HTTP worker:
