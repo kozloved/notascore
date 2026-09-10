@@ -348,6 +348,8 @@ def generate_candidates(
         binary = (1.0, 0.5, 0.25)
     elif ctx.analysis.pattern == "eighths":
         binary = (0.5, 0.25)
+    elif ctx.analysis.pattern == "triplets":
+        binary = (0.25, 0.5)
     elif ctx.analysis.pattern == "sixteenths":
         binary = (0.25, 0.5)
     else:
@@ -426,12 +428,26 @@ def _score_grid(
     overtime = 0.0
     if max_err > ctx.max_timing_error:
         overtime = 8.0 * (max_err - ctx.max_timing_error)
+
+    pattern_term = 0.0
+    pattern = ctx.analysis.pattern
+    if pattern == "triplets" and ctx.analysis.triplet_evidence >= 0.45:
+        if triplet:
+            pattern_term = -0.45
+            tuplet_pen = min(tuplet_pen, 0.02)
+            complexity = min(complexity, 0.05)
+        else:
+            pattern_term = 0.7 + max(0.0, max_err - 0.08) * 4.0
+    elif triplet and pattern in ("eighths", "sixteenths", "quarters"):
+        pattern_term = 1.6
+
     return (
         mean_err
         + ctx.complexity_weight * complexity
         + unused
         + ctx.tuplet_weight * tuplet_pen
         + overtime
+        + pattern_term
     )
 
 
@@ -453,6 +469,12 @@ def snap_onsets(
             cluster.raw_onset, mql, pull_beats=ctx.barline_pull
         )
         grid = _grid_for_measure(selected_grids, idx, ctx)
+        if (
+            ctx.mode != QuantizationMode.STRICT_GRID
+            and ctx.analysis.pattern == "triplets"
+            and ctx.analysis.triplet_evidence >= 0.45
+        ):
+            grid = TRIPLET_GRID
         # Pattern lock: stay on the repeated grid when the error is small.
         pattern_grid = ctx.analysis.pattern_grid
         if (
