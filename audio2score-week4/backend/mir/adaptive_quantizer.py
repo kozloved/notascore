@@ -1,19 +1,23 @@
 """Adaptive notation quantizer.
 
-Performance MIDI stays untouched. This module builds a derived notation
-representation from copies of the transcribed events:
+Works only on copies of transcribed events. Raw performance MIDI stays
+untouched. One scoring model picks a rhythmic interpretation:
 
-    Performance notes
-      → rhythmic analysis
-      → meter / beat context
-      → candidate grid generation
-      → adaptive quantization
-      → chord / voice consistency
-      → duration / rest cleanup
-      → notation validation
-      → notation events
+    TOTAL COST = timing error
+               + duration error
+               + notation complexity
+               + rest penalty
+               + triplet penalty
+               + inconsistency penalty
+               + boundary penalty
+               + movement penalty
 
-Never write quantized onsets or durations back onto the raw event list.
+Hard constraints (never scored away):
+
+* note count / ids / pitches / velocities preserved
+* duration > 0 and duration <= available space
+* no invented barline crossings
+* no same-voice overlaps
 """
 
 from __future__ import annotations
@@ -26,15 +30,27 @@ from mir.models import MeterHypothesis, staff_for_hand
 from mir.pipeline_config import QuantizationMode
 from mir.types import MusicalEvent, copy_event
 
-# Named durations used for notation. 32nds (0.125) are not a default unit.
+EPS = 1e-9
+MIN_DURATION = 1e-4
+MAX_ONSET_MOVE = 0.22
+TINY_REST = 0.12
+
 BINARY_DURATIONS = (4.0, 3.0, 2.0, 1.5, 1.0, 0.75, 0.5, 0.375, 0.25)
 TUPLET_DURATIONS = (2.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0)
 SIMPLE_DURATIONS = {4.0, 2.0, 1.0, 0.5, 0.25}
 DOTTED_DURATIONS = {3.0, 1.5, 0.75, 0.375}
 
-BINARY_GRIDS = (1.0, 0.5, 0.25)
 TRIPLET_GRID = 1.0 / 3.0
 EIGHTH_TRIPLET_GRID = 1.0 / 6.0
+
+COMPLEXITY = {
+    1.5: 0.08,
+    1.0: 0.0,
+    0.5: 0.05,
+    0.25: 0.2,
+    TRIPLET_GRID: 0.35,
+    EIGHTH_TRIPLET_GRID: 0.45,
+}
 
 
 @dataclass
@@ -48,7 +64,7 @@ class QuantizationContext:
     absorb_rest: float = 0.12
     max_timing_error: float = 0.18
     barline_pull: float = 0.125
-    pattern_lock: float = 0.14
+    max_onset_move: float = MAX_ONSET_MOVE
     complexity_weight: float = 0.35
     tuplet_weight: float = 0.55
     rest_weight: float = 0.7
@@ -69,6 +85,7 @@ class ChordCluster:
     raw_onset: float
     quantized_onset: float = 0.0
     measure_idx: int = 0
+    preserved: bool = False
 
 
 @dataclass
@@ -80,6 +97,7 @@ class RhythmicAnalysis:
     triplet_groups: int = 0
     triplet_evidence: float = 0.0
     clusters: list[ChordCluster] = field(default_factory=list)
+    compound: bool = False
 
 
 @dataclass
@@ -99,6 +117,7 @@ class QuantizationDecision:
     cost: float
     reason: str
     measure: int
+    preserved_timing: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -117,6 +136,7 @@ class QuantizationDecision:
             "cost": self.cost,
             "reason": self.reason,
             "measure": self.measure,
+            "preserved_timing": self.preserved_timing,
         }
 
 
@@ -139,24 +159,14 @@ def quantize_notation(
     mode: QuantizationMode = QuantizationMode.ADAPTIVE,
 ) -> tuple[list[MusicalEvent], list[dict], QuantizationReport]:
     """Return notation copies. ``events`` is treated as read-only raw input."""
-    from mir.quantizer import QuantizerConfig, measure_index_for_onset, summarize_quantization
+    from mir.quantizer import QuantizerConfig, summarize_quantization
 
     cfg = config or QuantizerConfig()
     raw = [copy_event(ev) for ev in events]
     if not raw:
         empty = QuantizationReport(
             decisions=[],
-            summary={
-                "raw_events": 0,
-                "quantized_events": 0,
-                "events_changed": 0,
-                "events_removed": 0,
-                "average_onset_displacement": 0.0,
-                "average_duration_displacement": 0.0,
-                "triplet_decisions": 0,
-                "removed_events": [],
-                "engine": "adaptive",
-            },
+            summary=_empty_quality_summary(),
             raw_events=[],
             notation_events=[],
             selected_grids={},
@@ -169,7 +179,7 @@ def quantize_notation(
     )
     ctx = QuantizationContext(
         meter=meter,
-        mql=float(meter.measure_quarter_length),
+        mql=float(meter.measure_quarter_length) or 4.0,
         mode=mode,
         raw_events=raw,
         analysis=analysis,
@@ -177,6 +187,7 @@ def quantize_notation(
         absorb_rest=cfg.absorb_rest_ql,
         max_timing_error=cfg.max_timing_error,
         barline_pull=cfg.barline_pull_beats,
+        max_onset_move=float(getattr(cfg, "max_onset_move", MAX_ONSET_MOVE)),
         complexity_weight=cfg.complexity_weight,
         tuplet_weight=cfg.tuplet_weight,
         rest_weight=cfg.rest_weight,
@@ -185,17 +196,16 @@ def quantize_notation(
 
     selected_grids = select_measure_grids(ctx)
     snapped = snap_onsets(ctx, selected_grids)
-    snapped = align_chords(ctx, snapped, selected_grids)
+    snapped = align_chords(ctx, snapped)
+    snapped = resolve_onset_collisions(ctx, snapped)
     snapped = quantize_durations(ctx, snapped, selected_grids)
-    snapped = cleanup_rests_and_durations(ctx, snapped)
+    snapped = clamp_voice_overlaps(snapped)
     snapped, decisions = validate_notation(ctx, snapped, selected_grids)
-
-    from mir.quantizer import MeasureQuantizer
-
-    if len(snapped) < len(raw):
-        snapped, decisions = MeasureQuantizer._restore_missing(raw, snapped, decisions)
+    snapped = restore_identity(raw, snapped)
+    snapped.sort(key=lambda e: (e.start_beat, e.pitch, e.voice))
 
     summary = summarize_quantization(raw, snapped, decisions)
+    summary.update(quality_metrics(raw, snapped, analysis, decisions))
     summary["engine"] = "adaptive"
     summary["pattern"] = analysis.pattern
     summary["triplet_evidence"] = analysis.triplet_evidence
@@ -208,6 +218,26 @@ def quantize_notation(
         analysis=analysis,
     )
     return snapped, decisions, report
+
+
+def _compound_meter(meter: MeterHypothesis) -> bool:
+    ts = (meter.time_signature or "").strip()
+    if ts in {"6/8", "9/8", "12/8"}:
+        return True
+    return int(meter.denominator) == 8 and int(meter.numerator) % 3 == 0
+
+
+def _is_vertical(a: MusicalEvent, b: MusicalEvent, window: float) -> bool:
+    """True when two notes are one vertical event, not successive attacks."""
+    if a.pitch == b.pitch:
+        return False
+    if abs(a.start_beat - b.start_beat) > window + EPS:
+        return False
+    a_end = a.start_beat + max(a.duration_beats, MIN_DURATION)
+    b_end = b.start_beat + max(b.duration_beats, MIN_DURATION)
+    overlap = min(a_end, b_end) - max(a.start_beat, b.start_beat)
+    short = min(max(a.duration_beats, MIN_DURATION), max(b.duration_beats, MIN_DURATION))
+    return overlap >= 0.45 * short
 
 
 def analyze_rhythm(
@@ -224,21 +254,24 @@ def analyze_rhythm(
             continue
         members = [i]
         used.add(i)
-        seed = events[i].start_beat
+        seed = events[i]
         for j in ordered:
             if j in used:
                 continue
-            if abs(events[j].start_beat - seed) <= chord_window:
-                members.append(j)
-                used.add(j)
-                seed = sum(events[k].start_beat for k in members) / len(members)
+            if not _is_vertical(seed, events[j], chord_window):
+                continue
+            if any(events[j].pitch == events[k].pitch for k in members):
+                continue
+            members.append(j)
+            used.add(j)
         onset = sum(events[k].start_beat for k in members) / len(members)
         clusters.append(ChordCluster(indices=members, raw_onset=onset))
 
     onsets = [c.raw_onset for c in clusters]
-    iois = [b - a for a, b in zip(onsets, onsets[1:]) if b - a > 1e-6]
-    pattern, pattern_grid = _detect_pattern(iois, onsets)
-    groups, evidence = _triplet_evidence(onsets)
+    iois = [b - a for a, b in zip(onsets, onsets[1:]) if b - a > EPS]
+    compound = _compound_meter(meter)
+    pattern, pattern_grid = _detect_pattern(iois, onsets, compound=compound)
+    groups, evidence = _triplet_evidence(onsets, meter)
     if pattern == "triplets":
         evidence = max(evidence, 0.7)
         pattern_grid = TRIPLET_GRID
@@ -250,6 +283,7 @@ def analyze_rhythm(
         triplet_groups=groups,
         triplet_evidence=evidence,
         clusters=clusters,
+        compound=compound,
     )
 
 
@@ -257,29 +291,33 @@ def _nearest(value: float, candidates: tuple[float, ...]) -> float:
     return min(candidates, key=lambda c: abs(c - value))
 
 
-def _detect_pattern(iois: list[float], onsets: list[float]) -> tuple[str, float]:
+def _detect_pattern(
+    iois: list[float], onsets: list[float], *, compound: bool
+) -> tuple[str, float]:
     if not iois:
-        return "quarters", 1.0
+        return ("eighths", 0.5) if compound else ("quarters", 1.0)
     named = [_nearest(i, BINARY_DURATIONS + TUPLET_DURATIONS) for i in iois]
     counts = Counter(round(n, 6) for n in named)
-    total = len(named)
+    total = max(1, len(named))
     eighths = counts.get(0.5, 0)
     sixteenths = counts.get(0.25, 0)
     quarters = counts.get(1.0, 0)
-    dotted = counts.get(0.75, 0)
-    triplets = counts.get(round(1.0 / 3.0, 6), 0) + counts.get(round(2.0 / 3.0, 6), 0)
+    dotted = counts.get(0.75, 0) + counts.get(1.5, 0)
+    triplets = counts.get(round(TRIPLET_GRID, 6), 0) + counts.get(round(2.0 / 3.0, 6), 0)
 
-    if triplets / total >= 0.45 and triplets >= 2:
+    eighth_trips = counts.get(round(EIGHTH_TRIPLET_GRID, 6), 0)
+    if not compound and triplets / total >= 0.45 and triplets >= 2:
         return "triplets", TRIPLET_GRID
+    if not compound and eighth_trips / total >= 0.45 and eighth_trips >= 3:
+        return "triplets", EIGHTH_TRIPLET_GRID
     if dotted / total >= 0.25 and sixteenths / total >= 0.2:
         return "dotted", 0.25
     if sixteenths / total >= 0.35 and sixteenths >= 2:
         return "sixteenths", 0.25
     if eighths / total >= 0.5:
         return "eighths", 0.5
-    if quarters / total >= 0.5:
+    if not compound and quarters / total >= 0.5:
         return "quarters", 1.0
-    # Off-eighth 16th density from absolute onsets.
     off_eighth = 0
     for o in onsets:
         if abs((o / 0.5) - round(o / 0.5)) > 0.12:
@@ -290,20 +328,20 @@ def _detect_pattern(iois: list[float], onsets: list[float]) -> tuple[str, float]
     return "eighths", 0.5
 
 
-def _triplet_evidence(onsets: list[float]) -> tuple[int, float]:
-    if len(onsets) < 3:
+def _triplet_evidence(onsets: list[float], meter: MeterHypothesis) -> tuple[int, float]:
+    if _compound_meter(meter) or len(onsets) < 3:
         return 0, 0.0
     groups = 0
     last_beat = int(math.floor(max(onsets))) + 1
     for beat in range(last_beat + 1):
-        local = sorted(o - beat for o in onsets if beat - 1e-6 <= o < beat + 1.0 - 1e-6)
+        local = sorted(o - beat for o in onsets if beat - EPS <= o < beat + 1.0 - EPS)
         unique: list[float] = []
         for rel in local:
             if not unique or abs(rel - unique[-1]) > 0.06:
                 unique.append(rel)
         if len(unique) < 3:
             continue
-        expected = (0.0, 1.0 / 3.0, 2.0 / 3.0)
+        expected = (0.0, TRIPLET_GRID, 2.0 / 3.0)
         trip_err = 0.0
         bin_err = 0.0
         for rel in unique[:3]:
@@ -311,29 +349,104 @@ def _triplet_evidence(onsets: list[float]) -> tuple[int, float]:
             bin_err += min(abs(rel - b) for b in (0.0, 0.25, 0.5, 0.75, 1.0))
         trip_err /= 3
         bin_err /= 3
+        eighth_expected = (0.0, EIGHTH_TRIPLET_GRID, 2.0 / 6.0, 0.5, 4.0 / 6.0, 5.0 / 6.0)
+        eighth_err = 0.0
+        for rel in unique[: min(6, len(unique))]:
+            eighth_err += min(abs(rel - t) for t in eighth_expected)
+        eighth_err /= min(6, len(unique))
         if trip_err + 0.02 < bin_err * 0.75 and trip_err < 0.08:
             groups += 1
-    evidence = 0.0
-    if groups:
-        evidence = min(1.0, 0.4 + 0.3 * groups)
+        elif len(unique) >= 4 and eighth_err + 0.02 < bin_err * 0.7 and eighth_err < 0.06:
+            groups += 1
+    evidence = min(1.0, 0.4 + 0.3 * groups) if groups else 0.0
     return groups, evidence
 
 
-def select_measure_grids(ctx: QuantizationContext) -> dict[int, float]:
-    mql = ctx.mql
-    grids: dict[int, float] = {}
-    by_measure: dict[int, list[float]] = {}
-    from mir.quantizer import measure_index_for_onset
+def _binary_grids(ctx: QuantizationContext) -> tuple[float, ...]:
+    if ctx.mode == QuantizationMode.STRICT_GRID:
+        return (0.25,)
+    if ctx.analysis.compound:
+        return (0.5, 0.25, 1.5)
+    pattern = ctx.analysis.pattern
+    if pattern == "quarters":
+        return (1.0, 0.5, 0.25)
+    if pattern == "eighths":
+        return (0.5, 0.25)
+    if pattern == "sixteenths":
+        return (0.25, 0.5)
+    if pattern == "dotted":
+        return (0.25, 0.5)
+    if pattern == "triplets":
+        return (0.25, 0.5)
+    return (0.5, 0.25, 1.0)
 
-    for onset in ctx.analysis.unique_onsets:
-        idx = measure_index_for_onset(onset, mql, pull_beats=ctx.barline_pull)
-        by_measure.setdefault(idx, []).append(onset - idx * mql)
 
-    for idx, rels in by_measure.items():
-        candidates = generate_candidates(ctx, rels)
-        best = min(candidates, key=lambda c: c.score)
-        grids[idx] = best.grid
-    return grids
+def interpretation_cost(
+    rel_onsets: list[float],
+    grid: float,
+    *,
+    triplet: bool,
+    ctx: QuantizationContext,
+) -> float:
+    """Single cost model used for every rhythmic candidate."""
+    if not rel_onsets:
+        return 0.0
+    errors = [abs(round(rel / grid) * grid - rel) if grid > 0 else abs(rel) for rel in rel_onsets]
+    timing = sum(errors) / len(errors)
+    max_err = max(errors)
+    complexity = COMPLEXITY.get(grid, 0.3)
+
+    unused = 0.0
+    if not triplet:
+        for coarse in (1.5, 1.0, 0.5):
+            if coarse <= grid + EPS:
+                continue
+            coarse_err = [abs(round(rel / coarse) * coarse - rel) for rel in rel_onsets]
+            if sum(coarse_err) / len(coarse_err) < 0.06:
+                unused += 0.35
+
+    triplet_pen = 0.0
+    if triplet:
+        triplet_pen = 0.35
+        if ctx.analysis.triplet_groups < 1 or ctx.analysis.triplet_evidence < 0.45:
+            triplet_pen += 2.2
+        binary_err = [abs(round(rel / 0.25) * 0.25 - rel) for rel in rel_onsets]
+        mean_bin = sum(binary_err) / len(binary_err)
+        if timing + 0.02 >= mean_bin:
+            triplet_pen += 1.0
+
+    inconsistency = 0.0
+    pattern = ctx.analysis.pattern
+    if pattern == "eighths" and grid == 0.25:
+        inconsistency += 0.3
+    if pattern == "sixteenths" and grid >= 0.5 - EPS:
+        inconsistency += 0.45
+    if pattern == "triplets" and not triplet:
+        inconsistency += 0.85
+    if pattern == "quarters" and grid == 0.25:
+        inconsistency += 0.25
+    if ctx.analysis.compound and abs(grid - 1.0) < EPS:
+        inconsistency += 0.6
+    if ctx.analysis.compound and abs(grid - 0.25) < EPS:
+        # 6/8 / 12/8 eighth pulse is 0.5; don't reach for sixteenths by default.
+        inconsistency += 0.2
+
+    boundary = 0.0
+    if max_err > ctx.max_timing_error:
+        boundary += 8.0 * (max_err - ctx.max_timing_error)
+    movement = 0.0
+    if max_err > ctx.max_onset_move:
+        movement += 6.0 * (max_err - ctx.max_onset_move)
+
+    return (
+        timing
+        + ctx.complexity_weight * complexity
+        + unused
+        + ctx.tuplet_weight * triplet_pen
+        + inconsistency
+        + boundary
+        + movement
+    )
 
 
 def generate_candidates(
@@ -341,114 +454,79 @@ def generate_candidates(
 ) -> list[RhythmicCandidate]:
     onsets = rel_onsets or [0.0]
     cands: list[RhythmicCandidate] = []
-    binary = BINARY_GRIDS if ctx.mode != QuantizationMode.STRICT_GRID else (0.25,)
-    if ctx.mode == QuantizationMode.STRICT_GRID:
-        binary = (0.25,)
-    elif ctx.analysis.pattern == "quarters":
-        binary = (1.0, 0.5, 0.25)
-    elif ctx.analysis.pattern == "eighths":
-        binary = (0.5, 0.25)
-    elif ctx.analysis.pattern == "triplets":
-        binary = (0.25, 0.5)
-    elif ctx.analysis.pattern == "sixteenths":
-        binary = (0.25, 0.5)
-    else:
-        binary = (0.5, 0.25, 1.0)
-
-    for grid in binary:
+    for grid in _binary_grids(ctx):
         cands.append(
             RhythmicCandidate(
                 grid=grid,
                 kind="binary",
-                score=_score_grid(ctx, onsets, grid, triplet=False),
+                score=interpretation_cost(onsets, grid, triplet=False, ctx=ctx),
                 reason=f"binary_{grid}",
             )
         )
-
-    allow_triplet = ctx.analysis.triplet_evidence >= 0.45 and ctx.analysis.triplet_groups >= 1
-    if ctx.mode == QuantizationMode.STRICT_GRID:
-        allow_triplet = False
+    allow_triplet = (
+        ctx.mode != QuantizationMode.STRICT_GRID
+        and not ctx.analysis.compound
+        and ctx.analysis.triplet_groups >= 1
+        and ctx.analysis.triplet_evidence >= 0.45
+        and len(onsets) >= 3
+    )
     if allow_triplet:
-        cands.append(
-            RhythmicCandidate(
-                grid=TRIPLET_GRID,
-                kind="triplet",
-                score=_score_grid(ctx, onsets, TRIPLET_GRID, triplet=True),
-                reason="triplet_third",
+        best_bin = min(c.score for c in cands) if cands else 0.0
+        trip = interpretation_cost(onsets, TRIPLET_GRID, triplet=True, ctx=ctx)
+        # Triplets only when they clearly beat every binary reading.
+        if trip + 0.08 < best_bin:
+            cands.append(
+                RhythmicCandidate(
+                    grid=TRIPLET_GRID,
+                    kind="triplet",
+                    score=trip,
+                    reason="triplet_third",
+                )
             )
+        eighth = interpretation_cost(
+            onsets, EIGHTH_TRIPLET_GRID, triplet=True, ctx=ctx
         )
+        if eighth + 0.16 < best_bin and eighth + 0.06 < trip:
+            cands.append(
+                RhythmicCandidate(
+                    grid=EIGHTH_TRIPLET_GRID,
+                    kind="triplet",
+                    score=eighth,
+                    reason="triplet_sixth",
+                )
+            )
     return cands or [
         RhythmicCandidate(grid=0.5, kind="binary", score=0.0, reason="fallback_eighth")
     ]
 
 
-def _score_grid(
-    ctx: QuantizationContext,
-    rel_onsets: list[float],
-    grid: float,
-    *,
-    triplet: bool,
-) -> float:
-    errors = []
-    for rel in rel_onsets:
-        snapped = round(rel / grid) * grid
-        errors.append(abs(snapped - rel))
-    mean_err = sum(errors) / len(errors)
-    max_err = max(errors)
-    complexity = {1.0: 0.0, 0.5: 0.04, 0.25: 0.22, TRIPLET_GRID: 0.5}.get(grid, 0.3)
-    unused = 0.0
-    if grid == 0.25:
-        coarse = [abs(round(r / 0.5) * 0.5 - r) for r in rel_onsets]
-        if sum(coarse) / len(coarse) < 0.06:
-            unused = 0.45
-        if ctx.analysis.pattern == "eighths" and ctx.analysis.pattern_grid == 0.5:
-            unused += 0.25
-    if grid == 0.5 and ctx.analysis.pattern == "sixteenths":
-        unused += 0.4
-    if grid == 1.0:
-        coarse = [abs(round(r / 1.0) * 1.0 - r) for r in rel_onsets]
-        if sum(coarse) / len(coarse) > 0.12:
-            unused += 0.5
+def select_measure_grids(ctx: QuantizationContext) -> dict[int, float]:
+    from mir.quantizer import measure_index_for_onset
 
-    tuplet_pen = 0.0
-    if triplet:
-        binary_err = [
-            abs(round(r / 0.25) * 0.25 - r) for r in rel_onsets
-        ]
-        mean_bin = sum(binary_err) / len(binary_err)
-        if ctx.analysis.triplet_evidence < 0.45:
-            tuplet_pen = 3.0
-        elif mean_err + 0.01 >= mean_bin:
-            tuplet_pen = 1.4
+    by_measure: dict[int, list[float]] = {}
+    for onset in ctx.analysis.unique_onsets:
+        idx = measure_index_for_onset(onset, ctx.mql, pull_beats=ctx.barline_pull)
+        by_measure.setdefault(idx, []).append(onset - idx * ctx.mql)
+
+    global_cands = generate_candidates(ctx, ctx.analysis.unique_onsets)
+    global_grid = min(global_cands, key=lambda c: c.score).grid
+
+    grids: dict[int, float] = {}
+    for idx, rels in by_measure.items():
+        local = generate_candidates(ctx, rels)
+        best = min(local, key=lambda c: c.score)
+        # Keep the phrase grid unless a measure is clearly better on another grid.
+        global_local = interpretation_cost(
+            rels,
+            global_grid,
+            triplet=abs(global_grid - TRIPLET_GRID) < EPS,
+            ctx=ctx,
+        )
+        if best.score + 0.12 < global_local:
+            grids[idx] = best.grid
         else:
-            tuplet_pen = 0.08
-        if ctx.analysis.pattern in ("eighths", "sixteenths", "quarters") and ctx.analysis.triplet_groups < 1:
-            tuplet_pen += 2.0
-
-    overtime = 0.0
-    if max_err > ctx.max_timing_error:
-        overtime = 8.0 * (max_err - ctx.max_timing_error)
-
-    pattern_term = 0.0
-    pattern = ctx.analysis.pattern
-    if pattern == "triplets" and ctx.analysis.triplet_evidence >= 0.45:
-        if triplet:
-            pattern_term = -0.45
-            tuplet_pen = min(tuplet_pen, 0.02)
-            complexity = min(complexity, 0.05)
-        else:
-            pattern_term = 0.7 + max(0.0, max_err - 0.08) * 4.0
-    elif triplet and pattern in ("eighths", "sixteenths", "quarters"):
-        pattern_term = 1.6
-
-    return (
-        mean_err
-        + ctx.complexity_weight * complexity
-        + unused
-        + ctx.tuplet_weight * tuplet_pen
-        + overtime
-        + pattern_term
-    )
+            grids[idx] = global_grid
+    return grids
 
 
 def _grid_for_measure(selected: dict[int, float], idx: int, ctx: QuantizationContext) -> float:
@@ -462,40 +540,89 @@ def snap_onsets(
 ) -> list[MusicalEvent]:
     from mir.quantizer import measure_index_for_onset
 
-    mql = ctx.mql
     notation = [copy_event(ev) for ev in ctx.raw_events]
     for cluster in ctx.analysis.clusters:
         idx = measure_index_for_onset(
-            cluster.raw_onset, mql, pull_beats=ctx.barline_pull
+            cluster.raw_onset, ctx.mql, pull_beats=ctx.barline_pull
         )
         grid = _grid_for_measure(selected_grids, idx, ctx)
-        if (
-            ctx.mode != QuantizationMode.STRICT_GRID
-            and ctx.analysis.pattern == "triplets"
-            and ctx.analysis.triplet_evidence >= 0.45
-        ):
-            grid = TRIPLET_GRID
-        # Pattern lock: stay on the repeated grid when the error is small.
-        pattern_grid = ctx.analysis.pattern_grid
-        if (
-            ctx.mode != QuantizationMode.STRICT_GRID
-            and ctx.analysis.pattern in ("eighths", "quarters")
-            and not (ctx.analysis.triplet_evidence >= 0.45 and grid == TRIPLET_GRID)
-        ):
-            rel = cluster.raw_onset - idx * mql
-            pattern_err = abs(round(rel / pattern_grid) * pattern_grid - rel)
-            fine_err = abs(round(rel / grid) * grid - rel)
-            if pattern_err <= ctx.pattern_lock and pattern_err <= pattern_grid * 0.35:
-                if not (grid < pattern_grid and fine_err + 0.04 < pattern_err):
-                    grid = pattern_grid
         start = _snap_in_measure(
-            cluster.raw_onset, idx, mql, grid, ctx.barline_pull
+            cluster.raw_onset, idx, ctx.mql, grid, ctx.barline_pull
         )
+        if abs(start - cluster.raw_onset) > ctx.max_onset_move:
+            start = cluster.raw_onset
+            cluster.preserved = True
         cluster.quantized_onset = start
         cluster.measure_idx = idx
         for i in cluster.indices:
             notation[i] = copy_event(notation[i], start_beat=start)
     return notation
+
+
+def resolve_onset_collisions(
+    ctx: QuantizationContext, events: list[MusicalEvent]
+) -> list[MusicalEvent]:
+    """Keep distinct attacks from collapsing onto one onset.
+
+    Chord members already share a cluster and may stay simultaneous.
+    Separate clusters in the same voice must remain in raw order and must
+    not silently merge into a false chord.
+    """
+    out = [copy_event(ev) for ev in events]
+    cluster_of: dict[int, ChordCluster] = {}
+    for cluster in ctx.analysis.clusters:
+        for i in cluster.indices:
+            cluster_of[i] = cluster
+
+    def set_start(cluster: ChordCluster, start: float) -> None:
+        start = max(0.0, float(start))
+        cluster.quantized_onset = start
+        for i in cluster.indices:
+            out[i] = copy_event(out[i], start_beat=start)
+
+    grouped: dict[tuple[int, int], list[int]] = {}
+    for i, ev in enumerate(out):
+        key = (staff_for_hand(ev.hand, ev.pitch), int(ev.voice))
+        grouped.setdefault(key, []).append(i)
+
+    for indices in grouped.values():
+        ordered = sorted(
+            indices, key=lambda i: (ctx.raw_events[i].start_beat, i)
+        )
+        seen: list[ChordCluster] = []
+        used: set[int] = set()
+        for i in ordered:
+            cluster = cluster_of[i]
+            cid = id(cluster)
+            if cid in used:
+                continue
+            used.add(cid)
+            if seen:
+                prev = seen[-1]
+                if cluster.quantized_onset <= prev.quantized_onset + EPS:
+                    pulled = prev.quantized_onset - 0.25
+                    if (
+                        pulled >= -EPS
+                        and abs(pulled - prev.raw_onset) <= ctx.max_onset_move + EPS
+                    ):
+                        set_start(prev, pulled)
+                    elif prev.raw_onset < cluster.quantized_onset - EPS:
+                        set_start(prev, prev.raw_onset)
+                        prev.preserved = True
+                    else:
+                        set_start(
+                            prev, max(0.0, cluster.quantized_onset - MIN_DURATION)
+                        )
+                    if cluster.quantized_onset <= prev.quantized_onset + EPS:
+                        if cluster.raw_onset > prev.quantized_onset + EPS:
+                            set_start(cluster, cluster.raw_onset)
+                            cluster.preserved = True
+                        else:
+                            set_start(
+                                cluster, prev.quantized_onset + MIN_DURATION
+                            )
+            seen.append(cluster)
+    return out
 
 
 def _snap_in_measure(
@@ -509,9 +636,7 @@ def _snap_in_measure(
     rel = raw_start - measure_start
     snapped_rel = round(rel / grid) * grid if grid > 0 else 0.0
     snapped_rel = max(0.0, snapped_rel)
-    if snapped_rel >= mql - 1e-9:
-        # Early downbeat already assigned to this next bar should land on 0.
-        # A true last-grid note (e.g. 3.75 in 4/4) stays inside.
+    if snapped_rel >= mql - EPS:
         if (mql - rel) <= pull_beats + 1e-12:
             return measure_start + mql
         snapped_rel = max(0.0, mql - grid)
@@ -519,32 +644,103 @@ def _snap_in_measure(
 
 
 def align_chords(
-    ctx: QuantizationContext,
-    events: list[MusicalEvent],
-    selected_grids: dict[int, float],
+    ctx: QuantizationContext, events: list[MusicalEvent]
 ) -> list[MusicalEvent]:
-    """Force raw chord members onto one quantized onset."""
     out = [copy_event(ev) for ev in events]
     for cluster in ctx.analysis.clusters:
         if len(cluster.indices) < 2:
             continue
-        starts = [out[i].start_beat for i in cluster.indices]
-        # Prefer the already-snapped cluster onset; if members drifted, vote.
-        votes = Counter(round(s, 6) for s in starts)
-        agreed, _ = votes.most_common(1)[0]
-        target = cluster.quantized_onset if abs(cluster.quantized_onset - agreed) < 0.26 else agreed
+        target = cluster.quantized_onset
         for i in cluster.indices:
             out[i] = copy_event(out[i], start_beat=target)
     return out
 
 
-def _duration_candidates(grid: float, tuplet_ok: bool) -> tuple[float, ...]:
+def _duration_candidates(tuplet_ok: bool) -> tuple[float, ...]:
     cands = list(BINARY_DURATIONS)
     if tuplet_ok:
         cands.extend(TUPLET_DURATIONS)
-    if grid <= 0.25 + 1e-9 and 0.125 not in cands:
-        pass
     return tuple(sorted(set(cands), reverse=True))
+
+
+def _available_space(
+    start: float,
+    next_start: float | None,
+    measure_end: float,
+    orig_crosses: bool,
+) -> float:
+    remaining = 8.0 if next_start is None else max(0.0, next_start - start)
+    if not orig_crosses:
+        remaining = min(remaining, max(0.0, measure_end - start))
+    return remaining
+
+
+def _choose_duration(
+    *,
+    target: float,
+    cap: float,
+    tuplet_ok: bool,
+    absorb: float,
+    orig_crosses: bool,
+    measure_remaining: float,
+    complexity_weight: float,
+    tuplet_weight: float,
+    rest_weight: float,
+    tie_weight: float,
+) -> float:
+    """Named duration that never exceeds ``cap``."""
+    if cap <= EPS:
+        return MIN_DURATION
+    fill_target = target
+    if 0 < cap - target < absorb:
+        fill_target = cap
+    cands = _duration_candidates(tuplet_ok)
+    best_d = None
+    best_cost = float("inf")
+    for d in cands:
+        if d > cap + EPS:
+            continue
+        leftover = cap - d
+        actual = d
+        rest_pen = 0.0
+        if 0 < leftover < absorb:
+            actual = cap
+            leftover = 0.0
+            named = min(cands, key=lambda x: abs(x - cap))
+            if named <= cap + EPS and abs(named - cap) <= 0.04:
+                actual = named
+        if 0 < leftover < 0.25:
+            rest_pen = 1.0
+        if actual in SIMPLE_DURATIONS:
+            complexity = 0.0
+        elif actual in DOTTED_DURATIONS or d in DOTTED_DURATIONS:
+            complexity = 0.18
+        elif d in TUPLET_DURATIONS:
+            complexity = 0.12
+        else:
+            complexity = 1.0
+        tuplet_pen = 0.0
+        if d in TUPLET_DURATIONS:
+            if not tuplet_ok:
+                continue
+            simple_err = min(abs(s - fill_target) for s in SIMPLE_DURATIONS)
+            tuplet_pen = 1.0 if simple_err <= 0.08 else 0.05
+        crosses = actual > measure_remaining + EPS
+        tie_pen = 1.0 if crosses and not orig_crosses else 0.0
+        cost = (
+            abs(d - fill_target)
+            + complexity_weight * complexity
+            + tuplet_weight * tuplet_pen
+            + tie_weight * tie_pen
+            + rest_weight * rest_pen
+        )
+        if cost < best_cost:
+            best_cost = cost
+            best_d = actual
+    if best_d is None:
+        best_d = min(cap, fill_target if fill_target > EPS else cap)
+    # Hard cap: never overflow available space, never go to zero.
+    return max(MIN_DURATION, min(cap, best_d))
 
 
 def quantize_durations(
@@ -566,27 +762,26 @@ def quantize_durations(
             ev = out[i]
             raw = ctx.raw_events[i]
             nxt = _next_onset(out, indices, pos, ev.start_beat)
-            remaining = 8.0
-            if nxt is not None:
-                remaining = max(0.0, nxt - ev.start_beat)
             measure_idx = measure_index_for_onset(
                 ev.start_beat, ctx.mql, pull_beats=ctx.barline_pull
             )
             measure_end = (measure_idx + 1) * ctx.mql
             orig_end = raw.start_beat + raw.duration_beats
-            orig_crosses = orig_end > measure_end + 1e-6
-            if not orig_crosses:
-                remaining = min(remaining, max(0.0, measure_end - ev.start_beat))
+            orig_crosses = orig_end > measure_end + EPS
+            cap = _available_space(ev.start_beat, nxt, measure_end, orig_crosses)
             grid = _grid_for_measure(selected_grids, measure_idx, ctx)
-            tuplet_ok = abs(grid - TRIPLET_GRID) < 1e-6
+            tuplet_ok = abs(grid - TRIPLET_GRID) < EPS
             duration = _choose_duration(
-                ctx,
                 target=raw.duration_beats,
-                remaining=remaining,
-                grid=grid,
+                cap=cap,
                 tuplet_ok=tuplet_ok,
+                absorb=ctx.absorb_rest,
                 orig_crosses=orig_crosses,
                 measure_remaining=max(0.0, measure_end - ev.start_beat),
+                complexity_weight=ctx.complexity_weight,
+                tuplet_weight=ctx.tuplet_weight,
+                rest_weight=ctx.rest_weight,
+                tie_weight=ctx.tie_weight,
             )
             out[i] = copy_event(ev, duration_beats=duration)
     return out
@@ -596,83 +791,13 @@ def _next_onset(
     events: list[MusicalEvent], indices: list[int], pos: int, start: float
 ) -> float | None:
     for j in indices[pos + 1 :]:
-        if events[j].start_beat > start + 1e-8:
+        if events[j].start_beat > start + EPS:
             return events[j].start_beat
     return None
 
 
-def _choose_duration(
-    ctx: QuantizationContext,
-    *,
-    target: float,
-    remaining: float,
-    grid: float,
-    tuplet_ok: bool,
-    orig_crosses: bool,
-    measure_remaining: float,
-) -> float:
-    if remaining <= 1e-9:
-        return max(grid if grid > 0 else 0.25, 0.25) if tuplet_ok is False else max(grid, 1.0 / 6.0)
-    cands = _duration_candidates(grid, tuplet_ok)
-    min_d = TRIPLET_GRID if tuplet_ok else 0.25
-    best_d = min_d
-    best_cost = float("inf")
-    fill_target = target
-    if 0 < remaining - target < ctx.absorb_rest:
-        fill_target = remaining
-    for d in cands:
-        if d > remaining + 1e-9:
-            continue
-        leftover = remaining - d
-        actual = d
-        rest_pen = 0.0
-        if 0 < leftover < ctx.absorb_rest:
-            if leftover <= ctx.absorb_rest:
-                actual = remaining
-                leftover = 0.0
-                # Prefer a named duration when remaining itself is named.
-                named = min(cands, key=lambda x: abs(x - remaining))
-                if abs(named - remaining) < 1e-6:
-                    actual = named
-                elif abs(named - remaining) <= 0.04 and named <= remaining + 1e-9:
-                    actual = named
-        if 0 < leftover < 0.25:
-            rest_pen = 1.0
-        complexity = 0.0
-        if d in SIMPLE_DURATIONS:
-            complexity = 0.0
-        elif d in DOTTED_DURATIONS:
-            complexity = 0.18
-        else:
-            complexity = 1.0
-        tuplet_pen = 0.0
-        if d in TUPLET_DURATIONS:
-            simple_err = min(abs(s - fill_target) for s in SIMPLE_DURATIONS | DOTTED_DURATIONS)
-            tuplet_pen = 1.0 if simple_err <= 0.08 else 0.05
-            if not tuplet_ok:
-                continue
-        crosses = actual > measure_remaining + 1e-6
-        tie_pen = 1.0 if crosses and not orig_crosses else 0.0
-        timing = abs(d - fill_target)
-        cost = (
-            timing
-            + ctx.complexity_weight * complexity
-            + ctx.tuplet_weight * tuplet_pen
-            + ctx.tie_weight * tie_pen
-            + ctx.rest_weight * rest_pen
-        )
-        if cost < best_cost:
-            best_cost = cost
-            best_d = actual
-    if best_cost == float("inf"):
-        best_d = max(min_d, min(remaining, fill_target if fill_target > 0 else min_d))
-    return max(min_d, best_d)
-
-
-def cleanup_rests_and_durations(
-    ctx: QuantizationContext, events: list[MusicalEvent]
-) -> list[MusicalEvent]:
-    """Absorb pathological tiny gaps into the preceding note when on-grid."""
+def clamp_voice_overlaps(events: list[MusicalEvent]) -> list[MusicalEvent]:
+    """Same-voice later onsets must not be overlapped. Chords (same start) may share."""
     out = [copy_event(ev) for ev in events]
     grouped: dict[tuple[int, int], list[int]] = {}
     for i, ev in enumerate(out):
@@ -684,25 +809,32 @@ def cleanup_rests_and_durations(
             nxt = _next_onset(out, indices, pos, out[i].start_beat)
             if nxt is None:
                 continue
-            end = out[i].start_beat + out[i].duration_beats
-            gap = nxt - end
-            if 0 < gap < ctx.absorb_rest:
+            room = nxt - out[i].start_beat
+            if out[i].duration_beats > room + EPS:
                 out[i] = copy_event(
-                    out[i], duration_beats=max(out[i].duration_beats, nxt - out[i].start_beat)
-                )
-            elif gap < -1e-6:
-                # Do not overlap the next onset.
-                out[i] = copy_event(
-                    out[i],
-                    duration_beats=max(0.25, nxt - out[i].start_beat)
-                    if abs(_grid_hint(out[i].duration_beats) - TRIPLET_GRID) > 1e-6
-                    else max(1.0 / 6.0, nxt - out[i].start_beat),
+                    out[i], duration_beats=max(MIN_DURATION, room)
                 )
     return out
 
 
-def _grid_hint(duration: float) -> float:
-    return duration
+def restore_identity(
+    raw: list[MusicalEvent], notation: list[MusicalEvent]
+) -> list[MusicalEvent]:
+    """Pitches, velocities, and ids always come from the raw copy.
+
+    ``notation`` must still be in the same order as ``raw``.
+    """
+    out: list[MusicalEvent] = []
+    for src, got in zip(raw, notation):
+        duration = max(MIN_DURATION, float(got.duration_beats))
+        out.append(
+            copy_event(
+                src,
+                start_beat=got.start_beat,
+                duration_beats=duration,
+            )
+        )
+    return out
 
 
 def validate_notation(
@@ -718,17 +850,22 @@ def validate_notation(
         raw = ctx.raw_events[i]
         idx = measure_index_for_onset(ev.start_beat, ctx.mql, pull_beats=ctx.barline_pull)
         grid = _grid_for_measure(selected_grids, idx, ctx)
-        # Keep genuine cross-bar sustains; do not invent them.
         measure_end = (idx + 1) * ctx.mql
         orig_end = raw.start_beat + raw.duration_beats
-        orig_crosses = orig_end > measure_end + 1e-6
-        if not orig_crosses and ev.start_beat + ev.duration_beats > measure_end + 1e-6:
-            out[i] = copy_event(
-                ev, duration_beats=max(0.25, measure_end - ev.start_beat)
-            )
+        orig_crosses = orig_end > measure_end + EPS
+        if not orig_crosses and ev.start_beat + ev.duration_beats > measure_end + EPS:
+            room = max(MIN_DURATION, measure_end - ev.start_beat)
+            out[i] = copy_event(ev, duration_beats=min(ev.duration_beats, room))
+            ev = out[i]
+        if ev.duration_beats <= EPS:
+            out[i] = copy_event(ev, duration_beats=MIN_DURATION)
             ev = out[i]
         reason = "adaptive"
-        if abs(grid - TRIPLET_GRID) < 1e-6:
+        if ctx.analysis.clusters and any(
+            i in c.indices and c.preserved for c in ctx.analysis.clusters
+        ):
+            reason = "preserved_timing"
+        elif abs(grid - TRIPLET_GRID) < EPS or abs(grid - EIGHTH_TRIPLET_GRID) < EPS:
             reason = "adaptive_triplet"
         elif ctx.analysis.pattern == "eighths":
             reason = "adaptive_pattern_eighths"
@@ -753,7 +890,92 @@ def validate_notation(
                 + abs(ev.duration_beats - raw.duration_beats),
                 reason=reason,
                 measure=idx + 1,
+                preserved_timing=reason == "preserved_timing",
             ).to_dict()
         )
-    out.sort(key=lambda e: (e.start_beat, e.pitch, e.voice))
     return out, decisions
+
+
+def quality_metrics(
+    raw: list[MusicalEvent],
+    notation: list[MusicalEvent],
+    analysis: RhythmicAnalysis,
+    decisions: list[dict],
+) -> dict:
+    onset_disp = [
+        abs(float(d.get("quantized_start", 0)) - float(d.get("raw_start", 0)))
+        for d in decisions
+    ]
+    dur_disp = [
+        abs(float(d.get("quantized_duration", 0)) - float(d.get("raw_duration", 0)))
+        for d in decisions
+    ]
+    moved = sum(1 for x in onset_disp if x > EPS)
+    tiny_rests = 0
+    overlaps = 0
+    measure_violations = 0
+    grouped: dict[tuple[int, int], list[MusicalEvent]] = {}
+    for ev in notation:
+        grouped.setdefault((staff_for_hand(ev.hand, ev.pitch), int(ev.voice)), []).append(ev)
+    for group in grouped.values():
+        ordered = sorted(group, key=lambda e: (e.start_beat, e.pitch))
+        for i, ev in enumerate(ordered):
+            nxt = None
+            for later in ordered[i + 1 :]:
+                if later.start_beat > ev.start_beat + EPS:
+                    nxt = later
+                    break
+            if nxt is not None:
+                gap = nxt.start_beat - (ev.start_beat + ev.duration_beats)
+                if EPS < gap < TINY_REST:
+                    tiny_rests += 1
+                if ev.start_beat + ev.duration_beats > nxt.start_beat + 1e-6:
+                    overlaps += 1
+            if ev.duration_beats <= EPS:
+                measure_violations += 1
+    mean_onset = (sum(onset_disp) / len(onset_disp)) if onset_disp else 0.0
+    mean_dur = (sum(dur_disp) / len(dur_disp)) if dur_disp else 0.0
+    return {
+        "mean_onset_displacement": mean_onset,
+        "mean_duration_displacement": mean_dur,
+        "max_onset_displacement": max(onset_disp) if onset_disp else 0.0,
+        "max_duration_displacement": max(dur_disp) if dur_disp else 0.0,
+        "notes_moved": moved,
+        "notes_preserved": len(notation),
+        "chord_alignments": sum(1 for c in analysis.clusters if len(c.indices) >= 2),
+        "triplet_groups": analysis.triplet_groups,
+        "tiny_rests": tiny_rests,
+        "measure_violations": measure_violations,
+        "overlaps_detected": overlaps,
+        "fallback_preserved": sum(
+            1 for d in decisions if d.get("preserved_timing")
+        )
+        + sum(1 for c in analysis.clusters if c.preserved),
+        "events_removed": max(0, len(raw) - len(notation)),
+    }
+
+
+def _empty_quality_summary() -> dict:
+    return {
+        "raw_events": 0,
+        "quantized_events": 0,
+        "events_changed": 0,
+        "events_removed": 0,
+        "average_onset_displacement": 0.0,
+        "average_duration_displacement": 0.0,
+        "mean_onset_displacement": 0.0,
+        "mean_duration_displacement": 0.0,
+        "max_onset_displacement": 0.0,
+        "max_duration_displacement": 0.0,
+        "triplet_decisions": 0,
+        "removed_events": [],
+        "notes_moved": 0,
+        "notes_preserved": 0,
+        "chord_alignments": 0,
+        "triplet_groups": 0,
+        "tiny_rests": 0,
+        "measure_violations": 0,
+        "overlaps_detected": 0,
+        "fallback_preserved": 0,
+        "engine": "adaptive",
+    }

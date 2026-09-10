@@ -4,21 +4,22 @@ from __future__ import annotations
 
 import pretty_midi
 
+from mir.adaptive_quantizer import _choose_duration
 from mir.models import MeterHypothesis, PlannedNote, PlannedRest
 from mir.pipeline import UnderstandingPipeline
-from mir.quantizer import MeasureQuantizer
+from mir.quantizer import MeasureQuantizer, QuantizerConfig
 from mir.types import Hand, MusicalEvent, ScoreMeta
 from notation_engine.plan import NotationPlanner
 
 
-def _ev(pitch, start, dur, hand=Hand.RIGHT, **kwargs):
+def _ev(pitch, start, dur, hand=Hand.RIGHT, velocity=80, **kwargs):
     return MusicalEvent(
         pitch=pitch,
         start_beat=start,
         duration_beats=dur,
         hand=hand,
         voice=0,
-        velocity=80,
+        velocity=velocity,
         **kwargs,
     )
 
@@ -32,6 +33,41 @@ def _meter_44():
         score=1.0,
         confidence=1.0,
     )
+
+
+def _meter_68():
+    return MeterHypothesis(
+        time_signature="6/8",
+        numerator=6,
+        denominator=8,
+        measure_quarter_length=3.0,
+        score=1.0,
+        confidence=1.0,
+    )
+
+
+def _by_id(events):
+    return {e.note_id: e for e in events}
+
+
+def _starts(events):
+    return [round(e.start_beat, 6) for e in sorted(events, key=lambda e: (e.start_beat, e.pitch))]
+
+
+QUALITY_METRIC_KEYS = (
+    "mean_onset_displacement",
+    "mean_duration_displacement",
+    "max_onset_displacement",
+    "max_duration_displacement",
+    "notes_moved",
+    "notes_preserved",
+    "chord_alignments",
+    "triplet_groups",
+    "tiny_rests",
+    "measure_violations",
+    "overlaps_detected",
+    "fallback_preserved",
+)
 
 
 def test_raw_events_remain_unchanged_after_quantization():
@@ -247,3 +283,266 @@ def test_pipeline_keeps_raw_midi_and_quantizes_notation(tmp_path, monkeypatch):
     ]
     assert notes
     assert all(el.duration_q >= 0.25 - 1e-9 for el in notes)
+
+
+def test_short_gap_duration_never_overflows_next_onset():
+    """Remaining space 0.10 must not become a 0.25 note ending at 2.15."""
+    d = _choose_duration(
+        target=0.5,
+        cap=0.10,
+        tuplet_ok=False,
+        absorb=0.12,
+        orig_crosses=False,
+        measure_remaining=2.10,
+        complexity_weight=0.35,
+        tuplet_weight=0.55,
+        rest_weight=0.7,
+        tie_weight=0.2,
+    )
+    assert 0 < d <= 0.10 + 1e-9
+
+    events = [
+        _ev(72, 1.90, 0.50, note_id="a"),
+        _ev(72, 2.00, 0.50, note_id="b"),
+    ]
+    q = MeasureQuantizer(mode="adaptive")
+    notation, _ = q.quantize(events, _meter_44())
+    by_id = _by_id(notation)
+    assert set(by_id) == {"a", "b"}
+    assert by_id["a"].pitch == 72 and by_id["b"].pitch == 72
+    assert by_id["a"].start_beat <= by_id["b"].start_beat + 1e-9
+    if by_id["a"].start_beat < by_id["b"].start_beat - 1e-9:
+        assert (
+            by_id["a"].start_beat + by_id["a"].duration_beats
+            <= by_id["b"].start_beat + 1e-6
+        )
+        assert by_id["a"].duration_beats <= 0.25 + 1e-9
+        assert abs(
+            (by_id["a"].start_beat + by_id["a"].duration_beats) - 2.15
+        ) > 0.02 or by_id["a"].start_beat < 1.85
+    assert by_id["a"].duration_beats > 0
+    assert by_id["b"].duration_beats > 0
+
+
+def test_identity_count_pitch_velocity_and_ids_preserved():
+    events = [
+        _ev(60, 0.03, 0.47, note_id="a", velocity=71),
+        _ev(64, 0.51, 0.44, note_id="b", velocity=90),
+        _ev(67, 1.02, 0.40, note_id="c", velocity=64),
+        _ev(48, 0.04, 1.90, hand=Hand.LEFT, note_id="d", velocity=55),
+    ]
+    q = MeasureQuantizer(mode="adaptive")
+    notation, _ = q.quantize(events, _meter_44())
+    assert len(notation) == len(events)
+    raw_ids = [e.note_id for e in events]
+    out_ids = [e.note_id for e in notation]
+    assert sorted(out_ids) == sorted(raw_ids)
+    by_raw = _by_id(events)
+    by_out = _by_id(notation)
+    for nid in raw_ids:
+        assert by_out[nid].pitch == by_raw[nid].pitch
+        assert by_out[nid].velocity == by_raw[nid].velocity
+        assert by_out[nid].duration_beats > 0
+
+
+def test_quality_metrics_are_reported():
+    events = [_ev(72, i * 0.5 + 0.03, 0.44, note_id=f"n{i}") for i in range(4)]
+    q = MeasureQuantizer(mode="adaptive")
+    q.quantize(events, _meter_44())
+    for key in QUALITY_METRIC_KEYS:
+        assert key in q.last_summary
+    assert q.last_summary["notes_preserved"] == 4
+    assert q.last_summary["events_removed"] == 0
+    assert q.last_summary["overlaps_detected"] == 0
+    assert q.last_summary["measure_violations"] == 0
+    assert q.last_summary["mean_onset_displacement"] >= 0
+    assert q.last_summary["max_onset_displacement"] >= q.last_summary["mean_onset_displacement"]
+
+
+def test_a_jittered_eighths_use_consistent_grid():
+    raw_starts = [0.01, 0.51, 0.99, 1.49, 2.01]
+    events = [_ev(72, s, 0.42, note_id=f"n{i}") for i, s in enumerate(raw_starts)]
+    q = MeasureQuantizer(mode="adaptive")
+    notation, _ = q.quantize(events, _meter_44())
+    assert _starts(notation) == [0.0, 0.5, 1.0, 1.5, 2.0]
+    assert q.last_summary.get("triplet_decisions", 0) == 0
+
+
+def test_b_jittered_sixteenths_use_sixteenth_grid():
+    raw_starts = [0.00, 0.26, 0.49, 0.76, 1.01, 1.24, 1.51, 1.74]
+    events = [_ev(71, s, 0.20, note_id=f"s{i}") for i, s in enumerate(raw_starts)]
+    q = MeasureQuantizer(mode="adaptive")
+    notation, _ = q.quantize(events, _meter_44())
+    starts = _starts(notation)
+    expected = [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75]
+    assert starts == expected
+    assert q.last_summary.get("triplet_decisions", 0) == 0
+
+
+def test_c_genuine_triplets_selected():
+    events = [
+        _ev(72, i / 3.0, 1.0 / 3.0, note_id=f"t{i}") for i in range(6)
+    ]
+    q = MeasureQuantizer(mode="adaptive")
+    notation, _ = q.quantize(events, _meter_44())
+    third_like = sum(
+        1 for e in notation if abs((e.start_beat * 3) - round(e.start_beat * 3)) < 0.05
+    )
+    assert third_like >= 5
+    assert q.last_summary.get("triplet_groups", 0) >= 1
+    durs = [e.duration_beats for e in notation]
+    assert all(abs(d - (1.0 / 3.0)) < 0.05 for d in durs)
+
+
+def test_d_binary_passage_with_one_late_note_stays_binary():
+    events = [
+        _ev(72, 0.0, 0.5, note_id="a"),
+        _ev(74, 0.5, 0.5, note_id="b"),
+        _ev(76, 1.0, 0.5, note_id="c"),
+        _ev(77, 1.58, 0.5, note_id="d"),  # late eighth, not a triplet cell
+        _ev(79, 2.0, 0.5, note_id="e"),
+        _ev(81, 2.5, 0.5, note_id="f"),
+        _ev(83, 3.0, 0.5, note_id="g"),
+        _ev(84, 3.5, 0.5, note_id="h"),
+    ]
+    q = MeasureQuantizer(mode="adaptive")
+    notation, _ = q.quantize(events, _meter_44())
+    by_id = _by_id(notation)
+    assert round(by_id["a"].start_beat, 3) == 0.0
+    assert round(by_id["b"].start_beat, 3) == 0.5
+    assert round(by_id["c"].start_beat, 3) == 1.0
+    assert round(by_id["d"].start_beat, 3) in (1.5, 1.75)
+    assert q.last_summary.get("triplet_decisions", 0) == 0
+
+
+def test_e_staggered_chord_aligns():
+    events = [
+        _ev(60, 0.01, 1.0, note_id="c"),
+        _ev(64, 0.04, 0.97, note_id="e"),
+        _ev(67, 0.06, 0.94, note_id="g"),
+    ]
+    q = MeasureQuantizer(mode="adaptive")
+    notation, _ = q.quantize(events, _meter_44())
+    starts = {round(e.start_beat, 6) for e in notation}
+    assert starts == {0.0}
+    assert q.last_summary["chord_alignments"] >= 1
+
+
+def test_f_sustained_note_crossing_barline_keeps_tie():
+    events = [_ev(72, 3.0, 2.0, note_id="hold")]
+    q = MeasureQuantizer(mode="adaptive")
+    notation, _ = q.quantize(events, _meter_44())
+    assert abs(notation[0].start_beat - 3.0) < 0.02
+    assert notation[0].duration_beats >= 1.9
+    plan, _ = NotationPlanner().build(
+        events,
+        meta=ScoreMeta(display_tempo_bpm=120, time_sig_hint="4/4"),
+        quantization_mode="adaptive",
+    )
+    notes = [
+        el
+        for measure in plan.measures
+        for staff in measure.staves
+        for voice in staff.voices
+        for el in voice.elements
+        if isinstance(el, PlannedNote)
+    ]
+    assert any(n.tie for n in notes)
+    assert len(plan.measures) >= 2
+
+
+def test_g_very_short_gap_has_no_pathological_tiny_rest():
+    events = [
+        _ev(72, 0.0, 0.48, note_id="a"),
+        _ev(74, 0.50, 0.48, note_id="b"),
+        _ev(76, 1.00, 0.48, note_id="c"),
+    ]
+    q = MeasureQuantizer(mode="adaptive")
+    notation, _ = q.quantize(events, _meter_44())
+    ordered = sorted(notation, key=lambda e: e.start_beat)
+    for a, b in zip(ordered, ordered[1:]):
+        gap = b.start_beat - (a.start_beat + a.duration_beats)
+        assert gap <= 1e-6 or gap >= 0.2
+    plan, _ = NotationPlanner().build(
+        events,
+        meta=ScoreMeta(display_tempo_bpm=120, time_sig_hint="4/4"),
+        quantization_mode="adaptive",
+    )
+    rests = [
+        el
+        for measure in plan.measures
+        for staff in measure.staves
+        for voice in staff.voices
+        for el in voice.elements
+        if isinstance(el, PlannedRest)
+    ]
+    assert [r for r in rests if 0 < r.duration_q < 0.2] == []
+    assert q.last_summary["tiny_rests"] == 0
+
+
+def test_h_notes_near_barline_assigned_to_correct_measure():
+    events = [
+        _ev(60, 0.0, 1.0, note_id="a"),
+        _ev(62, 1.0, 1.0, note_id="b"),
+        _ev(64, 2.0, 1.0, note_id="c"),
+        _ev(65, 3.0, 0.75, note_id="d"),
+        _ev(67, 3.996, 1.0, note_id="early_downbeat"),
+        _ev(69, 3.75, 0.25, note_id="last_sixteenth"),
+        _ev(71, 5.0, 1.0, note_id="f"),
+    ]
+    q = MeasureQuantizer(mode="adaptive")
+    notation, _ = q.quantize(events, _meter_44())
+    by_id = _by_id(notation)
+    assert by_id["early_downbeat"].start_beat >= 4.0 - 1e-9
+    assert abs(by_id["early_downbeat"].start_beat - 4.0) < 0.02
+    assert abs(by_id["last_sixteenth"].start_beat - 3.75) < 0.02
+    assert by_id["last_sixteenth"].start_beat < 4.0 - 1e-9
+
+
+def test_i_compound_six_eight_uses_eighth_pulse():
+    raw_starts = [0.02, 0.51, 0.98, 1.52, 1.99, 2.48]
+    events = [_ev(72, s, 0.42, note_id=f"n{i}") for i, s in enumerate(raw_starts)]
+    q = MeasureQuantizer(mode="adaptive")
+    notation, _ = q.quantize(events, _meter_68())
+    assert _starts(notation) == [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
+    assert q.last_summary.get("triplet_decisions", 0) == 0
+    for ev in notation:
+        assert ev.start_beat < 3.0 - 1e-9
+
+
+def test_j_polyphonic_voices_independent_chords_aligned():
+    events = [
+        _ev(72, 0.01, 1.0, hand=Hand.RIGHT, note_id="rh_c"),
+        _ev(76, 0.04, 1.0, hand=Hand.RIGHT, note_id="rh_e"),
+        _ev(48, 0.00, 0.5, hand=Hand.LEFT, note_id="lh0"),
+        _ev(50, 0.51, 0.5, hand=Hand.LEFT, note_id="lh1"),
+        _ev(52, 0.99, 0.5, hand=Hand.LEFT, note_id="lh2"),
+        _ev(53, 1.49, 0.5, hand=Hand.LEFT, note_id="lh3"),
+    ]
+    q = MeasureQuantizer(mode="adaptive")
+    notation, _ = q.quantize(events, _meter_44())
+    by_id = _by_id(notation)
+    assert round(by_id["rh_c"].start_beat, 6) == round(by_id["rh_e"].start_beat, 6)
+    lh = [by_id[k].start_beat for k in ("lh0", "lh1", "lh2", "lh3")]
+    expected_lh = [0.0, 0.5, 1.0, 1.5]
+    assert [round(s, 6) for s in lh] == expected_lh
+    assert len(notation) == 6
+    assert q.last_summary["overlaps_detected"] == 0
+
+
+def test_k_extreme_timing_is_not_dragged_onto_a_distant_grid():
+    events = [
+        _ev(72, 0.0, 1.0, note_id="a"),
+        _ev(74, 1.0, 1.0, note_id="b"),
+        _ev(76, 2.0, 1.0, note_id="c"),
+        _ev(77, 2.40, 0.5, note_id="outlier"),
+        _ev(79, 3.0, 1.0, note_id="e"),
+    ]
+    q = MeasureQuantizer(
+        mode="adaptive", config=QuantizerConfig(max_onset_move=0.18)
+    )
+    notation, _ = q.quantize(events, _meter_44())
+    outlier = _by_id(notation)["outlier"]
+    assert abs(outlier.start_beat - 2.40) <= 0.18 + 1e-9
+    assert abs(outlier.start_beat - 2.0) > 0.15
+    assert abs(outlier.start_beat - 3.0) > 0.15
