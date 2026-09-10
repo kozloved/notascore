@@ -67,6 +67,13 @@ QUALITY_METRIC_KEYS = (
     "measure_violations",
     "overlaps_detected",
     "fallback_preserved",
+    "identity_valid",
+    "duplicate_note_ids",
+    "pitch_mismatches",
+    "velocity_mismatches",
+    "notes_shortened_for_overlap",
+    "notes_preserved_duration",
+    "barline_splits_required",
 )
 
 
