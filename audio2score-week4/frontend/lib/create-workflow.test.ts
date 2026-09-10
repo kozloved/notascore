@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -62,4 +63,18 @@ test("create UI sends polyphonic unless the file is MIDI", () => {
   assert.equal(uploadMode({ selected: "solo", midi: false }), "solo");
   assert.equal(uploadMode({ selected: "polyphonic", midi: false }), "polyphonic");
   assert.equal(uploadMode({ selected: "polyphonic", midi: true }), "solo");
+});
+
+test("page load and file selection do not call RunPod warmup", () => {
+  const api = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
+  const panel = readFileSync(
+    new URL("../components/create/CreateScorePanel.tsx", import.meta.url),
+    "utf8"
+  );
+  assert.equal(api.includes("warmupMt3"), false);
+  assert.equal(api.includes("/mt3/warmup"), false);
+  assert.equal(panel.includes("warmupMt3"), false);
+  assert.equal(panel.includes("/mt3/warmup"), false);
+  assert.equal(panel.includes("warmup"), false);
+  assert.match(panel, /fetch\(`\$\{API_URL\}\/health`\)/);
 });
