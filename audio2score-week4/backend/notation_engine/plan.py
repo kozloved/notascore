@@ -18,7 +18,6 @@ from mir.models import (
 )
 from mir.quantizer import (
     MeasureQuantizer,
-    SMALLEST_WRITABLE,
     VOICE_SUM_TOLERANCE,
     duration_pieces,
     tie_chain,
@@ -444,12 +443,6 @@ class NotationPlanner:
             return
         if total > mql:
             extra = total - mql
-            if quantization_spells_writable(self.quantizer.mode):
-                extra = (
-                    int(extra / SMALLEST_WRITABLE + 1e-12) * SMALLEST_WRITABLE
-                )
-                if extra <= 1e-12:
-                    return
             for el in reversed(elements):
                 if extra <= 1e-9:
                     break
