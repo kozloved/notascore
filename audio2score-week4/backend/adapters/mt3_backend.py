@@ -206,11 +206,37 @@ def _midi_from_json(payload: object) -> bytes | None:
     return None
 
 
+def _coerce_runpod_output(output: object) -> dict | None:
+    """RunPod sometimes JSON-strings or list-wraps the handler return value."""
+    if isinstance(output, dict):
+        inner = output.get("output")
+        if isinstance(inner, (dict, str, list)) and not output.get("midi_base64"):
+            nested = _coerce_runpod_output(inner)
+            if nested:
+                return nested
+        return output
+    if isinstance(output, str):
+        raw = output.strip()
+        if raw[:1] not in "{[":
+            return None
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        return _coerce_runpod_output(parsed)
+    if isinstance(output, list):
+        for item in output:
+            parsed = _coerce_runpod_output(item)
+            if isinstance(parsed, dict):
+                return parsed
+    return None
+
+
 def _midi_source_dicts(payload: object) -> list[dict]:
     sources: list[dict] = []
     if not isinstance(payload, dict):
         return sources
-    output = payload.get("output")
+    output = _coerce_runpod_output(payload.get("output"))
     if isinstance(output, dict):
         sources.append(output)
     sources.append(payload)
@@ -334,7 +360,7 @@ def _parse_runpod_body(body: bytes) -> bytes:
             f"RunPod transcription service failed. {_safe_error_detail(str(error))}"
         )
 
-    output = payload.get("output")
+    output = _coerce_runpod_output(payload.get("output"))
     if isinstance(output, dict):
         nested_error = output.get("error")
         if nested_error and not output.get("midi_base64"):
@@ -417,13 +443,23 @@ def _runpod_job_id(payload: dict) -> str:
 
 def _runpod_payload_ready(payload: dict) -> bool:
     status = str(payload.get("status") or "").upper()
-    if status == "COMPLETED":
-        return True
-    if status in _RUNPOD_FAIL_STATUSES or status in {"IN_QUEUE", "IN_PROGRESS"}:
-        return False
-    return isinstance(payload.get("output"), dict) or isinstance(
-        payload.get("midi_base64"), str
+    output = _coerce_runpod_output(payload.get("output"))
+    has_midi = isinstance(payload.get("midi_base64"), str) or (
+        isinstance(output, dict) and isinstance(output.get("midi_base64"), str)
     )
+    has_error = bool(
+        payload.get("error")
+        or (isinstance(output, dict) and output.get("error"))
+        or (isinstance(output, dict) and output.get("warmup") and not has_midi)
+    )
+    if status in _RUNPOD_FAIL_STATUSES:
+        return True
+    if status in {"IN_QUEUE", "IN_PROGRESS"}:
+        return False
+    if status == "COMPLETED":
+        # Handler errors come back as COMPLETED + output.error, not FAILED.
+        return has_midi or has_error or output is not None
+    return has_midi or isinstance(output, dict)
 
 
 def _poll_runpod_job(

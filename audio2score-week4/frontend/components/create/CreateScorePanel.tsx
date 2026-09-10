@@ -374,6 +374,7 @@ export default function CreateScorePanel() {
         <div className="ns-fail" role="alert">
           <h2>We couldn’t create your score.</h2>
           <p>Something went wrong while processing your recording.</p>
+          {job?.error ? <p className="mode-hint">{job.error}</p> : null}
           <div className="ns-page-cta">
             <Button onClick={() => void retry()} disabled={submitting.current}>
               Try again
