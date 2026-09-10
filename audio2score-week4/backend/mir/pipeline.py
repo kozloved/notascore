@@ -544,6 +544,14 @@ class UnderstandingPipeline:
         extra["notation_fallback_error"] = payload.get("notation_fallback_error")
         extra["notation_time_signature"] = payload.get("time_signature")
         extra["notation_measure_count"] = payload.get("measure_count")
+        extra["notation_plan_success"] = payload.get("notation_plan_success")
+        extra["notation_plan_failure"] = payload.get("notation_plan_failure")
+        extra["legacy_fallback_used"] = payload.get("legacy_fallback_used")
+        extra["music21_conversion_failure"] = payload.get("music21_conversion_failure")
+        extra["musicxml_export_failure"] = payload.get("musicxml_export_failure")
+        extra["notation_mode"] = payload.get("notation_mode")
+        extra["fit_trim_count"] = payload.get("fit_trim_count")
+        extra["invariant_issue_count"] = len(payload.get("invariant_issues") or [])
         extra["quantization_summary"] = payload.get("quantization_summary") or {}
         extra["validation_mode"] = self.config.validation_mode.value
         extra["quantization_mode"] = self.config.quantization_mode.value

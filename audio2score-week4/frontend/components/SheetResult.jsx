@@ -98,6 +98,13 @@ export default function SheetResult({
           drawTitle: false,
           drawPartNames: false,
           drawMetronomeMarks: true,
+          drawCredits: false,
+          drawHiddenNotes: false,
+          pageFormat: "A4_P",
+          drawingParameters: "compact",
+          newSystemFromXML: false,
+          newPageFromXML: false,
+          alignRests: 2,
         });
         osmdRef.current = osmd;
 
@@ -108,15 +115,22 @@ export default function SheetResult({
           osmd.EngravingRules.RenderSubtitle = false;
           osmd.EngravingRules.RenderLyricist = false;
           osmd.EngravingRules.MetronomeMarksDrawn = true;
+          osmd.EngravingRules.NewSystemAtXMLNewSystemAttribute = false;
+          osmd.EngravingRules.NewPageAtXMLNewPageAttribute = false;
+          osmd.EngravingRules.StretchLastSystemLine = false;
+          // Compact piano spacing so several short measures share a system.
+          // Do not pin a fixed bars-per-line count.
+          osmd.EngravingRules.PageLeftMargin = 8;
+          osmd.EngravingRules.PageRightMargin = 8;
+          osmd.EngravingRules.PageTopMargin = 8;
+          osmd.EngravingRules.PageBottomMargin = 8;
+          osmd.EngravingRules.StaffDistance = 4.5;
+          osmd.EngravingRules.BetweenStaffDistance = 3;
+          osmd.EngravingRules.MinimumDistanceBetweenSystems = 4;
         }
 
         await osmd.load(xml);
         if (cancelled) return;
-        // Engrave onto a portrait A4 page so the preview and PDF use real page
-        // geometry instead of a tightly cropped image of the notes.
-        osmd.setPageFormat("A4_P");
-        // Slightly smaller engraving so the A4 top third shown in the preview
-        // holds a few systems (which the progressive blur then acts on).
         osmd.zoom = 0.75;
         osmd.render();
         if (interactive) stampNoteIds(osmd, notes, selectedNoteId);
