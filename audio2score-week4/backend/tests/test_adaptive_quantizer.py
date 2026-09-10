@@ -391,7 +391,7 @@ def test_c_genuine_triplets_selected():
     assert third_like >= 5
     assert q.last_summary.get("triplet_groups", 0) >= 1
     durs = [e.duration_beats for e in notation]
-    assert sum(abs(d - (1.0 / 3.0)) < 0.05 for d in durs) >= 5
+    assert all(abs(d - (1.0 / 3.0)) < 0.05 for d in durs)
 
 
 def test_d_binary_passage_with_one_late_note_stays_binary():

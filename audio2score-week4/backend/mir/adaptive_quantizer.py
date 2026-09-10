@@ -723,7 +723,7 @@ def _choose_duration(
         if d in TUPLET_DURATIONS:
             if not tuplet_ok:
                 continue
-            simple_err = min(abs(s - fill_target) for s in SIMPLE_DURATIONS | DOTTED_DURATIONS)
+            simple_err = min(abs(s - fill_target) for s in SIMPLE_DURATIONS)
             tuplet_pen = 1.0 if simple_err <= 0.08 else 0.05
         crosses = actual > measure_remaining + EPS
         tie_pen = 1.0 if crosses and not orig_crosses else 0.0
