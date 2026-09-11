@@ -214,6 +214,32 @@ cd audio2score-week4
 
 Volumes (`dbdata`, `uploads`, `results`) survive rebuilds.
 
+### Next-gen orchestrator cutover
+
+Edit `.env.production` (see `.env.production.example`). First production
+config promotes `PipelineOrchestrator` only — federation stays off:
+
+```env
+NEXTGEN_PIPELINE_MODE=live
+NEXTGEN_SEPARATION_ENABLED=0
+NEXTGEN_STEM_TRANSCRIPTION_ENABLED=0
+NEXTGEN_FUSION_ENABLED=0
+NEXTGEN_ENSEMBLE_RENDER=0
+NEXTGEN_WRITE_MANIFEST=1
+```
+
+Then rebuild just the services that read those variables:
+
+```bash
+docker compose --env-file .env.production up -d --build api worker
+curl -fsS https://notascore.com/api/health
+# nextgen.pipeline_mode must be "live" and orchestrator_active true
+BASE_URL=https://notascore.com/api ./deploy/smoke-nextgen-live.sh
+```
+
+Rollback is the same compose command after setting `NEXTGEN_PIPELINE_MODE=legacy`.
+Full checklist: [../../docs/NEXTGEN_LIVE_CUTOVER_CHECKLIST.md](../../docs/NEXTGEN_LIVE_CUTOVER_CHECKLIST.md).
+
 ---
 
 ## 9. Smoke test

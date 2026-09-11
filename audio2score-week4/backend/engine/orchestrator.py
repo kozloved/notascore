@@ -16,6 +16,8 @@ from engine.flags import (
     fusion_ghost_confidence,
     fusion_stem_only_min_confidence,
     pipeline_mode,
+    runtime_identification,
+    separation_enabled,
     stem_transcription_enabled,
     write_manifest_enabled,
 )
@@ -123,7 +125,9 @@ class PipelineOrchestrator:
             poly = is_polyphonic(mode or pipeline.mode)
         except ValueError:
             poly = False
-        want_sep = poly
+        # First production cutover: polyphonic jobs still skip federation unless
+        # separation is explicitly enabled. DisabledSeparator is not scheduled.
+        want_sep = poly and separation_enabled()
         backend = prepared.backend
         amt_timer = StageTimer(StageName.TRANSCRIBE_GLOBAL)
         cpu_timer = StageTimer(StageName.ANALYZE_AUDIO)
@@ -212,11 +216,16 @@ class PipelineOrchestrator:
                 if want_sep:
                     separation = sep_fut.result() if sep_fut is not None else _skipped_sep()
                 else:
+                    skip_reason = (
+                        "NEXTGEN_SEPARATION_ENABLED is off"
+                        if poly
+                        else "solo/SOLO_INSTRUMENT routing skips GPU separation"
+                    )
                     separation = SeparationResult(
                         stems=[],
                         model="skipped",
                         skipped=True,
-                        skip_reason="solo/SOLO_INSTRUMENT routing skips GPU separation",
+                        skip_reason=skip_reason,
                         requested_backend="separator",
                         actual_backend="",
                     )
@@ -770,12 +779,13 @@ class PipelineOrchestrator:
         )
         stages.append(StageResult(StageName.COMPLETE, ok=True, duration_ms=0.0, model="orchestrator"))
         provenance_path = out_dir / f"{job_id}.provenance.json"
+        runtime = runtime_identification()
         provenance_path.write_text(
             json.dumps(
                 {
                     "job_id": job_id,
-                    "pipeline_mode": pipeline_mode(),
-                    "ensemble_render": ensemble_render_enabled(),
+                    **runtime,
+                    "ensemble_render": runtime["ensemble_render_enabled"],
                     "stages": [s.to_dict() for s in stages],
                     "warnings": warnings,
                 },
@@ -784,6 +794,16 @@ class PipelineOrchestrator:
             + "\n",
             encoding="utf-8",
         )
+        debug_path = out_dir / f"{job_id}.debug.json"
+        if debug_path.exists():
+            try:
+                debug_payload = json.loads(debug_path.read_text(encoding="utf-8"))
+                extra = dict(debug_payload.get("extra") or {})
+                extra.update(runtime)
+                debug_payload["extra"] = extra
+                debug_path.write_text(json.dumps(debug_payload, indent=2) + "\n", encoding="utf-8")
+            except Exception:
+                pass
         manifest.add(
             ref_for_file(
                 ArtifactKind.PROVENANCE_JSON,
