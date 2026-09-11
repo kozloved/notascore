@@ -21,6 +21,11 @@ python -m evaluation.runner --split holdout
 python -m evaluation.runner --split real_world
 python -m evaluation.runner --all
 
+# Production smoke fixtures (audio is gitignored; missing files SKIP)
+# From audio2score-week4:
+#   BASE_URL=https://notascore.com/api ./deploy/run-production-smoke-matrix.sh
+
+
 # Baselines
 python -m evaluation.runner --split development --save-baseline checkpoint-7-baseline
 python -m evaluation.runner --split development --compare-baseline checkpoint-7-baseline
