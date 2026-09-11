@@ -74,7 +74,9 @@ NEXTGEN_WRITE_MANIFEST=1
 Then:
 
 ```bash
-docker compose --env-file .env.production up -d --build api worker
+docker compose --env-file .env.production config | grep NEXTGEN_PIPELINE_MODE
+docker compose --env-file .env.production \
+  up -d --build --force-recreate api worker
 ```
 
 Do not recreate redis/nginx/frontend/tunnel unless those images also changed.
