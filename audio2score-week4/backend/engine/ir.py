@@ -15,6 +15,17 @@ class NoteEvidence:
     stem_id: str = ""
     model_version: str = ""
     pitch: int | None = None
+    velocity: int | None = None
+    instrument: str = ""
+    source: str = ""
+
+    @property
+    def onset_seconds(self) -> float:
+        return self.onset_sec
+
+    @property
+    def offset_seconds(self) -> float:
+        return self.offset_sec
 
 
 @dataclass

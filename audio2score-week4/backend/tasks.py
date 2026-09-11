@@ -7,7 +7,6 @@ from pathlib import Path
 
 import database as db
 import storage as storage_service
-import transcription as transcription_service
 
 
 def process_job(job_id: str):
@@ -33,16 +32,15 @@ def process_job(job_id: str):
 
         db.update_job(job_id, progress=20)
 
-        engine = transcription_service.get_engine(
-            mode=job.get("mode") or "solo",
-            filename=job.get("filename") or str(audio_local_path),
-        )
+        from engine.job_runner import run_job
 
         db.update_job(job_id, progress=35)
 
-        musicxml_text = engine.transcribe(
+        musicxml_text = run_job(
             audio_local_path,
             job_id,
+            mode=job.get("mode") or "solo",
+            filename=job.get("filename") or str(audio_local_path),
         )
 
         db.update_job(job_id, progress=75)
@@ -72,6 +70,23 @@ def process_job(job_id: str):
                     key,
                     content_type="audio/midi",
                 )
+
+        from engine.sidecars import extra_result_files
+
+        out_dir = Path(audio_local_path).parent / f"bp_{job_id}"
+        uploaded = {
+            f"{job_id}.raw.mid",
+            f"{job_id}.validated.mid",
+            f"{job_id}.score.mid",
+            f"{job_id}.musicxml",
+        }
+        for extra in extra_result_files(out_dir, job_id):
+            if extra.name in uploaded:
+                continue
+            mime = "audio/midi" if extra.suffix.lower() in {".mid", ".midi"} else (
+                "audio/wav" if extra.suffix.lower() == ".wav" else "application/json"
+            )
+            storage_backend.save_local_file(extra, extra.name, content_type=mime)
 
         db.update_job(
             job_id,

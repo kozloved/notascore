@@ -626,11 +626,21 @@ def job_result(
     authorization: str | None = Header(default=None),
 ):
     fmt = (format or "musicxml").lower()
+    extra_formats = {
+        "fused_midi": (f"{job_id}.fused.mid", "audio/midi"),
+        "fused_json": (f"{job_id}.fused.json", "application/json"),
+        "manifest": (f"{job_id}.manifest.json", "application/json"),
+        "provenance": (f"{job_id}.provenance.json", "application/json"),
+        "tempo": (f"{job_id}.tempo.json", "application/json"),
+    }
 
-    if fmt not in ("musicxml", "midi", "midi_score"):
+    if fmt not in ("musicxml", "midi", "midi_score") and fmt not in extra_formats:
         raise HTTPException(
             status_code=400,
-            detail="Unsupported format. Use 'musicxml', 'midi', or 'midi_score'.",
+            detail=(
+                "Unsupported format. Use 'musicxml', 'midi', 'midi_score', "
+                "'fused_midi', 'fused_json', 'manifest', 'provenance', or 'tempo'."
+            ),
         )
 
     job = _visible_job(job_id, authorization)
@@ -660,6 +670,22 @@ def job_result(
 
     edited_key = job.get("edited_result_storage_key")
     no_store = {"Cache-Control": "no-store"}
+
+    if fmt in extra_formats:
+        filename, media_type = extra_formats[fmt]
+        payload = _load_sidecar_midi_bytes(
+            storage_backend, job_id, result_storage_key, filename
+        )
+        if not payload:
+            raise HTTPException(status_code=404, detail=f"{filename} is not available")
+        return Response(
+            content=payload,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                **no_store,
+            },
+        )
 
     if fmt == "musicxml":
         xml_key = edited_key or result_storage_key
@@ -759,6 +785,71 @@ def _load_sidecar_midi_bytes(
         return storage_backend.read_result_bytes(filename)
     except Exception:
         return None
+
+
+@app.get("/jobs/{job_id}/artifacts")
+def job_artifacts(
+    job_id: str,
+    authorization: str | None = Header(default=None),
+):
+    job = _visible_job(job_id, authorization)
+    if job.get("status") != "completed":
+        raise HTTPException(status_code=409, detail="Job is not completed yet")
+    result_storage_key = job.get("result_storage_key")
+    if not result_storage_key:
+        raise HTTPException(status_code=404, detail="Result not available")
+    from engine.sidecars import list_job_sidecars
+
+    return {"job_id": job_id, "artifacts": list_job_sidecars(result_storage_key, job_id)}
+
+
+@app.get("/jobs/{job_id}/artifacts/{filename}")
+def job_artifact_file(
+    job_id: str,
+    filename: str,
+    authorization: str | None = Header(default=None),
+):
+    job = _visible_job(job_id, authorization)
+    if job.get("status") != "completed":
+        raise HTTPException(status_code=409, detail="Job is not completed yet")
+    result_storage_key = job.get("result_storage_key")
+    if not result_storage_key:
+        raise HTTPException(status_code=404, detail="Result not available")
+    from engine.sidecars import sidecar_path
+
+    path = sidecar_path(result_storage_key, job_id, filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Artifact not available")
+    suffix = path.suffix.lower()
+    media = {
+        ".mid": "audio/midi",
+        ".midi": "audio/midi",
+        ".wav": "audio/wav",
+        ".json": "application/json",
+        ".musicxml": "application/vnd.recordare.musicxml+xml",
+        ".xml": "application/vnd.recordare.musicxml+xml",
+    }.get(suffix, "application/octet-stream")
+    storage_backend = storage_service.get_storage()
+    if storage_backend.backend == "local":
+        return FileResponse(
+            path=str(path),
+            media_type=media,
+            filename=path.name,
+            headers={"Cache-Control": "no-store"},
+        )
+    payload = _load_sidecar_midi_bytes(
+        storage_backend, job_id, result_storage_key, path.name
+    )
+    if not payload:
+        raise HTTPException(status_code=404, detail="Artifact not available")
+    return Response(
+        content=payload,
+        media_type=media,
+        headers={
+            "Content-Disposition": f'attachment; filename="{path.name}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.post("/jobs/{job_id}/retry")

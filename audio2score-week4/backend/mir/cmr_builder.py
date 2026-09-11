@@ -43,7 +43,12 @@ def notes_to_events(
         note = note.ensure_ids(i)
         start_beat = tempo_map.seconds_to_beats(note.start_time)
         end_beat = tempo_map.seconds_to_beats(note.end_time)
-        duration = end_beat - start_beat
+        # A note at t=0 is in the piece even if the first detected beat is a
+        # few milliseconds later. Negative beats are not valid notation input.
+        if start_beat < 0.0:
+            end_beat -= start_beat
+            start_beat = 0.0
+        duration = max(end_beat - start_beat, 0.0)
         key = (note.pitch, round(note.start_time, 4))
         role_name = None
         if key in melody_keys:

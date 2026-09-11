@@ -42,6 +42,10 @@ class ArtifactRef:
     model: str = ""
     model_version: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
+    artifact_id: str = ""
+    storage_key: str = ""
+    source_stage: str = ""
+    source_model: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -53,6 +57,7 @@ class ArtifactRef:
         payload = dict(data)
         payload["kind"] = ArtifactKind(payload["kind"])
         payload.setdefault("extra", {})
+        payload = {k: v for k, v in payload.items() if k in cls.__dataclass_fields__}
         return cls(**payload)
 
 
@@ -110,9 +115,15 @@ def ref_for_file(
     instrument: str = "",
     model: str = "",
     model_version: str = "",
+    storage_key: str = "",
+    source_stage: str = "",
+    source_model: str = "",
+    artifact_id: str = "",
 ) -> ArtifactRef:
     dest = Path(path)
     digest, size = hash_file(dest)
+    source_model = source_model or model
+    ident = artifact_id or _artifact_id(kind, stem_id, digest)
     return ArtifactRef(
         kind=kind,
         path=str(dest),
@@ -123,4 +134,13 @@ def ref_for_file(
         bytes=size,
         model=model,
         model_version=model_version,
+        artifact_id=ident,
+        storage_key=storage_key or dest.name,
+        source_stage=source_stage,
+        source_model=source_model,
     )
+
+
+def _artifact_id(kind: ArtifactKind, stem_id: str, digest: str) -> str:
+    stem = stem_id or "default"
+    return f"{kind.value}:{stem}:{digest[:12]}"

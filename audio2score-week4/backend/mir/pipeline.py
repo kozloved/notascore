@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 
 from adapters.basic_pitch_backend import BasicPitchBackend
@@ -77,6 +78,18 @@ def get_backend(name: str | None = None):
     return BasicPitchBackend()
 
 
+@dataclass
+class PreparedAudio:
+    """Normalized audio + selected backend. Beat tracking still happens once later."""
+
+    audio_path: Path
+    job_id: str
+    normalized: object
+    transcribe_path: Path
+    backend: object
+    out_dir: Path
+
+
 class UnderstandingPipeline:
     """Audio → RawPerformance → MusicalStructure → NotationPlan → MusicXML."""
 
@@ -136,20 +149,28 @@ class UnderstandingPipeline:
         self.last_timing = None
         self.last_musical_time_map = None
         self._last_tracker_ms: float = 0.0
+        self.last_export_ms: float = 0.0
 
     def transcribe(self, audio_path: str | Path, job_id: str) -> str:
         audio_path = Path(audio_path)
         if is_midi_path(audio_path):
             return self.transcribe_midi(audio_path, job_id)
 
-        normalized = self.normalizer.normalize(audio_path)
+        prepared = self.prepare_audio(audio_path, job_id)
+        notes, prediction, segments = self._transcribe_with_cpu_overlap(
+            prepared.backend, prepared.transcribe_path, prepared.normalized
+        )
+        return self.complete_audio(prepared, notes, prediction, segments)
 
+    def prepare_audio(self, audio_path: str | Path, job_id: str) -> PreparedAudio:
+        """Normalize once and bind the transcription backend. Does not beat-track or AMT."""
+        audio_path = Path(audio_path)
+        normalized = self.normalizer.normalize(audio_path)
         out_dir = audio_path.parent / f"bp_{job_id}"
         out_dir.mkdir(exist_ok=True)
         transcribe_path = self.normalizer.write_wav(
             normalized, out_dir / f"{job_id}_norm.wav"
         )
-
         backend = get_backend(self.backend_name)
         self.config = load_pipeline_config(
             backend=backend.name,
@@ -167,9 +188,33 @@ class UnderstandingPipeline:
             f"piano_analysis={self.config.enable_piano_analysis} "
             f"(job={job_id})"
         )
-        notes, prediction, segments = self._transcribe_with_cpu_overlap(
-            backend, transcribe_path, normalized
+        return PreparedAudio(
+            audio_path=audio_path,
+            job_id=job_id,
+            normalized=normalized,
+            transcribe_path=transcribe_path,
+            backend=backend,
+            out_dir=out_dir,
         )
+
+    def complete_audio(
+        self,
+        prepared: PreparedAudio,
+        notes,
+        prediction,
+        segments,
+    ) -> str:
+        """Interpretation/export from an already-transcribed full-mix result.
+
+        Does not call the AMT backend again. Reuses `_prefetched_tempo` when
+        `_prefetch_cpu` already ran, so beat tracking stays a single pass.
+        """
+        audio_path = prepared.audio_path
+        job_id = prepared.job_id
+        transcribe_path = prepared.transcribe_path
+        normalized = prepared.normalized
+        backend = prepared.backend
+        out_dir = prepared.out_dir
         notes = [
             n.ensure_ids(i)
             for i, n in enumerate(notes)
@@ -385,6 +430,7 @@ class UnderstandingPipeline:
             tempo_map=tempo_map,
         )
 
+        export_started = time.perf_counter()
         xml = self.notation.write_musicxml(
             events,
             meta,
@@ -397,6 +443,7 @@ class UnderstandingPipeline:
         )
         self.last_quantized_events = list(self.notation.last_quantized_events)
         self.last_notation_notes = list(self.last_quantized_events)
+        self.last_export_ms = (time.perf_counter() - export_started) * 1000.0
         self._attach_notation_debug(job_id, out_dir)
         return xml
 

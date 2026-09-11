@@ -13,7 +13,14 @@ class RoFormerUnavailable(RuntimeError):
 class RoFormerSeparator:
     name = "roformer"
 
-    def separate(self, audio_path: str) -> SeparationResult:
+    def separate(
+        self,
+        audio_path: str,
+        *,
+        job_id: str = "",
+        output_dir: str | None = None,
+        requested_stems: list[str] | None = None,
+    ) -> SeparationResult:
         if not separation_enabled() or not separation_checkpoint():
             return SeparationResult(
                 stems=[],
@@ -24,8 +31,12 @@ class RoFormerSeparator:
                     "licensed checkpoint path is set, and MODEL_LICENSES.md "
                     f"is satisfied (checkpoint={separation_checkpoint() or 'unset'})."
                 ),
+                requested_backend=self.name,
+                actual_backend="",
             )
         raise RoFormerUnavailable(
-            "RoFormer checkpoint is configured but inference is not wired. "
+            "RoFormer checkpoint is configured but in-process inference is not "
+            "wired (and must not load into the API/RQ worker). Use "
+            "SEPARATION_ENDPOINT / NEXTGEN_SEPARATION_BACKEND=http. "
             "Refusing to invent stems."
         )
