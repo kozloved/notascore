@@ -57,6 +57,8 @@ HAND_SEPARATOR_ALIASES = {
     "default": HandSeparatorMode.VITERBI,
     "context": HandSeparatorMode.VITERBI,
     "dp": HandSeparatorMode.VITERBI,
+    # Known production mix-up with TRANSCRIPTION_QUANTIZATION_MODE=performance.
+    "performance": HandSeparatorMode.VITERBI,
     "pm2s": HandSeparatorMode.PM2S,
     "pm25": HandSeparatorMode.PM2S,
     "pm2s_hands": HandSeparatorMode.PM2S,
@@ -165,17 +167,52 @@ def pm2s_required() -> bool:
 def parse_hand_separator_mode(
     value: str | HandSeparatorMode | None,
 ) -> HandSeparatorMode:
+    """Strict parse. `performance` is a compatibility alias for viterbi.
+
+    Unknown values raise. Health and job loaders must catch that and keep
+    HTTP 200 / a documented viterbi fallback with an explicit error string.
+    """
     if value is None or str(value).strip() == "":
         return HandSeparatorMode.VITERBI
     if isinstance(value, HandSeparatorMode):
         return value
     key = str(value).strip().lower()
+    if key == "performance":
+        print(
+            "[config] TRANSCRIPTION_HAND_SEPARATOR='performance' is a "
+            "quantization mode; using viterbi. Set "
+            "TRANSCRIPTION_QUANTIZATION_MODE=performance instead."
+        )
+        return HandSeparatorMode.VITERBI
     if key not in HAND_SEPARATOR_ALIASES:
         raise ValueError(
             f"Unknown TRANSCRIPTION_HAND_SEPARATOR={value!r}. "
             "Use viterbi | pm2s."
         )
     return HAND_SEPARATOR_ALIASES[key]
+
+
+def inspect_hand_separator_env() -> dict[str, Any]:
+    """Health-safe snapshot. Never raises."""
+    raw = env_str("TRANSCRIPTION_HAND_SEPARATOR", "viterbi")
+    warning = None
+    error = None
+    try:
+        mode = parse_hand_separator_mode(raw)
+        if (raw or "").strip().lower() == "performance":
+            warning = (
+                "TRANSCRIPTION_HAND_SEPARATOR='performance' aliased to viterbi"
+            )
+    except ValueError as exc:
+        mode = HandSeparatorMode.VITERBI
+        error = str(exc)
+    return {
+        "valid": error is None,
+        "error": error,
+        "warning": warning,
+        "raw": raw or "viterbi",
+        "effective_hand_separator": mode.value,
+    }
 
 
 def resolve_validation_mode(
@@ -268,6 +305,14 @@ def load_pipeline_config(
     validation_mode: str | ValidationMode | None = None,
 ) -> PipelineConfig:
     resolved_backend = (backend or env_str("TRANSCRIPTION_BACKEND", "basic_pitch")).lower()
+    hands = inspect_hand_separator_env()
+    extra: dict[str, Any] = {}
+    if hands["error"]:
+        extra["hand_separator_error"] = hands["error"]
+        extra["hand_separator_fallback"] = "viterbi"
+        print(f"[config] {hands['error']}; using viterbi for this process.")
+    if hands["warning"]:
+        extra["hand_separator_warning"] = hands["warning"]
     return PipelineConfig(
         pipeline=env_str("TRANSCRIPTION_PIPELINE", "understanding").lower(),
         backend=resolved_backend,
@@ -276,9 +321,7 @@ def load_pipeline_config(
         quantization_mode=parse_quantization_mode(
             env_str("TRANSCRIPTION_QUANTIZATION_MODE", "performance")
         ),
-        hand_separator=parse_hand_separator_mode(
-            env_str("TRANSCRIPTION_HAND_SEPARATOR", "viterbi")
-        ),
+        hand_separator=HandSeparatorMode(hands["effective_hand_separator"]),
         pm2s_required=pm2s_required(),
         enable_gemini=gemini_flag_enabled(),
         enable_piano_analysis=piano_analysis_enabled(resolved_backend),
@@ -290,4 +333,5 @@ def load_pipeline_config(
         enable_normalizer=env_bool("TRANSCRIPTION_USE_NORMALIZER", default=True),
         enable_beat_tracker=env_bool("TRANSCRIPTION_USE_BEAT_TRACKER", default=True),
         pipeline_fallback=env_bool("TRANSCRIPTION_PIPELINE_FALLBACK", default=True),
+        extra=extra,
     )

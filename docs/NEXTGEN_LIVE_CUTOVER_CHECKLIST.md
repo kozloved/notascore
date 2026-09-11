@@ -98,8 +98,27 @@ The JSON must include:
 }
 ```
 
-If health still says `legacy`, the deployment is not complete — usually
-because `.env.production` was not loaded into the api/worker containers.
+If health still says `legacy`, the deployment is not complete.
+
+`services.api/worker.env_file: .env.production` has been observed **not**
+to inject `NEXTGEN_*` into the running containers. `docker-compose.yml`
+therefore interpolates those keys under `environment:` from
+`docker compose --env-file .env.production`. Python still defaults to
+`legacy` if the interpolated value is empty.
+
+After recreate, require **container** env, not only the host file:
+
+```bash
+docker compose --env-file .env.production config | grep NEXTGEN_PIPELINE_MODE
+docker compose exec api printenv NEXTGEN_PIPELINE_MODE
+docker compose exec worker printenv NEXTGEN_PIPELINE_MODE
+# both must print: live
+curl -fsS http://127.0.0.1/api/health
+# nextgen.pipeline_mode must be "live" and orchestrator_active true
+```
+
+Do not claim live until those printenv lines are `live`. Federation flags
+stay `0`.
 
 Health-only smoke:
 
