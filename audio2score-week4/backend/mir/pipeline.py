@@ -642,10 +642,16 @@ class UnderstandingPipeline:
     def _apply_mir_layers(self, events: list[MusicalEvent]) -> list[MusicalEvent]:
         if not self.use_mir_layers:
             return events
-        # Performance inference owns the hand/voice/rhythm passes;
-        # avoid an earlier pass that assigns piano hands to non-piano sources.
         if self.config.quantization_mode.value == "performance":
-            return events
+            from mir.performance_score import assign_pipeline_layout
+            from mir.score_profile import score_profile
+
+            return assign_pipeline_layout(
+                events,
+                score_profile(events),
+                self.hand_separator,
+                self.voice_separator,
+            )
         events = self.hand_separator.separate(events)
         events = self.voice_separator.separate(events)
         events = self.dynamics.extract(events)

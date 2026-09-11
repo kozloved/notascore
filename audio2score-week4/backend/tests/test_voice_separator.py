@@ -79,3 +79,18 @@ def test_compact_chord_is_one_voice():
     events = [_ev(60, 0.0, 1.0), _ev(64, 0.0, 1.0), _ev(67, 0.0, 1.0)]
     out = VoiceSeparator().separate(events)
     assert len({e.voice for e in out}) == 1
+
+
+def test_repeated_note_stays_one_voice():
+    events = [_ev(72, float(i), 0.5) for i in range(8)]
+    out = VoiceSeparator().separate(events)
+    assert len({e.voice for e in out}) == 1
+
+
+def test_two_independent_lines_are_two_voices():
+    events = []
+    for i in range(4):
+        events.append(_ev(76, float(i), 1.0, role="melody"))
+        events.append(_ev(60, float(i), 1.0, role="inner"))
+    out = VoiceSeparator().separate(events)
+    assert len({e.voice for e in out}) == 2

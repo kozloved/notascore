@@ -225,3 +225,30 @@ def test_tuplets_have_explicit_distinct_groups_and_export_boundaries(tmp_path):
     xml = ET.parse(path)
     boundaries = [el.attrib["type"] for el in xml.findall(".//tuplet")]
     assert boundaries == ["start", "stop", "start", "stop"]
+
+
+def test_unlabeled_piano_still_infers_layout():
+    raw = [
+        MusicalEvent(48, 0, 1, note_id="lh", velocity=80),
+        MusicalEvent(72, 0, 1, note_id="rh", velocity=80),
+    ]
+    out, report = quantize(raw)
+    assert report.summary["layout_source"] == "inferred"
+    by_id = {e.note_id: e.hand for e in out}
+    assert by_id["lh"] == Hand.LEFT
+    assert by_id["rh"] == Hand.RIGHT
+
+
+def test_does_not_recompute_assigned_pipeline_layout(monkeypatch):
+    def boom(self, events):
+        raise AssertionError("quantizer must not recompute assigned hands/voices")
+
+    monkeypatch.setattr("mir.performance_score.HandSeparator.separate", boom)
+    monkeypatch.setattr("mir.performance_score.VoiceSeparator.separate", boom)
+    raw = [
+        MusicalEvent(48, 0, 1, note_id="lh", hand=Hand.LEFT, voice=0, velocity=80),
+        MusicalEvent(72, 0, 1, note_id="rh", hand=Hand.RIGHT, voice=1, velocity=80),
+    ]
+    out, report = quantize(raw)
+    assert report.summary["layout_source"] == "pipeline"
+    assert {e.note_id: e.hand for e in out} == {"lh": Hand.LEFT, "rh": Hand.RIGHT}

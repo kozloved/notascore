@@ -68,7 +68,7 @@ def _triple_grouping(beats_per_bar=3, meter="3/4"):
 def test_ranked_candidates_expose_scores_not_only_winner():
     ranked = MeterEstimator().ranked_candidates(_compound_6_8_events())
     assert ranked
-    assert {row["meter"] for row in ranked} >= {"2/4", "3/4", "4/4", "6/8"}
+    assert {row["meter"] for row in ranked} >= {"2/4", "3/4", "4/4", "6/8", "9/8", "12/8"}
     assert ranked[0]["score"] >= ranked[-1]["score"]
     assert "normalized" in ranked[0]
     assert ranked[0]["meter"] in ("6/8", "12/8")
@@ -271,3 +271,15 @@ def test_sparse_transcribed_6_8_still_overrides_3_beat_grouping():
     )
     assert decision.meter == "6/8"
     assert decision.was_hint_overridden is True
+
+
+def test_explicit_file_9_8_is_authoritative():
+    events = _straight_4_4_events()
+    decision = MeterArbitrator().decide(
+        events,
+        beat_evidence=_triple_grouping(4, "4/4"),
+        file_meter="9/8",
+    )
+    assert decision.meter == "9/8"
+    assert decision.reason == "explicit_file_time_signature"
+    assert decision.was_hint_overridden is False

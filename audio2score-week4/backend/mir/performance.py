@@ -101,6 +101,7 @@ class PerformanceSnapshot:
             original_start_time=n.start_sec, original_end_time=n.end_sec,
             source_track_id=n.track_id, source_program=n.program,
             instrument=InstrumentKind(n.instrument),
+            hand_locked=n.hand_hint in ("left", "right"),
         ) for n in self.notes if not n.is_drum]
 
     def write_json(self, path):
