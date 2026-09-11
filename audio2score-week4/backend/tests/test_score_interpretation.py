@@ -157,6 +157,9 @@ def test_f_compound_grouping_prefers_6_8_over_3_4():
     compound = next(c for c in scale_one if c.meter == "6/8")
     waltz = next(c for c in scale_one if c.meter == "3/4")
     assert compound.total < waltz.total
+    chosen = choose_candidate(candidates)
+    assert chosen.tempo_scale == 1.0
+    assert chosen.meter == "6/8"
 
 
 def test_g_half_double_tempo_candidates_compare_musically():
@@ -176,6 +179,7 @@ def test_g_half_double_tempo_candidates_compare_musically():
     )
     assert double.total < normal.total
     assert chosen.tempo_scale == 2.0
+    assert chosen.meter in ("4/4", "2/4")
     fast_map = MusicalTimeMap.from_bpm(120, duration_sec=8)
     halves = [
         _note(72, i * 1.0, i * 1.0 + 0.85, f"h{i:04d}") for i in range(8)

@@ -30,23 +30,25 @@ const html = `<!doctype html>
     html, body { margin: 0; background: #f7f4ee; }
     #osmd { width: 900px; margin: 16px auto; background: white; }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@2.1.1/build/opensheetmusicdisplay.min.js"></script>
 </head>
 <body>
   <div id="osmd"></div>
-  <script type="module">
+  <script>
     const xml = ${JSON.stringify(xml)};
     const config = ${JSON.stringify(config)};
-    const { OpenSheetMusicDisplay } = await import("opensheetmusicdisplay");
-    const osmd = new OpenSheetMusicDisplay(document.getElementById("osmd"), config.constructor);
+    const OSMD = window.opensheetmusicdisplay.OpenSheetMusicDisplay;
+    const osmd = new OSMD(document.getElementById("osmd"), config.constructor);
     if (osmd.EngravingRules) {
       for (const [key, value] of Object.entries(config.engravingRules)) {
         osmd.EngravingRules[key] = value;
       }
     }
-    await osmd.load(xml);
-    osmd.zoom = config.zoom;
-    osmd.render();
-    window.__osmdReady = true;
+    osmd.load(xml).then(() => {
+      osmd.zoom = config.zoom;
+      osmd.render();
+      window.__osmdReady = true;
+    });
   </script>
 </body>
 </html>

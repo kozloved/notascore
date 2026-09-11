@@ -423,12 +423,34 @@ def choose_candidate(
         meter = prefer_meter or "4/4"
         return next((c for c in rows if c.meter == meter), min(rows, key=lambda c: c.total))
 
+    def pick_meter(rows: list[CandidateScore]) -> CandidateScore:
+        ranked = sorted(rows, key=lambda c: c.total)
+        best = ranked[0]
+        if best.meter == "12/8":
+            four = next((c for c in ranked if c.meter == "4/4"), None)
+            six = next((c for c in ranked if c.meter == "6/8"), None)
+            if four and four.total <= best.total + 0.08:
+                return four
+            if six and six.total <= best.total + 0.05:
+                return six
+        return best
+
+    ones = by_scale.get(1.0) or [min(candidates, key=lambda c: c.total)]
+    six = next((c for c in ones if c.meter == "6/8"), None)
+    if (
+        six is not None
+        and float(six.extra.get("score_6_8") or 0.0)
+        > float(six.extra.get("score_3_4") or 0.0) + 0.08
+        and six.total + 0.05 < representative(1.0).total
+    ):
+        return six
+
     baseline = representative(1.0) if 1.0 in by_scale else min(candidates, key=lambda c: c.total)
     best_scale = min((representative(scale) for scale in by_scale), key=lambda c: c.total)
     scale = baseline.tempo_scale
     if allow_retune and best_scale.total <= APPLY_MARGIN * max(baseline.total, 1e-6):
         scale = best_scale.tempo_scale
-    return min(by_scale[scale], key=lambda c: c.total)
+    return pick_meter(by_scale[scale])
 
 
 def infer_pickup(
