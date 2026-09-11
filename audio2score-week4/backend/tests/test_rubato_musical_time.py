@@ -190,3 +190,12 @@ def test_timing_resolution_records_fallback():
     assert result.quality.beat_count >= 2
     assert result.quality.median_bpm is not None
 
+
+def test_notes_before_first_beat_do_not_enter_score_as_negative():
+    time_map = MusicalTimeMap.from_beat_times([0.01, 0.51, 1.01])
+    notes = [NoteEvent(pitch=60, start_time=0.0, end_time=0.4, velocity=80, note_id="n0")]
+    events = notes_to_events(notes, time_map)
+    assert events[0].start_beat == 0.0
+    assert events[0].duration_beats > 0
+
+
