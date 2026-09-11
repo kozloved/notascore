@@ -295,11 +295,18 @@ class NotationWriter:
         n_staves = max(1, n_staves)
 
         parts: list[stream.PartStaff] = []
+        profile = (plan.extra.get("quantization") or {}).get("score_profile", {})
+        program = profile.get("program")
         for sid in range(n_staves):
-            part = stream.PartStaff(id=f"P1-Staff{sid + 1}")
+            part = (stream.PartStaff if n_staves >= 2 else stream.Part)(id=f"P1-Staff{sid + 1}")
             part.partName = "Piano" if n_staves >= 2 else "Music"
             part.partAbbreviation = "Pno." if n_staves >= 2 else "Mus."
-            self._safe_insert(part, 0, instrument.Piano())
+            inst = instrument.instrumentFromMidiProgram(program) if program is not None else (
+                instrument.Piano() if n_staves >= 2 else instrument.Instrument())
+            if program is not None:
+                part.partName = inst.instrumentName
+                part.partAbbreviation = inst.instrumentAbbreviation
+            self._safe_insert(part, 0, inst)
             parts.append(part)
             self._safe_insert(score, 0, part)
 

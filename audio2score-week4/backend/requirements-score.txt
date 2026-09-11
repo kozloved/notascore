@@ -1,0 +1,6 @@
+# Offline score development: no audio model, cloud account, or GPU required.
+music21>=9,<11
+pretty_midi>=0.2.10,<0.3
+numpy>=1.26
+soundfile>=0.12
+pytest>=8

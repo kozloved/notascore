@@ -231,6 +231,10 @@ def test_polyphonic_pipeline_queues_one_runpod_job(
     assert len(calls) == 1
     assert calls[0].endswith("/run")
     assert "runsync" not in calls[0]
+    assert (tmp_path / "bp_one-run" / "one-run.raw.mid").read_bytes() == midi_bytes
+    snapshot = json.loads((tmp_path / "bp_one-run" / "one-run.performance.json").read_text())
+    assert snapshot["source_backend"] == "mt3"
+    assert snapshot["midi_sha256"]
 
 
 @patch("mir.pipeline.AudioSegmenter.segment", return_value=[])

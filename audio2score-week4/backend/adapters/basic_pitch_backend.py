@@ -5,10 +5,16 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from basic_pitch import ICASSP_2022_MODEL_PATH
-from basic_pitch.inference import predict
-
 from mir.types import NoteEvent
+
+
+def predict(*args, **kwargs):
+    """Load the audio model only for audio work, never for MIDI interpretation."""
+    from basic_pitch import ICASSP_2022_MODEL_PATH
+    from basic_pitch.inference import predict as run_predict
+
+    kwargs.setdefault("model_or_model_path", ICASSP_2022_MODEL_PATH)
+    return run_predict(*args, **kwargs)
 
 # Piano-oriented Fast defaults: fewer ghost onsets, drop twitter octaves above C7.
 DEFAULT_ONSET_THRESHOLD = 0.6
@@ -78,7 +84,6 @@ class BasicPitchBackend:
 
         _, midi_data, note_events = predict(
             str(audio_path),
-            model_or_model_path=ICASSP_2022_MODEL_PATH,
             onset_threshold=settings["onset_threshold"],
             frame_threshold=settings["frame_threshold"],
             minimum_note_length=settings["minimum_note_length"],

@@ -135,16 +135,27 @@ def write_notes_to_midi(
     rh = pretty_midi.Instrument(program=GM_ACOUSTIC_GRAND, name="RH")
     lh = pretty_midi.Instrument(program=GM_ACOUSTIC_GRAND, name="LH")
     single = pretty_midi.Instrument(program=GM_ACOUSTIC_GRAND, name="Piano")
+    source_tracks = {}
 
     for index, n in enumerate(notes):
         start = float(n.start_time)
-        end = max(start + 0.01, float(n.end_time))
+        end = float(n.end_time)
+        if end <= start:
+            raise ValueError("MIDI note duration must be positive")
         note = pretty_midi.Note(
             velocity=max(1, min(127, int(n.velocity))),
             pitch=int(n.pitch),
             start=start,
             end=end,
         )
+        if n.source_program is not None and (not split_hands or n.source_program > 7):
+            key = (n.source_track_id, n.source_program)
+            if key not in source_tracks:
+                source_tracks[key] = pretty_midi.Instrument(
+                    program=n.source_program,
+                    name=pretty_midi.program_to_instrument_name(n.source_program))
+            source_tracks[key].notes.append(note)
+            continue
         if not split_hands:
             single.notes.append(note)
             continue
@@ -160,10 +171,12 @@ def write_notes_to_midi(
             midi.instruments.append(rh)
         if lh.notes:
             midi.instruments.append(lh)
-        if not midi.instruments:
+        if not midi.instruments and not source_tracks:
             midi.instruments.append(single)
     else:
-        midi.instruments.append(single)
+        if single.notes or not source_tracks:
+            midi.instruments.append(single)
+    midi.instruments.extend(source_tracks.values())
 
     if pedal_events:
         ccs = [
@@ -207,6 +220,9 @@ def write_events_to_midi(
                 end_time=end,
                 velocity=ev.velocity,
                 confidence=ev.confidence,
+                source_track_id=ev.source_track_id,
+                source_program=ev.source_program,
+                instrument=ev.instrument,
             )
         )
         hands.append(_hand_value(ev.hand))

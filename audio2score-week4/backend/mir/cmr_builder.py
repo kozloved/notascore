@@ -37,7 +37,7 @@ def notes_to_events(
         note = note.ensure_ids(i)
         start_beat = tempo_map.seconds_to_beats(note.start_time)
         end_beat = tempo_map.seconds_to_beats(note.end_time)
-        duration = max(0.01, end_beat - start_beat)
+        duration = end_beat - start_beat
         key = (note.pitch, round(note.start_time, 4))
         role_name = None
         if key in melody_keys:
@@ -55,11 +55,13 @@ def notes_to_events(
                 start_beat=start_beat,
                 duration_beats=duration,
                 velocity=note.velocity,
-                instrument=instrument,
+                instrument=note.instrument if note.instrument != InstrumentKind.UNKNOWN else instrument,
                 hand=note.hand if note.hand is not None else Hand.UNKNOWN,
                 hand_locked=bool(getattr(note, "hand_locked", False)),
                 confidence=note.confidence,
-                source_backend=note.source_backend or source_backend,
+                source_backend=(note.source_backend if note.source_backend not in ("", "unknown") else source_backend),
+                source_track_id=note.source_track_id,
+                source_program=note.source_program,
                 note_id=note.note_id,
                 start_time_sec=note.start_time,
                 end_time_sec=note.end_time,

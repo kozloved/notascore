@@ -1,4 +1,4 @@
-"""Convert an MT3 MIDI file without invoking audio models or cloud services."""
+"""Convert a reference or transcribed MIDI without audio models or cloud services."""
 
 import argparse
 import json
@@ -11,10 +11,18 @@ from notation_engine.writer import NotationWriter
 
 
 def convert(source: Path, output: Path, meter=None):
-    if source.resolve() == output.resolve():
+    report_path = output.with_suffix(".decisions.json")
+    snapshot_path = output.with_suffix(".performance.json")
+    midi_path = output.with_suffix(".score.mid")
+    paths = [output, report_path, snapshot_path, midi_path]
+    if source.resolve() in {p.resolve() for p in paths}:
         raise ValueError("Output must not replace the source MIDI")
+    if len({p.resolve() for p in paths}) != len(paths):
+        raise ValueError("Output paths collide; use a .musicxml output")
     ingested = ingest_midi(source)
-    events = notes_to_events(ingested.notes, ingested.tempo_map, source_backend="mt3")
+    if len(ingested.performance.meter_changes) > 1:
+        raise ValueError("Changing meter is not yet supported by the solo score planner")
+    events = notes_to_events(ingested.notes, ingested.tempo_map, source_backend="midi")
     meta = ScoreMeta(time_sig_hint=meter or ingested.time_sig_hint,
                      tempo_map=ingested.tempo_map,
                      display_tempo_bpm=round(ingested.tempo_map.bpm_at(0)))
@@ -22,7 +30,9 @@ def convert(source: Path, output: Path, meter=None):
     score = writer.write_from_events_direct(events, meta, quantization_mode="performance")
     output.parent.mkdir(parents=True, exist_ok=True)
     writer._export_musicxml(score, output)
-    report_path = output.with_suffix(".decisions.json")
+    score.write("midi", fp=str(midi_path))
+    ingested.performance.verify_midi(source.read_bytes())
+    ingested.performance.write_json(snapshot_path)
     report_path.write_text(json.dumps(writer.notation_debug_payload(), indent=2, default=str),
                            encoding="utf-8")
     return report_path

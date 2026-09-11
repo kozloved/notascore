@@ -2,7 +2,9 @@
 
 The `performance` mode is the default engine for the staged
 performance-to-score rebuild. Explicit `adaptive` mode remains available.
-It targets solo piano and preserves source MIDI independently of notation.
+It targets solo piano and single-stream pitched instruments, and preserves
+source MIDI independently of notation. See `docs/PERFORMANCE_FOUNDATION.md`
+at repository root for the staged migration and remaining release gates.
 
 ## Run
 
@@ -12,8 +14,9 @@ From the backend directory:
 .venv/bin/python -m mir.performance_cli input.mid output.musicxml --meter 4/4
 ```
 
-This reads the MIDI tempo map, creates a grand-staff MusicXML score, and writes
-`output.decisions.json`. It invokes no audio model or cloud service. Without
+This reads the MIDI tempo map, creates a grand-staff or single-staff MusicXML
+score, and writes `output.decisions.json`, `output.performance.json`, and
+`output.score.mid`. It invokes no audio model or cloud service. Without
 `--meter`, the MIDI meter hint or the existing meter estimator is used.
 
 The existing upload pipeline defaults to `performance`. To select it explicitly:

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import re
+import io
 from dataclasses import dataclass
 from pathlib import Path
 
 from mir.types import Hand, NoteEvent, TempoMap, TempoPoint
+from mir.performance import PerformanceSnapshot, snapshot_midi
 
 MIDI_EXTENSIONS = {".mid", ".midi"}
 MIDI_CONTENT_TYPES = {
@@ -43,6 +45,7 @@ class IngestedMidi:
     pedal_events: list[tuple[float, int]]
     time_sig_hint: str | None = None
     source_path: str = ""
+    performance: PerformanceSnapshot | None = None
 
 
 def _tokens(name: str) -> set[str]:
@@ -112,38 +115,23 @@ def _time_sig_hint(midi) -> str | None:
     return None
 
 
-def ingest_midi(path: str | Path) -> IngestedMidi:
+def ingest_midi(path: str | Path, *, source_backend="midi") -> IngestedMidi:
     import pretty_midi
 
     midi_path = Path(path)
     try:
-        midi = pretty_midi.PrettyMIDI(str(midi_path))
+        data = midi_path.read_bytes()
+        midi = pretty_midi.PrettyMIDI(io.BytesIO(data))
     except Exception as exc:
         raise ValueError(f"Could not read MIDI file: {exc}") from exc
 
-    notes: list[NoteEvent] = []
+    performance = snapshot_midi(midi, data, backend=source_backend)
+    notes = performance.to_notes()
     pedal: list[tuple[float, int]] = []
-    named_hands = 0
 
     for inst in midi.instruments:
         if inst.is_drum:
             continue
-        hand = hand_from_track_name(inst.name or "")
-        if hand != Hand.UNKNOWN:
-            named_hands += 1
-        for n in inst.notes:
-            start = float(n.start)
-            end = max(start + 0.01, float(n.end))
-            notes.append(
-                NoteEvent(
-                    pitch=int(n.pitch),
-                    start_time=start,
-                    end_time=end,
-                    velocity=max(1, min(127, int(n.velocity))),
-                    confidence=1.0,
-                    hand=hand,
-                )
-            )
         for cc in inst.control_changes:
             if int(cc.number) == 64:
                 pedal.append((float(cc.time), max(0, min(127, int(cc.value)))))
@@ -160,4 +148,5 @@ def ingest_midi(path: str | Path) -> IngestedMidi:
         pedal_events=pedal,
         time_sig_hint=_time_sig_hint(midi),
         source_path=str(midi_path),
+        performance=performance,
     )

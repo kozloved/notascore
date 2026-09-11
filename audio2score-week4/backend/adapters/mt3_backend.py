@@ -302,7 +302,7 @@ def _notes_from_midi_bytes(data: bytes) -> list[NoteEvent]:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "mt3.mid"
         path.write_bytes(data)
-        notes = ingest_midi(path).notes
+        notes = ingest_midi(path, source_backend="mt3").notes
     if not notes:
         raise _transcription_error("Polyphonic (MT3) returned a MIDI file with no notes.")
     return notes
@@ -659,7 +659,24 @@ def _run_command(audio_path: Path, command: str, timeout: int) -> bytes:
 class MT3Backend:
     name = "mt3"
 
+    def __init__(self):
+        self.last_midi_bytes = None
+        self.last_performance = None
+
+    def _decode(self, data):
+        # Retain the response, including controllers and metadata, before any
+        # cleaner or score interpretation gets a mutable note copy.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "mt3.mid"
+            path.write_bytes(data)
+            ingested = ingest_midi(path, source_backend="mt3")
+        self.last_midi_bytes = bytes(data)
+        self.last_performance = ingested.performance
+        return ingested.notes
+
     def transcribe_notes(self, audio_path: str | Path) -> list[NoteEvent]:
+        self.last_midi_bytes = None
+        self.last_performance = None
         audio_path = Path(audio_path)
         settings = mt3_settings()
         endpoint = settings["endpoint"]
@@ -676,11 +693,11 @@ class MT3Backend:
             midi_bytes = _post_audio(
                 endpoint, audio_path, settings["api_key"], timeout
             )
-            return _notes_from_midi_bytes(midi_bytes)
+            return self._decode(midi_bytes)
 
         if command:
             print(f"[MT3] command timeout={timeout}s")
             midi_bytes = _run_command(audio_path, command, timeout)
-            return _notes_from_midi_bytes(midi_bytes)
+            return self._decode(midi_bytes)
 
         raise _transcription_error(_POLYPHONIC_UNCONFIGURED)
