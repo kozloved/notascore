@@ -1,0 +1,35 @@
+{
+  "source": "audio2score-week4/frontend/components/SheetResult.jsx",
+  "constructor": {
+    "backend": "svg",
+    "autoResize": true,
+    "drawTitle": false,
+    "drawPartNames": false,
+    "drawMetronomeMarks": true,
+    "drawCredits": false,
+    "drawHiddenNotes": false,
+    "pageFormat": "A4_P",
+    "drawingParameters": "compact",
+    "newSystemFromXML": false,
+    "newPageFromXML": false,
+    "alignRests": 2
+  },
+  "engravingRules": {
+    "RenderComposer": false,
+    "RenderTitle": false,
+    "RenderSubtitle": false,
+    "RenderLyricist": false,
+    "MetronomeMarksDrawn": true,
+    "NewSystemAtXMLNewSystemAttribute": false,
+    "NewPageAtXMLNewPageAttribute": false,
+    "StretchLastSystemLine": false,
+    "PageLeftMargin": 8,
+    "PageRightMargin": 8,
+    "PageTopMargin": 8,
+    "PageBottomMargin": 8,
+    "StaffDistance": 4.5,
+    "BetweenStaffDistance": 3,
+    "MinimumDistanceBetweenSystems": 4
+  },
+  "zoom": 0.75
+}
