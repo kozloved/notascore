@@ -1,7 +1,7 @@
 # NotaScore YourMT3 RunPod Worker
 
 This folder is the **real** RunPod Serverless image (`kozloved/notascore-yourmt3`).
-YourMT3 loads once at worker start. The worker returns MIDI only.
+YourMT3 loads once, after the worker connects to RunPod. The worker returns MIDI only.
 
 ## GPU (required)
 
@@ -21,6 +21,23 @@ In the endpoint **GPU** list, pick **one** of:
 - RTX 6000 Ada
 
 Do **not** pick RTX PRO 6000 Blackwell, B200, or any other Blackwell card.
+
+## Stuck on Initializing
+
+RunPod shows **Initializing** until the container process calls `runpod.serverless.start()`.
+Logs do not appear until that happens. One job sitting in queue with a worker
+frozen on Initializing means the GPU never became **Running**.
+
+Unstick (do this now, then send only one new job):
+
+1. Open the endpoint → **Requests** → **Cancel** the queued job.
+2. Open **Workers**. If one is Initializing, stop / terminate it.
+3. **GPU**: only RTX 4090 (or 3090 / A40 / L40 / 6000 Ada). Uncheck Blackwell.
+4. **Redeploy**.
+5. Wait until a worker is **Running**. Then send one test. Do not retry while Initializing.
+
+If it freezes again with **no logs**, the image is still pulling or the GPU node is bad.
+Turn **Flash Boot off**, Redeploy, and pick 4090 only.
 
 ## Build (required: linux/amd64)
 
