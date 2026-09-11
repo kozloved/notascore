@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import json
-from unittest.mock import patch
 
 from separation.http import HttpSeparator
 from separation.service import get_separator
@@ -30,12 +29,14 @@ def test_http_separator_writes_only_returned_stems(tmp_path, monkeypatch):
     audio.write_bytes(b"RIFF-FAKE")
     piano = base64.b64encode(b"PIANO-WAV").decode()
     drums = base64.b64encode(b"DRUM-WAV").decode()
+    calls = []
 
     def fake_urlopen(request, timeout=None):
+        calls.append(request)
         assert request.full_url == "http://sep.test/separate"
         payload = json.loads(request.data.decode())
         assert payload["job_id"] == "job1"
-        assert "piano" in payload["requested_stems"]
+        assert payload["requested_stems"] == ["piano", "drums", "guitar"]
         body = {
             "model": "mock-separator",
             "model_version": "test",
@@ -46,16 +47,32 @@ def test_http_separator_writes_only_returned_stems(tmp_path, monkeypatch):
         }
         return _FakeResponse(json.dumps(body).encode())
 
-        monkeypatch.setattr("separation.http.urllib.request.urlopen", fake_urlopen)
-        sep = HttpSeparator()
-        result = sep.separate(str(audio), job_id="job1", output_dir=tmp_path)
-        assert not result.skipped
-        assert result.error == ""
-        assert {s.stem_id for s in result.stems} == {"piano", "drums"}
-        assert "guitar" not in {s.stem_id for s in result.stems}
-        assert (tmp_path / "job1.stem.piano.wav").read_bytes() == b"PIANO-WAV"
-        assert result.model == "mock-separator"
-        assert sep.last_request_count == 1
+    monkeypatch.setattr("separation.http.urllib.request.urlopen", fake_urlopen)
+    sep = HttpSeparator()
+    result = sep.separate(
+        str(audio),
+        job_id="job1",
+        output_dir=tmp_path,
+        requested_stems=["piano", "drums", "guitar"],
+    )
+    assert len(calls) == 1
+    assert not result.skipped
+    assert result.error == ""
+    assert {s.stem_id for s in result.stems} == {"piano", "drums"}
+    assert "guitar" not in {s.stem_id for s in result.stems}
+    assert not (tmp_path / "job1.stem.guitar.wav").exists()
+    assert not (tmp_path / "job1.stem.vocals.wav").exists()
+    assert (tmp_path / "job1.stem.piano.wav").read_bytes() == b"PIANO-WAV"
+    assert (tmp_path / "job1.stem.drums.wav").read_bytes() == b"DRUM-WAV"
+    piano_stem = next(s for s in result.stems if s.stem_id == "piano")
+    assert piano_stem.confidence == 0.8
+    assert piano_stem.model == "mock-separator"
+    assert piano_stem.model_version == "test"
+    assert result.model == "mock-separator"
+    assert result.model_version == "test"
+    assert sep.last_request_count == 1
+    assert result.error == ""
+    assert result.skipped is False
 
 
 def test_http_separator_ignores_unknown_stem_labels(tmp_path, monkeypatch):
