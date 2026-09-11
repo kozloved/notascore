@@ -1,0 +1,17 @@
+# Production smoke fixtures (do not commit audio)
+
+# Real recordings, including commercial tracks, stay on the machine that
+# runs the smoke matrix. They are never part of git.
+
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+*.mid
+*.midi
+*.aiff
+*.aif
+
+!.gitignore
+!README.md

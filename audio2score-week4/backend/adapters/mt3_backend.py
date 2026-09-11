@@ -31,6 +31,7 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from mir.midi_ingest import ingest_midi
+from mir.raw_identity import sha256_hex
 from mir.types import NoteEvent
 from modes import DEFAULT_MT3_MODEL, MT3_MODELS
 
@@ -668,22 +669,26 @@ class MT3Backend:
 
     def __init__(self):
         self.last_midi_bytes = None
+        self.last_provider_raw_sha256 = None
         self.last_performance = None
         self.last_timing = None
 
     def _decode(self, data):
-        # Retain the response, including controllers and metadata, before any
-        # cleaner or score interpretation gets a mutable note copy.
+        # Hash and retain the exact provider payload before parse / validation.
+        # Do not reconstruct MIDI just to compute this SHA.
+        payload = bytes(data)
+        self.last_midi_bytes = payload
+        self.last_provider_raw_sha256 = sha256_hex(payload)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "mt3.mid"
-            path.write_bytes(data)
+            path.write_bytes(payload)
             ingested = ingest_midi(path, source_backend="mt3")
-        self.last_midi_bytes = bytes(data)
         self.last_performance = ingested.performance
         return ingested.notes
 
     def transcribe_notes(self, audio_path: str | Path) -> list[NoteEvent]:
         self.last_midi_bytes = None
+        self.last_provider_raw_sha256 = None
         self.last_performance = None
         self.last_timing = None
         audio_path = Path(audio_path)

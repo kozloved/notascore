@@ -22,6 +22,7 @@ from engine.flags import (
     write_manifest_enabled,
 )
 from engine.ir import InterpretedNote, InterpretedPerformance
+from engine.provenance import live_provenance_fields
 from engine.stages import StageName, StageResult
 from mir.midi_ingest import ingest_midi, is_midi_path
 from mir.pipeline import UnderstandingPipeline
@@ -267,13 +268,19 @@ class PipelineOrchestrator:
             warnings,
         )
         snapshot = pipeline.last_performance_snapshot
+        identity = dict(getattr(pipeline, "last_raw_identity", None) or {})
         stages.append(
             StageResult(
                 StageName.BUILD_PERFORMANCE,
                 ok=True,
                 duration_ms=0.0,
                 model="PerformanceSnapshot",
-                extra={"midi_sha256": getattr(snapshot, "midi_sha256", None)},
+                extra={
+                    "midi_sha256": getattr(snapshot, "midi_sha256", None),
+                    "provider_raw_sha256": identity.get("provider_raw_sha256"),
+                    "saved_raw_sha256": identity.get("saved_raw_sha256"),
+                    "raw_identity_match": identity.get("raw_identity_match"),
+                },
             )
         )
         timing = pipeline.last_timing
@@ -780,12 +787,14 @@ class PipelineOrchestrator:
         stages.append(StageResult(StageName.COMPLETE, ok=True, duration_ms=0.0, model="orchestrator"))
         provenance_path = out_dir / f"{job_id}.provenance.json"
         runtime = runtime_identification()
+        extra_fields = live_provenance_fields(pipeline, stages)
         provenance_path.write_text(
             json.dumps(
                 {
                     "job_id": job_id,
                     **runtime,
                     "ensemble_render": runtime["ensemble_render_enabled"],
+                    **extra_fields,
                     "stages": [s.to_dict() for s in stages],
                     "warnings": warnings,
                 },

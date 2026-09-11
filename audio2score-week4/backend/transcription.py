@@ -13,7 +13,23 @@ from modes import (
 
 
 class TranscriptionError(Exception):
-    pass
+    """Pipeline failure. `code` is internal; `public_message` is user-safe."""
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        code: str | None = None,
+        public_message: str | None = None,
+    ):
+        super().__init__(message)
+        self.code = code
+        self.public_message = public_message
+
+    def user_message(self) -> str:
+        if self.public_message:
+            return self.public_message
+        return str(self)
 
 
 # Allow straight (16th, via 4) and eighth-note triplets (via 3) so genuine
