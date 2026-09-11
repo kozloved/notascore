@@ -9,9 +9,16 @@ Live jobs remain:
 ```text
 audio2score-week4/frontend
   → backend/main.py / tasks.process_job
-  → transcription.get_engine()
-  → mir.pipeline.UnderstandingPipeline
+  → engine.job_runner.run_job
+  → NEXTGEN_PIPELINE_MODE=legacy (default): transcription.get_engine()
+       → mir.pipeline.UnderstandingPipeline
+  → NEXTGEN_PIPELINE_MODE=shadow: same transcribe, then analysis artifacts
+  → NEXTGEN_PIPELINE_MODE=live: engine.orchestrator.PipelineOrchestrator
+       → UnderstandingPipeline.complete_audio for score export
 ```
+
+See `docs/NEXTGEN_LIVE_PIPELINE.md` for the actual live path, flags, and what
+is still disabled.
 
 Root `backend/engines/` is still a disconnected stub. Do not implement there.
 
@@ -40,11 +47,14 @@ NotationPlan / score MIDI / MusicXML
 | `transcription_fed/` | Capability router (MT3 / Basic Pitch / MIDI / Transkun stub), bipartite reconciliation |
 | `separation/` | `StemSeparator` protocol, RoFormer adapter that **skips** unless licensed |
 
-## Feature flags (all off except the manifest)
+## Feature flags (defaults keep production on the PR #50 path)
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `NEXTGEN_SEPARATION` | 0 | Run RoFormer. Still refuses if no checkpoint. Never invents stems. |
+| `NEXTGEN_PIPELINE_MODE` | `legacy` | `legacy` \| `shadow` \| `live` |
+| `NEXTGEN_SEPARATION` | 0 | Allow separator. HTTP adapter if `SEPARATION_ENDPOINT` is set. Never invents stems. |
+| `NEXTGEN_STEM_TRANSCRIPTION_ENABLED` | 0 | Basic Pitch on pitched stems |
+| `NEXTGEN_FUSION_ENABLED` | 0 | Write fused MIDI/JSON |
 | `NEXTGEN_TRANSKUN` | 0 | Piano specialist. Raises until licensed + wired. |
 | `NEXTGEN_BEAT_THIS` | 0 | Beat This! analyzer. madmom/librosa remains production. |
 | `NEXTGEN_ENSEMBLE_RENDER` | 0 | Multi-part score. Mixed GM programs still raise in performance mode. |
@@ -69,8 +79,8 @@ and drops weak unmatched specialist ghosts.
 
 ## Explicitly not in this increment
 
-- Real RoFormer / Transkun / Beat This! inference
-- Switching `tasks.py` onto `PipelineOrchestrator` for live audio jobs
+- Transkun / Beat This! / in-process RoFormer inference
+- Ensemble MusicXML engraving (`NEXTGEN_ENSEMBLE_RENDER=0`)
 - Server MuseScore PDF/SVG
 - Pedal-aware written duration
 - Joint probabilistic hand/voice/rhythm search
