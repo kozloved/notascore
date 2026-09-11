@@ -30,6 +30,10 @@ if __name__ == "__main__":
     print(f"Queue: {QUEUE_NAME}")
     print(f"Redis: {REDIS_URL}")
     print(f"Worker: {worker_cls.__name__}")
+    from adapters.mt3_backend import mt3_available
+    from engine.flags import log_pipeline_configuration
+
+    log_pipeline_configuration(mt3_configured=mt3_available())
 
     worker = worker_cls([QUEUE_NAME], connection=redis_client)
     worker.work()

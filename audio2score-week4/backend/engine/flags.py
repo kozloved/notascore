@@ -81,3 +81,66 @@ def fusion_ghost_confidence() -> float:
         return float(raw)
     except ValueError:
         return 0.35
+
+
+def separation_configured() -> bool:
+    """True when a separator endpoint is set. Never returns the URL."""
+    return bool(separation_endpoint().strip())
+
+
+def nextgen_status() -> dict:
+    """Safe, non-secret cutover snapshot for /health and startup logs."""
+    mode = pipeline_mode()
+    return {
+        "pipeline_mode": mode,
+        "orchestrator_active": mode == PIPELINE_MODE_LIVE,
+        "separation_enabled": separation_enabled(),
+        "separation_backend": separation_backend(),
+        "separation_configured": separation_configured(),
+        "stem_transcription_enabled": stem_transcription_enabled(),
+        "fusion_enabled": fusion_enabled(),
+        "transkun_enabled": transkun_enabled(),
+        "beat_this_enabled": beat_this_enabled(),
+        "ensemble_render_enabled": ensemble_render_enabled(),
+        "write_manifest": write_manifest_enabled(),
+    }
+
+
+def runtime_identification() -> dict:
+    """Provenance fields proving which pipeline produced a job."""
+    mode = pipeline_mode()
+    if mode == PIPELINE_MODE_LIVE:
+        owner = "nextgen"
+    elif mode == PIPELINE_MODE_SHADOW:
+        owner = "shadow-observer"
+    else:
+        owner = "legacy"
+    return {
+        "pipeline_mode": mode,
+        "orchestrator": owner,
+        "separation_enabled": separation_enabled(),
+        "fusion_enabled": fusion_enabled(),
+        "stem_transcription_enabled": stem_transcription_enabled(),
+        "ensemble_render_enabled": ensemble_render_enabled(),
+    }
+
+
+def format_pipeline_banner(*, mt3_configured: bool) -> str:
+    ng = nextgen_status()
+
+    def _on(flag: bool) -> str:
+        return "on" if flag else "off"
+
+    return (
+        "NotaScore pipeline configuration:\n"
+        f"  nextgen_mode={ng['pipeline_mode']}\n"
+        f"  separation={_on(ng['separation_enabled'])}\n"
+        f"  stem_transcription={_on(ng['stem_transcription_enabled'])}\n"
+        f"  fusion={_on(ng['fusion_enabled'])}\n"
+        f"  ensemble_render={_on(ng['ensemble_render_enabled'])}\n"
+        f"  MT3 configured = {str(bool(mt3_configured)).lower()}"
+    )
+
+
+def log_pipeline_configuration(*, mt3_configured: bool) -> None:
+    print(format_pipeline_banner(mt3_configured=mt3_configured), flush=True)

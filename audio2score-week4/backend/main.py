@@ -77,6 +77,10 @@ async def lifespan(app: FastAPI):
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     db.init_db()
+    from adapters.mt3_backend import mt3_available
+    from engine.flags import log_pipeline_configuration
+
+    log_pipeline_configuration(mt3_configured=mt3_available())
     yield
 
 
@@ -307,6 +311,7 @@ def health():
     from adapters.basic_pitch_backend import basic_pitch_settings
     from adapters.mt3_backend import mt3_status
     from audio_engine.beat_tracker import beat_status
+    from engine.flags import nextgen_status
     from intelligence.config import gemini_status
     from mir.pipeline_config import load_pipeline_config
     from mir.pm2s_hands import pm2s_status
@@ -339,6 +344,7 @@ def health():
         "gemini": gemini,
         "beat": beat_status(),
         "pm2s": pm2s_status(),
+        "nextgen": nextgen_status(),
         "modes": {
             "solo": True,
             "polyphonic": poly_available,
