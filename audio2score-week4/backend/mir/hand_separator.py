@@ -452,7 +452,10 @@ class HandSeparator:
                     <= note.pitch
                     <= self.config.ambiguous_pitch_hi
                 )
-                isolated = len(frame) == 1
+                # An isolated attack within a phrase still has the Viterbi
+                # path's context. AMBIGUOUS would discard that path and make
+                # staff_for_hand fall back to a middle-C split.
+                isolated = len(frame) == 1 and len(frames) == 1
                 if (
                     not self._is_locked(note)
                     and isolated

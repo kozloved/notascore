@@ -21,6 +21,7 @@ class VoiceSeparatorConfig:
     max_voices_per_hand: int = 4
     overlap_grace_beats: float = 0.04
     new_voice_cost: float = 18.0
+    prefer_simple_chords: bool = False
 
 
 class VoiceSeparator:
@@ -153,7 +154,13 @@ class VoiceSeparator:
             return [cluster]
         ordered = sorted(cluster, key=lambda e: e.pitch)
         span = ordered[-1].pitch - ordered[0].pitch
-        if len(ordered) == 2 and ordered[1].pitch - ordered[0].pitch >= 6:
+        # A fifth or octave played together is usually a dyad. Split it only
+        # when the releases provide evidence of independent rhythmic lines.
+        if (len(ordered) == 2 and ordered[1].pitch - ordered[0].pitch >= 6
+                and (not self.config.prefer_simple_chords
+                     or abs(ordered[1].duration_beats - ordered[0].duration_beats) > 0.20
+                     or (ordered[0].role and ordered[1].role
+                         and ordered[0].role != ordered[1].role))):
             return [[ordered[0]], [ordered[1]]]
         if span <= self.config.max_chord_span:
             durs = [e.duration_beats for e in ordered]

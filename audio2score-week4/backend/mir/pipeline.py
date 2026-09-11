@@ -57,7 +57,7 @@ from mir.raw_midi import (
 from mir.types import InstrumentKind, MusicalEvent, NoteEvent, TempoMap
 from mir.voice_separator import VoiceSeparator
 from notation_engine.writer import NotationWriter
-from timing.service import resolve_from_existing_tracker, resolve_from_tempo_map
+from timing.service import align_score_origin, resolve_from_existing_tracker, resolve_from_tempo_map
 from transcription import (
     QUANTIZE_DIVISORS,
     TranscriptionError,
@@ -340,6 +340,7 @@ class UnderstandingPipeline:
         meter_hyps = self.meter_estimator.estimate(events)
         decision = self._arbitrate_meter(events, file_meter=None)
         selected_meter = decision.hypothesis or meter_hyps[0]
+        events = self._align_score_meter(events, notes, timing, selected_meter)
         structure = MusicalStructure(
             events=events,
             tempo_map=tempo_map,
@@ -906,6 +907,10 @@ class UnderstandingPipeline:
         )
         timing.backend_requested = backend_requested
         timing.quality.backend_requested = backend_requested
+        if notes:
+            timing = align_score_origin(
+                timing, min(n.start_time for n in notes),
+            )
         self.last_timing = timing
         self.last_musical_time_map = timing.time_map
         print(
@@ -914,6 +919,22 @@ class UnderstandingPipeline:
             f"ms={timing.duration_ms:.1f}"
         )
         return timing
+
+    def _align_score_meter(self, events, notes, timing, selected_meter):
+        """Apply measured bar phase only when its units match the chosen meter."""
+        from mir.types import copy_event
+
+        result = getattr(self.beat_tracker, "last_beat_result", None)
+        beats_per_bar = getattr(result, "beats_per_bar", None)
+        if not notes or beats_per_bar != selected_meter.measure_quarter_length:
+            return events
+        old_map = timing.time_map
+        align_score_origin(timing, min(n.start_time for n in notes),
+                           downbeat_times=getattr(result, "downbeat_times", ()) or (),
+                           beats_per_bar=beats_per_bar)
+        self.last_musical_time_map = timing.time_map
+        shift = timing.time_map.seconds_to_beats(old_map.beat_times[0])
+        return [copy_event(ev, start_beat=ev.start_beat + shift) for ev in events]
 
     def _write_timing_artifact(self, out_dir: Path, job_id: str, timing, decision) -> None:
         candidates = None
