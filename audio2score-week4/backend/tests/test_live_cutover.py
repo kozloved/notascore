@@ -73,6 +73,33 @@ def test_health_nextgen_live_cutover_flags(monkeypatch):
     assert "super-secret-key" not in dumped
     assert "service-role-secret" not in dumped
     assert "MT3_API_KEY" not in dumped
+    assert payload["pipeline_config"]["valid"] is True
+    assert payload["pipeline_config"]["effective_hand_separator"] == "viterbi"
+
+
+def test_health_stays_ok_for_hand_separator_performance_alias(monkeypatch):
+    from main import health
+
+    _cutover_env(monkeypatch)
+    monkeypatch.setenv("TRANSCRIPTION_HAND_SEPARATOR", "performance")
+    payload = health()
+    assert payload["status"] == "ok"
+    assert payload["hand_separator"] == "viterbi"
+    assert payload["pipeline_config"]["valid"] is True
+    assert payload["pipeline_config"]["effective_hand_separator"] == "viterbi"
+    assert payload["pipeline_config"]["warning"]
+
+
+def test_health_stays_ok_for_unknown_hand_separator(monkeypatch):
+    from main import health
+
+    _cutover_env(monkeypatch)
+    monkeypatch.setenv("TRANSCRIPTION_HAND_SEPARATOR", "foobar")
+    payload = health()
+    assert payload["status"] == "ok"
+    assert payload["pipeline_config"]["valid"] is False
+    assert "foobar" in (payload["pipeline_config"]["error"] or "")
+    assert payload["pipeline_config"]["effective_hand_separator"] == "viterbi"
 
 
 def test_worker_banner_reports_live_without_secrets(monkeypatch):

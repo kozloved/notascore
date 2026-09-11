@@ -1,0 +1,80 @@
+{
+  "_comment": "Local ignored audio lives next to this file. Missing fixtures are SKIP. Do not commit copyrighted recordings.",
+  "01-simple-piano": {
+    "expected_meter": "4/4",
+    "approx_bpm": 80,
+    "instrument": "piano",
+    "pickup": false,
+    "category": "01-simple-piano"
+  },
+  "02-rubato-piano": {
+    "expected_meter": "4/4",
+    "approx_bpm": 72,
+    "instrument": "piano",
+    "pickup": false,
+    "category": "02-rubato-piano"
+  },
+  "03-waltz-3-4": {
+    "expected_meter": "3/4",
+    "approx_bpm": 138,
+    "instrument": "piano",
+    "pickup": false,
+    "category": "03-waltz-3-4"
+  },
+  "04-compound-6-8": {
+    "expected_meter": "6/8",
+    "approx_bpm": 60,
+    "instrument": "piano",
+    "pickup": false,
+    "category": "04-compound-6-8"
+  },
+  "05-triplets": {
+    "expected_meter": "4/4",
+    "approx_bpm": 96,
+    "instrument": "piano",
+    "pickup": false,
+    "category": "05-triplets"
+  },
+  "06-syncopation": {
+    "expected_meter": "4/4",
+    "approx_bpm": 100,
+    "instrument": "piano",
+    "pickup": false,
+    "category": "06-syncopation"
+  },
+  "07-pickup": {
+    "expected_meter": "4/4",
+    "approx_bpm": 88,
+    "instrument": "piano",
+    "pickup": true,
+    "category": "07-pickup"
+  },
+  "08-pedal-legato": {
+    "expected_meter": "4/4",
+    "approx_bpm": 72,
+    "instrument": "piano",
+    "pickup": false,
+    "category": "08-pedal-legato"
+  },
+  "09-two-voice-piano": {
+    "expected_meter": "4/4",
+    "approx_bpm": 84,
+    "instrument": "piano",
+    "pickup": false,
+    "category": "09-two-voice-piano"
+  },
+  "10-repeated-notes": {
+    "expected_meter": "4/4",
+    "approx_bpm": 90,
+    "instrument": "piano",
+    "pickup": false,
+    "category": "10-repeated-notes"
+  },
+  "rubato-piano.wav": {
+    "expected_meter": "4/4",
+    "approx_bpm": 72,
+    "instrument": "piano",
+    "pickup": false,
+    "alias_of": "02-rubato-piano"
+  }
+}

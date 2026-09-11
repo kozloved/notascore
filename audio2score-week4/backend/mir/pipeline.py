@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -152,6 +153,11 @@ class UnderstandingPipeline:
         self._last_tracker_ms: float = 0.0
         self.last_export_ms: float = 0.0
         self.last_raw_identity: dict | None = None
+        self.last_candidate_scores: list | None = None
+        self.last_pickup: dict | None = None
+        self.last_complexity_warnings: list[str] | None = None
+        self.last_hand_summary: dict | None = None
+        self.last_interpretation_choice: dict | None = None
 
     def transcribe(self, audio_path: str | Path, job_id: str) -> str:
         audio_path = Path(audio_path)
@@ -313,6 +319,31 @@ class UnderstandingPipeline:
         )
         bpm = timing.quality.median_bpm or tempo_map.bpm_at(0.0)
 
+        from mir.score_interpretation import (
+            choose_candidate,
+            evaluate_candidates,
+            infer_pickup,
+            scaled_time_map,
+        )
+
+        source_before = [
+            (n.note_id, n.pitch, n.velocity, n.start_time, n.end_time) for n in notes
+        ]
+        candidates = evaluate_candidates(notes, timing.time_map)
+        self.last_candidate_scores = [c.to_dict() for c in candidates]
+        chosen = choose_candidate(candidates)
+        self.last_interpretation_choice = chosen.to_dict() if chosen else None
+        if chosen is not None and abs(chosen.tempo_scale - 1.0) > 1e-9:
+            timing.time_map = scaled_time_map(timing.time_map, chosen.tempo_scale)
+            self.last_musical_time_map = timing.time_map
+            print(
+                f"[Interpretation] tempo_scale={chosen.tempo_scale} "
+                f"meter_hint={chosen.meter} cost={chosen.total:.3f}"
+            )
+        assert [
+            (n.note_id, n.pitch, n.velocity, n.start_time, n.end_time) for n in notes
+        ] == source_before
+
         self.last_raw_performance = RawPerformance(
             notes=list(transcription.notes),
             pedal_events=pedal_obs,
@@ -340,7 +371,59 @@ class UnderstandingPipeline:
         meter_hyps = self.meter_estimator.estimate(events)
         decision = self._arbitrate_meter(events, file_meter=None)
         selected_meter = decision.hypothesis or meter_hyps[0]
+        from mir.meter import meter_from_time_signature
+        from mir.score_interpretation import APPLY_MARGIN
+
+        scale = chosen.tempo_scale if chosen is not None else 1.0
+        same_scale = [
+            c
+            for c in candidates
+            if abs(c.tempo_scale - scale) < 1e-9
+        ]
+        best_at_scale = min(same_scale, key=lambda c: c.total) if same_scale else None
+        arb_at_scale = next(
+            (c for c in same_scale if c.meter == decision.meter),
+            None,
+        )
+        if (
+            best_at_scale is not None
+            and arb_at_scale is not None
+            and best_at_scale.meter != decision.meter
+            and best_at_scale.total <= APPLY_MARGIN * max(arb_at_scale.total, 1e-6)
+        ):
+            selected_meter = meter_from_time_signature(
+                best_at_scale.meter,
+                confidence=0.7,
+                source="interpretation_cost",
+            )
+            print(
+                f"[Interpretation] meter={selected_meter.time_signature} "
+                f"over {decision.meter} cost={best_at_scale.total:.3f}"
+            )
         events = self._align_score_meter(events, notes, timing, selected_meter)
+        first_beat = min((e.start_beat for e in events), default=0.0)
+        down_beats = []
+        result = getattr(self.beat_tracker, "last_beat_result", None)
+        if result is not None:
+            down_beats = [
+                timing.time_map.seconds_to_beats(t)
+                for t in (result.downbeat_times or [])
+            ]
+        self.last_pickup = infer_pickup(
+            first_beat,
+            selected_meter.measure_quarter_length,
+            downbeat_beats=down_beats,
+        )
+        (out_dir / f"{job_id}.candidate_scores.json").write_text(
+            json.dumps(self.last_candidate_scores or [], indent=2) + "\n",
+            encoding="utf-8",
+        )
+        from mir.score_interpretation import summarize_hand_decisions
+
+        self.last_hand_summary = summarize_hand_decisions(
+            events,
+            source=getattr(self.hand_separator, "last_source", "viterbi"),
+        )
         structure = MusicalStructure(
             events=events,
             tempo_map=tempo_map,
@@ -354,6 +437,12 @@ class UnderstandingPipeline:
                 "chords": [c.name for c in chords[:12]],
                 "meter_decision": decision.to_dict(),
                 "timing": timing.quality.to_dict(),
+                "pickup": dict(self.last_pickup or {}),
+                "interpretation_choice": (chosen.to_dict() if chosen else None),
+                "meter_candidates": [
+                    c for c in (self.last_candidate_scores or [])
+                    if abs(float(c.get("tempo_scale", 1.0)) - float(scale)) < 1e-9
+                ],
             },
         )
         self.last_structure = structure
@@ -364,7 +453,7 @@ class UnderstandingPipeline:
             segments,
             display_bpm=self._display_bpm(bpm),
             instrument_confidence=prediction.confidence,
-            time_sig_hint=decision.meter,
+            time_sig_hint=selected_meter.time_signature,
         )
         meta.extra = {
             **(meta.extra or {}),
@@ -692,18 +781,39 @@ class UnderstandingPipeline:
             "events_changed"
         )
         extra["backend"] = self.last_debug.source_backend
+        extra["pickup"] = dict(self.last_pickup or {})
+        extra["interpretation_choice"] = dict(self.last_interpretation_choice or {})
+        extra["candidate_scores"] = list(self.last_candidate_scores or [])
+        extra["hand_decisions"] = dict(self.last_hand_summary or {})
+        extra["pipeline_config_extra"] = dict(self.config.extra or {})
         if self.last_meter_decision is not None:
             extra["meter_decision"] = self.last_meter_decision.to_dict()
         if self.last_timing is not None:
             extra["timing"] = self.last_timing.quality.to_dict()
+        from mir.score_metrics import metrics_from_plan, warnings_from_metrics
+
+        plan = getattr(self.notation, "last_plan", None)
+        source_notes = self.last_raw_notes or self.last_validated_notes or []
+        metrics = metrics_from_plan(
+            plan,
+            source_notes=source_notes,
+            quantized=self.last_quantized_events,
+        )
+        extra["score_metrics"] = metrics
+        self.last_complexity_warnings = warnings_from_metrics(metrics)
+        extra["notation_complexity_warning"] = list(self.last_complexity_warnings or [])
         self.last_debug.extra = extra
+        out_dir = Path(out_dir)
+        out_dir.mkdir(exist_ok=True)
+        (out_dir / f"{job_id}.score_metrics.json").write_text(
+            json.dumps(metrics, indent=2) + "\n",
+            encoding="utf-8",
+        )
         if payload.get("fallback_used"):
             print(
                 "[Notation] debug: fallback to legacy build_score "
                 f"({payload.get('notation_fallback_error')})"
             )
-        out_dir = Path(out_dir)
-        out_dir.mkdir(exist_ok=True)
         self.last_debug.write_json(out_dir / f"{job_id}.debug.json")
 
     def _arbitrate_meter(
@@ -861,9 +971,15 @@ class UnderstandingPipeline:
                 "timing": (
                     self.last_timing.quality.to_dict() if self.last_timing is not None else None
                 ),
+                "pickup": dict(self.last_pickup or {}),
+                "interpretation_choice": dict(self.last_interpretation_choice or {}),
+                "candidate_scores": list(self.last_candidate_scores or []),
+                "hand_decisions": dict(self.last_hand_summary or {}),
+                "notation_complexity_warning": list(self.last_complexity_warnings or []),
+                "pipeline_config_extra": dict(self.config.extra or {}),
                 **(
                     {
-                        "hand_decisions": [
+                        "hand_decision_details": [
                             {
                                 "note_id": d.note_id,
                                 "pitch": d.pitch,

@@ -151,6 +151,28 @@ class MusicalTimeMap:
             source=self.source,
         )
 
+    def with_stride(self, stride: int) -> "MusicalTimeMap":
+        """Keep every Nth beat (0.5× tempo uses stride=2). Seconds unchanged."""
+        step = max(1, int(stride))
+        times = self.beat_times[::step]
+        if len(times) < 2:
+            return self
+        return MusicalTimeMap(times, source=f"{self.source}:stride{step}")
+
+    def with_subdivisions(self, factor: int) -> "MusicalTimeMap":
+        """Insert equal subdivisions between beats (2.0× tempo uses factor=2)."""
+        n = max(1, int(factor))
+        if n == 1:
+            return self
+        times: list[float] = []
+        for a, b in zip(self.beat_times, self.beat_times[1:]):
+            times.append(a)
+            span = b - a
+            for k in range(1, n):
+                times.append(a + span * k / n)
+        times.append(self.beat_times[-1])
+        return MusicalTimeMap.from_beat_times(times, source=f"{self.source}:x{n}")
+
 
 def assert_roundtrip(time_map: MusicalTimeMap, times: list[float], *, tol: float = ROUNDTRIP_TOLERANCE_SEC) -> None:
     for t in times:

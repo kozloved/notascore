@@ -313,14 +313,29 @@ def health():
     from audio_engine.beat_tracker import beat_status
     from engine.flags import nextgen_status
     from intelligence.config import gemini_status
-    from mir.pipeline_config import load_pipeline_config
+    from mir.pipeline_config import inspect_hand_separator_env, load_pipeline_config
     from mir.pm2s_hands import pm2s_status
 
     bp = basic_pitch_settings()
     mt3 = mt3_status()
     gemini = gemini_status()
     poly_available = bool(mt3["available"])
-    cfg = load_pipeline_config()
+    hands = inspect_hand_separator_env()
+    try:
+        cfg = load_pipeline_config()
+        cfg_error = None
+    except Exception as exc:
+        print(f"[health] pipeline config fallback: {exc}", flush=True)
+        from mir.pipeline_config import PipelineConfig
+
+        cfg = PipelineConfig()
+        cfg_error = str(exc)
+    pipeline_config = {
+        "valid": bool(hands["valid"] and cfg_error is None),
+        "error": hands["error"] or cfg_error,
+        "warning": hands["warning"],
+        "effective_hand_separator": hands["effective_hand_separator"],
+    }
     return {
         "status": "ok",
         "engine": os.getenv("TRANSCRIPTION_ENGINE", "basic_pitch"),
@@ -336,6 +351,7 @@ def health():
         "validation_mode": cfg.validation_mode.value,
         "quantization_mode": cfg.quantization_mode.value,
         "hand_separator": cfg.hand_separator.value,
+        "pipeline_config": pipeline_config,
         "enable_gemini": cfg.enable_gemini,
         "canonical": cfg.to_dict(),
         "basic_pitch": bp,

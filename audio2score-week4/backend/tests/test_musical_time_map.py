@@ -5,11 +5,16 @@ from timing.fusion import fuse_beat_analyses
 from timing.tempo_map import MusicalTimeMap, ROUNDTRIP_TOLERANCE_SEC, assert_roundtrip
 
 
-def test_constant_tempo_roundtrip():
-    time_map = MusicalTimeMap.from_bpm(90, duration_sec=8.0)
-    samples = [0.0, 0.17, 1.0, 3.333, 7.91]
-    assert_roundtrip(time_map, samples)
-    assert abs(time_map.seconds_to_beats(60.0 / 90.0) - 1.0) < 1e-9
+def test_stride_and_subdivision_keep_seconds_invertible():
+    time_map = MusicalTimeMap.from_bpm(120, duration_sec=4.0)
+    half = time_map.with_stride(2)
+    double = time_map.with_subdivisions(2)
+    samples = [0.0, 0.37, 1.0, 2.5]
+    assert_roundtrip(half, samples)
+    assert_roundtrip(double, samples)
+    assert abs(time_map.seconds_to_beats(1.0) - 2.0) < 1e-9
+    assert abs(half.seconds_to_beats(1.0) - 1.0) < 1e-9
+    assert abs(double.seconds_to_beats(1.0) - 4.0) < 1e-9
 
 
 def test_rubato_beat_times_are_invertible():

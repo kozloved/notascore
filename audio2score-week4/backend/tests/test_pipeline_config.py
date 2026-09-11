@@ -61,6 +61,31 @@ def test_unknown_hand_separator_rejected():
         parse_hand_separator_mode("piano_svsep")
 
 
+def test_hand_separator_performance_alias_is_viterbi(monkeypatch):
+    from mir.pipeline_config import inspect_hand_separator_env
+
+    assert parse_hand_separator_mode("performance") == HandSeparatorMode.VITERBI
+    monkeypatch.setenv("TRANSCRIPTION_HAND_SEPARATOR", "performance")
+    snap = inspect_hand_separator_env()
+    assert snap["valid"] is True
+    assert snap["effective_hand_separator"] == "viterbi"
+    assert snap["warning"]
+    assert "performance" in (snap["warning"] or "")
+
+
+def test_unknown_hand_separator_job_fallback_records_error(monkeypatch):
+    from mir.pipeline_config import inspect_hand_separator_env
+
+    monkeypatch.setenv("TRANSCRIPTION_HAND_SEPARATOR", "foobar")
+    snap = inspect_hand_separator_env()
+    assert snap["valid"] is False
+    assert "foobar" in (snap["error"] or "")
+    assert snap["effective_hand_separator"] == "viterbi"
+    cfg = load_pipeline_config()
+    assert cfg.hand_separator == HandSeparatorMode.VITERBI
+    assert "foobar" in (cfg.extra.get("hand_separator_error") or "")
+
+
 def test_env_override_validation_mode(monkeypatch):
     monkeypatch.setenv("TRANSCRIPTION_VALIDATION_MODE", "legacy_aggressive")
     assert resolve_validation_mode("mt3") == ValidationMode.LEGACY_AGGRESSIVE

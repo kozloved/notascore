@@ -93,6 +93,7 @@ class HandSeparator:
     def __init__(self, config: HandSeparatorConfig | None = None):
         self.config = config or HandSeparatorConfig()
         self.last_decisions: list[HandDecision] = []
+        self.last_source: str = "viterbi"
 
     def separate(self, events: list[MusicalEvent]) -> list[MusicalEvent]:
         self.last_decisions = []

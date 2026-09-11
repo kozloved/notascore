@@ -94,3 +94,15 @@ def test_two_independent_lines_are_two_voices():
         events.append(_ev(60, float(i), 1.0, role="inner"))
     out = VoiceSeparator().separate(events)
     assert len({e.voice for e in out}) == 2
+
+
+def test_tiny_release_overlap_does_not_create_a_voice():
+    from mir.performance_score import _score_voices
+
+    events = [
+        _ev(72, 0.0, 1.05),
+        _ev(74, 1.0, 1.0),
+        _ev(76, 2.0, 1.0),
+    ]
+    out = _score_voices(events, VoiceSeparator())
+    assert len({e.voice for e in out}) == 1
