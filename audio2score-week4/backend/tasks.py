@@ -98,10 +98,16 @@ def process_job(job_id: str):
         )
 
     except Exception as exc:
+        public_error = str(exc)
+        code = getattr(exc, "code", None)
+        if code:
+            print(f"[Job {job_id}] {code}: {exc}", flush=True)
+        if getattr(exc, "public_message", None):
+            public_error = exc.public_message
         db.update_job(
             job_id,
             status="failed",
-            error=str(exc),
+            error=public_error,
         )
 
     finally:

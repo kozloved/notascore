@@ -48,6 +48,7 @@ from mir.pipeline_config import (
     piano_analysis_enabled,
     quantization_snaps_display_tempo,
 )
+from mir.raw_identity import record_saved_raw
 from mir.raw_midi import (
     job_raw_midi_path,
     job_validated_midi_path,
@@ -150,6 +151,7 @@ class UnderstandingPipeline:
         self.last_musical_time_map = None
         self._last_tracker_ms: float = 0.0
         self.last_export_ms: float = 0.0
+        self.last_raw_identity: dict | None = None
 
     def transcribe(self, audio_path: str | Path, job_id: str) -> str:
         audio_path = Path(audio_path)
@@ -172,6 +174,7 @@ class UnderstandingPipeline:
             normalized, out_dir / f"{job_id}_norm.wav"
         )
         backend = get_backend(self.backend_name)
+        self.backend_name = backend.name
         self.config = load_pipeline_config(
             backend=backend.name,
             mode=self.mode,
@@ -233,17 +236,29 @@ class UnderstandingPipeline:
         )
         self.last_raw_notes = list(notes)
         source_bytes = getattr(backend, "last_midi_bytes", None)
+        provider_sha = getattr(backend, "last_provider_raw_sha256", None)
         self.last_performance_snapshot = getattr(backend, "last_performance", None)
         raw_path = job_raw_midi_path(audio_path, job_id)
         raw_path.parent.mkdir(parents=True, exist_ok=True)
+        # Immutable raw.mid is the provider payload (or reconstructed Solo MIDI).
+        # Write + independent SHA happen before cleaner, validation, or rewrite.
         if source_bytes is not None:
             if self.last_performance_snapshot is None:
                 raise ValueError("MIDI backend returned bytes without source provenance")
-            self.last_performance_snapshot.verify_midi(source_bytes)
             raw_path.write_bytes(source_bytes)
+            if not provider_sha:
+                from mir.raw_identity import sha256_hex
+
+                provider_sha = sha256_hex(bytes(source_bytes))
         else:
             self.last_performance_snapshot = PerformanceSnapshot.from_notes(notes, backend.name)
             write_job_stage_midi(raw_path, notes, bpm=120.0, split_hands=False)
+            provider_sha = None
+        self.last_raw_identity = record_saved_raw(
+            raw_path, provider_raw_sha256=provider_sha
+        )
+        if source_bytes is not None:
+            self.last_performance_snapshot.verify_midi(source_bytes)
         self.last_performance_snapshot.write_json(out_dir / f"{job_id}.performance.json")
 
         if not notes:

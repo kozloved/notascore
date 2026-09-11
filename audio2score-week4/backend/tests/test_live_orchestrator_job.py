@@ -88,6 +88,7 @@ def _install_mocks(monkeypatch, tmp_path, counters: _Counters, *, sep_error=None
         if mt3_error:
             raise RuntimeError(mt3_error)
         self.last_midi_bytes = midi_bytes
+        self.last_provider_raw_sha256 = counters.raw_sha
         self.last_performance = ingested.performance
         self.last_timing = {"wall_ms": 12.0, "queue_ms": 3.0, "execution_ms": 9.0}
         return list(ingested.notes)
