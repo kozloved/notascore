@@ -35,10 +35,12 @@ def build_exact_measures(events, report, meter, key_name):
     for note in report.notes:
         lanes[(note.staff, note.voice)].append(note)
     measures = []
+    profile = report.summary.get("score_profile", {"grand_staff": True})
+    staff_ids = (0, 1) if profile["grand_staff"] else (0,)
     for index in range(count):
         bar_start, bar_end = index * mql, (index + 1) * mql
         staves = []
-        for staff in (0, 1):
+        for staff in staff_ids:
             staff_lanes = sorted(key for key in lanes if key[0] == staff)
             voices = []
             for key in staff_lanes:
@@ -75,7 +77,8 @@ def build_exact_measures(events, report, meter, key_name):
                 voices.append(PlannedVoice(key[1], elements))
             if not voices:
                 voices = [PlannedVoice(0, [PlannedRest(Fraction(0), mql, 0)])]
-            staves.append(PlannedStaff(staff, "treble" if staff == 0 else "bass", voices=voices))
+            clef = ("treble" if staff == 0 else "bass") if profile["grand_staff"] else profile["clef"]
+            staves.append(PlannedStaff(staff, clef, voices=voices))
         measures.append(PlannedMeasure(index + 1, index * mql, mql,
                                        meter.time_signature, key_name if index == 0 else None, staves))
     validate_source_coverage(measures, report, by_id)

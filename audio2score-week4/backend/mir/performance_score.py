@@ -14,6 +14,8 @@ from statistics import mean
 from mir.hand_separator import HandSeparator
 from mir.models import staff_for_hand
 from mir.types import copy_event
+from mir.types import Hand
+from mir.score_profile import score_profile
 from mir.voice_separator import VoiceSeparator
 
 
@@ -102,12 +104,12 @@ def _duration(raw, onset, next_onset, overlaps, family):
     return min(named, key=lambda d: (abs(float(d) - raw), d.denominator, d))
 
 
-def _stable_lanes(events, exact):
+def _stable_lanes(events, exact, grand_staff=True):
     """Allocate over the entire piece so tied notes keep one lane across bars."""
     lanes = defaultdict(list)
     result = []
     for ev in sorted(events, key=lambda e: (e.start_beat, e.pitch, e.note_id)):
-        staff = staff_for_hand(ev.hand, ev.pitch)
+        staff = staff_for_hand(ev.hand, ev.pitch) if grand_staff else 0
         selected = None
         for i, lane in enumerate(lanes[staff]):
             last = lane[-1]
@@ -187,11 +189,14 @@ def quantize_notation(events, meter, *, config, mode=None):
                 note_id += ":generated"
         used.add(note_id)
         raw.append(copy_event(ev, note_id=note_id))
-    hands = HandSeparator()
-    interpreted = VoiceSeparator().separate(hands.separate(raw))
+    profile = score_profile(raw)
+    handed = (HandSeparator().separate(raw) if profile.grand_staff else
+              [copy_event(e, hand=Hand.UNKNOWN, hand_confidence=0.0, hand_locked=False) for e in raw])
+    interpreted = VoiceSeparator().separate(handed)
     voices = defaultdict(list)
     for ev in interpreted:
-        voices[(staff_for_hand(ev.hand, ev.pitch), ev.voice)].append(ev)
+        staff = staff_for_hand(ev.hand, ev.pitch) if profile.grand_staff else 0
+        voices[(staff, ev.voice)].append(ev)
 
     roles = _phrase_roles(voices, meter.measure_quarter_length)
     out, exact = [], {}
@@ -214,16 +219,18 @@ def quantize_notation(events, meter, *, config, mode=None):
                 role, phrase = roles[ev.note_id]
                 out.append(copy_event(ev, start_beat=float(onset), duration_beats=float(duration),
                                       role=role, phrase_id=phrase))
-    out = _stable_lanes(out, exact)
+    out = _stable_lanes(out, exact, profile.grand_staff)
     raw_by_id = {e.note_id: e for e in raw}
     decisions, notes = [], []
     for ev in out:
         source = raw_by_id[ev.note_id]
         onset, duration, family, group_id = exact[ev.note_id]
         notes.append(ScoreNote(ev.note_id, onset, duration, ev.voice,
-                               staff_for_hand(ev.hand, ev.pitch), ev.role, family, group_id))
+                               staff_for_hand(ev.hand, ev.pitch) if profile.grand_staff else 0,
+                               ev.role, family, group_id))
         decisions.append({
             "note_id": ev.note_id, "raw_start": source.start_beat,
+            "source_track_id": ev.source_track_id, "source_program": ev.source_program,
             "raw_duration": source.duration_beats, "quantized_start": ev.start_beat,
             "quantized_duration": ev.duration_beats, "score_onset": str(onset),
             "score_duration": str(duration), "voice": ev.voice, "hand": ev.hand.value,
@@ -235,5 +242,6 @@ def quantize_notation(events, meter, *, config, mode=None):
     summary = summarize_quantization(raw, out, decisions)
     summary.update(engine="performance", voice_count=len({(n.staff, n.voice) for n in notes}),
                    role_method="contextual_line_hypothesis", role_confidence=0.4,
-                   timing_representation="rational", source_notes=len(raw))
+                   timing_representation="rational", source_notes=len(raw),
+                   score_profile=profile.to_dict())
     return out, decisions, PerformanceReport(summary, tuple(notes), decisions)

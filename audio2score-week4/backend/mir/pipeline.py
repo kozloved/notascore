@@ -30,6 +30,7 @@ from mir.meter import MeterEstimator
 from mir.meter_arbitrator import BeatGroupingEvidence, MeterArbitrator
 from mir.midi_cleaner import MIDICleaner
 from mir.midi_ingest import ingest_midi, is_midi_path
+from mir.performance import PerformanceSnapshot
 from mir.models import (
     CleaningAction,
     MeterDecision,
@@ -119,6 +120,7 @@ class UnderstandingPipeline:
         self.last_structure: MusicalStructure | None = None
         self.last_meter_decision: MeterDecision | None = None
         self.last_raw_performance: RawPerformance | None = None
+        self.last_performance_snapshot: PerformanceSnapshot | None = None
         # Observation-only stage snapshots for evaluation (not used by algorithms).
         self.last_raw_notes: list | None = None
         self.last_cleaned_notes: list | None = None
@@ -181,12 +183,19 @@ class UnderstandingPipeline:
             audio_path=str(transcribe_path),
         )
         self.last_raw_notes = list(notes)
-        write_job_stage_midi(
-            job_raw_midi_path(audio_path, job_id),
-            notes,
-            bpm=120.0,
-            split_hands=False,
-        )
+        source_bytes = getattr(backend, "last_midi_bytes", None)
+        self.last_performance_snapshot = getattr(backend, "last_performance", None)
+        raw_path = job_raw_midi_path(audio_path, job_id)
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        if source_bytes is not None:
+            if self.last_performance_snapshot is None:
+                raise ValueError("MIDI backend returned bytes without source provenance")
+            self.last_performance_snapshot.verify_midi(source_bytes)
+            raw_path.write_bytes(source_bytes)
+        else:
+            self.last_performance_snapshot = PerformanceSnapshot.from_notes(notes, backend.name)
+            write_job_stage_midi(raw_path, notes, bpm=120.0, split_hands=False)
+        self.last_performance_snapshot.write_json(out_dir / f"{job_id}.performance.json")
 
         if not notes:
             raise TranscriptionError("No notes detected")
@@ -199,12 +208,12 @@ class UnderstandingPipeline:
             f"[MIDICleaner] mode={self.cleaner.mode.value} "
             f"notes {raw_count} → {len(notes)} (job={job_id})"
         )
-        write_job_stage_midi(
-            job_validated_midi_path(audio_path, job_id),
-            notes,
-            bpm=120.0,
-            split_hands=False,
-        )
+        validated_path = job_validated_midi_path(audio_path, job_id)
+        original_notes = self.last_performance_snapshot.to_notes()
+        if source_bytes is not None and sorted(notes, key=lambda n: n.note_id) == sorted(original_notes, key=lambda n: n.note_id):
+            validated_path.write_bytes(source_bytes)
+        else:
+            write_job_stage_midi(validated_path, notes, bpm=120.0, split_hands=False)
 
         pedal_events: list[tuple[float, int]] = []
         pedal_obs: list[PedalObservation] = []
@@ -408,6 +417,7 @@ class UnderstandingPipeline:
 
         midi_path = Path(midi_path)
         ingested = ingest_midi(midi_path)
+        self.last_performance_snapshot = ingested.performance
         notes = [n.ensure_ids(i) for i, n in enumerate(ingested.notes)]
         tempo_map = ingested.tempo_map
         bpm = tempo_map.bpm_at(0.0)
@@ -424,9 +434,12 @@ class UnderstandingPipeline:
             mode=self.mode,
             validation_mode=self._validation_override,
         )
+        if self.config.quantization_mode.value == "performance" and len(ingested.performance.meter_changes) > 1:
+            raise ValueError("Changing meter is not yet supported by the solo score planner")
 
         out_dir = midi_path.parent / f"bp_{job_id}"
         out_dir.mkdir(exist_ok=True)
+        self.last_performance_snapshot.write_json(out_dir / f"{job_id}.performance.json")
         raw_path = job_raw_midi_path(midi_path, job_id)
         if midi_path.resolve() != raw_path.resolve():
             shutil.copy2(midi_path, raw_path)
@@ -435,11 +448,13 @@ class UnderstandingPipeline:
             shutil.copy2(midi_path, validated_path)
 
         role = self.role_separator.separate(notes)
+        kinds = {n.instrument for n in notes}
+        midi_instrument = next(iter(kinds)) if len(kinds) == 1 else InstrumentKind.UNKNOWN
         events = notes_to_events(
             notes,
             tempo_map,
             role=role,
-            instrument=InstrumentKind.PIANO,
+            instrument=midi_instrument,
             source_backend="midi",
         )
         events = self._apply_mir_layers(events)
@@ -452,7 +467,7 @@ class UnderstandingPipeline:
             tempo_map=tempo_map,
             meter_hypotheses=meter_hyps,
             selected_meter=selected_meter,
-            instrument=InstrumentKind.PIANO,
+            instrument=midi_instrument,
             instrument_confidence=0.9,
             extra={
                 "source": "midi",
@@ -464,7 +479,7 @@ class UnderstandingPipeline:
 
         meta = build_score_meta(
             tempo_map,
-            InstrumentKind.PIANO,
+            midi_instrument,
             [],
             display_bpm=self._display_bpm(bpm),
             instrument_confidence=0.9,
@@ -479,14 +494,14 @@ class UnderstandingPipeline:
         from intelligence.layer import maybe_enhance
         from mir.types import InstrumentPrediction
 
-        midi_pred = InstrumentPrediction(instrument=InstrumentKind.PIANO, confidence=0.9)
+        midi_pred = InstrumentPrediction(instrument=midi_instrument, confidence=0.9)
 
         def _rebuild(next_notes, next_tempo, next_role):
             rebuilt = notes_to_events(
                 next_notes,
                 next_tempo,
                 role=next_role,
-                instrument=InstrumentKind.PIANO,
+                instrument=midi_instrument,
                 source_backend="midi",
             )
             return self._apply_mir_layers(rebuilt)
@@ -626,6 +641,10 @@ class UnderstandingPipeline:
 
     def _apply_mir_layers(self, events: list[MusicalEvent]) -> list[MusicalEvent]:
         if not self.use_mir_layers:
+            return events
+        # Performance inference owns the hand/voice/rhythm passes;
+        # avoid an earlier pass that assigns piano hands to non-piano sources.
+        if self.config.quantization_mode.value == "performance":
             return events
         events = self.hand_separator.separate(events)
         events = self.voice_separator.separate(events)

@@ -7,6 +7,24 @@ on:
   pull_request:
 
 jobs:
+  score-foundation:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: audio2score-week4/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install MIDI-only dependencies
+        run: pip install -r requirements-score.txt
+      - name: Source identity and independent reference-MIDI gates
+        run: |
+          python -m pytest -q tests/test_performance_foundation.py \
+            tests/test_performance_score.py tests/test_performance_cli.py \
+            tests/test_quantizer_identity.py tests/test_score_ab.py
+
   midi-benchmark:
     runs-on: ubuntu-latest
     defaults:

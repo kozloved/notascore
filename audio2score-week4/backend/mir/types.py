@@ -13,6 +13,10 @@ class InstrumentKind(str, Enum):
     VOICE = "voice"
     DRUMS = "drums"
     STRINGS = "strings"
+    WINDS = "winds"
+    BRASS = "brass"
+    BASS = "bass"
+    ORGAN = "organ"
     UNKNOWN = "unknown"
 
 
@@ -80,6 +84,9 @@ class NoteEvent:
     source_backend: str = "unknown"
     original_start_time: Optional[float] = None
     original_end_time: Optional[float] = None
+    source_track_id: str = ""
+    source_program: Optional[int] = None
+    instrument: InstrumentKind = InstrumentKind.UNKNOWN
 
     @property
     def duration(self) -> float:
@@ -227,6 +234,8 @@ class MusicalEvent:
     role: Optional[str] = None
     cleaning_status: str = "keep"
     hand_locked: bool = False
+    source_track_id: str = ""
+    source_program: Optional[int] = None
 
 
 def copy_event(event: MusicalEvent, **changes: Any) -> MusicalEvent:
