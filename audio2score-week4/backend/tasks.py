@@ -71,7 +71,7 @@ def process_job(job_id: str):
                     content_type="audio/midi",
                 )
 
-        from engine.sidecars import extra_result_files
+        from engine.sidecars import extra_result_files, result_object_key
 
         out_dir = Path(audio_local_path).parent / f"bp_{job_id}"
         uploaded = {
@@ -81,12 +81,13 @@ def process_job(job_id: str):
             f"{job_id}.musicxml",
         }
         for extra in extra_result_files(out_dir, job_id):
-            if extra.name in uploaded:
+            key = result_object_key(extra)
+            if key in uploaded:
                 continue
             mime = "audio/midi" if extra.suffix.lower() in {".mid", ".midi"} else (
                 "audio/wav" if extra.suffix.lower() == ".wav" else "application/json"
             )
-            storage_backend.save_local_file(extra, extra.name, content_type=mime)
+            storage_backend.save_local_file(extra, key, content_type=mime)
 
         db.update_job(
             job_id,
