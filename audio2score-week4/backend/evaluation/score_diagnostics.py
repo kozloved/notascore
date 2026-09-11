@@ -85,8 +85,12 @@ def write_metrics_from_pipeline(pipeline, dest: Path) -> dict:
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "score_metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
     if pipeline.last_candidate_scores is not None:
+        payload = {
+            "interpretation_choice": dict(pipeline.last_interpretation_choice or {}),
+            "candidates": list(pipeline.last_candidate_scores),
+        }
         (dest / "candidate_scores.json").write_text(
-            json.dumps(pipeline.last_candidate_scores, indent=2) + "\n"
+            json.dumps(payload, indent=2) + "\n"
         )
     return metrics
 
