@@ -23,7 +23,7 @@ def test_plan_has_measures_staves_voices():
     ]
     plan, decisions = NotationPlanner().build(events, meta=ScoreMeta(display_tempo_bpm=120))
     assert plan.measures
-    assert plan.time_signature in {"2/4", "3/4", "4/4", "6/8", "12/8"}
+    assert plan.time_signature in {"2/4", "3/4", "4/4", "6/8", "9/8", "12/8"}
     assert any(s.staff_id == 1 for s in plan.measures[0].staves)
     assert decisions is not None
 

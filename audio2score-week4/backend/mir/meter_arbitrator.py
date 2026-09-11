@@ -13,7 +13,7 @@ from mir.meter import MeterEstimator, meter_from_time_signature
 from mir.models import MeterDecision, MeterHypothesis
 from mir.types import MusicalEvent
 
-MVP_METERS = ("2/4", "3/4", "4/4", "6/8")
+MVP_METERS = ("2/4", "3/4", "4/4", "6/8", "9/8")
 COMPOUND_MARGIN = 0.12
 TRIPLE_GAP = 0.04
 

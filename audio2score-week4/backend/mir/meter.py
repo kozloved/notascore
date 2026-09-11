@@ -13,6 +13,7 @@ SUPPORTED_METERS = (
     ("3/4", 3, 4, 3.0),
     ("4/4", 4, 4, 4.0),
     ("6/8", 6, 8, 3.0),
+    ("9/8", 9, 8, 4.5),
     ("12/8", 12, 8, 6.0),
 )
 
@@ -135,13 +136,17 @@ class MeterEstimator:
         n_measures = max(1, int(round(span / measure_ql)))
         beat_bins: dict[int, float] = defaultdict(float)
 
-        if name in ("6/8", "12/8"):
+        if name in ("6/8", "9/8", "12/8"):
             pulse = 0.5  # eighth
-            strong = {0}
-            medium = {3} if name == "6/8" else {0, 6}
-            if name == "12/8":
-                medium = {3, 6, 9}
+            if name == "6/8":
+                strong = {0}
+                medium = {3}
+            elif name == "9/8":
+                strong = {0}
+                medium = {3, 6}
+            else:
                 strong = {0, 6}
+                medium = {3, 6, 9}
         elif name == "3/4":
             pulse = 1.0
             strong = {0}
@@ -189,7 +194,7 @@ class MeterEstimator:
             stability = 0.5
 
         compound_bonus = 0.0
-        if name in ("6/8", "12/8"):
+        if name in ("6/8", "9/8", "12/8"):
             dq = 1.5
             on_beat = 0.0
             off_beat = 0.0
