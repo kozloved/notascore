@@ -92,6 +92,20 @@ def _search(groups, max_move, beam_width=24):
     return beam[0][1]
 
 
+def _written_overlap(raw, onset, next_onset, overlaps):
+    """Pedal/room tails overlap the next attack; multi-bar holds do not."""
+    if not overlaps or next_onset is None:
+        return overlaps
+    gap = float(next_onset - onset)
+    if gap <= 0.12 or raw <= gap * 1.25:
+        return overlaps
+    # Repeated accompaniment under sustain pedal is a bit longer than the
+    # pulse. A true held note spanning several attacks is many times longer.
+    if 0.20 <= gap <= 2.05 and raw < gap * 4.0:
+        return False
+    return overlaps
+
+
 def _duration(raw, onset, next_onset, overlaps, family):
     unit = Fraction(1, 6) if family == "triplet" else Fraction(1, 16)
     named = {Fraction(n, d) for d in (1, 2, 4, 8, 16)
@@ -100,7 +114,8 @@ def _duration(raw, onset, next_onset, overlaps, family):
         named.update(Fraction(n, 6) for n in (1, 2, 4, 8, 16))
     # Long sustains remain possible and will be split into barline ties.
     named.add(max(unit, round(raw / float(unit)) * unit))
-    if next_onset is not None and not overlaps:
+    written_overlap = _written_overlap(raw, onset, next_onset, overlaps)
+    if next_onset is not None and not written_overlap:
         cap = next_onset - onset
         named = {d for d in named if d <= cap}
         if cap > 0:
@@ -204,8 +219,13 @@ def voices_provided(events) -> bool:
 
 def _score_voices(events, separator):
     if type(separator) is VoiceSeparator:
-        separator = VoiceSeparator(replace(separator.config, prefer_simple_chords=True,
-                                           overlap_grace_beats=0.10))
+        cap = min(2, int(separator.config.max_voices_per_hand or 2))
+        separator = VoiceSeparator(replace(
+            separator.config,
+            prefer_simple_chords=True,
+            overlap_grace_beats=0.10,
+            max_voices_per_hand=cap,
+        ))
     return separator.separate(events)
 
 
@@ -300,7 +320,10 @@ def quantize_notation(events, meter, *, config, mode=None):
             "source_track_id": ev.source_track_id, "source_program": ev.source_program,
             "raw_duration": source.duration_beats, "quantized_start": ev.start_beat,
             "quantized_duration": ev.duration_beats, "score_onset": str(onset),
-            "score_duration": str(duration), "voice": ev.voice, "hand": ev.hand.value,
+            "score_duration": str(duration),
+            "performed_duration": source.duration_beats,
+            "written_duration": float(duration),
+            "voice": ev.voice, "hand": ev.hand.value,
             "role": ev.role, "role_confidence": 0.4, "rhythm_family": family,
             "phrase_id": ev.phrase_id, "hand_confidence": ev.hand_confidence,
             "voice_confidence": ev.voice_confidence,
