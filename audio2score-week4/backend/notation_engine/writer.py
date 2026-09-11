@@ -438,7 +438,10 @@ class NotationWriter:
         if len(pitches) == 1:
             n = m21note.Note(midi=pitches[0])
         else:
-            n = m21chord.Chord(pitches)
+            # Chord([MIDI integers]) adds explicit naturals to white keys,
+            # causing repeated courtesy signs after export. Note(midi=...)
+            # leaves accidental spelling to the actual key/measure context.
+            n = m21chord.Chord([m21note.Note(midi=p) for p in pitches])
         n.quarterLength = ql
         self._apply_planned_rhythm(n, el)
         try:
@@ -771,6 +774,18 @@ class NotationWriter:
         return score
 
     def _apply_tempo_map(self, score, meta: ScoreMeta) -> None:
+        printed = (meta.extra or {}).get("printed_tempo")
+        if self.last_quantization_mode == QuantizationMode.PERFORMANCE and printed is not None:
+            # MusicalTimeMap handles performed rubato. Only sustained tempo
+            # regions belong on the page, using the same score-beat origin.
+            for annotation in printed:
+                bpm = annotation.get("bpm")
+                if annotation.get("mark") == "a_tempo":
+                    bpm = meta.display_tempo_bpm
+                beat = float(annotation.get("beat", 0.0))
+                if bpm and 0 <= beat < float(score.highestTime):
+                    self._insert_metronome_at_beat(score, beat, int(round(bpm)))
+            return
         tempo_map: TempoMap | None = meta.tempo_map
         if tempo_map is None or len(tempo_map.sorted_points()) < 2:
             return

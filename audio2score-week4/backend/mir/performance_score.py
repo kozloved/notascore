@@ -5,7 +5,7 @@ hands/voices when present; unlabeled piano still infers a layout.
 """
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from math import isfinite
 from statistics import mean
@@ -52,7 +52,11 @@ def _onset_candidates(raw, max_move):
             error = abs(float(onset) - raw)
             if onset < 0 or error > max_move:
                 continue
-            cost = error * 3 + complexity
+            # Performance jitter is not evidence for a 32nd/64th or a tuplet.
+            # Keep the full vocabulary for genuinely distinct fast attacks;
+            # prefer simpler values inside a small, bounded timing tolerance.
+            tolerance = 0.065 if family == "binary" and denominator <= 4 else 0.0
+            cost = max(0.0, error - tolerance) * 3 + complexity
             key = (onset, family)
             if key not in candidates or cost < candidates[key]:
                 candidates[key] = cost
@@ -101,6 +105,18 @@ def _duration(raw, onset, next_onset, overlaps, family):
         named = {d for d in named if d <= cap}
         if cap > 0:
             named.add(cap)
+    tolerance = min(0.10, raw * 0.20)
+    close = {d for d in named if abs(float(d) - raw) <= tolerance + 1e-9}
+    if close:
+        # Prefer one named value to a chain of tiny tied fragments. For
+        # example, a 0.94-beat release is a quarter, not 15/16 + a tiny rest.
+        def spelling_cost(d):
+            numerator = d.numerator
+            while numerator % 2 == 0:
+                numerator //= 2
+            return (numerator not in (1, 3), d.denominator,
+                    abs(float(d) - raw), d)
+        return min(close, key=spelling_cost)
     return min(named, key=lambda d: (abs(float(d) - raw), d.denominator, d))
 
 
@@ -186,12 +202,19 @@ def voices_provided(events) -> bool:
     return len(voices) > 1 or any(int(ev.voice) != 0 for ev in events)
 
 
+def _score_voices(events, separator):
+    if type(separator) is VoiceSeparator:
+        separator = VoiceSeparator(replace(separator.config, prefer_simple_chords=True,
+                                           overlap_grace_beats=0.10))
+    return separator.separate(events)
+
+
 def assign_pipeline_layout(events, profile: ScoreProfile, hand_separator, voice_separator):
     out = list(events)
     if profile.grand_staff and not hands_provided(out):
         out = hand_separator.separate(out)
     if not voices_provided(out):
-        out = voice_separator.separate(out)
+        out = _score_voices(out, voice_separator)
     return out
 
 
@@ -203,12 +226,12 @@ def resolve_layout(raw, profile: ScoreProfile):
         ]
         if voices_provided(raw):
             return cleared, "pipeline"
-        return VoiceSeparator().separate(cleared), "inferred"
+        return _score_voices(cleared, VoiceSeparator()), "inferred"
     if hands_provided(raw):
         return [copy_event(ev) for ev in raw], "pipeline"
     if voices_provided(raw):
         return HandSeparator().separate(raw), "mixed"
-    return VoiceSeparator().separate(HandSeparator().separate(raw)), "inferred"
+    return _score_voices(HandSeparator().separate(raw), VoiceSeparator()), "inferred"
 
 
 def quantize_notation(events, meter, *, config, mode=None):
@@ -250,6 +273,11 @@ def quantize_notation(events, meter, *, config, mode=None):
         path = _search(groups, config.max_onset_move)
         for i, (group, (onset, family)) in enumerate(zip(groups, path)):
             nxt = path[i + 1][0] if i + 1 < len(path) else None
+            neighbors = ([nxt - onset] if nxt is not None else [])
+            if i:
+                neighbors.append(onset - path[i - 1][0])
+            if onset.denominator == 1 and any(d.denominator in (3, 6) for d in neighbors):
+                family = "triplet"
             raw_next = min(e.start_beat for e in groups[i + 1]) if nxt is not None else None
             for ev in group:
                 overlaps = raw_next is not None and ev.start_beat + ev.duration_beats > raw_next + 0.04

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from math import ceil
+
 from mir.types import (
     Hand,
     InstrumentKind,
@@ -38,16 +40,16 @@ def notes_to_events(
             (n.pitch, round(n.start_time, 4)) for n in role.accompaniment_notes
         }
 
+    # A shared translation preserves the intervals of an opening pickup.
+    # Clamping each early note independently collapses it into a false chord.
+    earliest = min((tempo_map.seconds_to_beats(n.start_time) for n in notes), default=0.0)
+    shift = (max(0.0, -earliest) if earliest >= -0.04
+             else float(ceil(-earliest)))
     events: list[MusicalEvent] = []
     for i, note in enumerate(notes):
         note = note.ensure_ids(i)
-        start_beat = tempo_map.seconds_to_beats(note.start_time)
-        end_beat = tempo_map.seconds_to_beats(note.end_time)
-        # A note at t=0 is in the piece even if the first detected beat is a
-        # few milliseconds later. Negative beats are not valid notation input.
-        if start_beat < 0.0:
-            end_beat -= start_beat
-            start_beat = 0.0
+        start_beat = tempo_map.seconds_to_beats(note.start_time) + shift
+        end_beat = tempo_map.seconds_to_beats(note.end_time) + shift
         duration = max(end_beat - start_beat, 0.0)
         key = (note.pitch, round(note.start_time, 4))
         role_name = None

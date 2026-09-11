@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isfinite
+from math import ceil, floor, isfinite
 
 EPS = 1e-9
 ROUNDTRIP_TOLERANCE_SEC = 1e-4
@@ -126,6 +126,30 @@ class MusicalTimeMap:
                 continue
             rows.append((float(i), 60.0 / dt))
         return rows
+
+    def for_score(self, first_note_sec: float, *, downbeat_times=(), beats_per_bar=None):
+        """Translate the origin by whole beats, preserving the rubato curve.
+
+        Only measured downbeats with matching tracker bar units establish bar
+        phase. Without that evidence, retain the existing phase and extend
+        backwards if necessary; an offbeat first note stays an offbeat.
+        """
+        first = self.seconds_to_beats(first_note_sec)
+        start = min(0, floor(first))
+        if beats_per_bar in (2, 3, 4):
+            indices = [self.seconds_to_beats(t) for t in sanitize_beat_times(downbeat_times)]
+            indices = [round(b) for b in indices if abs(b - round(b)) < 0.05]
+            # Inconsistent downbeat evidence must not rotate the bar grid.
+            if indices and all((b - indices[0]) % beats_per_bar == 0 for b in indices):
+                anchor = indices[0]
+                start = anchor - ceil((anchor - first) / beats_per_bar) * beats_per_bar
+        if start == 0:
+            return self
+        end = max(len(self.beat_times), start + 2)
+        return MusicalTimeMap(
+            tuple(self.beats_to_seconds(i) for i in range(start, end)),
+            source=self.source,
+        )
 
 
 def assert_roundtrip(time_map: MusicalTimeMap, times: list[float], *, tol: float = ROUNDTRIP_TOLERANCE_SEC) -> None:

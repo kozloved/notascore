@@ -60,6 +60,27 @@ def _printed(time_map: MusicalTimeMap) -> list[ScoreTempoAnnotation]:
     return printed_tempo_annotations(series, min_change_ratio=0.15, min_hold_beats=8.0)
 
 
+def align_score_origin(timing: TimingResolution, first_note_sec: float, *,
+                       downbeat_times=(), beats_per_bar=None) -> TimingResolution:
+    mapped = timing.time_map.for_score(
+        first_note_sec, downbeat_times=downbeat_times, beats_per_bar=beats_per_bar)
+    if mapped is timing.time_map:
+        return timing
+    shift = mapped.seconds_to_beats(timing.time_map.beat_times[0])
+    timing.time_map = mapped
+    timing.analysis.time_map = mapped
+    timing.analysis.beat_times = list(mapped.beat_times)
+    timing.analysis.warnings.append(f"score origin translated by {shift:g} beats; performance timing preserved")
+    timing.printed = _printed(mapped)
+    timing.quality = quality_from_beat_times(
+        list(mapped.beat_times), backend=timing.backend_used,
+        fallback_used=timing.fallback_used, confidence=timing.quality.confidence,
+        backend_requested=timing.backend_requested, backend_used=timing.backend_used,
+        failure_reason=timing.failure_reason, duration_ms=timing.duration_ms,
+        audio_duration_sec=timing.quality.audio_duration_sec)
+    return timing
+
+
 def _finish(
     time_map: MusicalTimeMap,
     analysis: BeatAnalysis,
@@ -229,10 +250,10 @@ def resolve_from_existing_tracker(
             return _finish(
                 time_map,
                 analysis,
-                fallback_used=False,
+                fallback_used=analysis.fallback_used,
                 backend_requested=requested,
                 backend_used=analysis.model,
-                failure_reason="",
+                failure_reason="; ".join(analysis.warnings) if analysis.fallback_used else "",
                 duration_ms=elapsed,
                 audio_duration_sec=audio_duration_sec,
                 confidence=analysis.confidence,
