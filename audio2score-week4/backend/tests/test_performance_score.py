@@ -225,3 +225,57 @@ def test_tuplets_have_explicit_distinct_groups_and_export_boundaries(tmp_path):
     xml = ET.parse(path)
     boundaries = [el.attrib["type"] for el in xml.findall(".//tuplet")]
     assert boundaries == ["start", "stop", "start", "stop"]
+
+
+def test_does_not_recompute_assigned_pipeline_layout(monkeypatch):
+    def boom(self, events):
+        raise AssertionError("quantizer must not recompute assigned hands/voices")
+
+    monkeypatch.setattr("mir.performance_score.HandSeparator.separate", boom)
+    monkeypatch.setattr("mir.performance_score.VoiceSeparator.separate", boom)
+    raw = [
+        MusicalEvent(48, 0, 1, note_id="lh", hand=Hand.LEFT, voice=0, velocity=80),
+        MusicalEvent(72, 0, 1, note_id="rh", hand=Hand.RIGHT, voice=1, velocity=80),
+    ]
+    out, report = quantize(raw)
+    assert report.summary["layout_source"] == "pipeline"
+    assert {e.note_id: e.hand for e in out} == {"lh": Hand.LEFT, "rh": Hand.RIGHT}
+
+
+def test_keeps_pipeline_hand_that_viterbi_would_reassign():
+    from mir.hand_separator import HandSeparator
+
+    raw = []
+    for i in range(4):
+        raw.extend([
+            MusicalEvent(36, float(i), 1, note_id=f"bass{i}", hand=Hand.LEFT, voice=0, velocity=80),
+            MusicalEvent(48, float(i), 1, note_id=f"acc1{i}", hand=Hand.LEFT, voice=0, velocity=70),
+            MusicalEvent(55, float(i), 1, note_id=f"acc2{i}", hand=Hand.LEFT, voice=0, velocity=70),
+            MusicalEvent(60, float(i), 1, note_id=f"inner{i}", hand=Hand.RIGHT, voice=1, velocity=70),
+            MusicalEvent(76, float(i), 1, note_id=f"mel{i}", hand=Hand.RIGHT, voice=0, velocity=80),
+        ])
+    unlabeled = [
+        MusicalEvent(e.pitch, e.start_beat, e.duration_beats, note_id=e.note_id, velocity=e.velocity)
+        for e in raw
+    ]
+    viterbi = {e.note_id: e.hand for e in HandSeparator().separate(unlabeled)}
+    assert viterbi["inner0"] == Hand.LEFT
+    out, report = quantize(raw)
+    assert report.summary["layout_source"] == "pipeline"
+    assert all(e.hand == Hand.RIGHT for e in out if e.note_id.startswith("inner"))
+
+
+def test_keeps_pipeline_voices_that_separator_would_chord():
+    from mir.voice_separator import VoiceSeparator
+
+    raw = [
+        MusicalEvent(60, 0.00, 1.0, note_id="a", hand=Hand.RIGHT, voice=0, velocity=80),
+        MusicalEvent(64, 0.02, 1.0, note_id="b", hand=Hand.RIGHT, voice=1, velocity=80),
+    ]
+    merged = VoiceSeparator().separate(raw)
+    assert len({e.voice for e in merged}) == 1
+    _, report = quantize(raw)
+    notes = {n.source_id: n for n in report.notes}
+    assert notes["a"].voice != notes["b"].voice
+    assert notes["a"].staff == notes["b"].staff
+    assert report.summary["layout_source"] == "pipeline"
