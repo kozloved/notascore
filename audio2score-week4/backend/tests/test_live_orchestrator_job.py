@@ -16,7 +16,7 @@ from engine.job_runner import run_job
 from engine.orchestrator import PipelineOrchestrator
 from engine.stages import StageName
 from mir.midi_ingest import ingest_midi
-from mir.raw_midi import job_fused_midi_path, job_raw_midi_path, job_raw_stem_midi_path
+from mir.raw_midi import job_fused_midi_path, job_raw_midi_path, job_raw_stem_midi_path, job_score_midi_path, job_validated_midi_path
 from mir.types import InstrumentKind, InstrumentPrediction, NoteEvent
 from separation.base import SeparationResult, StemAudio
 
@@ -149,6 +149,15 @@ def _install_mocks(monkeypatch, tmp_path, counters: _Counters, *, sep_error=None
         lambda self, audio: InstrumentPrediction(instrument=InstrumentKind.PIANO, confidence=0.9),
     )
     monkeypatch.setattr("mir.pipeline.AudioSegmenter.segment", lambda self, audio: [])
+
+    def reject_provider_http(request, timeout=None):
+        url = getattr(request, "full_url", None) or str(request)
+        if "warmup" in str(url).lower():
+            counters.warmup += 1
+        raise AssertionError(f"unexpected provider HTTP {url}")
+
+    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", reject_provider_http)
+    monkeypatch.setattr("separation.http.urllib.request.urlopen", reject_provider_http)
     return ingested
 
 
@@ -173,6 +182,13 @@ def test_live_full_song_request_counts(tmp_path, monkeypatch):
     assert piano_raw.read_bytes() != raw.read_bytes()
     fused = job_fused_midi_path(audio, "live1")
     assert fused.exists()
+    score = job_score_midi_path(audio, "live1")
+    validated = job_validated_midi_path(audio, "live1")
+    assert fused.read_bytes() != raw.read_bytes()
+    assert score.read_bytes() != raw.read_bytes()
+    assert score.read_bytes() != fused.read_bytes()
+    if validated.exists():
+        assert validated.read_bytes() != fused.read_bytes()
     snap = json.loads((tmp_path / "bp_live1" / "live1.performance.json").read_text())
     assert snap["midi_sha256"] == counters.raw_sha
     by_id = {n.note_id: n for n in ingested.performance.notes}
@@ -199,7 +215,6 @@ def test_shadow_does_not_double_mt3(tmp_path, monkeypatch):
     counters = _Counters()
     _install_mocks(monkeypatch, tmp_path, counters)
     audio = _wav(tmp_path / "song.wav")
-    before = None
     xml = run_job(audio, "sh1", mode="polyphonic", filename="song.wav")
     assert "score-partwise" in xml.lower()
     assert counters.mt3 == 1
@@ -288,11 +303,47 @@ def test_live_does_not_flatten_fused_ensemble_into_score(tmp_path, monkeypatch):
     result = PipelineOrchestrator().run(audio, "ens1", mode="polyphonic")
     assert result.stage(StageName.RENDER).skipped
     fusion = json.loads((tmp_path / "bp_ens1" / "ens1.fusion.json").read_text())
-    instruments = {n.get("instrument") for n in fusion["notes"]}
-    # Mix notes stay; stem bass/piano may add identity without rewriting MusicXML.
+    assert fusion["notes"]
     xml = result.musicxml.lower()
     assert "score-partwise" in xml
     fused_midi = pretty_midi.PrettyMIDI(str(job_fused_midi_path(audio, "ens1")))
     programs = {inst.program for inst in fused_midi.instruments if inst.notes}
-    assert 0 in programs or programs  # mix piano program preserved
+    assert programs
+    assert 0 in programs  # mix piano program preserved, not flattened away
     assert counters.mt3 == 1
+
+
+def test_raw_midi_survives_separator_fusion_and_upload_copy(tmp_path, monkeypatch):
+    from engine.sidecars import extra_result_files, result_object_key
+
+    _live_env(monkeypatch)
+    counters = _Counters()
+    ingested = _install_mocks(monkeypatch, tmp_path, counters)
+    audio = _wav(tmp_path / "song.wav")
+    run_job(audio, "up1", mode="polyphonic", filename="song.wav")
+    raw_path = job_raw_midi_path(audio, "up1")
+    before = raw_path.read_bytes()
+    sha_before = hashlib.sha256(before).hexdigest()
+    by_id = {n.note_id: n for n in ingested.performance.notes}
+    snap = json.loads((tmp_path / "bp_up1" / "up1.performance.json").read_text())
+    for note in snap["notes"]:
+        original = by_id[note["note_id"]]
+        assert note["pitch"] == original.pitch
+        assert note["velocity"] == original.velocity
+        assert abs(note["start_sec"] - original.start_sec) < 1e-9
+        assert abs(note["end_sec"] - original.end_sec) < 1e-9
+        assert note["note_id"] == original.note_id
+
+    uploaded = {f"up1.raw.mid": before}
+    for extra in extra_result_files(tmp_path / "bp_up1", "up1"):
+        uploaded[result_object_key(extra)] = extra.read_bytes()
+    assert hashlib.sha256(uploaded["up1.raw.mid"]).hexdigest() == sha_before
+    assert uploaded["up1.raw.mid"] == before
+    assert uploaded["up1.fused.mid"] != before
+    assert job_score_midi_path(audio, "up1").read_bytes() != before
+    assert hashlib.sha256(raw_path.read_bytes()).hexdigest() == sha_before
+    assert counters.mt3 == 1
+    assert counters.warmup == 0
+    assert counters.track == 1
+    assert counters.sep == 1
+

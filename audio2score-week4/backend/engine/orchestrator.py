@@ -676,7 +676,7 @@ class PipelineOrchestrator:
             (out_dir / f"{job_id}.performance.json", ArtifactKind.PERFORMANCE_JSON, "application/json", "", "BUILD_PERFORMANCE"),
             (out_dir / f"{job_id}.debug.json", ArtifactKind.DEBUG_JSON, "application/json", "", "INTERPRET_SCORE"),
             (out_dir / f"{job_id}.fused.json", ArtifactKind.TRANSCRIPTION_JSON, "application/json", "", "RECONCILE"),
-            (out_dir / f"{job_id}.fusion.json", ArtifactKind.DEBUG_JSON, "application/json", "", "RECONCILE"),
+            (out_dir / f"{job_id}.fusion.json", ArtifactKind.FUSION_JSON, "application/json", "", "RECONCILE"),
             (out_dir / f"{job_id}_norm.wav", ArtifactKind.NORMALIZED_AUDIO, "audio/wav", "", "PREPROCESS"),
         )
         musicxml_path = out_dir / f"{job_id}.musicxml"
@@ -748,7 +748,13 @@ class PipelineOrchestrator:
             interp_path = out_dir / f"{job_id}.interpretation.json"
             interp_path.write_text(json.dumps(interpreted.to_dict(), indent=2) + "\n", encoding="utf-8")
             manifest.add(
-                ref_for_file(ArtifactKind.SCORE_IR_JSON, interp_path, content_type="application/json")
+                ref_for_file(
+                    ArtifactKind.SCORE_IR_JSON,
+                    interp_path,
+                    content_type="application/json",
+                    storage_key=interp_path.name,
+                    source_stage="INTERPRET_SCORE",
+                )
             )
         stages.append(
             StageResult(StageName.EXPORT, ok=True, duration_ms=_ms(t0), model="notation_writer")
@@ -778,17 +784,19 @@ class PipelineOrchestrator:
             + "\n",
             encoding="utf-8",
         )
-        manifest.add(ref_for_file(ArtifactKind.PROVENANCE_JSON, provenance_path, content_type="application/json"))
+        manifest.add(
+            ref_for_file(
+                ArtifactKind.PROVENANCE_JSON,
+                provenance_path,
+                content_type="application/json",
+                storage_key=provenance_path.name,
+                source_stage="COMPLETE",
+            )
+        )
         if write_manifest_enabled():
+            # Write without listing the manifest as one of its own artifacts.
             manifest_path = out_dir / f"{job_id}.manifest.json"
             manifest.write_json(manifest_path)
-            manifest.add(
-                ref_for_file(
-                    ArtifactKind.MANIFEST_JSON,
-                    manifest_path,
-                    content_type="application/json",
-                )
-            )
         return OrchestratorResult(
             musicxml=xml,
             stages=stages,

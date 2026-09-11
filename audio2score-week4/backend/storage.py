@@ -70,6 +70,20 @@ class LocalStorage:
     def read_result_bytes(self, result_storage_key):
         return Path(result_storage_key).read_bytes()
 
+    def result_sidecar_key(self, result_storage_key, filename):
+        name = Path(filename).name
+        if result_storage_key:
+            parent = Path(result_storage_key).parent
+            if str(parent) not in {".", ""}:
+                return str(parent / name)
+        return str(LOCAL_RESULTS_DIR / name)
+
+    def result_exists(self, key):
+        if not key:
+            return False
+        path = Path(key)
+        return path.is_file()
+
     def delete_upload(self, storage_key):
         if not storage_key:
             return
@@ -253,6 +267,19 @@ class SupabaseStorage:
         if isinstance(data, bytes):
             return data
         return bytes(data)
+
+    def result_sidecar_key(self, result_storage_key, filename):
+        """Flat result object keys: `{job}.raw.mid`, not worker temp paths."""
+        return Path(filename).name
+
+    def result_exists(self, key):
+        if not key:
+            return False
+        try:
+            self.read_result_bytes(key)
+            return True
+        except Exception:
+            return False
 
     def delete_upload(self, storage_key):
         if not storage_key:

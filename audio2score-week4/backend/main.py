@@ -673,7 +673,7 @@ def job_result(
 
     if fmt in extra_formats:
         filename, media_type = extra_formats[fmt]
-        payload = _load_sidecar_midi_bytes(
+        payload = _load_result_artifact_bytes(
             storage_backend, job_id, result_storage_key, filename
         )
         if not payload:
@@ -697,21 +697,36 @@ def job_result(
                 headers=no_store,
             )
 
-        signed_url = storage_backend.get_result_signed_url(
-            xml_key,
-            expires_in=3600,
-        )
+        signed_url = None
+        try:
+            signed_url = storage_backend.get_result_signed_url(
+                xml_key,
+                expires_in=3600,
+            )
+        except Exception:
+            signed_url = None
 
-        if not signed_url:
+        if signed_url:
+            return RedirectResponse(signed_url)
+
+        try:
+            payload = storage_backend.read_result_bytes(xml_key)
+        except Exception as exc:
             raise HTTPException(
                 status_code=502,
                 detail="Failed to generate download URL",
-            )
-
-        return RedirectResponse(signed_url)
+            ) from exc
+        return Response(
+            content=payload,
+            media_type="application/vnd.recordare.musicxml+xml",
+            headers={
+                "Content-Disposition": f'attachment; filename="{stem}.musicxml"',
+                **no_store,
+            },
+        )
 
     if fmt == "midi":
-        raw_bytes = _load_sidecar_midi_bytes(
+        raw_bytes = _load_result_artifact_bytes(
             storage_backend, job_id, result_storage_key, f"{job_id}.raw.mid"
         )
         if raw_bytes:
@@ -726,7 +741,7 @@ def job_result(
         # Older jobs: fall back to score MIDI derived from MusicXML.
 
     if fmt == "midi_score":
-        edited_midi = _load_sidecar_midi_bytes(
+        edited_midi = _load_result_artifact_bytes(
             storage_backend, job_id, result_storage_key, f"{job_id}.edited.mid"
         )
         if edited_key and edited_midi:
@@ -738,7 +753,7 @@ def job_result(
                     **no_store,
                 },
             )
-        score_bytes = _load_sidecar_midi_bytes(
+        score_bytes = _load_result_artifact_bytes(
             storage_backend, job_id, result_storage_key, f"{job_id}.score.mid"
         )
         if score_bytes:
@@ -773,16 +788,15 @@ def job_result(
     )
 
 
-def _load_sidecar_midi_bytes(
+def _load_result_artifact_bytes(
     storage_backend, job_id: str, result_storage_key: str, filename: str
 ):
+    """Read a job result object via the storage backend (local path or remote key)."""
     try:
-        if storage_backend.backend == "local":
-            midi_path = Path(result_storage_key).with_name(filename)
-            if midi_path.exists():
-                return midi_path.read_bytes()
+        key = storage_backend.result_sidecar_key(result_storage_key, filename)
+        if hasattr(storage_backend, "result_exists") and not storage_backend.result_exists(key):
             return None
-        return storage_backend.read_result_bytes(filename)
+        return storage_backend.read_result_bytes(key)
     except Exception:
         return None
 
@@ -798,12 +812,16 @@ def job_artifacts(
     result_storage_key = job.get("result_storage_key")
     if not result_storage_key:
         raise HTTPException(status_code=404, detail="Result not available")
-    from engine.sidecars import list_job_sidecars
+    from engine.sidecars import list_job_artifacts
 
-    return {"job_id": job_id, "artifacts": list_job_sidecars(result_storage_key, job_id)}
+    storage_backend = storage_service.get_storage()
+    return {
+        "job_id": job_id,
+        "artifacts": list_job_artifacts(job_id, result_storage_key, storage_backend),
+    }
 
 
-@app.get("/jobs/{job_id}/artifacts/{filename}")
+@app.get("/jobs/{job_id}/artifacts/{filename:path}")
 def job_artifact_file(
     job_id: str,
     filename: str,
@@ -815,38 +833,33 @@ def job_artifact_file(
     result_storage_key = job.get("result_storage_key")
     if not result_storage_key:
         raise HTTPException(status_code=404, detail="Result not available")
-    from engine.sidecars import sidecar_path
+    from engine.sidecars import resolve_job_artifact
 
-    path = sidecar_path(result_storage_key, job_id, filename)
-    if path is None:
-        raise HTTPException(status_code=404, detail="Artifact not available")
-    suffix = path.suffix.lower()
-    media = {
-        ".mid": "audio/midi",
-        ".midi": "audio/midi",
-        ".wav": "audio/wav",
-        ".json": "application/json",
-        ".musicxml": "application/vnd.recordare.musicxml+xml",
-        ".xml": "application/vnd.recordare.musicxml+xml",
-    }.get(suffix, "application/octet-stream")
     storage_backend = storage_service.get_storage()
+    resolved = resolve_job_artifact(job_id, result_storage_key, filename, storage_backend)
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="Artifact not available")
+    key, media, download_name = resolved
     if storage_backend.backend == "local":
-        return FileResponse(
-            path=str(path),
-            media_type=media,
-            filename=path.name,
-            headers={"Cache-Control": "no-store"},
-        )
-    payload = _load_sidecar_midi_bytes(
-        storage_backend, job_id, result_storage_key, path.name
-    )
+        path = Path(key)
+        if path.is_file():
+            return FileResponse(
+                path=str(path),
+                media_type=media,
+                filename=download_name,
+                headers={"Cache-Control": "no-store"},
+            )
+    try:
+        payload = storage_backend.read_result_bytes(key)
+    except Exception:
+        payload = None
     if not payload:
         raise HTTPException(status_code=404, detail="Artifact not available")
     return Response(
         content=payload,
         media_type=media,
         headers={
-            "Content-Disposition": f'attachment; filename="{path.name}"',
+            "Content-Disposition": f'attachment; filename="{download_name}"',
             "Cache-Control": "no-store",
         },
     )

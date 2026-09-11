@@ -22,6 +22,7 @@ class ArtifactKind(str, Enum):
     SVG = "score/svg"
     PERFORMANCE_JSON = "analysis/performance"
     TRANSCRIPTION_JSON = "analysis/transcription"
+    FUSION_JSON = "analysis/fusion"
     TEMPO_JSON = "analysis/tempo"
     STRUCTURE_JSON = "analysis/structure"
     SCORE_IR_JSON = "analysis/score-ir"
@@ -90,13 +91,32 @@ class ArtifactManifest:
         return dest
 
     @classmethod
-    def read_json(cls, path: str | Path) -> "ArtifactManifest":
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    def from_dict(cls, data: dict[str, Any]) -> "ArtifactManifest":
+        artifacts: list[ArtifactRef] = []
+        for row in data.get("artifacts") or []:
+            if not isinstance(row, dict):
+                continue
+            try:
+                artifacts.append(ArtifactRef.from_dict(row))
+            except (KeyError, TypeError, ValueError):
+                continue
         return cls(
-            job_id=data["job_id"],
+            job_id=str(data.get("job_id") or ""),
             schema_version=int(data.get("schema_version") or 1),
-            artifacts=[ArtifactRef.from_dict(row) for row in data.get("artifacts") or []],
+            artifacts=artifacts,
         )
+
+    @classmethod
+    def from_json(cls, raw: str | bytes) -> "ArtifactManifest":
+        text = raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else raw
+        data = json.loads(text)
+        if not isinstance(data, dict):
+            raise ValueError("artifact manifest JSON must be an object")
+        return cls.from_dict(data)
+
+    @classmethod
+    def read_json(cls, path: str | Path) -> "ArtifactManifest":
+        return cls.from_json(Path(path).read_text(encoding="utf-8"))
 
 
 def hash_file(path: str | Path) -> tuple[str, int]:
