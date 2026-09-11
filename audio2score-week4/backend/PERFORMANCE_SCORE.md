@@ -32,7 +32,9 @@ the original MIDI file through quantization.
 ## Implemented
 
 - Copies with source IDs and immutable rational score-note records.
-- Existing contextual Viterbi hand assignment and continuous voice separation.
+- Pipeline hand/voice assignments are consumed as the rhythm-search graph.
+  Unlabeled piano still uses the configured Viterbi/PM2S separator and
+  continuous voice separation. Named MIDI RH/LH tracks stay locked.
 - Per-voice bounded rhythm search with binary and triplet candidates, strict
   attack ordering, movement bounds, and small rhythm continuity costs.
 - Chord attack groups, contextual melody/bass/accompaniment hypotheses, and
@@ -48,8 +50,9 @@ the original MIDI file through quantization.
 - Synthetic regression fixtures, a MIDI-to-MusicXML integration test, and an
   offline A/B runner that reconstructs attacks from exported XML ties.
 
-The search is bounded to 24 states per attack. Hand and voice inference are
-currently sequential inputs to rhythm search, not a joint optimizer.
+The search is bounded to 24 states per attack. Hand and voice inference run
+once on the understanding path and are sequential inputs to rhythm search,
+not a joint optimizer. The quantizer does not re-separate an assigned layout.
 The decision report records timing changes and musical-role hypotheses.
 Role confidence is an uncalibrated 0.4, not a probability of correctness.
 

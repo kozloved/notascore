@@ -1,8 +1,10 @@
 """Bounded performance-to-score inference with immutable source provenance.
 
-Tempo and meter remain upstream hypotheses. Hands use the existing Viterbi
-separator; rhythmic candidates are searched per continuous voice. Exact score
-positions are retained separately from the float-based compatibility events.
+Tempo and meter remain upstream hypotheses. Rhythm search consumes the
+pipeline's hand/voice graph when it is already assigned. Separators run
+only for unlabeled piano (or unlabeled voices on a single staff). Exact
+score positions are retained separately from the float-based compatibility
+events.
 """
 
 from collections import defaultdict
@@ -13,10 +15,11 @@ from statistics import mean
 
 from mir.hand_separator import HandSeparator
 from mir.models import staff_for_hand
-from mir.types import copy_event
-from mir.types import Hand
-from mir.score_profile import score_profile
+from mir.types import Hand, copy_event
+from mir.score_profile import ScoreProfile, score_profile
 from mir.voice_separator import VoiceSeparator
+
+_ASSIGNED_HANDS = {Hand.LEFT, Hand.RIGHT, Hand.AMBIGUOUS}
 
 
 @dataclass(frozen=True)
@@ -131,6 +134,58 @@ def _stable_lanes(events, exact, grand_staff=True):
     return result
 
 
+def hands_provided(events) -> bool:
+    """True when upstream already assigned piano hands (pipeline or named MIDI)."""
+    return any(
+        ev.hand in _ASSIGNED_HANDS
+        or (getattr(ev, "hand_locked", False) and ev.hand in (Hand.LEFT, Hand.RIGHT))
+        for ev in events
+    )
+
+
+def voices_provided(events) -> bool:
+    """True when upstream split more than the default single voice."""
+    voices = {int(ev.voice) for ev in events}
+    return len(voices) > 1 or any(int(ev.voice) != 0 for ev in events)
+
+
+def assign_pipeline_layout(events, profile: ScoreProfile, hand_separator, voice_separator):
+    """Assign hands/voices once on the understanding path.
+
+    Piano gets the configured hand separator only when hands are still
+    unlabeled. Voices are inferred after that. Non-piano never receives
+    piano hand labels. The quantizer will not run these separators again
+    when this output already carries a layout.
+    """
+    out = list(events)
+    if profile.grand_staff and not hands_provided(out):
+        out = hand_separator.separate(out)
+    if not voices_provided(out):
+        out = voice_separator.separate(out)
+    return out
+
+
+def resolve_layout(raw, profile: ScoreProfile):
+    """Keep pipeline/MIDI layout; infer only when the events are unlabeled."""
+    if not profile.grand_staff:
+        cleared = [
+            copy_event(ev, hand=Hand.UNKNOWN, hand_confidence=0.0, hand_locked=False)
+            for ev in raw
+        ]
+        if voices_provided(raw):
+            return cleared, "pipeline"
+        return VoiceSeparator().separate(cleared), "inferred"
+
+    if hands_provided(raw):
+        return [copy_event(ev) for ev in raw], "pipeline"
+
+    if voices_provided(raw):
+        return HandSeparator().separate(raw), "mixed"
+
+    interpreted = VoiceSeparator().separate(HandSeparator().separate(raw))
+    return interpreted, "inferred"
+
+
 def _phrase_roles(voices, measure_length):
     """Score line hypotheses in four-bar contexts; roles may change over time.
 
@@ -190,9 +245,7 @@ def quantize_notation(events, meter, *, config, mode=None):
         used.add(note_id)
         raw.append(copy_event(ev, note_id=note_id))
     profile = score_profile(raw)
-    handed = (HandSeparator().separate(raw) if profile.grand_staff else
-              [copy_event(e, hand=Hand.UNKNOWN, hand_confidence=0.0, hand_locked=False) for e in raw])
-    interpreted = VoiceSeparator().separate(handed)
+    interpreted, layout_source = resolve_layout(raw, profile)
     voices = defaultdict(list)
     for ev in interpreted:
         staff = staff_for_hand(ev.hand, ev.pitch) if profile.grand_staff else 0
@@ -243,5 +296,6 @@ def quantize_notation(events, meter, *, config, mode=None):
     summary.update(engine="performance", voice_count=len({(n.staff, n.voice) for n in notes}),
                    role_method="contextual_line_hypothesis", role_confidence=0.4,
                    timing_representation="rational", source_notes=len(raw),
+                   layout_source=layout_source,
                    score_profile=profile.to_dict())
     return out, decisions, PerformanceReport(summary, tuple(notes), decisions)
