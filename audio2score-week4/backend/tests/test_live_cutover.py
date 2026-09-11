@@ -75,6 +75,16 @@ def test_health_nextgen_live_cutover_flags(monkeypatch):
     assert "MT3_API_KEY" not in dumped
 
 
+def test_health_accepts_hand_separator_performance_mixup(monkeypatch):
+    from main import health
+
+    _cutover_env(monkeypatch)
+    monkeypatch.setenv("TRANSCRIPTION_HAND_SEPARATOR", "performance")
+    payload = health()
+    assert payload["status"] == "ok"
+    assert payload["hand_separator"] == "viterbi"
+
+
 def test_worker_banner_reports_live_without_secrets(monkeypatch):
     _cutover_env(monkeypatch)
     text = format_pipeline_banner(mt3_configured=True)

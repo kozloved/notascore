@@ -313,14 +313,18 @@ def health():
     from audio_engine.beat_tracker import beat_status
     from engine.flags import nextgen_status
     from intelligence.config import gemini_status
-    from mir.pipeline_config import load_pipeline_config
+    from mir.pipeline_config import PipelineConfig, load_pipeline_config
     from mir.pm2s_hands import pm2s_status
 
     bp = basic_pitch_settings()
     mt3 = mt3_status()
     gemini = gemini_status()
     poly_available = bool(mt3["available"])
-    cfg = load_pipeline_config()
+    try:
+        cfg = load_pipeline_config()
+    except Exception as exc:
+        print(f"[health] pipeline config fallback: {exc}", flush=True)
+        cfg = PipelineConfig()
     return {
         "status": "ok",
         "engine": os.getenv("TRANSCRIPTION_ENGINE", "basic_pitch"),

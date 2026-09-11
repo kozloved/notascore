@@ -1,7 +1,5 @@
 """Canonical pipeline configuration."""
 
-import pytest
-
 from mir.midi_cleaner import MIDICleaner
 from mir.pipeline_config import (
     HandSeparatorMode,
@@ -56,9 +54,15 @@ def test_hand_separator_env_override(monkeypatch):
     assert load_pipeline_config().hand_separator == HandSeparatorMode.PM2S
 
 
-def test_unknown_hand_separator_rejected():
-    with pytest.raises(ValueError, match="TRANSCRIPTION_HAND_SEPARATOR"):
-        parse_hand_separator_mode("piano_svsep")
+def test_hand_separator_performance_alias_is_viterbi():
+    assert parse_hand_separator_mode("performance") == HandSeparatorMode.VITERBI
+
+
+def test_unknown_hand_separator_falls_back_to_viterbi(monkeypatch):
+    monkeypatch.setenv("TRANSCRIPTION_HAND_SEPARATOR", "piano_svsep")
+    cfg = load_pipeline_config()
+    assert cfg.hand_separator == HandSeparatorMode.VITERBI
+    assert parse_hand_separator_mode("piano_svsep") == HandSeparatorMode.VITERBI
 
 
 def test_env_override_validation_mode(monkeypatch):

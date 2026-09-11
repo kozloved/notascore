@@ -57,6 +57,8 @@ HAND_SEPARATOR_ALIASES = {
     "default": HandSeparatorMode.VITERBI,
     "context": HandSeparatorMode.VITERBI,
     "dp": HandSeparatorMode.VITERBI,
+    # Common mix-up with TRANSCRIPTION_QUANTIZATION_MODE=performance.
+    "performance": HandSeparatorMode.VITERBI,
     "pm2s": HandSeparatorMode.PM2S,
     "pm25": HandSeparatorMode.PM2S,
     "pm2s_hands": HandSeparatorMode.PM2S,
@@ -171,10 +173,12 @@ def parse_hand_separator_mode(
         return value
     key = str(value).strip().lower()
     if key not in HAND_SEPARATOR_ALIASES:
-        raise ValueError(
-            f"Unknown TRANSCRIPTION_HAND_SEPARATOR={value!r}. "
-            "Use viterbi | pm2s."
+        print(
+            f"[config] unknown TRANSCRIPTION_HAND_SEPARATOR={value!r}; "
+            "using viterbi. Valid: viterbi | pm2s "
+            "(performance belongs on TRANSCRIPTION_QUANTIZATION_MODE)."
         )
+        return HandSeparatorMode.VITERBI
     return HAND_SEPARATOR_ALIASES[key]
 
 
