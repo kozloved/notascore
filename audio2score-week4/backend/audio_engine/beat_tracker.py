@@ -146,6 +146,7 @@ class BeatTracker:
         self.last_source = "librosa"
         self.last_time_signature: str | None = None
         self.last_beat_result = None
+        self.last_beat_times: list[float] = []
 
     def track(self, audio: NormalizedAudio) -> TempoMap:
         result_map, meter, source = self._track_with_meter(audio)
@@ -167,6 +168,7 @@ class BeatTracker:
             madmom_result = track_downbeats(audio)
             if madmom_result is not None:
                 self.last_beat_result = madmom_result
+                self.last_beat_times = [float(t) for t in madmom_result.beat_times]
                 print(
                     f"[BeatTracker] madmom bpm={madmom_result.bpm:.1f} "
                     f"grouping={madmom_result.grouping_beats_per_bar or madmom_result.beats_per_bar} "
@@ -180,7 +182,8 @@ class BeatTracker:
                     "madmom",
                 )
         self.last_beat_result = None
-        return self._track_librosa(audio), None, "librosa"
+        tempo_map = self._track_librosa(audio)
+        return tempo_map, None, "librosa"
 
     def _track_librosa(self, audio: NormalizedAudio) -> TempoMap:
         import librosa
@@ -219,6 +222,7 @@ class BeatTracker:
             beat_times = np.atleast_1d(beats)
         except Exception:
             beat_times = np.array([])
+        self.last_beat_times = [float(t) for t in np.atleast_1d(beat_times) if np.isfinite(t)]
 
         points: list[TempoPoint] = [
             TempoPoint(

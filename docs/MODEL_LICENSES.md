@@ -10,7 +10,7 @@ Commercial hosted SaaS. Do not enable a provider until both **code** and
 | PM2S | Piano hands / rhythm | Opt-in, missing weights → fallback | Check PyPI/`pm2s` | Separate weights | Remain optional |
 | Transkun V2 | Piano specialist AMT | Adapter **disabled** | Unknown until vendored | Unknown | Feature flag `NEXTGEN_TRANSKUN=0` |
 | MelBand-RoFormer / BS-RoFormer | Stems | Adapter **disabled** | Often MIT/Apache *or* research-only — confirm the exact repo | Checkpoints often non-commercial | Feature flag `NEXTGEN_SEPARATION=0`. Do not fake stems |
-| Beat This! | Beats / downbeats | Adapter **disabled** | Confirm before enable | Confirm before enable | Feature flag `NEXTGEN_BEAT_THIS=0`. madmom tracker remains fallback |
+| Beat This! | Beats / downbeats | Adapter **disabled** | MIT (CPJKU `beat_this`, verify pin) | Official checkpoints typically CC-BY-4.0 research weights; **not** enabled for hosted SaaS until a commercial-compatible checkpoint is chosen | Feature flag `NEXTGEN_BEAT_THIS=0`. Production uses madmom/librosa through `ExistingBeatTrackerAdapter` → `MusicalTimeMap` |
 | All-In-One | Structure | Not wired | — | — | Future |
 
 If license is uncertain, the adapter exists, reports `unavailable`, and must not

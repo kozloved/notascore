@@ -19,3 +19,6 @@ class BeatThisAnalyzer:
 
 class BeatThisUnavailable(RuntimeError):
     pass
+
+
+BeatThisAdapter = BeatThisAnalyzer
