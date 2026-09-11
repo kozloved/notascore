@@ -29,10 +29,22 @@ class SeparationResult:
     warnings: list[str] = field(default_factory=list)
     skipped: bool = False
     skip_reason: str = ""
+    error: str = ""
+    duration_ms: float = 0.0
+    requested_backend: str = ""
+    actual_backend: str = ""
+
 
 
 class StemSeparator(Protocol):
     name: str
 
-    def separate(self, audio_path: str) -> SeparationResult:
+    def separate(
+        self,
+        audio_path: str,
+        *,
+        job_id: str = "",
+        output_dir: str | None = None,
+        requested_stems: list[str] | None = None,
+    ) -> SeparationResult:
         ...

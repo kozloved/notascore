@@ -42,6 +42,7 @@ _JOB_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _RUNPOD_FAIL_STATUSES = frozenset(
     {"FAILED", "CANCELLED", "CANCELED", "TIMED_OUT"}
 )
+_LAST_PROVIDER_TIMING: dict = {}
 
 _POLYPHONIC_UNCONFIGURED = (
     "Polyphonic mode (MT3) is not configured. "
@@ -544,6 +545,12 @@ def _post_runpod_audio(
     midi_bytes = _parse_runpod_body(json.dumps(payload).encode("utf-8"))
     print(f"[MT3] midi_bytes={len(midi_bytes)}")
     print("[MT3] complete")
+    global _LAST_PROVIDER_TIMING
+    _LAST_PROVIDER_TIMING = {
+        "queue_ms": payload.get("delayTime"),
+        "execution_ms": payload.get("executionTime"),
+        "cold_start_observable": payload.get("delayTime") is not None,
+    }
     return midi_bytes
 
 
@@ -662,6 +669,7 @@ class MT3Backend:
     def __init__(self):
         self.last_midi_bytes = None
         self.last_performance = None
+        self.last_timing = None
 
     def _decode(self, data):
         # Retain the response, including controllers and metadata, before any
@@ -677,11 +685,13 @@ class MT3Backend:
     def transcribe_notes(self, audio_path: str | Path) -> list[NoteEvent]:
         self.last_midi_bytes = None
         self.last_performance = None
+        self.last_timing = None
         audio_path = Path(audio_path)
         settings = mt3_settings()
         endpoint = settings["endpoint"]
         command = settings["command"]
         timeout = max(1, int(settings["timeout"]))
+        started = time.perf_counter()
 
         if endpoint:
             shown = (
@@ -693,11 +703,20 @@ class MT3Backend:
             midi_bytes = _post_audio(
                 endpoint, audio_path, settings["api_key"], timeout
             )
-            return self._decode(midi_bytes)
+            notes = self._decode(midi_bytes)
+            self.last_timing = {
+                "wall_ms": (time.perf_counter() - started) * 1000.0,
+                **dict(_LAST_PROVIDER_TIMING),
+            }
+            return notes
 
         if command:
             print(f"[MT3] command timeout={timeout}s")
             midi_bytes = _run_command(audio_path, command, timeout)
-            return self._decode(midi_bytes)
+            notes = self._decode(midi_bytes)
+            self.last_timing = {
+                "wall_ms": (time.perf_counter() - started) * 1000.0,
+            }
+            return notes
 
         raise _transcription_error(_POLYPHONIC_UNCONFIGURED)

@@ -15,6 +15,16 @@ def job_raw_midi_path(audio_path: str | Path, job_id: str) -> Path:
     return Path(audio_path).parent / f"bp_{job_id}" / f"{job_id}.raw.mid"
 
 
+def job_raw_stem_midi_path(audio_path: str | Path, job_id: str, stem_id: str) -> Path:
+    """Per-stem raw MIDI. Never the full-mix `{job}.raw.mid` path."""
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in stem_id) or "stem"
+    return Path(audio_path).parent / f"bp_{job_id}" / f"{job_id}.raw.{safe}.mid"
+
+
+def job_fused_midi_path(audio_path: str | Path, job_id: str) -> Path:
+    return Path(audio_path).parent / f"bp_{job_id}" / f"{job_id}.fused.mid"
+
+
 def job_validated_midi_path(audio_path: str | Path, job_id: str) -> Path:
     return Path(audio_path).parent / f"bp_{job_id}" / f"{job_id}.validated.mid"
 
