@@ -1,0 +1,38 @@
+# Overlay that forces the first live cutover into api + worker containers.
+# Use this when `.env.production` was updated but `printenv NEXTGEN_PIPELINE_MODE`
+# is still empty (Compose env_file did not inject the var).
+#
+#   cd /root/notascore/audio2score-week4
+#   docker compose --env-file .env.production \
+#     -f docker-compose.yml -f docker-compose.nextgen-live.yml \
+#     up -d --force-recreate api worker
+#
+# Rollback: drop the overlay file from the command and recreate, or set
+# NEXTGEN_PIPELINE_MODE=legacy in .env.production after the compose interpolation
+# fix is deployed.
+
+services:
+  api:
+    environment:
+      NEXTGEN_PIPELINE_MODE: live
+      NEXTGEN_SEPARATION_ENABLED: "0"
+      NEXTGEN_SEPARATION_BACKEND: auto
+      SEPARATION_ENDPOINT: ""
+      NEXTGEN_STEM_TRANSCRIPTION_ENABLED: "0"
+      NEXTGEN_FUSION_ENABLED: "0"
+      NEXTGEN_TRANSKUN: "0"
+      NEXTGEN_BEAT_THIS: "0"
+      NEXTGEN_ENSEMBLE_RENDER: "0"
+      NEXTGEN_WRITE_MANIFEST: "1"
+  worker:
+    environment:
+      NEXTGEN_PIPELINE_MODE: live
+      NEXTGEN_SEPARATION_ENABLED: "0"
+      NEXTGEN_SEPARATION_BACKEND: auto
+      SEPARATION_ENDPOINT: ""
+      NEXTGEN_STEM_TRANSCRIPTION_ENABLED: "0"
+      NEXTGEN_FUSION_ENABLED: "0"
+      NEXTGEN_TRANSKUN: "0"
+      NEXTGEN_BEAT_THIS: "0"
+      NEXTGEN_ENSEMBLE_RENDER: "0"
+      NEXTGEN_WRITE_MANIFEST: "1"

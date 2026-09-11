@@ -55,9 +55,21 @@ git pull origin main
 
 cd audio2score-week4
 
-# Edit .env.production to the first production configuration above.
+# Put the first production configuration in .env.production, then:
 
-docker compose --env-file .env.production up -d --build api worker
+docker compose --env-file .env.production config | grep NEXTGEN_PIPELINE_MODE
+docker compose --env-file .env.production up -d --build --force-recreate api worker
+docker compose exec api printenv NEXTGEN_PIPELINE_MODE
+```
+
+`printenv` must print `live`. If it is empty, Compose did not inject the
+variable (this happened on the first VPS cutover). Force it with the overlay:
+
+```bash
+docker compose --env-file .env.production \
+  -f docker-compose.yml -f docker-compose.nextgen-live.yml \
+  up -d --force-recreate api worker
+docker compose exec api printenv NEXTGEN_PIPELINE_MODE
 ```
 
 Do not recreate redis/nginx/frontend/tunnel unless those images also changed.

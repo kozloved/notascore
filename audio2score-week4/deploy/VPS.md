@@ -231,7 +231,14 @@ NEXTGEN_WRITE_MANIFEST=1
 Then rebuild just the services that read those variables:
 
 ```bash
-docker compose --env-file .env.production up -d --build api worker
+docker compose --env-file .env.production config | grep NEXTGEN_PIPELINE_MODE
+docker compose --env-file .env.production up -d --build --force-recreate api worker
+docker compose exec api printenv NEXTGEN_PIPELINE_MODE
+# must print: live
+# If empty, force the overlay:
+docker compose --env-file .env.production \
+  -f docker-compose.yml -f docker-compose.nextgen-live.yml \
+  up -d --force-recreate api worker
 curl -fsS https://notascore.com/api/health
 # nextgen.pipeline_mode must be "live" and orchestrator_active true
 BASE_URL=https://notascore.com/api ./deploy/smoke-nextgen-live.sh
