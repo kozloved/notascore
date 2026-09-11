@@ -55,6 +55,7 @@ from mir.raw_midi import (
 from mir.types import InstrumentKind, MusicalEvent, NoteEvent, TempoMap
 from mir.voice_separator import VoiceSeparator
 from notation_engine.writer import NotationWriter
+from timing.service import resolve_from_existing_tracker, resolve_from_tempo_map
 from transcription import (
     QUANTIZE_DIVISORS,
     TranscriptionError,
@@ -132,6 +133,9 @@ class UnderstandingPipeline:
         self.last_gemini_applied: int = 0
         self._prefetched_tempo = None
         self.last_gemini_enabled: bool = False
+        self.last_timing = None
+        self.last_musical_time_map = None
+        self._last_tracker_ms: float = 0.0
 
     def transcribe(self, audio_path: str | Path, job_id: str) -> str:
         audio_path = Path(audio_path)
@@ -241,7 +245,13 @@ class UnderstandingPipeline:
 
         onsets = [n.start_time for n in notes]
         tempo_map, meter = self._build_tempo_map(normalized, audio_path, onsets)
-        bpm = tempo_map.bpm_at(0.0)
+        timing = self._resolve_timing(
+            tempo_map,
+            notes=notes,
+            audio_duration_sec=normalized.duration_sec,
+            backend_requested="existing_tracker",
+        )
+        bpm = timing.quality.median_bpm or tempo_map.bpm_at(0.0)
 
         self.last_raw_performance = RawPerformance(
             notes=list(transcription.notes),
@@ -260,7 +270,7 @@ class UnderstandingPipeline:
 
         events = notes_to_events(
             notes,
-            tempo_map,
+            timing.time_map,
             role=role,
             instrument=prediction.instrument,
             source_backend=backend.name,
@@ -282,6 +292,7 @@ class UnderstandingPipeline:
             extra={
                 "chords": [c.name for c in chords[:12]],
                 "meter_decision": decision.to_dict(),
+                "timing": timing.quality.to_dict(),
             },
         )
         self.last_structure = structure
@@ -298,7 +309,13 @@ class UnderstandingPipeline:
             **(meta.extra or {}),
             "meter_source": "meter_decision",
             "meter_decision": decision.to_dict(),
+            "timing": timing.quality.to_dict(),
+            "printed_tempo": [
+                {"beat": m.beat, "bpm": m.bpm, "mark": m.mark, "reason": m.reason}
+                for m in timing.printed
+            ],
         }
+        self._write_timing_artifact(out_dir, job_id, timing, decision)
 
         self._write_debug(
             job_id=job_id,
@@ -315,9 +332,10 @@ class UnderstandingPipeline:
         )
 
         def _rebuild(next_notes, next_tempo, next_role):
+            mapper = self.last_musical_time_map or next_tempo
             rebuilt = notes_to_events(
                 next_notes,
-                next_tempo,
+                mapper,
                 role=next_role,
                 instrument=prediction.instrument,
                 source_backend=backend.name,
@@ -388,6 +406,7 @@ class UnderstandingPipeline:
         segments = self.segmenter.segment(normalized)
         if _use_beat_tracker():
             tracked = self.beat_tracker.track_stable(normalized)
+            self._last_tracker_ms = (time.perf_counter() - started) * 1000.0
             self._prefetched_tempo = (
                 tracked,
                 self.beat_tracker.last_time_signature,
@@ -420,7 +439,24 @@ class UnderstandingPipeline:
         self.last_performance_snapshot = ingested.performance
         notes = [n.ensure_ids(i) for i, n in enumerate(ingested.notes)]
         tempo_map = ingested.tempo_map
-        bpm = tempo_map.bpm_at(0.0)
+        duration = max((n.end_time for n in notes), default=1.0)
+        timing = resolve_from_tempo_map(
+            tempo_map,
+            duration_sec=duration,
+            backend_requested="midi_file",
+            backend_used="midi_file",
+            fallback_used=False,
+            failure_reason="",
+            audio_duration_sec=duration,
+        )
+        # MIDI files already encode tempo; sampling TempoMap is the source of truth.
+        timing.fallback_used = False
+        timing.quality.fallback_used = False
+        timing.failure_reason = ""
+        timing.quality.failure_reason = ""
+        self.last_timing = timing
+        self.last_musical_time_map = timing.time_map
+        bpm = timing.quality.median_bpm or tempo_map.bpm_at(0.0)
         # MIDI ingest has no transcription cleaner — raw == validated.
         self.last_raw_notes = list(notes)
         self.last_cleaned_notes = list(notes)
@@ -452,7 +488,7 @@ class UnderstandingPipeline:
         midi_instrument = next(iter(kinds)) if len(kinds) == 1 else InstrumentKind.UNKNOWN
         events = notes_to_events(
             notes,
-            tempo_map,
+            timing.time_map,
             role=role,
             instrument=midi_instrument,
             source_backend="midi",
@@ -473,6 +509,7 @@ class UnderstandingPipeline:
                 "source": "midi",
                 "meter_decision": decision.to_dict(),
                 "file_meter": ingested.time_sig_hint,
+                "timing": timing.quality.to_dict(),
             },
         )
         self.last_structure = structure
@@ -490,16 +527,23 @@ class UnderstandingPipeline:
             "meter_source": "meter_decision",
             "meter_decision": decision.to_dict(),
             "file_meter": ingested.time_sig_hint,
+            "timing": timing.quality.to_dict(),
+            "printed_tempo": [
+                {"beat": m.beat, "bpm": m.bpm, "mark": m.mark, "reason": m.reason}
+                for m in timing.printed
+            ],
         }
+        self._write_timing_artifact(out_dir, job_id, timing, decision)
         from intelligence.layer import maybe_enhance
         from mir.types import InstrumentPrediction
 
         midi_pred = InstrumentPrediction(instrument=midi_instrument, confidence=0.9)
 
         def _rebuild(next_notes, next_tempo, next_role):
+            mapper = self.last_musical_time_map or next_tempo
             rebuilt = notes_to_events(
                 next_notes,
-                next_tempo,
+                mapper,
                 role=next_role,
                 instrument=midi_instrument,
                 source_backend="midi",
@@ -587,6 +631,8 @@ class UnderstandingPipeline:
         extra["backend"] = self.last_debug.source_backend
         if self.last_meter_decision is not None:
             extra["meter_decision"] = self.last_meter_decision.to_dict()
+        if self.last_timing is not None:
+            extra["timing"] = self.last_timing.quality.to_dict()
         self.last_debug.extra = extra
         if payload.get("fallback_used"):
             print(
@@ -621,6 +667,19 @@ class UnderstandingPipeline:
                     "search": result.grouping_search,
                     "grouping_positions": list(result.grouping_positions),
                 },
+            )
+        elif (
+            self.last_timing is not None
+            and self.last_timing.backend_used not in ("midi_file",)
+            and not str(self.last_timing.backend_used).startswith("constant_bpm")
+            and not str(self.last_timing.backend_used).startswith("tempo_map")
+        ):
+            analysis = self.last_timing.analysis
+            evidence = BeatGroupingEvidence(
+                source=analysis.model,
+                beat_times=list(analysis.beat_times),
+                downbeat_times=list(analysis.downbeat_times),
+                bpm=self.last_timing.quality.median_bpm,
             )
         decision = self.meter_arbitrator.decide(
             events,
@@ -736,6 +795,9 @@ class UnderstandingPipeline:
                 "gemini_enabled": bool(self.config.enable_gemini),
                 "gemini_applied": 0,
                 "backend": backend_name,
+                "timing": (
+                    self.last_timing.quality.to_dict() if self.last_timing is not None else None
+                ),
                 **(
                     {
                         "hand_decisions": [
@@ -760,6 +822,43 @@ class UnderstandingPipeline:
         self.last_debug = debug
         debug.write_json(out_dir / f"{job_id}.debug.json")
 
+    def _resolve_timing(
+        self,
+        tempo_map: TempoMap,
+        *,
+        notes: list[NoteEvent],
+        audio_duration_sec: float | None,
+        backend_requested: str,
+    ):
+        duration = max(
+            float(audio_duration_sec or 0.0),
+            max((n.end_time for n in notes), default=1.0),
+            1.0,
+        )
+        timing = resolve_from_existing_tracker(
+            self.beat_tracker,
+            tempo_map,
+            duration_sec=duration,
+            audio_duration_sec=audio_duration_sec,
+            tracker_wall_ms=self._last_tracker_ms,
+        )
+        timing.backend_requested = backend_requested
+        timing.quality.backend_requested = backend_requested
+        self.last_timing = timing
+        self.last_musical_time_map = timing.time_map
+        print(
+            f"[Timing] backend={timing.backend_used} beats={timing.quality.beat_count} "
+            f"median_bpm={timing.quality.median_bpm} fallback={timing.fallback_used} "
+            f"ms={timing.duration_ms:.1f}"
+        )
+        return timing
+
+    def _write_timing_artifact(self, out_dir: Path, job_id: str, timing, decision) -> None:
+        candidates = None
+        if decision is not None:
+            candidates = list(decision.candidate_scores or [])
+        timing.write_json(out_dir / f"{job_id}.tempo.json", meter_candidates=candidates)
+
     def _build_tempo_map(
         self, normalized, audio_path, onsets: list[float]
     ) -> tuple[TempoMap, str | None]:
@@ -768,8 +867,10 @@ class UnderstandingPipeline:
                 tracked, meter = self._prefetched_tempo
                 self._prefetched_tempo = None
             else:
+                started = time.perf_counter()
                 tracked = self.beat_tracker.track_stable(normalized)
                 meter = self.beat_tracker.last_time_signature
+                self._last_tracker_ms = (time.perf_counter() - started) * 1000.0
             source = self.beat_tracker.last_source
             seed = tracked.bpm_at(0.0)
             # madmom already owns the beat grid; MIDI-onset refine was for librosa

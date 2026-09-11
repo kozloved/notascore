@@ -78,3 +78,9 @@ and drops weak unmatched specialist ghosts.
 - Flattening ensembles into piano
 
 Those wait on licenses, checkpoints, and tests — not on faked outputs.
+
+## Checkpoint: musical time in production
+
+`UnderstandingPipeline` now maps note seconds through `MusicalTimeMap`
+(beat timestamps). `stabilize_tempo_map` remains for printed/display tempo
+only. See `docs/MUSICAL_TIME_INTEGRATION.md`.
