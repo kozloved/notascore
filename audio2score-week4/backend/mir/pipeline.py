@@ -58,7 +58,13 @@ from mir.raw_midi import (
 from mir.types import InstrumentKind, MusicalEvent, NoteEvent, TempoMap
 from mir.voice_separator import VoiceSeparator
 from notation_engine.writer import NotationWriter
-from timing.service import align_score_origin, resolve_from_existing_tracker, resolve_from_tempo_map
+from timing.service import (
+    align_score_origin,
+    apply_score_time_map,
+    resolve_from_existing_tracker,
+    resolve_from_tempo_map,
+    score_time_consistency_issues,
+)
 from transcription import (
     QUANTIZE_DIVISORS,
     TranscriptionError,
@@ -317,7 +323,11 @@ class UnderstandingPipeline:
             audio_duration_sec=normalized.duration_sec,
             backend_requested="existing_tracker",
         )
-        bpm = timing.quality.median_bpm or tempo_map.bpm_at(0.0)
+        performance_bpm = (
+            timing.performance_median_bpm
+            or timing.quality.median_bpm
+            or tempo_map.bpm_at(0.0)
+        )
 
         from mir.score_interpretation import (
             choose_candidate,
@@ -332,9 +342,15 @@ class UnderstandingPipeline:
         candidates = evaluate_candidates(notes, timing.time_map)
         self.last_candidate_scores = [c.to_dict() for c in candidates]
         chosen = choose_candidate(candidates)
-        self.last_interpretation_choice = chosen.to_dict() if chosen else None
         if chosen is not None and abs(chosen.tempo_scale - 1.0) > 1e-9:
-            timing.time_map = scaled_time_map(timing.time_map, chosen.tempo_scale)
+            new_map = scaled_time_map(timing.time_map, chosen.tempo_scale)
+            timing = apply_score_time_map(
+                timing,
+                new_map,
+                reason=f"score time retuned: tempo_scale={chosen.tempo_scale}",
+                tempo_scale=chosen.tempo_scale,
+            )
+            self.last_timing = timing
             self.last_musical_time_map = timing.time_map
             print(
                 f"[Interpretation] tempo_scale={chosen.tempo_scale} "
@@ -349,7 +365,10 @@ class UnderstandingPipeline:
             pedal_events=pedal_obs,
             tempo_observations=[
                 TempoObservation(
-                    time_sec=0.0, bpm=bpm, confidence=0.9, source="beat_refine"
+                    time_sec=0.0,
+                    bpm=float(performance_bpm),
+                    confidence=0.9,
+                    source="beat_refine",
                 )
             ],
             source_backend=backend.name,
@@ -401,6 +420,8 @@ class UnderstandingPipeline:
                 f"over {decision.meter} cost={best_at_scale.total:.3f}"
             )
         events = self._align_score_meter(events, notes, timing, selected_meter)
+        self.last_timing = timing
+        self.last_musical_time_map = timing.time_map
         first_beat = min((e.start_beat for e in events), default=0.0)
         down_beats = []
         result = getattr(self.beat_tracker, "last_beat_result", None)
@@ -414,8 +435,27 @@ class UnderstandingPipeline:
             selected_meter.measure_quarter_length,
             downbeat_beats=down_beats,
         )
+        score_bpm = timing.quality.median_bpm
+        if score_bpm is None:
+            score_bpm = float(performance_bpm) * float(scale)
+        self.last_interpretation_choice = {
+            **(chosen.to_dict() if chosen is not None else {"tempo_scale": 1.0}),
+            "tempo_scale": float(scale),
+            "meter": selected_meter.time_signature,
+            "performance_bpm": float(performance_bpm),
+            "score_bpm": float(score_bpm),
+        }
+        for issue in score_time_consistency_issues(timing):
+            timing.analysis.warnings.append(f"score-time consistency: {issue}")
         (out_dir / f"{job_id}.candidate_scores.json").write_text(
-            json.dumps(self.last_candidate_scores or [], indent=2) + "\n",
+            json.dumps(
+                {
+                    "interpretation_choice": dict(self.last_interpretation_choice),
+                    "candidates": list(self.last_candidate_scores or []),
+                },
+                indent=2,
+            )
+            + "\n",
             encoding="utf-8",
         )
         from mir.score_interpretation import summarize_hand_decisions
@@ -438,7 +478,7 @@ class UnderstandingPipeline:
                 "meter_decision": decision.to_dict(),
                 "timing": timing.quality.to_dict(),
                 "pickup": dict(self.last_pickup or {}),
-                "interpretation_choice": (chosen.to_dict() if chosen else None),
+                "interpretation_choice": dict(self.last_interpretation_choice),
                 "meter_candidates": [
                     c for c in (self.last_candidate_scores or [])
                     if abs(float(c.get("tempo_scale", 1.0)) - float(scale)) < 1e-9
@@ -451,7 +491,7 @@ class UnderstandingPipeline:
             tempo_map,
             prediction.instrument,
             segments,
-            display_bpm=self._display_bpm(bpm),
+            display_bpm=self._display_bpm(score_bpm),
             instrument_confidence=prediction.confidence,
             time_sig_hint=selected_meter.time_signature,
         )
@@ -464,6 +504,7 @@ class UnderstandingPipeline:
                 {"beat": m.beat, "bpm": m.bpm, "mark": m.mark, "reason": m.reason}
                 for m in timing.printed
             ],
+            "interpretation_choice": dict(self.last_interpretation_choice),
         }
         self._write_timing_artifact(out_dir, job_id, timing, decision)
 
@@ -475,7 +516,7 @@ class UnderstandingPipeline:
             notes=notes,
             clean_decisions=clean_decisions,
             prediction=prediction,
-            bpm=bpm,
+            bpm=float(score_bpm),
             selected_meter=selected_meter,
             events=events,
             role=role,
@@ -511,13 +552,26 @@ class UnderstandingPipeline:
         events = enhanced.events
         meta = enhanced.meta
         tempo_map = enhanced.tempo_map
-        bpm = tempo_map.bpm_at(0.0)
+        performance_bpm = tempo_map.bpm_at(0.0)
+        score_bpm = (
+            self.last_timing.quality.median_bpm
+            if self.last_timing is not None and self.last_timing.quality.median_bpm
+            else performance_bpm
+        )
+        if self.last_interpretation_choice:
+            performance_bpm = float(
+                self.last_interpretation_choice.get("performance_bpm") or performance_bpm
+            )
+            score_bpm = float(
+                self.last_interpretation_choice.get("score_bpm") or score_bpm
+            )
         self.last_gemini_enabled = bool(self.config.enable_gemini)
         self.last_gemini_applied = int(enhanced.applied)
 
         print(
             f"[Understanding] instrument={prediction.instrument.value} "
-            f"tempo={bpm:.1f} meter={meta.time_sig_hint or '-'} "
+            f"performance_tempo={performance_bpm:.1f} score_tempo={score_bpm:.1f} "
+            f"meter={meta.time_sig_hint or '-'} "
             f"tempo_points={len(tempo_map.points)} "
             f"events={len(events)} mir_layers={self.use_mir_layers} "
             f"validation={self.config.validation_mode.value} "
@@ -529,7 +583,7 @@ class UnderstandingPipeline:
         write_job_stage_midi(
             job_validated_midi_path(audio_path, job_id),
             list(self.last_validated_notes or []),
-            bpm=bpm,
+            bpm=performance_bpm,
             pedal_events=pedal_events,
             split_hands=False,
             tempo_map=tempo_map,
@@ -542,7 +596,7 @@ class UnderstandingPipeline:
             job_id=job_id,
             audio_path=audio_path,
             quantize_divisors=QUANTIZE_DIVISORS,
-            fallback_bpm=bpm,
+            fallback_bpm=score_bpm,
             structure=structure,
             quantization_mode=self.config.quantization_mode,
         )
@@ -871,6 +925,15 @@ class UnderstandingPipeline:
             return max(1, int(round(float(bpm))))
         return snap_to_standard_tempo(bpm)
 
+    def _tempo_hypotheses(self, score_bpm: float) -> list[dict]:
+        choice = dict(self.last_interpretation_choice or {})
+        performance_bpm = choice.get("performance_bpm")
+        rows = []
+        if performance_bpm is not None:
+            rows.append({"bpm": float(performance_bpm), "source": "performance"})
+        rows.append({"bpm": float(score_bpm), "source": "score"})
+        return rows
+
     def _apply_mir_layers(self, events: list[MusicalEvent]) -> list[MusicalEvent]:
         if not self.use_mir_layers:
             return events
@@ -942,7 +1005,7 @@ class UnderstandingPipeline:
             ],
             detected_instrument=prediction.instrument.value,
             instrument_confidence=prediction.confidence,
-            tempo_hypotheses=[{"bpm": bpm, "source": "beat_refine"}],
+            tempo_hypotheses=self._tempo_hypotheses(bpm),
             selected_tempo_bpm=bpm,
             selected_meter=selected_meter.time_signature,
             meter_confidence=(
@@ -1045,9 +1108,13 @@ class UnderstandingPipeline:
         if not notes or beats_per_bar != selected_meter.measure_quarter_length:
             return events
         old_map = timing.time_map
-        align_score_origin(timing, min(n.start_time for n in notes),
-                           downbeat_times=getattr(result, "downbeat_times", ()) or (),
-                           beats_per_bar=beats_per_bar)
+        align_score_origin(
+            timing,
+            min(n.start_time for n in notes),
+            downbeat_times=getattr(result, "downbeat_times", ()) or (),
+            beats_per_bar=beats_per_bar,
+        )
+        self.last_timing = timing
         self.last_musical_time_map = timing.time_map
         shift = timing.time_map.seconds_to_beats(old_map.beat_times[0])
         return [copy_event(ev, start_beat=ev.start_beat + shift) for ev in events]

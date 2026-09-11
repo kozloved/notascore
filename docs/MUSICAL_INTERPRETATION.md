@@ -23,9 +23,11 @@ total =
   + small scale prior
 ```
 
-Jobs write `{job}.candidate_scores.json`. Debug JSON repeats the table plus
-`interpretation_choice`, `pickup`, `hand_decisions`, and
-`notation_complexity_warning`. Warnings never delete notes.
+Jobs write `{job}.candidate_scores.json` as
+`{ interpretation_choice, candidates }`. Debug JSON and provenance
+repeat `interpretation_choice` with both `performance_bpm` and
+`score_bpm`. `{job}.tempo.json` keeps the existing score-facing keys
+and adds `performance` / `score` views plus `tempo_scale`.
 
 ## Local fixtures
 

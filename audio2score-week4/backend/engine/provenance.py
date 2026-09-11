@@ -97,8 +97,18 @@ def transcription_section(pipeline) -> dict[str, Any]:
 
 def live_provenance_fields(pipeline, stages: list[StageResult]) -> dict[str, Any]:
     timings = stage_timings(stages, pipeline)
+    choice = dict(getattr(pipeline, "last_interpretation_choice", None) or {})
+    interpretation = {}
+    if choice:
+        interpretation = {
+            "tempo_scale": choice.get("tempo_scale"),
+            "meter": choice.get("meter"),
+            "performance_bpm": choice.get("performance_bpm"),
+            "score_bpm": choice.get("score_bpm"),
+        }
     return {
         "transcription": transcription_section(pipeline),
         "timings": timings,
         "total_pipeline_ms": timings.get("total_pipeline_ms"),
+        "interpretation_choice": interpretation,
     }
