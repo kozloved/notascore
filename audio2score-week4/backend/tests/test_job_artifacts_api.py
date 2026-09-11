@@ -229,7 +229,7 @@ def test_remote_artifact_list_and_download_without_local_files(tmp_path, monkeyp
     from fastapi.testclient import TestClient
 
     db.init_db()
-    job_id = "job1"
+    job_id = f"remote-{uuid.uuid4().hex}"
     source = tmp_path / "unused.wav"
     source.write_bytes(b"RIFF")
     raw_bytes = _midi_bytes(60)
