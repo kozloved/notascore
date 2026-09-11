@@ -299,6 +299,10 @@ def test_health_includes_quality(monkeypatch):
     monkeypatch.setenv("GEMINI_ENABLED", "0")
     monkeypatch.setenv("GEMINI_API_KEY", "")
     monkeypatch.delenv("GEMINI_DEFAULT_MODEL", raising=False)
+    monkeypatch.delenv("NEXTGEN_PIPELINE_MODE", raising=False)
+    monkeypatch.delenv("NEXTGEN_SEPARATION", raising=False)
+    monkeypatch.delenv("NEXTGEN_SEPARATION_ENABLED", raising=False)
+    monkeypatch.delenv("SEPARATION_ENDPOINT", raising=False)
 
     payload = health()
     assert payload["quality"]["available"] is False
@@ -316,6 +320,16 @@ def test_health_includes_quality(monkeypatch):
     assert "pm2s" in payload
     assert "importable" in payload["pm2s"]
     assert "ready" in payload["pm2s"]
+    ng = payload["nextgen"]
+    assert ng["pipeline_mode"] == "legacy"
+    assert ng["orchestrator_active"] is False
+    assert ng["separation_enabled"] is False
+    assert ng["separation_configured"] is False
+    assert ng["fusion_enabled"] is False
+    dumped = json.dumps(payload)
+    assert "MT3_API_KEY" not in dumped
+    assert "SUPABASE_SERVICE_ROLE_KEY" not in dumped
+    assert "CLOUDFLARE_TUNNEL_TOKEN" not in dumped
     from intelligence.config import DEFAULT_MODEL
 
     assert payload["gemini"]["default_model"] == DEFAULT_MODEL
