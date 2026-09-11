@@ -15,11 +15,17 @@ from mir.types import (
 
 def notes_to_events(
     notes: list[NoteEvent],
-    tempo_map: TempoMap,
+    tempo_map,
     role: MusicalRole | None = None,
     instrument: InstrumentKind = InstrumentKind.PIANO,
     source_backend: str = "unknown",
 ) -> list[MusicalEvent]:
+    """Map performed seconds onto musical beats.
+
+    ``tempo_map`` is any object with ``seconds_to_beats`` (MusicalTimeMap or
+    TempoMap). Both endpoints are mapped; duration is their difference so
+    rubato does not use ``duration_sec * bpm / 60``.
+    """
     melody_keys = set()
     bass_keys = set()
     accomp_keys = set()

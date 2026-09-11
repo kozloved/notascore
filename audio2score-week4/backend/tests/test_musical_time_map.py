@@ -27,6 +27,14 @@ def test_rejects_non_increasing_beats():
         MusicalTimeMap((0.0, 0.5, 0.5))
 
 
+def test_extrapolates_with_local_interval():
+    time_map = MusicalTimeMap((0.5, 1.5, 2.0))
+    assert abs(time_map.seconds_to_beats(0.0) - (-0.5)) < 1e-9
+    assert abs(time_map.beats_to_seconds(-0.5) - 0.0) < 1e-9
+    assert abs(time_map.seconds_to_beats(2.5) - 3.0) < 1e-9
+    assert_roundtrip(time_map, [-0.25, 0.5, 1.75, 3.0])
+
+
 def test_from_tempo_map_preserves_rubato_beat_times():
     tempo_map = TempoMap(
         points=[
