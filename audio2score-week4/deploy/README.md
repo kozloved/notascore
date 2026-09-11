@@ -25,6 +25,15 @@ curl -fsS http://127.0.0.1/api/health
 
 First-time Ubuntu box: [VPS.md](VPS.md) steps 1–5, or `sudo bash deploy/vps-setup.sh`.
 
+Next-gen live cutover (orchestrator only, federation off): [VPS.md](VPS.md) §8
+and [../../docs/NEXTGEN_LIVE_CUTOVER_CHECKLIST.md](../../docs/NEXTGEN_LIVE_CUTOVER_CHECKLIST.md).
+
+```bash
+docker compose --env-file .env.production up -d --build api worker
+curl -fsS https://notascore.com/api/health
+BASE_URL=https://notascore.com/api ./deploy/smoke-nextgen-live.sh
+```
+
 ## API proxy mapping
 
 | Browser | Nginx | FastAPI |

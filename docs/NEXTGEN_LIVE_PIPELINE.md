@@ -9,6 +9,11 @@ deterministic fusion.
 `UnderstandingPipeline` remains the interpretation / MusicXML export engine.
 Ensemble engraving is still off.
 
+The **first production cutover** sets `NEXTGEN_PIPELINE_MODE=live` with
+separation, stem transcription, and fusion **off**. That promotes the
+orchestrator without new external models. See
+[`docs/NEXTGEN_LIVE_CUTOVER_CHECKLIST.md`](NEXTGEN_LIVE_CUTOVER_CHECKLIST.md).
+
 ## Modes (`NEXTGEN_PIPELINE_MODE`)
 
 Default: **`legacy`**.
