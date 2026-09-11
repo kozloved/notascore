@@ -216,8 +216,16 @@ Volumes (`dbdata`, `uploads`, `results`) survive rebuilds.
 
 ### Next-gen orchestrator cutover
 
-Edit `.env.production` (see `.env.production.example`). First production
-config promotes `PipelineOrchestrator` only — federation stays off:
+`.env.production` is gitignored. A `git pull` does not modify it.
+
+```bash
+cd /root/notascore
+git pull origin main
+
+cd audio2score-week4
+```
+
+Ensure the real `.env.production` contains:
 
 ```env
 NEXTGEN_PIPELINE_MODE=live
@@ -233,12 +241,30 @@ Then rebuild just the services that read those variables:
 ```bash
 docker compose --env-file .env.production up -d --build api worker
 curl -fsS https://notascore.com/api/health
-# nextgen.pipeline_mode must be "live" and orchestrator_active true
-BASE_URL=https://notascore.com/api ./deploy/smoke-nextgen-live.sh
 ```
 
-Rollback is the same compose command after setting `NEXTGEN_PIPELINE_MODE=legacy`.
+`nextgen.pipeline_mode` must be `live` and `orchestrator_active` true.
+
+```bash
+BASE_URL=https://notascore.com/api \
+MODE=polyphonic \
+CASE=full-song \
+./deploy/smoke-nextgen-live.sh ./full-song.wav
+```
+
+Emergency rollback (no DB migration, no artifact deletion, no code revert):
+
+```text
+NEXTGEN_PIPELINE_MODE=legacy
+```
+
+```bash
+docker compose --env-file .env.production \
+  up -d --force-recreate api worker
+```
+
 Full checklist: [../../docs/NEXTGEN_LIVE_CUTOVER_CHECKLIST.md](../../docs/NEXTGEN_LIVE_CUTOVER_CHECKLIST.md).
+Musician QA: [../../docs/PRODUCTION_SCORE_QA.md](../../docs/PRODUCTION_SCORE_QA.md).
 
 ---
 

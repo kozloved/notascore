@@ -86,6 +86,12 @@ Telemetry splits:
 
 No warmup request is issued.
 
+Live provenance (`{job}.provenance.json`) records `pipeline_mode`,
+`orchestrator`, a `transcription` identity block (`provider_raw_sha256`,
+`saved_raw_sha256`, `raw_identity_match`), and stage timings. It must not
+contain API keys or credential-bearing URLs. MT3 provider SHA mismatch is
+a hard fail (`raw_transcription_identity_violation`).
+
 ## Separation provider
 
 **Enabled adapter:** HTTP `HttpSeparator` (`SEPARATION_ENDPOINT`).

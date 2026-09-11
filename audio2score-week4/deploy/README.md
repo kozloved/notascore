@@ -31,8 +31,13 @@ and [../../docs/NEXTGEN_LIVE_CUTOVER_CHECKLIST.md](../../docs/NEXTGEN_LIVE_CUTOV
 ```bash
 docker compose --env-file .env.production up -d --build api worker
 curl -fsS https://notascore.com/api/health
-BASE_URL=https://notascore.com/api ./deploy/smoke-nextgen-live.sh
+BASE_URL=https://notascore.com/api \
+MODE=polyphonic \
+CASE=full-song \
+./deploy/smoke-nextgen-live.sh ./full-song.wav
 ```
+
+`.env.production` is gitignored; merging Git does not change the VPS env.
 
 ## API proxy mapping
 

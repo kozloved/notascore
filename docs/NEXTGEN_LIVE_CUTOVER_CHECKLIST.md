@@ -49,14 +49,31 @@ audio
 
 ## VPS cutover
 
+`.env.production` is gitignored. Merging this repository does **not**
+change the VPS environment file. After `git pull`, confirm the live
+flags are actually present on the machine.
+
 ```bash
 cd /root/notascore
 git pull origin main
 
 cd audio2score-week4
+```
 
-# Edit .env.production to the first production configuration above.
+Ensure the real `.env.production` contains:
 
+```text
+NEXTGEN_PIPELINE_MODE=live
+NEXTGEN_SEPARATION_ENABLED=0
+NEXTGEN_STEM_TRANSCRIPTION_ENABLED=0
+NEXTGEN_FUSION_ENABLED=0
+NEXTGEN_ENSEMBLE_RENDER=0
+NEXTGEN_WRITE_MANIFEST=1
+```
+
+Then:
+
+```bash
 docker compose --env-file .env.production up -d --build api worker
 ```
 
@@ -81,15 +98,41 @@ The JSON must include:
 }
 ```
 
-If health still says `legacy`, the deployment is not complete.
+If health still says `legacy`, the deployment is not complete — usually
+because `.env.production` was not loaded into the api/worker containers.
 
-Scripted check:
+Health-only smoke:
 
 ```bash
 BASE_URL=https://notascore.com/api ./deploy/smoke-nextgen-live.sh
-# optional real job:
-BASE_URL=https://notascore.com/api ./deploy/smoke-nextgen-live.sh ./path/to/clip.wav
 ```
+
+Solo:
+
+```bash
+MODE=solo \
+BASE_URL=https://notascore.com/api \
+./deploy/smoke-nextgen-live.sh ./piano.wav
+```
+
+Polyphonic (checks MT3 `/health` before upload):
+
+```bash
+BASE_URL=https://notascore.com/api \
+MODE=polyphonic \
+CASE=full-song \
+./deploy/smoke-nextgen-live.sh ./full-song.wav
+```
+
+Local fixture matrix (missing files are SKIP):
+
+```bash
+BASE_URL=https://notascore.com/api \
+./deploy/run-production-smoke-matrix.sh
+```
+
+Musician review of those jobs: [`docs/PRODUCTION_SCORE_QA.md`](PRODUCTION_SCORE_QA.md).
+The matrix does not score notation quality.
 
 Worker logs should print once:
 
