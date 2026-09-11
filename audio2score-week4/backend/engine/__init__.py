@@ -2,7 +2,6 @@
 
 from engine.artifacts import ArtifactManifest, ArtifactRef
 from engine.ir import InterpretedNote, InterpretedPerformance, NoteEvidence
-from engine.orchestrator import OrchestratorResult, PipelineOrchestrator
 from engine.stages import StageName, StageResult
 
 __all__ = [
@@ -11,8 +10,6 @@ __all__ = [
     "InterpretedNote",
     "InterpretedPerformance",
     "NoteEvidence",
-    "OrchestratorResult",
-    "PipelineOrchestrator",
     "StageName",
     "StageResult",
 ]
