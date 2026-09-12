@@ -49,6 +49,34 @@ class ImmutableNoteSet:
         }
 
 
+def _clone_event(event):
+    if event is None:
+        return None
+    if hasattr(event, "__dataclass_fields__"):
+        try:
+            return replace(event)
+        except Exception:
+            pass
+    if isinstance(event, dict):
+        return dict(event)
+    return event
+
+
+def _clone_payload(value):
+    if value is None:
+        return None
+    if hasattr(value, "__dataclass_fields__"):
+        try:
+            return replace(value)
+        except Exception:
+            pass
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, list):
+        return [_clone_payload(item) for item in value]
+    return value
+
+
 @dataclass
 class QuantizationResult:
     """Explicit output of a quantizer call. Not stored as pipeline coordination."""
@@ -66,13 +94,13 @@ class QuantizationResult:
         return list(self.events), list(self.decisions)
 
     def copy(self) -> "QuantizationResult":
-        """Detached snapshot. Mutating the original lists cannot change this."""
+        """Detached snapshot. Nested events/report are not shared with the source."""
         return QuantizationResult(
-            events=list(self.events),
+            events=[_clone_event(event) for event in self.events],
             decisions=[dict(d) for d in self.decisions],
             summary=dict(self.summary or {}),
-            report=self.report,
-            raw_events=list(self.raw_events),
+            report=_clone_payload(self.report),
+            raw_events=[_clone_event(event) for event in self.raw_events],
             mode=self.mode,
             engine=self.engine,
             experimental=self.experimental,
@@ -115,8 +143,8 @@ class NotationResult:
     def copy(self) -> "NotationResult":
         """Detached snapshot used as a job stage output, not a live view."""
         return NotationResult(
-            plan=self.plan,
-            quantized_events=list(self.quantized_events),
+            plan=_clone_payload(self.plan),
+            quantized_events=[_clone_event(event) for event in self.quantized_events],
             decisions=[dict(d) for d in self.decisions],
             summary=dict(self.summary or {}),
             quantization_mode=self.quantization_mode,

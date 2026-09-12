@@ -84,3 +84,21 @@ cd audio2score-week4/backend
 ```
 
 The four deselected tests require live integration/PM2S validation. Warnings are dependency deprecations and small-audio FFT warnings. No frontend/browser or deployed multi-worker validation was performed. `git diff --check` passes. Test-generated benchmark report changes were restored to their pre-review contents; generated worker bytecode was moved outside the repository. The local fixes and this handoff are intentionally uncommitted and unpushed.
+
+## Execution status (2026-09-12 Cursor)
+
+Baseline review fixes: `9cafc4f` on `main` (pushed).
+
+Phase 1–3 implemented on branch `cursor/next-3-phases-lifecycle-2026-09-12`:
+
+1. **Phase 1:** dedicated leases/heartbeats, recovery scan, verified publish manifests, delayed GC, paginated remote listing, autosave generation/409 fencing.
+2. **Phase 2:** selected meter persistence, strict edit rejection, full tempo+seconds MIDI export, deeper stage-result copies, editable contract metadata.
+3. **Phase 3:** frozen `phase3-dev-fixture` baseline + gated low-confidence FP filter (`NOTASCORE_DROP_LOW_CONFIDENCE`). See `docs/PHASE3_BASELINE_2026-09-12.md`.
+
+Verification:
+
+```sh
+cd audio2score-week4/backend
+.venv/bin/python -m pytest -m 'not integration and not pm2s' -q
+# 704 passed, 4 deselected
+```

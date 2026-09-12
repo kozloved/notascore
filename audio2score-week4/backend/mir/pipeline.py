@@ -688,6 +688,9 @@ class UnderstandingPipeline:
             notes_fut = pool.submit(backend.transcribe_notes, transcribe_path)
             cpu_fut = pool.submit(self._prefetch_cpu, normalized)
             notes = notes_fut.result()
+            from mir.confidence_gate import drop_low_confidence_notes
+
+            notes = drop_low_confidence_notes(notes)
             prediction, segments = cpu_fut.result()
         print(
             f"[Pipeline] overlap_wall_seconds={time.perf_counter() - started:.2f} "

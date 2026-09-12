@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
+from datetime import timedelta
+
 import redis
 from rq import Queue
 
@@ -20,10 +22,19 @@ task_queue = Queue(
 )
 
 
-def enqueue_job(job_id: str, job_timeout: int | None = None):
+def enqueue_job(job_id: str, job_timeout: int | None = None, delay_seconds: int | None = None):
+    timeout = job_timeout or 600
+    if delay_seconds and int(delay_seconds) > 0:
+        return task_queue.enqueue_in(
+            timedelta(seconds=int(delay_seconds)),
+            process_job,
+            job_id,
+            job_timeout=timeout,
+            result_ttl=86400,
+        )
     return task_queue.enqueue(
         process_job,
         job_id,
-        job_timeout=job_timeout or 600,
+        job_timeout=timeout,
         result_ttl=86400,
     )

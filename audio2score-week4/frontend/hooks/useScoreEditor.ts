@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { track } from "../lib/analytics";
-import { getScoreEdits, resetScoreEdits, saveScoreEdits } from "../lib/jobs";
+import { ApiRequestError, getScoreEdits, resetScoreEdits, saveScoreEdits } from "../lib/jobs";
 import {
   addNote,
   changeDuration,
@@ -24,7 +24,7 @@ import {
   type TempoCurvePoint,
 } from "../lib/score-editor";
 
-export type SaveStatus = "loading" | "ready" | "saving" | "saved" | "error";
+export type SaveStatus = "loading" | "ready" | "saving" | "saved" | "error" | "conflict";
 
 const SAVE_DELAY_MS = 700;
 
@@ -51,6 +51,9 @@ export function useScoreEditor(scoreId: string | null) {
   const notesRef = useRef<EditableNote[]>([]);
   const revisionRef = useRef(0);
   const dirtyRef = useRef(false);
+  const generationRef = useRef(0);
+  const openGenerationRef = useRef(0);
+  const savingGenerationRef = useRef<number | null>(null);
   const timerRef = useRef<number | null>(null);
   const scoreIdRef = useRef(scoreId);
 
@@ -68,11 +71,15 @@ export function useScoreEditor(scoreId: string | null) {
   const persist = useCallback(async () => {
     const id = scoreIdRef.current;
     if (!id || !dirtyRef.current) return;
+    const openGeneration = openGenerationRef.current;
+    const submittedGeneration = generationRef.current;
+    const submittedRevision = revisionRef.current;
+    savingGenerationRef.current = submittedGeneration;
     setStatus("saving");
     setError("");
     try {
       const saved = await saveScoreEdits(id, {
-        revision: revisionRef.current,
+        revision: submittedRevision,
         notes: notesRef.current,
         tempo_bpm: tempoBpm,
         time_signature: timeSignature,
@@ -80,21 +87,54 @@ export function useScoreEditor(scoreId: string | null) {
         printed_tempo_marks: printedTempoMarks,
         provenance,
       });
-      dirtyRef.current = false;
+      // Ignore responses for a score that is no longer open, or an older
+      // in-flight save superseded by newer local edits.
+      if (
+        scoreIdRef.current !== id ||
+        openGenerationRef.current !== openGeneration
+      ) {
+        return;
+      }
       setRevision(saved.revision);
       setHasEdits(saved.has_edits);
       setRenderKey((value) => value + 1);
-      setStatus("saved");
+      if (generationRef.current === submittedGeneration) {
+        dirtyRef.current = false;
+        setStatus("saved");
+      } else {
+        dirtyRef.current = true;
+        setStatus("ready");
+        clearTimer();
+        timerRef.current = window.setTimeout(() => {
+          void persist();
+        }, SAVE_DELAY_MS);
+      }
       track("edit_saved");
-    } catch {
+    } catch (err) {
+      if (scoreIdRef.current !== id || openGenerationRef.current !== openGeneration) {
+        return;
+      }
+      if (err instanceof ApiRequestError && err.status === 409) {
+        dirtyRef.current = true;
+        setStatus("conflict");
+        setError("This score was updated elsewhere. Reload to keep editing, or retry to reapply.");
+        track("edit_save_failed");
+        return;
+      }
+      dirtyRef.current = true;
       setStatus("error");
       setError("Changes couldn't be saved.");
       track("edit_save_failed");
+    } finally {
+      if (savingGenerationRef.current === submittedGeneration) {
+        savingGenerationRef.current = null;
+      }
     }
   }, [tempoBpm, timeSignature, tempoCurve, printedTempoMarks, provenance]);
 
   const scheduleSave = useCallback(() => {
     dirtyRef.current = true;
+    generationRef.current += 1;
     clearTimer();
     timerRef.current = window.setTimeout(() => {
       void persist();
@@ -104,6 +144,10 @@ export function useScoreEditor(scoreId: string | null) {
   useEffect(() => {
     if (!scoreId) return undefined;
     let cancelled = false;
+    openGenerationRef.current += 1;
+    const loadGeneration = openGenerationRef.current;
+    generationRef.current = 0;
+    savingGenerationRef.current = null;
     setStatus("loading");
     setError("");
     setSelectedId(null);
@@ -111,7 +155,7 @@ export function useScoreEditor(scoreId: string | null) {
     dirtyRef.current = false;
     getScoreEdits(scoreId)
       .then((payload) => {
-        if (cancelled) return;
+        if (cancelled || openGenerationRef.current !== loadGeneration) return;
         originalRef.current = cloneNotes(payload.notes);
         setNotes(cloneNotes(payload.notes));
         setRevision(payload.revision);
@@ -128,7 +172,7 @@ export function useScoreEditor(scoreId: string | null) {
         track("score_editor_opened");
       })
       .catch(() => {
-        if (cancelled) return;
+        if (cancelled || openGenerationRef.current !== loadGeneration) return;
         setStatus("error");
         setError("We couldn’t load this score.");
       });
@@ -230,11 +274,12 @@ export function useScoreEditor(scoreId: string | null) {
     clearTimer();
     setStatus("saving");
     try {
-      const restored = await resetScoreEdits(id);
+      const restored = await resetScoreEdits(id, { revision: revisionRef.current });
       originalRef.current = cloneNotes(restored.notes);
       historyRef.current = emptyHistory();
       setHistoryTick((value) => value + 1);
       dirtyRef.current = false;
+      generationRef.current = 0;
       setNotes(cloneNotes(restored.notes));
       setRevision(restored.revision);
       setHasEdits(false);
@@ -250,7 +295,14 @@ export function useScoreEditor(scoreId: string | null) {
       setRenderKey((value) => value + 1);
       setStatus("saved");
       track("edit_reset");
-    } catch {
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.status === 409) {
+        dirtyRef.current = true;
+        setStatus("conflict");
+        setError("This score was updated elsewhere. Reload before resetting.");
+        track("edit_save_failed");
+        return;
+      }
       setStatus("error");
       setError("We couldn’t reset these changes.");
       track("edit_save_failed");
@@ -259,8 +311,40 @@ export function useScoreEditor(scoreId: string | null) {
 
   const retrySave = useCallback(() => {
     dirtyRef.current = true;
+    generationRef.current += 1;
     void persist();
   }, [persist]);
+
+  const reloadRemote = useCallback(async () => {
+    const id = scoreIdRef.current;
+    if (!id) return;
+    clearTimer();
+    setStatus("loading");
+    setError("");
+    try {
+      const payload = await getScoreEdits(id);
+      originalRef.current = cloneNotes(payload.notes);
+      historyRef.current = emptyHistory();
+      setHistoryTick((value) => value + 1);
+      dirtyRef.current = false;
+      generationRef.current = 0;
+      setNotes(cloneNotes(payload.notes));
+      setRevision(payload.revision);
+      setHasEdits(payload.has_edits);
+      setTempoBpm(payload.tempo_bpm);
+      setTimeSignature(payload.time_signature);
+      setTempoCurve(
+        cloneTempoCurve(payload.tempo_curve || [{ beat: 0, bpm: payload.tempo_bpm }])
+      );
+      setPrintedTempoMarks(payload.printed_tempo_marks || []);
+      setProvenance(payload.provenance || null);
+      setRenderKey((value) => value + 1);
+      setStatus("ready");
+    } catch {
+      setStatus("error");
+      setError("We couldn’t load this score.");
+    }
+  }, []);
 
   const flushSave = useCallback(async () => {
     clearTimer();
@@ -300,6 +384,7 @@ export function useScoreEditor(scoreId: string | null) {
     onRedo,
     onReset,
     retrySave,
+    reloadRemote,
     flushSave,
   };
 }

@@ -17,6 +17,12 @@ import tasks
 from publishing import attempt_keys, sibling_key
 from score_edits import extract_from_musicxml, loads_edits
 
+def _write_attempt_midis(folder: Path, job_id: str, payload: bytes = b"MThd"):
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in (f"{job_id}.raw.mid", f"{job_id}.validated.mid", f"{job_id}.score.mid"):
+        (folder / name).write_bytes(payload)
+    return folder
+
 
 def _job_row(job_id: str, **overrides) -> dict:
     now = db.utcnow()
@@ -185,22 +191,41 @@ def test_duplicate_process_job_runs_a_single_attempt(isolated_db, monkeypatch):
             path.write_bytes(Path(local_file_path).read_bytes())
             return str(path)
 
+        def read_result_bytes(self, result_storage_key):
+            path = Path(result_storage_key)
+            if not path.is_file():
+                path = isolated_db / result_storage_key
+            return path.read_bytes()
+
+        def list_result_keys(self, prefix):
+            root = isolated_db / prefix
+            if not root.exists():
+                return []
+            return [str(p.relative_to(isolated_db)) for p in root.rglob("*") if p.is_file()]
+
         def gc_unreachable_attempts(self, job_id, keep_attempt_ids=()):
             return
 
+    def fake_run(*args, **kwargs):
+        calls.append(threading.get_ident())
+        source = Path(args[0])
+        job = args[1]
+        _write_attempt_midis(source.parent / f"bp_{job}", job)
+        return "<score/>"
+
     monkeypatch.setattr(tasks.storage_service, "get_storage", lambda: FakeStorage())
+    monkeypatch.setattr("engine.job_runner.run_job", fake_run)
     monkeypatch.setattr(
-        "engine.job_runner.run_job",
-        lambda *args, **kwargs: calls.append(threading.get_ident()) or "<score/>",
+        "mir.raw_midi.job_raw_midi_path",
+        lambda source, job_id: Path(source).parent / f"bp_{job_id}" / f"{job_id}.raw.mid",
     )
     monkeypatch.setattr(
-        "mir.raw_midi.job_raw_midi_path", lambda *_: isolated_db / "missing.raw"
+        "mir.raw_midi.job_validated_midi_path",
+        lambda source, job_id: Path(source).parent / f"bp_{job_id}" / f"{job_id}.validated.mid",
     )
     monkeypatch.setattr(
-        "mir.raw_midi.job_validated_midi_path", lambda *_: isolated_db / "missing.val"
-    )
-    monkeypatch.setattr(
-        "mir.raw_midi.job_score_midi_path", lambda *_: isolated_db / "missing.score"
+        "mir.raw_midi.job_score_midi_path",
+        lambda source, job_id: Path(source).parent / f"bp_{job_id}" / f"{job_id}.score.mid",
     )
     monkeypatch.setattr("engine.sidecars.extra_result_files", lambda *_: [])
 
@@ -404,7 +429,7 @@ def test_stale_processing_claim_can_be_reclaimed(isolated_db):
     session = db.SessionLocal()
     try:
         session.query(db.Job).filter(db.Job.id == job_id).update(
-            {"updated_at": past}, synchronize_session=False
+            {"updated_at": past, "lease_expires_at": past}, synchronize_session=False
         )
         session.commit()
     finally:
@@ -546,15 +571,13 @@ def test_reclaimed_workers_do_not_share_generated_files(isolated_db, monkeypatch
         source = Path(source)
         paths.append(source)
         folder = source.parent / f'bp_{job_id}'
-        folder.mkdir(exist_ok=True)
-        midi = folder / f'{job_id}.raw.mid'
         if len(paths) == 1:
             old_started.set()
             assert new_written.wait(5)
-            midi.write_bytes(b'old-attempt')
+            _write_attempt_midis(folder, job_id, b'old-attempt')
             old_written.set()
             return '<old/>'
-        midi.write_bytes(b'new-attempt')
+        _write_attempt_midis(folder, job_id, b'new-attempt')
         new_written.set()
         assert old_written.wait(5)
         return '<new/>'

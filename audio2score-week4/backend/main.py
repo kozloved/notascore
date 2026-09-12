@@ -326,11 +326,21 @@ def _load_edit_model(job: dict) -> dict:
             time_map = time_map_from_tempo_payload(tempo_payload)
             printed = tempo_payload.get("printed_tempo") or []
             time_signature = "4/4"
-            meter = (tempo_payload.get("meter_candidates") or [None])[0]
-            if isinstance(meter, dict) and meter.get("ratio"):
-                time_signature = str(meter["ratio"])
-            elif isinstance(meter, str) and "/" in meter:
-                time_signature = meter
+            selected = tempo_payload.get("selected_meter")
+            if isinstance(selected, str) and "/" in selected:
+                time_signature = selected
+            elif isinstance(selected, dict):
+                ratio = selected.get("ratio") or selected.get("meter")
+                if ratio:
+                    time_signature = str(ratio)
+            else:
+                meter = (tempo_payload.get("meter_candidates") or [None])[0]
+                if isinstance(meter, dict):
+                    ratio = meter.get("ratio") or meter.get("meter")
+                    if ratio:
+                        time_signature = str(ratio)
+                elif isinstance(meter, str) and "/" in meter:
+                    time_signature = meter
         else:
             duration = max((note.end_sec for note in snapshot.notes), default=4.0)
             from timing.tempo_map import MusicalTimeMap
@@ -392,6 +402,10 @@ class ScoreEditsIn(BaseModel):
     tempo_curve: list[TempoCurvePointIn] | None = Field(default=None, max_length=8192)
     printed_tempo_marks: list[PrintedTempoMarkIn] | None = None
     provenance: str | None = None
+
+
+class ScoreResetIn(BaseModel):
+    revision: int | None = Field(default=None, ge=0)
 
 
 @app.get("/health")
@@ -774,6 +788,13 @@ def job_result(
             detail="Job is not completed yet",
         )
 
+    try:
+        from lifecycle import hold_job_artifacts
+
+        hold_job_artifacts(job_id)
+    except Exception:
+        pass
+
     result_storage_key = job.get("result_storage_key")
 
     if not result_storage_key:
@@ -1111,8 +1132,10 @@ def score_edits_put(
             detail="This score was updated elsewhere. Reload and try again.",
         )
     try:
-        if hasattr(storage_backend, "gc_edit_bundle"):
-            storage_backend.gc_edit_bundle(previous_key, score_id, keep_key=edited_key)
+        from lifecycle import schedule_edit_bundle_gc, sweep_artifact_gc
+
+        schedule_edit_bundle_gc(score_id, previous_key, keep_key=edited_key)
+        sweep_artifact_gc(storage_backend)
     except Exception:
         pass
     # Return the revision belonging to this model, even if a later writer
@@ -1124,11 +1147,20 @@ def score_edits_put(
 @app.post("/scores/{score_id}/edits/reset")
 def score_edits_reset(
     score_id: str,
+    body: ScoreResetIn | None = None,
     authorization: str | None = Header(default=None),
 ):
     job = _editor_job(score_id, authorization)
     previous_key = job.get("edited_result_storage_key")
     current_revision = int(job.get("edit_revision") or 0)
+    expected_revision = current_revision
+    if body is not None and body.revision is not None:
+        expected_revision = int(body.revision)
+        if expected_revision != current_revision:
+            raise HTTPException(
+                status_code=409,
+                detail="This score was updated elsewhere. Reload and try again.",
+            )
     restored_job = dict(job, edited_result_storage_key=None, edit_revision=current_revision + 1)
     try:
         model = _load_edit_model(restored_job)
@@ -1139,9 +1171,9 @@ def score_edits_reset(
         ) from exc
     published = db.cas_update_job(
         score_id,
-        expected={"edit_revision": current_revision},
+        expected={"edit_revision": expected_revision},
         edited_result_storage_key=None,
-        edit_revision=current_revision + 1,
+        edit_revision=expected_revision + 1,
     )
     if not published:
         raise HTTPException(
@@ -1150,10 +1182,13 @@ def score_edits_reset(
         )
     storage_backend = storage_service.get_storage()
     try:
-        if hasattr(storage_backend, "gc_edit_bundle"):
-            storage_backend.gc_edit_bundle(previous_key, score_id)
+        from lifecycle import schedule_edit_bundle_gc, sweep_artifact_gc
+
+        schedule_edit_bundle_gc(score_id, previous_key)
+        sweep_artifact_gc(storage_backend)
     except Exception:
         pass
+    restored_job = dict(job, edited_result_storage_key=None, edit_revision=expected_revision + 1)
     return _edits_response(restored_job, model, has_edits=False)
 
 

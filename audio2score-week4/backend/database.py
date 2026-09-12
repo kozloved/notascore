@@ -57,6 +57,8 @@ class Job(Base):
     edit_revision = Column(Integer, default=0)
     processing_attempt = Column(String, nullable=True)
     published_attempt = Column(String, nullable=True)
+    lease_expires_at = Column(String, nullable=True)
+    retry_count = Column(Integer, default=0)
 
 
 OWNERSHIP_COLUMNS = {
@@ -77,6 +79,11 @@ ATTEMPT_COLUMNS = {
     "published_attempt": "VARCHAR",
 }
 
+LEASE_COLUMNS = {
+    "lease_expires_at": "VARCHAR",
+    "retry_count": "INTEGER DEFAULT 0",
+}
+
 
 def init_db():
     Base.metadata.create_all(bind=engine)
@@ -84,6 +91,7 @@ def init_db():
     _ensure_job_ownership_columns()
     _ensure_score_edit_columns()
     _ensure_attempt_columns()
+    _ensure_lease_columns()
 
 
 def _ensure_job_mode_column():
@@ -140,6 +148,17 @@ def _ensure_attempt_columns():
     columns = {col["name"] for col in inspector.get_columns("jobs")}
     with engine.begin() as conn:
         for name, sql_type in ATTEMPT_COLUMNS.items():
+            if name not in columns:
+                conn.execute(text(f"ALTER TABLE jobs ADD COLUMN {name} {sql_type}"))
+
+
+def _ensure_lease_columns():
+    inspector = inspect(engine)
+    if "jobs" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("jobs")}
+    with engine.begin() as conn:
+        for name, sql_type in LEASE_COLUMNS.items():
             if name not in columns:
                 conn.execute(text(f"ALTER TABLE jobs ADD COLUMN {name} {sql_type}"))
 
@@ -249,6 +268,8 @@ ALLOWED_UPDATE_FIELDS = {
     "edit_revision",
     "processing_attempt",
     "published_attempt",
+    "lease_expires_at",
+    "retry_count",
 }
 
 
@@ -335,19 +356,29 @@ def _stale_cutoff_iso(stale_after_seconds: int | None = None) -> str:
     return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat()
 
 
+def _lease_fields(attempt_id: str | None = None) -> dict:
+    from lifecycle import lease_expiry_iso
+
+    fields = {"lease_expires_at": lease_expiry_iso()}
+    if attempt_id is not None:
+        fields["processing_attempt"] = attempt_id
+    return fields
+
+
 def claim_job_attempt(
     job_id: str,
     attempt_id: str,
     *,
     stale_after_seconds: int | None = None,
 ) -> bool:
+    fields = _lease_fields(attempt_id)
     if cas_update_job(
         job_id,
         expected_in={"status": ("queued", "failed")},
         status="processing",
-        processing_attempt=attempt_id,
         error=None,
         progress=5,
+        **fields,
     ):
         return True
     return reclaim_stale_job_attempt(
@@ -361,19 +392,47 @@ def reclaim_stale_job_attempt(
     *,
     stale_after_seconds: int | None = None,
 ) -> bool:
-    """Steal a processing job whose heartbeat is older than the stale window.
+    """Steal a processing job whose lease (or legacy heartbeat) has expired.
 
-    Compare-and-swap on status + updated_at. A live worker that still
-    heartbeats via progress updates cannot be stolen.
+    Prefer dedicated lease_expires_at. Rows without a lease fall back to
+    updated_at so older deployments remain recoverable.
     """
-    return cas_update_job(
+    from lifecycle import lease_expiry_iso
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    fields = {
+        "status": "processing",
+        "processing_attempt": attempt_id,
+        "error": None,
+        "progress": 5,
+        "lease_expires_at": lease_expiry_iso(),
+    }
+    if cas_update_job(
         job_id,
         expected={"status": "processing"},
+        expected_lt={"lease_expires_at": now_iso},
+        **fields,
+    ):
+        return True
+    # Legacy rows may still use updated_at as the only heartbeat signal.
+    return cas_update_job(
+        job_id,
+        expected={"status": "processing", "lease_expires_at": None},
         expected_lt={"updated_at": _stale_cutoff_iso(stale_after_seconds)},
-        status="processing",
-        processing_attempt=attempt_id,
-        error=None,
-        progress=5,
+        **fields,
+    )
+
+
+def heartbeat_job_attempt(job_id: str, attempt_id: str, **fields) -> bool:
+    """Extend the attempt lease. Returns False when the worker is fenced out."""
+    from lifecycle import lease_expiry_iso
+
+    payload = dict(fields)
+    payload["lease_expires_at"] = lease_expiry_iso()
+    return cas_update_job(
+        job_id,
+        expected={"status": "processing", "processing_attempt": attempt_id},
+        **payload,
     )
 
 
@@ -383,6 +442,7 @@ def complete_job_attempt(job_id: str, attempt_id: str, **fields) -> bool:
     payload.setdefault("progress", 100)
     payload.setdefault("error", None)
     payload["published_attempt"] = attempt_id
+    payload["lease_expires_at"] = None
     return cas_update_job(
         job_id,
         expected={"status": "processing", "processing_attempt": attempt_id},
@@ -396,4 +456,86 @@ def fail_job_attempt(job_id: str, attempt_id: str, error: str) -> bool:
         expected={"status": "processing", "processing_attempt": attempt_id},
         status="failed",
         error=error,
+        lease_expires_at=None,
     )
+
+
+def list_processing_jobs(limit: int = 200):
+    session = SessionLocal()
+    try:
+        rows = (
+            session.query(Job)
+            .filter(Job.status == "processing")
+            .filter(Job.deleted_at.is_(None))
+            .order_by(Job.updated_at.asc())
+            .limit(limit)
+            .all()
+        )
+        return [row_to_dict(row) for row in rows]
+    finally:
+        session.close()
+
+
+def recover_expired_leases(*, enqueue=None, now: datetime | None = None) -> list[dict]:
+    """Requeue or terminal-fail jobs whose leases expired without a heartbeat.
+
+    Bounded by JOB_MAX_RETRIES with exponential backoff recorded in retry_count.
+    """
+    from lifecycle import max_job_retries, parse_iso, recovery_backoff_seconds
+
+    stamp = now or datetime.now(timezone.utc)
+    actions: list[dict] = []
+    for job in list_processing_jobs():
+        job_id = job["id"]
+        lease = parse_iso(job.get("lease_expires_at"))
+        updated = parse_iso(job.get("updated_at"))
+        expired = False
+        if lease is not None:
+            expired = lease <= stamp
+        elif updated is not None:
+            from datetime import timedelta
+
+            expired = updated <= (stamp - timedelta(seconds=claim_stale_seconds()))
+        if not expired:
+            continue
+        retries = int(job.get("retry_count") or 0)
+        attempt = job.get("processing_attempt")
+        if retries >= max_job_retries():
+            ok = cas_update_job(
+                job_id,
+                expected={"status": "processing", "processing_attempt": attempt},
+                status="failed",
+                error=(
+                    "Job abandoned after lease expiry and retry limit "
+                    f"({max_job_retries()})."
+                ),
+                lease_expires_at=None,
+            )
+            actions.append({"job_id": job_id, "action": "terminal_fail", "ok": ok})
+            continue
+        next_retry = retries + 1
+        ok = cas_update_job(
+            job_id,
+            expected={"status": "processing", "processing_attempt": attempt},
+            status="queued",
+            progress=0,
+            error=None,
+            processing_attempt=None,
+            lease_expires_at=None,
+            retry_count=next_retry,
+        )
+        if ok and enqueue is not None:
+            delay = recovery_backoff_seconds(retries)
+            try:
+                enqueue(job_id, delay_seconds=delay)
+            except TypeError:
+                enqueue(job_id)
+        actions.append(
+            {
+                "job_id": job_id,
+                "action": "requeue",
+                "ok": ok,
+                "retry_count": next_retry,
+            }
+        )
+    return actions

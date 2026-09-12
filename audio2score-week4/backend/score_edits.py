@@ -20,7 +20,7 @@ GRID = 0.25  # sixteenth note in quarter-note beats
 MAX_NOTES = 4000
 MAX_TEMPO_CURVE = 8192
 MAX_START = 10_000.0
-MAX_DURATION = 32.0
+MAX_DURATION = 512.0
 PITCH_MIN = 0
 PITCH_MAX = 127
 ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
@@ -67,7 +67,7 @@ def validate_tempo_curve(raw: Any, *, fallback_bpm: float) -> list[dict]:
         beat = float(item.get("beat", 0))
         if beat != beat or beat < 0 or beat > MAX_START:
             raise EditError("tempo_curve beat is out of range.")
-        bpm = validate_tempo(item.get("bpm", fallback_bpm))
+        bpm = validate_tempo(item.get("bpm", fallback_bpm), strict=False)
         points.append({"beat": beat, "bpm": bpm})
     points.sort(key=lambda row: (row["beat"], row["bpm"]))
     if not points or points[0]["beat"] > 1e-9:
@@ -133,7 +133,7 @@ def validate_notes(raw_notes: Any) -> list[dict]:
         if duration <= 0 or duration > MAX_DURATION:
             raise EditError("Note duration is out of range.")
         velocity = _as_int(item.get("velocity", 64), field="velocity", lo=1, hi=127)
-        track = _as_int(item.get("track", 0), field="track", lo=0, hi=3)
+        track = _as_int(item.get("track", 0), field="track", lo=0, hi=15)
         start_sec = item.get("start_sec")
         end_sec = item.get("end_sec")
         if start_sec is not None:
@@ -162,19 +162,33 @@ def validate_notes(raw_notes: Any) -> list[dict]:
     return notes
 
 
-def validate_time_signature(value: Any) -> str:
-    text = str(value or "4/4").strip()
+def validate_time_signature(value: Any, *, strict: bool = True) -> str:
+    text = str(value or "").strip()
+    if not text:
+        if strict:
+            raise EditError("time_signature is required.")
+        return "4/4"
     if not TIME_SIG_RE.match(text):
+        if strict:
+            raise EditError("Unsupported time_signature.")
         return "4/4"
     return text
 
 
-def validate_tempo(value: Any) -> float:
+def validate_tempo(value: Any, *, strict: bool = True) -> float:
+    if value is None or value == "":
+        if strict:
+            raise EditError("tempo_bpm is required.")
+        return 120.0
     try:
         tempo = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as exc:
+        if strict:
+            raise EditError("tempo_bpm must be a number.") from exc
         return 120.0
     if tempo != tempo or tempo < 20 or tempo > 300:
+        if strict:
+            raise EditError("tempo_bpm must be between 20 and 300.")
         return 120.0
     return tempo
 
@@ -329,7 +343,7 @@ def extract_from_performance(snapshot, time_map, *, printed_marks=None, time_sig
         track_id = str(getattr(source, "track_id", "") or "")
         if track_id.startswith("track:"):
             try:
-                track = min(3, max(0, int(track_id.split(":")[1])))
+                track = min(15, max(0, int(track_id.split(":")[1])))
             except (IndexError, ValueError):
                 pass
         note_id = str(source.note_id or f"n-{index:04d}")
@@ -727,32 +741,142 @@ def _midi_bytes_from_seconds(data: dict) -> bytes | None:
     notes = data.get("notes") or []
     if not notes or any(note.get("start_sec") is None or note.get("end_sec") is None for note in notes):
         return None
-    import pretty_midi
+    import io
+
+    import mido
 
     # At the minimum supported 20 BPM, 960 PPQ keeps tick rounding below
     # the export validator's 2 ms tolerance.
-    midi = pretty_midi.PrettyMIDI(initial_tempo=float(data.get("tempo_bpm") or 120), resolution=960)
-    instruments: dict[tuple[int, int], pretty_midi.Instrument] = {}
-    for item in notes:
-        # Separate voices need separate MIDI channels: a note-off on one
-        # voice must not terminate a simultaneous unison in another voice.
-        inst = instruments.setdefault(
-            (int(item.get("track") or 0), int(item.get("voice") or 0)),
-            pretty_midi.Instrument(program=0),
-        )
-        inst.notes.append(
-            pretty_midi.Note(
-                velocity=int(item["velocity"]),
-                pitch=int(item["pitch"]),
-                start=float(item["start_sec"]),
-                end=float(item["end_sec"]),
+    resolution = 960
+    initial = float(data.get("tempo_bpm") or 120)
+    curve_points = _tempo_curve_seconds(data.get("tempo_curve") or [], fallback_bpm=initial)
+    mid = mido.MidiFile(ticks_per_beat=resolution, type=1)
+    tempo_track = mido.MidiTrack()
+    mid.tracks.append(tempo_track)
+    last_tick = 0
+    for sec, bpm in curve_points:
+        tick = _seconds_to_tick(sec, curve_points, resolution)
+        tempo_track.append(
+            mido.MetaMessage(
+                "set_tempo",
+                tempo=mido.bpm2tempo(bpm),
+                time=max(0, tick - last_tick),
             )
         )
-    midi.instruments.extend(instruments[key] for key in sorted(instruments))
-    with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / "edited.mid"
-        midi.write(str(path))
-        return path.read_bytes()
+        last_tick = tick
+
+    channel_by_lane: dict[tuple[int, int], int] = {}
+    next_channel = 0
+    events_by_channel: dict[int, list[tuple[int, mido.Message]]] = {}
+    for item in notes:
+        lane = (int(item.get("track") or 0), int(item.get("voice") or 0))
+        if lane not in channel_by_lane:
+            while next_channel == 9:
+                next_channel += 1
+            if next_channel > 15:
+                raise EditError("Too many overlapping voices for MIDI channel capacity.")
+            channel_by_lane[lane] = next_channel
+            next_channel += 1
+        channel = channel_by_lane[lane]
+        start_tick = _seconds_to_tick(float(item["start_sec"]), curve_points, resolution)
+        end_tick = _seconds_to_tick(float(item["end_sec"]), curve_points, resolution)
+        if end_tick <= start_tick:
+            end_tick = start_tick + 1
+        bucket = events_by_channel.setdefault(channel, [])
+        bucket.append(
+            (
+                start_tick,
+                mido.Message(
+                    "note_on",
+                    note=int(item["pitch"]),
+                    velocity=int(item["velocity"]),
+                    channel=channel,
+                    time=0,
+                ),
+            )
+        )
+        bucket.append(
+            (
+                end_tick,
+                mido.Message(
+                    "note_off",
+                    note=int(item["pitch"]),
+                    velocity=0,
+                    channel=channel,
+                    time=0,
+                ),
+            )
+        )
+
+    for channel in sorted(events_by_channel):
+        track = mido.MidiTrack()
+        mid.tracks.append(track)
+        ordered = sorted(
+            events_by_channel[channel],
+            key=lambda row: (row[0], 0 if row[1].type == "note_off" else 1),
+        )
+        cursor = 0
+        for tick, message in ordered:
+            message.time = max(0, tick - cursor)
+            track.append(message)
+            cursor = tick
+
+    out = io.BytesIO()
+    mid.save(file=out)
+    return out.getvalue()
+
+
+def _tempo_curve_seconds(curve, *, fallback_bpm: float) -> list[tuple[float, float]]:
+    points = []
+    for item in curve or []:
+        try:
+            beat = float(item.get("beat", 0))
+            bpm = float(item.get("bpm", fallback_bpm))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if bpm <= 0:
+            continue
+        points.append((max(0.0, beat), float(bpm)))
+    if not points:
+        points = [(0.0, float(fallback_bpm))]
+    points.sort(key=lambda row: row[0])
+    absolute: list[tuple[float, float]] = []
+    elapsed = 0.0
+    prev_beat = 0.0
+    prev_bpm = float(points[0][1])
+    for beat, bpm in points:
+        if beat > prev_beat:
+            elapsed += (beat - prev_beat) * (60.0 / max(prev_bpm, 1e-6))
+        absolute.append((elapsed, float(bpm)))
+        prev_beat = beat
+        prev_bpm = float(bpm)
+    if absolute[0][0] != 0.0:
+        absolute.insert(0, (0.0, absolute[0][1]))
+    return absolute
+
+
+def _seconds_to_tick(seconds: float, curve_seconds: list[tuple[float, float]], resolution: int) -> int:
+    """Map absolute seconds to ticks under a piecewise-constant tempo curve."""
+    if seconds <= 0:
+        return 0
+    ticks = 0.0
+    segments = list(curve_seconds)
+    for index, (start_sec, bpm) in enumerate(segments):
+        end_sec = segments[index + 1][0] if index + 1 < len(segments) else max(seconds, start_sec)
+        if seconds <= start_sec:
+            break
+        span = min(seconds, end_sec) - start_sec
+        if span <= 0:
+            continue
+        ticks += span * (float(bpm) / 60.0) * resolution
+        if seconds <= end_sec:
+            break
+    else:
+        # Beyond final tempo change: continue with last bpm.
+        start_sec, bpm = segments[-1]
+        if seconds > start_sec:
+            ticks += (seconds - start_sec) * (float(bpm) / 60.0) * resolution
+    return int(round(ticks))
 
 
 def _validate_editor_exports(xml_path: Path, midi_path: Path, events, *, seconds_notes=None) -> None:
