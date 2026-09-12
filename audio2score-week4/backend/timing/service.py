@@ -83,6 +83,10 @@ class TimingResolution:
             "tempo_scale": self.tempo_scale,
             "score_median_bpm": score_bpm,
             "performance_median_bpm": perf_bpm,
+            "exact_points": [
+                {"time_sec": t, "beat": beat, "bpm": bpm}
+                for t, beat, bpm in (self.time_map.exact_points or ())
+            ],
         }
 
     def write_json(self, path: str | Path, *, meter_candidates: list | None = None) -> Path:

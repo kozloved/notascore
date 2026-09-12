@@ -39,6 +39,10 @@ export function useScoreEditor(scoreId: string | null) {
   const [tempoBpm, setTempoBpm] = useState(120);
   const [timeSignature, setTimeSignature] = useState("4/4");
   const [tempoCurve, setTempoCurve] = useState<TempoCurvePoint[]>([{ beat: 0, bpm: 120 }]);
+  const [printedTempoMarks, setPrintedTempoMarks] = useState<
+    { beat: number; bpm: number | null; mark: string; reason: string }[]
+  >([]);
+  const [provenance, setProvenance] = useState<string | null>(null);
   const [renderKey, setRenderKey] = useState(0);
   const [historyTick, setHistoryTick] = useState(0);
 
@@ -73,6 +77,8 @@ export function useScoreEditor(scoreId: string | null) {
         tempo_bpm: tempoBpm,
         time_signature: timeSignature,
         tempo_curve: tempoCurve,
+        printed_tempo_marks: printedTempoMarks,
+        provenance,
       });
       dirtyRef.current = false;
       setRevision(saved.revision);
@@ -85,7 +91,7 @@ export function useScoreEditor(scoreId: string | null) {
       setError("Changes couldn't be saved.");
       track("edit_save_failed");
     }
-  }, [tempoBpm, timeSignature, tempoCurve]);
+  }, [tempoBpm, timeSignature, tempoCurve, printedTempoMarks, provenance]);
 
   const scheduleSave = useCallback(() => {
     dirtyRef.current = true;
@@ -115,6 +121,8 @@ export function useScoreEditor(scoreId: string | null) {
         setTempoCurve(
           cloneTempoCurve(payload.tempo_curve || [{ beat: 0, bpm: payload.tempo_bpm }])
         );
+        setPrintedTempoMarks(payload.printed_tempo_marks || []);
+        setProvenance(payload.provenance || null);
         setRenderKey((value) => value + 1);
         setStatus("ready");
         track("score_editor_opened");
@@ -237,6 +245,8 @@ export function useScoreEditor(scoreId: string | null) {
       setTempoCurve(
         cloneTempoCurve(restored.tempo_curve || [{ beat: 0, bpm: restored.tempo_bpm }])
       );
+      setPrintedTempoMarks(restored.printed_tempo_marks || []);
+      setProvenance(restored.provenance || null);
       setRenderKey((value) => value + 1);
       setStatus("saved");
       track("edit_reset");

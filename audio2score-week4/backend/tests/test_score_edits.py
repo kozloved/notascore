@@ -132,7 +132,8 @@ def test_extract_keeps_chord_tones_independent(tmp_path):
     pitches = sorted(note["pitch"] for note in model["notes"] if note["start"] == 0)
     assert pitches == [60, 64, 67]
     assert len({note["id"] for note in model["notes"]}) == len(model["notes"])
-    assert all(note.get("source_note_id") for note in model["notes"])
+    assert model["provenance"] == "musicxml_degraded"
+    assert all(note.get("source_note_id") is None for note in model["notes"])
 
 
 def test_pitch_edit_does_not_rewrite_tempo_curve(tmp_path):
@@ -141,7 +142,6 @@ def test_pitch_edit_does_not_rewrite_tempo_curve(tmp_path):
     curve = [dict(point) for point in model["tempo_curve"]]
     starts = [note["start"] for note in model["notes"]]
     c4 = next(note for note in model["notes"] if note["pitch"] == 60)
-    source_id = c4["source_note_id"]
     c4["pitch"] = 61
     xml_text, midi_bytes = build_musicxml_and_midi(model)
     rebuilt = extract_from_musicxml(xml_text)
@@ -151,7 +151,6 @@ def test_pitch_edit_does_not_rewrite_tempo_curve(tmp_path):
     assert 61 in at_zero
     assert 60 not in at_zero
     assert midi_bytes[:4] == b"MThd"
-    assert any(note.get("source_note_id") == source_id for note in model["notes"])
     assert starts == [note["start"] for note in model["notes"]]
 
 
