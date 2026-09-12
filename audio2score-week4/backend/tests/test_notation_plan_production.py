@@ -334,7 +334,7 @@ def test_write_musicxml_falls_back_to_legacy_build_score(tmp_path):
     def boom(*_args, **_kwargs):
         raise RuntimeError("planner exploded")
 
-    writer.planner.build = boom
+    writer.planner.build_result = boom
     xml = writer.write_musicxml(
         events, _meta("4/4"), job_id="legacy-fallback", audio_path=tmp_path / "clip.wav",
         quantization_mode="adaptive",

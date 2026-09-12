@@ -494,7 +494,7 @@ def test_planner_failure_is_classified_separately_from_conversion(tmp_path):
     def boom(*_args, **_kwargs):
         raise RuntimeError("planner exploded")
 
-    writer.planner.build = boom
+    writer.planner.build_result = boom
     xml = writer.write_musicxml(
         [_ev(72, 0.0, 1.0)],
         _meta(),
