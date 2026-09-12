@@ -279,9 +279,13 @@ def test_pipeline_keeps_raw_midi_and_quantizes_notation(tmp_path, monkeypatch):
     assert any(abs(t - 0.03) < 0.02 for t in raw_pm_starts)
     q_starts = [e.start_beat for e in pipe.last_notation_notes]
     chord = [e for e in pipe.last_notation_notes if e.pitch in (60, 64, 67)]
+    assert pipe.job is not None
+    assert pipe.job.quantization.engine == "performance"
+    assert pipe.notation.last_quantization_mode.value == "performance"
     if len(chord) >= 3:
         chord_starts = {round(e.start_beat, 6) for e in chord}
-        assert len(chord_starts) == 1
+        # Adaptive env must not collapse distinct attacks on the product path.
+        assert len(chord_starts) >= 2
     planner = NotationPlanner()
     plan, _ = planner.build(
         list(pipe.last_quantized_events),

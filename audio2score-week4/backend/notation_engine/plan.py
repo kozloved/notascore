@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from mir.meter import MeterEstimator, meter_from_time_signature
 from mir.models import (
@@ -17,6 +17,7 @@ from mir.models import (
     PlannedVoice,
     staff_for_hand,
 )
+from mir.job import QuantizationResult
 from mir.quantizer import (
     MeasureQuantizer,
     VOICE_SUM_TOLERANCE,
@@ -122,6 +123,15 @@ def validate_voice_timeline(elements, measure_length: float) -> list[dict]:
     return issues
 
 
+@dataclass
+class PlanBuildResult:
+    """Explicit planner output. Callers must not scrape quantizer.last_result."""
+
+    plan: NotationPlan
+    decisions: list[dict]
+    quantization: QuantizationResult
+
+
 class NotationPlanner:
     """Decide measures, staves, voices, durations, rests, ties, clefs."""
 
@@ -137,16 +147,40 @@ class NotationPlanner:
         fallback_bpm: float = 120.0,
         quantization_mode: QuantizationMode | str | None = None,
     ) -> tuple[NotationPlan, list[dict]]:
-        if quantization_mode is not None:
-            self.quantizer.mode = parse_quantization_mode(quantization_mode)
+        built = self.build_result(
+            events,
+            meta=meta,
+            structure=structure,
+            fallback_bpm=fallback_bpm,
+            quantization_mode=quantization_mode,
+        )
+        return built.plan, built.decisions
+
+    def build_result(
+        self,
+        events: list[MusicalEvent],
+        meta: ScoreMeta | None = None,
+        structure: MusicalStructure | None = None,
+        fallback_bpm: float = 120.0,
+        quantization_mode: QuantizationMode | str | None = None,
+    ) -> PlanBuildResult:
+        parsed = (
+            parse_quantization_mode(quantization_mode)
+            if quantization_mode is not None
+            else QuantizationMode.PERFORMANCE
+        )
+        self.quantizer.mode = parsed
         meter = self._resolve_meter(events, meta, structure)
-        if self.quantizer.mode == QuantizationMode.PERFORMANCE and meta and meta.tempo_map:
+        if parsed == QuantizationMode.PERFORMANCE and meta and meta.tempo_map:
             extra = meta.extra or {}
             if extra.get("detected_downbeat_meter") == meter.time_signature:
                 downbeats = [meta.tempo_map.seconds_to_beats(t)
                              for t in extra.get("detected_downbeats_seconds", [])]
                 meter = replace(meter, evidence={**meter.evidence, "downbeat_beats": downbeats})
-        quant_result = self.quantizer.quantize_result(events, meter)
+        if parsed == QuantizationMode.PERFORMANCE:
+            quant_result = self.quantizer.quantize_production(events, meter)
+        else:
+            quant_result = self.quantizer.quantize_experimental(events, meter, parsed)
         quantized, decisions = quant_result.events, quant_result.decisions
         bpm = (meta.display_tempo_bpm if meta else None) or int(fallback_bpm)
         key_name = self._resolve_key(quantized, meta, structure)
@@ -197,7 +231,11 @@ class NotationPlanner:
             measures=measures,
             extra=extra,
         )
-        return plan, decisions
+        return PlanBuildResult(
+            plan=plan,
+            decisions=list(decisions),
+            quantization=quant_result,
+        )
 
     def _resolve_meter(
         self,

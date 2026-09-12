@@ -69,9 +69,10 @@ class PitchMatrix:
     confidence: float = 1.0
 
 
-@dataclass
+@dataclass(frozen=True)
 class NoteEvent:
-    """Raw detected note in seconds (pre-notation)."""
+    """Raw detected note in seconds (pre-notation). Frozen so a stored job
+    record cannot be mutated by a later stage or caller."""
 
     pitch: int
     start_time: float

@@ -135,6 +135,22 @@ class NotationWriter:
         self, events, meta, job_id, audio_path, quantize_divisors=(4, 3),
         fallback_bpm=120.0, structure=None, quantization_mode=None,
     ) -> str:
+        xml, _result = self.write_musicxml_with_result(
+            events,
+            meta,
+            job_id,
+            audio_path,
+            quantize_divisors=quantize_divisors,
+            fallback_bpm=fallback_bpm,
+            structure=structure,
+            quantization_mode=quantization_mode,
+        )
+        return xml
+
+    def write_musicxml_with_result(
+        self, events, meta, job_id, audio_path, quantize_divisors=(4, 3),
+        fallback_bpm=120.0, structure=None, quantization_mode=None,
+    ) -> tuple[str, NotationResult]:
         out_dir = Path(audio_path).parent / f"bp_{job_id}"
         out_dir.mkdir(exist_ok=True)
         self.last_export_integrity = {}
@@ -142,16 +158,20 @@ class NotationWriter:
         with TemporaryDirectory(prefix=".notation-", dir=out_dir) as staging:
             staged_source = Path(staging) / Path(audio_path).name
             try:
-                xml = self._write_musicxml_files(
+                xml, result = self._write_musicxml_files(
                     events, meta, job_id, staged_source, quantize_divisors,
                     fallback_bpm, structure, quantization_mode)
             except NotationIntegrityError as exc:
                 self.last_export_failure = True
                 self.last_export_integrity = {"status": "failed", "error": str(exc)}
+                if self.last_result is not None:
+                    self.last_result.export_failure = True
                 raise
             for artifact in (Path(staging) / f"bp_{job_id}").iterdir():
                 artifact.replace(out_dir / artifact.name)
-        return xml
+        published = result.copy() if result is not None else NotationResult()
+        self._remember_notation(published)
+        return xml, published
 
     def _write_musicxml_files(
         self,
@@ -163,7 +183,7 @@ class NotationWriter:
         fallback_bpm: float = 120.0,
         structure=None,
         quantization_mode: QuantizationMode | str | None = None,
-    ) -> str:
+    ) -> tuple[str, NotationResult]:
         out_dir = Path(audio_path).parent / f"bp_{job_id}"
         out_dir.mkdir(exist_ok=True)
         self.last_job_id = job_id
@@ -171,7 +191,7 @@ class NotationWriter:
         self.last_export_failure = False
 
         try:
-            score = self._score_via_plan_or_legacy(
+            score, result = self._score_via_plan_or_legacy(
                 events,
                 meta,
                 quantize_divisors=quantize_divisors,
@@ -193,6 +213,13 @@ class NotationWriter:
                 quantize_divisors,
                 fallback_bpm,
                 quantization_mode=quantization_mode,
+            )
+            result = self.last_result or NotationResult(
+                quantization_mode=self.last_quantization_mode.value,
+                source_event_count=len(events),
+                job_id=job_id,
+                fallback_used=True,
+                fallback_error=self.last_fallback_error,
             )
 
         xml_path = out_dir / f"{job_id}.musicxml"
@@ -223,10 +250,11 @@ class NotationWriter:
             if self.last_quantization_mode == QuantizationMode.PERFORMANCE:
                 raise NotationIntegrityError(f"Score MIDI export failed: {exc}") from exc
             print(f"[Notation] score MIDI write failed ({exc!s})")
+        quantized = list(result.quantized_events or self.last_quantized_events)
         if self.last_quantization_mode == QuantizationMode.PERFORMANCE:
-            validate_event_identity(events, self.last_quantized_events)
+            validate_event_identity(events, quantized)
             self.last_export_integrity = validate_exports(
-                xml_path, out_dir / f"{job_id}.score.mid", self.last_quantized_events)
+                xml_path, out_dir / f"{job_id}.score.mid", quantized)
         else:
             self.last_export_integrity = {
                 "status": "skipped",
@@ -234,7 +262,10 @@ class NotationWriter:
                 "quantization_mode": self.last_quantization_mode.value,
                 "lossless": False,
             }
-        return xml_path.read_text(encoding="utf-8")
+        result.export_failure = bool(self.last_export_failure)
+        result.fit_trim_count = self.last_fit_trim_count
+        self._remember_notation(result)
+        return xml_path.read_text(encoding="utf-8"), result.copy()
 
     def _score_for_playback(self, score, meta):
         from notation_engine.playback import playback_score
@@ -264,7 +295,7 @@ class NotationWriter:
         quantization_mode: QuantizationMode | str | None = None,
     ) -> stream.Score:
         """Build a music21 score without writing files (tests / production path)."""
-        return self._score_via_plan_or_legacy(
+        score, _result = self._score_via_plan_or_legacy(
             events,
             meta,
             quantize_divisors=quantize_divisors,
@@ -272,6 +303,7 @@ class NotationWriter:
             structure=structure,
             quantization_mode=quantization_mode,
         )
+        return score
 
     def _score_via_plan_or_legacy(
         self,
@@ -282,11 +314,11 @@ class NotationWriter:
         fallback_bpm: float,
         structure=None,
         quantization_mode: QuantizationMode | str | None = None,
-    ) -> stream.Score:
+    ) -> tuple[stream.Score, NotationResult]:
         mode = (
             parse_quantization_mode(quantization_mode)
             if quantization_mode is not None
-            else parse_quantization_mode(None)
+            else QuantizationMode.PERFORMANCE
         )
         result = NotationResult(
             quantization_mode=mode.value,
@@ -309,13 +341,15 @@ class NotationWriter:
         plan = None
         decisions: list[dict] = []
         try:
-            plan, decisions = self.planner.build(
+            built = self.planner.build_result(
                 events,
                 meta=meta,
                 structure=structure,
                 fallback_bpm=fallback_bpm,
                 quantization_mode=mode,
             )
+            plan, decisions = built.plan, built.decisions
+            result.quantization = built.quantization.copy()
         except Exception as exc:
             reason = f"{type(exc).__name__}: {exc}"
             result.plan_failure = True
@@ -332,15 +366,15 @@ class NotationWriter:
                 quantize_divisors=quantize_divisors,
                 fallback_bpm=fallback_bpm,
                 quantization_mode=mode,
-            )
+            ), result.copy()
         try:
             score = self.score_from_plan(plan, meta=meta)
-            quant_result = getattr(self.planner.quantizer, "last_result", None)
+            quant_result = result.quantization
             result.plan = plan
             result.decisions = decisions
             result.summary = dict((plan.extra or {}).get("quantization") or {})
             result.quantized_events = list(
-                quant_result.events if quant_result is not None else self.planner.quantizer.last_events
+                quant_result.events if quant_result is not None else []
             )
             result.invariant_issues = list(
                 (plan.extra or {}).get("invariant_issues") or []
@@ -356,7 +390,7 @@ class NotationWriter:
                 f"({plan.time_signature}, {len(plan.measures)} measures, "
                 f"{len(decisions)} quantized events)"
             )
-            return score
+            return score, result.copy()
         except Exception as exc:
             reason = f"{type(exc).__name__}: {exc}"
             result.plan = plan
@@ -378,7 +412,7 @@ class NotationWriter:
                 quantize_divisors=quantize_divisors,
                 fallback_bpm=fallback_bpm,
                 quantization_mode=mode,
-            )
+            ), result.copy()
 
     def write_from_plan(self, plan: NotationPlan) -> stream.Score:
         return self.score_from_plan(plan)

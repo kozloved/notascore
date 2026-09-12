@@ -6,7 +6,7 @@ import json
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from adapters.basic_pitch_backend import BasicPitchBackend
@@ -46,6 +46,7 @@ from mir.models import (
 from mir.phrase_detector import PhraseDetector
 from mir.pipeline_config import (
     PipelineConfig,
+    QuantizationMode,
     load_pipeline_config,
     piano_analysis_enabled,
     quantization_snaps_display_tempo,
@@ -250,6 +251,12 @@ class UnderstandingPipeline:
         ]
         mix_set = ImmutableNoteSet.from_notes(notes, source="full_mix")
         notes = mix_set.copy_notes()
+        self.job = PipelineJob(
+            job_id=job_id,
+            notes=mix_set,
+            mix_notes=mix_set,
+            transcription=mix_set,
+        )
         raw_count = len(notes)
         transcription = TranscriptionResult(
             notes=mix_set.copy_notes(),
@@ -288,6 +295,7 @@ class UnderstandingPipeline:
 
         notes, clean_decisions = self.cleaner.clean_with_report(notes)
         validated_set = ImmutableNoteSet.from_notes(notes, source="full_mix_validated")
+        self.job = replace(self.job, validated=validated_set)
         self.last_cleaned_notes = validated_set.copy_notes()
         self.last_validated_notes = validated_set.copy_notes()
         self.last_clean_decisions = list(clean_decisions)
@@ -318,6 +326,7 @@ class UnderstandingPipeline:
         else:
             working_set = validated_set
             notes = validated_set.copy_notes()
+        self.job = replace(self.job, notes=working_set)
 
         pedal_events: list[tuple[float, int]] = []
         pedal_obs: list[PedalObservation] = []
@@ -624,7 +633,19 @@ class UnderstandingPipeline:
         export_started = time.perf_counter()
         # _align_score_meter already put events on the measured bar phase.
         # Passing performance-map downbeats here would rotate that grid twice.
-        xml = self.notation.write_musicxml(
+        self.job = replace(
+            self.job,
+            time_map=timing.time_map if timing is not None else self.job.time_map,
+            timing=timing if timing is not None else self.job.timing,
+            structure=structure,
+            meter_decision=decision,
+            snapshot=self.last_performance_snapshot,
+            extra={
+                "interpretation_choice": dict(self.last_interpretation_choice or {}),
+                "pickup": dict(self.last_pickup or {}),
+            },
+        )
+        xml, notation_result = self.notation.write_musicxml_with_result(
             events,
             meta,
             job_id=job_id,
@@ -632,17 +653,14 @@ class UnderstandingPipeline:
             quantize_divisors=QUANTIZE_DIVISORS,
             fallback_bpm=score_bpm,
             structure=structure,
-            quantization_mode=self.config.quantization_mode,
+            quantization_mode=QuantizationMode.PERFORMANCE,
         )
-        self.last_quantized_events = list(self.notation.last_quantized_events)
+        self.last_quantized_events = list(notation_result.quantized_events)
         self.last_notation_notes = list(self.last_quantized_events)
         self.last_export_ms = (time.perf_counter() - export_started) * 1000.0
         self._publish_job(
-            job_id=job_id,
-            mix_set=mix_set,
-            working_set=working_set,
-            validated_set=validated_set,
-            timing=timing,
+            quantization=notation_result.quantization,
+            notation=notation_result,
         )
         self._attach_notation_debug(job_id, out_dir)
         return xml
@@ -689,6 +707,13 @@ class UnderstandingPipeline:
         notes = mix_set.copy_notes()
         validated_set = mix_set
         working_set = mix_set
+        self.job = PipelineJob(
+            job_id=job_id,
+            notes=working_set,
+            mix_notes=mix_set,
+            transcription=mix_set,
+            validated=validated_set,
+        )
         tempo_map = ingested.tempo_map
         duration = max((n.end_time for n in notes), default=1.0)
         timing = resolve_from_tempo_map(
@@ -708,6 +733,7 @@ class UnderstandingPipeline:
         timing.quality.failure_reason = ""
         self.last_timing = timing
         self.last_musical_time_map = timing.time_map
+        self.job = replace(self.job, time_map=timing.time_map, timing=timing)
         bpm = timing.quality.median_bpm or tempo_map.bpm_at(0.0)
         # MIDI ingest has no transcription cleaner — raw == validated.
         self.last_raw_notes = list(notes)
@@ -828,7 +854,7 @@ class UnderstandingPipeline:
             f"tempo_points={len(tempo_map.points)} events={len(events)} "
             f"(job={job_id})"
         )
-        xml = self.notation.write_musicxml(
+        xml, notation_result = self.notation.write_musicxml_with_result(
             events,
             meta,
             job_id=job_id,
@@ -836,18 +862,21 @@ class UnderstandingPipeline:
             quantize_divisors=QUANTIZE_DIVISORS,
             fallback_bpm=bpm,
             structure=structure,
-            quantization_mode=self.config.quantization_mode,
+            quantization_mode=QuantizationMode.PERFORMANCE,
         )
-        self.last_quantized_events = list(self.notation.last_quantized_events)
+        self.last_quantized_events = list(notation_result.quantized_events)
         self.last_notation_notes = list(self.last_quantized_events)
         self.last_gemini_enabled = bool(self.config.enable_gemini)
         self.last_gemini_applied = int(enhanced.applied)
+        self.job = replace(
+            self.job,
+            structure=structure,
+            meter_decision=decision,
+            snapshot=self.last_performance_snapshot,
+        )
         self._publish_job(
-            job_id=job_id,
-            mix_set=mix_set,
-            working_set=working_set,
-            validated_set=validated_set,
-            timing=timing,
+            quantization=notation_result.quantization,
+            notation=notation_result,
         )
         self._attach_notation_debug(job_id, out_dir)
         return xml
@@ -934,34 +963,32 @@ class UnderstandingPipeline:
     def _publish_job(
         self,
         *,
-        job_id: str,
-        mix_set: ImmutableNoteSet,
-        working_set: ImmutableNoteSet,
-        validated_set: ImmutableNoteSet,
-        timing,
+        quantization,
+        notation,
     ) -> PipelineJob:
-        """Store the immutable note set + time map as the job's stage bundle."""
-        quant = getattr(self.notation.planner.quantizer, "last_result", None)
-        notation = getattr(self.notation, "last_result", None)
-        job = PipelineJob(
-            job_id=job_id,
-            notes=working_set,
-            mix_notes=mix_set,
-            time_map=timing.time_map if timing is not None else self.last_musical_time_map,
-            timing=timing if timing is not None else self.last_timing,
-            transcription=mix_set,
-            validated=validated_set,
-            quantization=quant,
-            notation=notation,
-            structure=self.last_structure,
-            meter_decision=self.last_meter_decision,
-            snapshot=self.last_performance_snapshot,
-            extra={
-                "interpretation_choice": dict(self.last_interpretation_choice or {}),
-                "pickup": dict(self.last_pickup or {}),
-            },
+        """Attach returned stage results to the job created before processing.
+
+        `last_*` fields remain diagnostics derived from this object. They are
+        not read to coordinate stages.
+        """
+        if self.job is None:
+            raise RuntimeError("PipelineJob must be created before processing")
+        job = replace(
+            self.job,
+            quantization=quantization.copy() if quantization is not None else None,
+            notation=notation.copy() if notation is not None else None,
         )
         self.job = job
+        if job.structure is not None:
+            self.last_structure = job.structure
+        if job.meter_decision is not None:
+            self.last_meter_decision = job.meter_decision
+        if job.timing is not None:
+            self.last_timing = job.timing
+            self.last_musical_time_map = job.time_map
+        if job.notation is not None:
+            self.last_quantized_events = list(job.notation.quantized_events)
+            self.last_notation_notes = list(job.notation.quantized_events)
         return job
 
     def _arbitrate_meter(

@@ -98,7 +98,7 @@ def test_cross_bar_sustain_preserves_lane_and_total_duration():
 def test_musicxml_roundtrip_preserves_attacks_and_triplet_timing(tmp_path):
     raw = [event(72 + i % 3, i / 3, 1 / 3, str(i)) for i in range(12)]
     writer = NotationWriter()
-    score = writer._score_via_plan_or_legacy(
+    score, _result = writer._score_via_plan_or_legacy(
         raw, ScoreMeta(time_sig_hint="4/4"), quantize_divisors=(4, 3),
         fallback_bpm=120, quantization_mode="performance")
     path = tmp_path / "score.musicxml"
