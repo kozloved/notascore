@@ -248,8 +248,37 @@ def _attach_source_identity(event, source_note_id: str | None) -> None:
         misc["source_note_id"] = source_note_id
 
 
+def _apply_tempo_curve(part, curve: list[dict]) -> None:
+    from music21 import stream, tempo
+
+    for mark in list(part.recurse().getElementsByClass("MetronomeMark")):
+        site = mark.activeSite
+        if site is not None:
+            site.remove(mark)
+    measures = list(part.getElementsByClass(stream.Measure))
+    for point in curve:
+        beat = float(point["beat"])
+        mark = tempo.MetronomeMark(number=point["bpm"])
+        target = None
+        offset = beat
+        for measure in measures:
+            start = float(measure.offset)
+            length = float(measure.barDuration.quarterLength) if measure.barDuration else 4.0
+            if start - 1e-9 <= beat < start + length - 1e-12:
+                target = measure
+                offset = max(0.0, beat - start)
+                break
+        if target is None and measures:
+            target = measures[-1]
+            offset = max(0.0, beat - float(target.offset))
+        if target is not None:
+            target.insert(offset, mark)
+        else:
+            part.insert(beat, mark)
+
+
 def build_musicxml_and_midi(payload: dict) -> tuple[str, bytes]:
-    from music21 import clef, converter, instrument, meter, note, stream, tempo
+    from music21 import clef, converter, instrument, meter, note, stream
 
     data = parse_edits_payload(payload)
     from mir.types import MusicalEvent
@@ -283,8 +312,6 @@ def build_musicxml_and_midi(payload: dict) -> tuple[str, bytes]:
         part.insert(0, instrument.Piano())
         part.insert(0, meter.TimeSignature(data["time_signature"]))
         part.insert(0, clef.TrebleClef() if staff_index == 0 else clef.BassClef())
-        for point in curve:
-            part.insert(float(point["beat"]), tempo.MetronomeMark(number=point["bpm"]))
         staff_notes = tracks.get(staff_index, [])
         if not staff_notes:
             part.append(note.Rest(quarterLength=4.0))
@@ -302,6 +329,7 @@ def build_musicxml_and_midi(payload: dict) -> tuple[str, bytes]:
             if not list(part.recurse().getElementsByClass("Rest")):
                 part.append(note.Rest(quarterLength=4.0))
             part.makeNotation(inPlace=True)
+        _apply_tempo_curve(part, curve)
         score.insert(0, part)
 
     with tempfile.TemporaryDirectory() as tmp:

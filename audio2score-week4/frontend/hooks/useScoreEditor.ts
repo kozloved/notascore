@@ -232,6 +232,11 @@ export function useScoreEditor(scoreId: string | null) {
       setHasEdits(false);
       setSelectedId(null);
       setInsertAt(null);
+      setTempoBpm(restored.tempo_bpm);
+      setTimeSignature(restored.time_signature);
+      setTempoCurve(
+        cloneTempoCurve(restored.tempo_curve || [{ beat: 0, bpm: restored.tempo_bpm }])
+      );
       setRenderKey((value) => value + 1);
       setStatus("saved");
       track("edit_reset");

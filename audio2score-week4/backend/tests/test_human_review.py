@@ -30,6 +30,8 @@ def test_tracks_are_independent(tmp_path):
         assert "passed" in tracks["acoustic"]
         assert tracks["readability"].get("human_rating_required") is True
         assert tracks["export"]["mechanical"] is True
+        assert report.get("score_is_hypothesis") is True
+        assert report.get("note_count_is_not_readability") is True
         # A single collapsed score would mix these. Keep them distinct.
         assert tracks["acoustic"]["track"] != tracks["readability"]["track"]
         if case_id == "meter_changes":

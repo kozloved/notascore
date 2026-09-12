@@ -96,6 +96,11 @@ class NotationWriter:
             payload["invariant_issues"] = list(self.last_invariant_issues)
             payload["musicxml_export_failure"] = self.last_export_failure
             payload["export_integrity"] = dict(self.last_export_integrity)
+            payload["score_is_hypothesis"] = True
+            payload["readability_requires_human"] = True
+            payload["source_identity_gate"] = (
+                self.last_quantization_mode == QuantizationMode.PERFORMANCE
+            )
             return payload
         plan = self.last_plan
         plan_ok = plan is not None and not self.last_plan_failure
@@ -121,6 +126,9 @@ class NotationWriter:
             "quantization_decisions": list(self.last_quantization_decisions),
             "quantization_summary": dict(self.last_quantization_summary),
             "export_integrity": dict(self.last_export_integrity),
+            "score_is_hypothesis": True,
+            "readability_requires_human": True,
+            "source_identity_gate": self.last_quantization_mode == QuantizationMode.PERFORMANCE,
         }
 
     def write_musicxml(
@@ -219,6 +227,13 @@ class NotationWriter:
             validate_event_identity(events, self.last_quantized_events)
             self.last_export_integrity = validate_exports(
                 xml_path, out_dir / f"{job_id}.score.mid", self.last_quantized_events)
+        else:
+            self.last_export_integrity = {
+                "status": "skipped",
+                "reason": "source identity gate is production performance only",
+                "quantization_mode": self.last_quantization_mode.value,
+                "lossless": False,
+            }
         return xml_path.read_text(encoding="utf-8")
 
     def _score_for_playback(self, score, meta):

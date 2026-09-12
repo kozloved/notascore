@@ -101,6 +101,8 @@ def evaluate_case(case_dir: Path, out_dir: Path) -> dict[str, Any]:
         "tags": list(spec.tags),
         "tracks": {},
         "human_review": (spec.raw_manifest or {}).get("review") or {},
+        "score_is_hypothesis": True,
+        "note_count_is_not_readability": True,
     }
     if spec.missing_audio() or spec.missing_reference():
         for name in TRACKS:

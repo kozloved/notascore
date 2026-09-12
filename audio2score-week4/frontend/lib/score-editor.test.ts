@@ -98,6 +98,7 @@ test("pitch change keeps source identity voice and timing", () => {
   assert.deepEqual(cloneTempoCurve(curve), curve);
   assert.equal(secondsAtBeat(4, curve, 120), 3);
   assert.equal(secondsAtBeat(4, curve, 120), secondsAtBeat(4, curve, 999));
+  assert.equal(secondsAtBeat(8, curve, 120), 7);
 });
 
 test("new notes have no source identity", () => {

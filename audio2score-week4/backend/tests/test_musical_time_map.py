@@ -3,6 +3,7 @@ from timing.base import BeatAnalysis
 from timing.existing_tracker import analysis_from_beat_times
 from timing.fusion import fuse_beat_analyses
 from timing.tempo_map import MusicalTimeMap, ROUNDTRIP_TOLERANCE_SEC, assert_roundtrip
+import pytest
 
 
 def test_stride_and_subdivision_keep_seconds_invertible():
@@ -51,6 +52,25 @@ def test_from_tempo_map_preserves_rubato_beat_times():
     assert abs(time_map.beats_to_seconds(4.0) - 2.0) < 1e-3
     assert abs(time_map.beats_to_seconds(5.0) - 3.0) < 1e-3
     assert_roundtrip(time_map, [0.0, 1.0, 2.0, 3.5])
+    assert time_map.exact_points
+
+
+def test_from_tempo_map_owns_subbeat_tempo_changes():
+    tempo_map = TempoMap(
+        points=[
+            TempoPoint(time_sec=0.0, beat=0.0, bpm=120.0),
+            TempoPoint(time_sec=0.75, beat=1.5, bpm=60.0),
+        ]
+    )
+    time_map = MusicalTimeMap.from_tempo_map(tempo_map, duration_sec=4.0)
+    samples = [0.0, 0.5, 0.75, 1.0, 1.5, 2.25]
+    for t in samples:
+        assert time_map.seconds_to_beats(t) == pytest.approx(tempo_map.seconds_to_beats(t), abs=1e-9)
+        beat = tempo_map.seconds_to_beats(t)
+        assert time_map.beats_to_seconds(beat) == pytest.approx(tempo_map.beats_to_seconds(beat), abs=1e-9)
+    # Integer-beat samples alone would smear 0.75s across beats 1-2.
+    smeared = MusicalTimeMap.from_beat_times(time_map.beat_times, source="grid")
+    assert smeared.seconds_to_beats(0.75) != pytest.approx(tempo_map.seconds_to_beats(0.75), abs=1e-6)
 
 
 def test_fuse_falls_back_when_preferred_is_sparse():

@@ -130,6 +130,8 @@ def _install_mocks(monkeypatch, tmp_path, counters: _Counters, *, sep_error=None
         if stem_fail and stem_fail in str(path):
             raise RuntimeError("stem transcription exploded")
         pitch = 60 if "piano" in str(path) else 36
+        stem_id = "piano" if "piano" in str(path) else "bass"
+        kind = InstrumentKind.PIANO if stem_id == "piano" else InstrumentKind.BASS
         return [
             NoteEvent(
                 pitch=pitch,
@@ -138,6 +140,8 @@ def _install_mocks(monkeypatch, tmp_path, counters: _Counters, *, sep_error=None
                 velocity=80,
                 confidence=0.9,
                 source_backend="basic_pitch",
+                source_track_id=stem_id,
+                instrument=kind,
             )
         ]
 
@@ -314,6 +318,18 @@ def test_live_does_not_flatten_fused_ensemble_into_score(tmp_path, monkeypatch):
     assert baseline["source"] == "full_mix"
     xml = result.musicxml.lower()
     assert "score-partwise" in xml
+    from music21 import converter
+    from notation_engine.integrity import score_attacks
+
+    mix_pitches = {int(n.pitch) for n in counters.notes}
+    fused_pitches = {int(n.pitch) for n in result.fusion.notes}
+    assert 36 not in mix_pitches
+    assert 36 in fused_pitches
+    assert any(row["action"] == "add" and row["pitch"] == 36 for row in fusion["review"])
+    scored = {a.pitch for a in score_attacks(converter.parse(result.musicxml))}
+    assert 36 in scored
+    interpret = result.stage(StageName.INTERPRET_SCORE)
+    assert interpret.extra["interpreted_from"] == "reconciled"
     fused_midi = pretty_midi.PrettyMIDI(str(job_fused_midi_path(audio, "ens1")))
     programs = {inst.program for inst in fused_midi.instruments if inst.notes}
     assert programs

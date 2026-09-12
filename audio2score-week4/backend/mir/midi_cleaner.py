@@ -44,6 +44,9 @@ _MODE_PRESETS: dict[ValidationMode, dict] = {
         "correct_drift": False,
         "suppress_quiet_micros": False,
         "preserve_uncertain": True,
+        # Same-lane AMT double-onsets within 1ms are invalid MIDI. Different
+        # instruments or tracks (unisons) are kept.
+        "merge_duplicates": True,
     },
     ValidationMode.CONSERVATIVE: {
         "merge_threshold_sec": 0.025,
@@ -56,6 +59,7 @@ _MODE_PRESETS: dict[ValidationMode, dict] = {
         "correct_drift": False,
         "suppress_quiet_micros": True,
         "preserve_uncertain": True,
+        "merge_duplicates": True,
     },
     ValidationMode.LEGACY_AGGRESSIVE: {
         "merge_threshold_sec": 0.025,
@@ -68,6 +72,7 @@ _MODE_PRESETS: dict[ValidationMode, dict] = {
         "correct_drift": True,
         "suppress_quiet_micros": True,
         "preserve_uncertain": True,
+        "merge_duplicates": True,
     },
 }
 
@@ -157,6 +162,7 @@ class MIDICleaner:
             if suppress_quiet_micros is None
             else suppress_quiet_micros
         )
+        self.merge_duplicates = bool(preset.get("merge_duplicates", True))
         self.shadow_mode = shadow_mode
 
     @classmethod
@@ -207,8 +213,9 @@ class MIDICleaner:
 
         kept = [n for n in tagged if self._should_keep(n, decisions)]
 
-        kept, merge_decisions = self._merge_duplicates(kept)
-        decisions.extend(merge_decisions)
+        if self.merge_duplicates:
+            kept, merge_decisions = self._merge_duplicates(kept)
+            decisions.extend(merge_decisions)
 
         ghost_kept, ghost_decisions = self._drop_octave_ghosts_with_report(kept)
         if self.drop_octave_ghosts and not self.shadow_mode:
@@ -367,6 +374,16 @@ class MIDICleaner:
             cur = group[0]
             for nxt in group[1:]:
                 if abs(nxt.start_time - cur.start_time) <= self.merge_threshold_sec:
+                    same_lane = (
+                        str(getattr(nxt, "source_track_id", "") or "")
+                        == str(getattr(cur, "source_track_id", "") or "")
+                        and str(getattr(nxt, "instrument", "") or "")
+                        == str(getattr(cur, "instrument", "") or "")
+                    )
+                    if not same_lane:
+                        merged.append(cur)
+                        cur = nxt
+                        continue
                     decisions.append(
                         CleaningDecision(
                             note_id=nxt.note_id,

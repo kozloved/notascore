@@ -66,32 +66,29 @@ this review did not deploy dependencies or changes to a remote worker.
 
 ## Remaining non-obvious risks
 
-- **Fusion does not feed the score.** `engine/orchestrator.py` completes score
-  interpretation before `_fuse()` writes fused artifacts. Enabling fusion alone
-  therefore does not improve the MusicXML. Its confidence-gated stem-only notes
-  can also add notes to the separate fused MIDI, by design.
-- **The editor still has a single-tempo model.** Its `tempo_bpm` field cannot
-  retain a full rubato/tempo-change curve. Attack preservation is now checked,
-  but editing is not yet a complete performance-preserving round trip.
-- **The score is still a hypothesis.** Fixed timing tolerances, duration priors,
-  and beam-search costs cannot establish the intended rhythm of arbitrary free
-  playing. Correct note count is not evidence of correct meter or readability.
-- **Timing has two representations.** MIDI event conversion uses the exact
-  tempo map, while diagnostics still sample a `MusicalTimeMap` at integer beats.
-  A future consumer must not use those samples to reinterpret subbeat MIDI
-  tempo changes. Consolidate ownership before adding more timing backends.
-- **Legacy modes remain distinct behaviors.** `off` still needs notation
-  spelling; it is not an assurance of lossless MusicXML. The new strict source
-  identity gate is on the production performance path, not every historical
-  experimental quantizer.
-- **Upstream transcription can already contain false notes.** The checks prove
-  preservation relative to supplied notes. They cannot prove that AMT notes
-  agree with the recording. Blind same-pitch deduplication would also delete
-  real repeated notes and instrumental unisons.
-- **Some capabilities are declared rather than implemented.** In particular,
-  `transkun_available()` can report configured flags/checkpoints even though
-  the adapter always raises. Configuration and operational readiness should be
-  reported separately for every optional model.
+These were checked and fixed on the job-notes branch:
+
+- **Fusion now feeds the score when enabled.** Reconcile runs before
+  interpretation; stem-only adds are reviewable and the full-mix baseline is
+  kept. Enabling fusion without that order used to leave MusicXML on mix notes.
+- **The editor round-trips a tempo curve.** `tempo_bpm` is still the display
+  fallback; `tempo_curve` is the timing model for extract, rebuild, reset, and
+  MIDI (beat-based ticks plus tempo events).
+- **The score remains a hypothesis.** Export integrity and note-count F1 are
+  not readability. Human-reviewed eval keeps acoustic / readability / export
+  tracks independent, and notation debug labels `score_is_hypothesis`.
+- **Timing ownership is on MusicalTimeMap.** When built from a TempoMap it
+  stores `exact_points` and uses them for seconds↔beats. Integer `beat_times`
+  are a diagnostic grid only.
+- **Legacy modes stay distinct.** The source-identity gate is production
+  `performance` only. `off` still spells durations and records
+  `export_integrity.status=skipped` / `lossless=false`.
+- **Production cleaning does not merge same-pitch unisons or repeats.**
+  STRICT_SAFE skips duplicate-onset merging. Preservation checks still cannot
+  prove AMT notes match the recording.
+- **Optional models report configured vs operational.** `transkun_available()`
+  is operational readiness (always false while the adapter is a stub). Flags
+  and checkpoints never route Transkun or Beat This.
 
 ## Recommended simplification order
 

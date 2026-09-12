@@ -73,6 +73,8 @@ class QuantizationResult:
             "event_count": len(self.events),
             "decision_count": len(self.decisions),
             "summary": dict(self.summary or {}),
+            "lossless_export": (not self.experimental) and self.mode == "performance",
+            "spelling_required": self.mode != "performance" or self.experimental,
         }
 
 
@@ -117,6 +119,10 @@ class NotationResult:
             "invariant_issues": list(self.invariant_issues),
             "quantization_decisions": list(self.decisions),
             "quantization_summary": dict(self.summary),
+            "score_is_hypothesis": True,
+            "readability_requires_human": True,
+            "source_identity_gate": self.quantization_mode == "performance",
+            "lossless_export": False,
         }
 
 

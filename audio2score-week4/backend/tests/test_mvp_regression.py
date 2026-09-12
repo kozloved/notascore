@@ -13,7 +13,7 @@ from mir.midi_cleaner import MIDICleaner
 from mir.models import CleaningAction
 from mir.pipeline_config import ValidationMode
 from mir.quantizer import MeasureQuantizer
-from mir.types import Hand, MusicalEvent, NoteEvent
+from mir.types import Hand, InstrumentKind, MusicalEvent, NoteEvent
 
 
 def _n(pitch, start, end, vel=80, conf=0.9, **kwargs):
@@ -108,6 +108,15 @@ def test_safe_mode_preserves_repeated_notes():
     notes = [
         _n(60, 0.0, 0.20, vel=80),
         _n(60, 0.22, 0.42, vel=80),
+    ]
+    cleaned = MIDICleaner(mode=ValidationMode.STRICT_SAFE).clean(notes)
+    assert len(cleaned) == 2
+
+
+def test_safe_mode_keeps_same_pitch_unison():
+    notes = [
+        _n(60, 0.0, 1.0, vel=80, source_track_id="piano", instrument=InstrumentKind.PIANO),
+        _n(60, 0.0, 1.0, vel=70, source_track_id="bass", instrument=InstrumentKind.BASS),
     ]
     cleaned = MIDICleaner(mode=ValidationMode.STRICT_SAFE).clean(notes)
     assert len(cleaned) == 2

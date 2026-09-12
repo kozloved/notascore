@@ -46,6 +46,38 @@ def write_manifest_enabled() -> bool:
     return env_bool("NEXTGEN_WRITE_MANIFEST", default=True)
 
 
+def transkun_configured() -> bool:
+    return transkun_enabled() and bool(transkun_checkpoint())
+
+
+def transkun_operational() -> bool:
+    """The adapter is a stub until a licensed implementation exists."""
+    return False
+
+
+def beat_this_configured() -> bool:
+    return beat_this_enabled() and bool(beat_this_checkpoint())
+
+
+def beat_this_operational() -> bool:
+    """The adapter is a stub until a licensed implementation exists."""
+    return False
+
+
+def optional_model_status() -> dict:
+    """Configured flags/checkpoints vs whether the adapter can actually run."""
+    return {
+        "transkun": {
+            "configured": transkun_configured(),
+            "operational": transkun_operational(),
+        },
+        "beat_this": {
+            "configured": beat_this_configured(),
+            "operational": beat_this_operational(),
+        },
+    }
+
+
 def transkun_checkpoint() -> str:
     return env_str("NEXTGEN_TRANSKUN_CHECKPOINT", "")
 
@@ -103,6 +135,7 @@ def nextgen_status() -> dict:
         "beat_this_enabled": beat_this_enabled(),
         "ensemble_render_enabled": ensemble_render_enabled(),
         "write_manifest": write_manifest_enabled(),
+        "optional_models": optional_model_status(),
     }
 
 
