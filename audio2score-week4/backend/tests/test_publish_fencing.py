@@ -465,3 +465,145 @@ def test_supabase_gc_lists_prefix_instead_of_known_keys_only():
     backend.gc_unreachable_attempts("job-gc", keep_attempt_ids={"keep"})
     assert "job-gc.attempts/old/job-gc.extra.json" in removed
     assert "job-gc.attempts/old/job-gc.musicxml" in removed
+
+
+def test_save_response_uses_its_own_committed_revision(isolated_db, monkeypatch):
+    xml = isolated_db / 'original.musicxml'
+    model = extract_from_musicxml(_write_fixture_xml(xml))
+    job_id = 'response-race'
+    db.create_job(_job_row(job_id, status='completed', result_storage_key=str(xml), edit_revision=0))
+    original_cas = db.cas_update_job
+
+    def publish_then_another_save(*args, **kwargs):
+        published = original_cas(*args, **kwargs)
+        if published:
+            db.update_job(job_id, edit_revision=2, edited_result_storage_key='later.xml')
+        return published
+
+    monkeypatch.setattr(db, 'cas_update_job', publish_then_another_save)
+    response = app_main.score_edits_put(
+        job_id, app_main.ScoreEditsIn(revision=0, **model), authorization=None
+    )
+    assert response['revision'] == 1
+    assert db.get_job(job_id)['edit_revision'] == 2
+
+
+def test_reset_restores_canonical_model_before_publishing(isolated_db, monkeypatch):
+    xml = isolated_db / 'original.musicxml'
+    model = extract_from_musicxml(_write_fixture_xml(xml))
+    model['provenance'] = 'performance'
+    model['notes'][0]['source_note_id'] = 'original-attack'
+    model['notes'][0]['start_sec'] = 0.125
+    job_id = 'reset-performance'
+    db.create_job(_job_row(job_id, status='completed', result_storage_key=str(xml),
+                           edited_result_storage_key='edited.xml', edit_revision=3))
+
+    def load_original(job):
+        assert job['edited_result_storage_key'] is None
+        assert db.get_job(job_id)['edit_revision'] == 3
+        return model
+
+    monkeypatch.setattr(app_main, '_load_edit_model', load_original)
+    response = app_main.score_edits_reset(job_id, authorization=None)
+    assert response['provenance'] == 'performance'
+    assert response['notes'][0]['source_note_id'] == 'original-attack'
+    assert response['notes'][0]['start_sec'] == 0.125
+    assert response['revision'] == 4
+
+
+def test_failed_reset_keeps_existing_edit(isolated_db, monkeypatch):
+    job_id = 'reset-failure'
+    db.create_job(_job_row(job_id, status='completed', result_storage_key='missing.xml',
+                           edited_result_storage_key='edited.xml', edit_revision=3))
+
+    def fail_load(job):
+        raise ValueError('unreadable original')
+
+    monkeypatch.setattr(app_main, '_load_edit_model', fail_load)
+    with pytest.raises(HTTPException) as error:
+        app_main.score_edits_reset(job_id, authorization=None)
+    assert error.value.status_code == 500
+    assert db.get_job(job_id)['edit_revision'] == 3
+    assert db.get_job(job_id)['edited_result_storage_key'] == 'edited.xml'
+
+
+def test_reclaimed_workers_do_not_share_generated_files(isolated_db, monkeypatch):
+    import storage
+
+    monkeypatch.setattr(storage, 'LOCAL_RESULTS_DIR', isolated_db / 'results')
+    backend = storage.LocalStorage()
+    monkeypatch.setattr(tasks.storage_service, 'get_storage', lambda: backend)
+    audio = isolated_db / 'clip.wav'
+    audio.write_bytes(b'RIFF')
+    job_id = 'scratch-race'
+    db.create_job(_job_row(job_id, storage_key=str(audio)))
+    old_started = threading.Event()
+    new_written = threading.Event()
+    old_written = threading.Event()
+    paths = []
+
+    def runner(source, job_id, **kwargs):
+        source = Path(source)
+        paths.append(source)
+        folder = source.parent / f'bp_{job_id}'
+        folder.mkdir(exist_ok=True)
+        midi = folder / f'{job_id}.raw.mid'
+        if len(paths) == 1:
+            old_started.set()
+            assert new_written.wait(5)
+            midi.write_bytes(b'old-attempt')
+            old_written.set()
+            return '<old/>'
+        midi.write_bytes(b'new-attempt')
+        new_written.set()
+        assert old_written.wait(5)
+        return '<new/>'
+
+    monkeypatch.setattr('engine.job_runner.run_job', runner)
+    old = threading.Thread(target=tasks.process_job, args=(job_id,))
+    old.start()
+    assert old_started.wait(5)
+    db.update_job(job_id, status='failed')
+    tasks.process_job(job_id)
+    old.join(timeout=5)
+    assert not old.is_alive()
+    job = db.get_job(job_id)
+    assert job['status'] == 'completed'
+    published = Path(job['result_storage_key'])
+    assert published.read_text() == '<new/>'
+    assert published.with_name(f'{job_id}.raw.mid').read_bytes() == b'new-attempt'
+    assert paths[0].parent != paths[1].parent
+    assert audio.read_bytes() == b'RIFF'
+    assert all(not path.parent.exists() for path in paths)
+
+
+def test_local_delete_result_handles_nested_edit_bundle(isolated_db, monkeypatch):
+    import storage
+
+    monkeypatch.setattr(storage, 'LOCAL_RESULTS_DIR', isolated_db / 'results')
+    backend = storage.LocalStorage()
+    key = backend.save_text('delete-job.attempts/a/delete-job.musicxml', '<score/>')
+    nested = Path(key).parent / 'delete-job.edits' / 'edit1'
+    nested.mkdir(parents=True)
+    (nested / 'delete-job.edits.json').write_text('{}')
+    backend.delete_result(key, 'delete-job')
+    assert not Path(key).parent.exists()
+
+
+def test_remote_downloads_have_independent_local_paths(isolated_db, monkeypatch):
+    import storage
+
+    monkeypatch.setattr(storage, 'LOCAL_TEMP_DIR', isolated_db)
+    backend = storage.SupabaseStorage.__new__(storage.SupabaseStorage)
+    backend.audio_bucket = 'audio'
+
+    class Bucket:
+        def download(self, key):
+            return b'RIFF'
+
+    backend._bucket = lambda name: Bucket()
+    first = backend.get_local_audio_path('clip.wav')
+    second = backend.get_local_audio_path('clip.wav')
+    assert first != second
+    first.unlink()
+    assert second.read_bytes() == b'RIFF'

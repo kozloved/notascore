@@ -729,11 +729,16 @@ def _midi_bytes_from_seconds(data: dict) -> bytes | None:
         return None
     import pretty_midi
 
-    midi = pretty_midi.PrettyMIDI(initial_tempo=float(data.get("tempo_bpm") or 120))
-    instruments: dict[int, pretty_midi.Instrument] = {}
+    # At the minimum supported 20 BPM, 960 PPQ keeps tick rounding below
+    # the export validator's 2 ms tolerance.
+    midi = pretty_midi.PrettyMIDI(initial_tempo=float(data.get("tempo_bpm") or 120), resolution=960)
+    instruments: dict[tuple[int, int], pretty_midi.Instrument] = {}
     for item in notes:
+        # Separate voices need separate MIDI channels: a note-off on one
+        # voice must not terminate a simultaneous unison in another voice.
         inst = instruments.setdefault(
-            int(item.get("track") or 0), pretty_midi.Instrument(program=0)
+            (int(item.get("track") or 0), int(item.get("voice") or 0)),
+            pretty_midi.Instrument(program=0),
         )
         inst.notes.append(
             pretty_midi.Note(

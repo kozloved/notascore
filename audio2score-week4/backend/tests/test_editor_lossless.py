@@ -185,3 +185,27 @@ def test_ties_triplets_pickups_and_long_curve():
     midi = _midi_notes(midi_bytes)
     assert any(pitch == 75 for pitch, _start, _end in midi)
     assert any(pitch == 48 for pitch, _start, _end in midi)
+
+
+def test_seconds_midi_keeps_overlapping_unison_releases():
+    model = extract_from_performance(
+        _snapshot([
+            ('long', 60, 0.0, 1.0, 80),
+            ('short', 60, 0.25, 0.5, 70),
+        ]),
+        MusicalTimeMap.from_bpm(120, duration_sec=2),
+    )
+    _xml, midi = build_musicxml_and_midi(model)
+    assert _midi_notes(midi) == pytest.approx([(60, 0.0, 1.0), (60, 0.25, 0.5)])
+
+
+def test_seconds_midi_precision_at_slow_tempo():
+    model = extract_from_performance(
+        _snapshot([('slow', 60, 0.005, 0.105, 80)]),
+        MusicalTimeMap.from_bpm(20, duration_sec=4),
+    )
+    _xml, midi = build_musicxml_and_midi(model)
+    [(pitch, start, end)] = _midi_notes(midi)
+    assert pitch == 60
+    assert abs(start - 0.005) <= 0.002
+    assert abs(end - 0.105) <= 0.002

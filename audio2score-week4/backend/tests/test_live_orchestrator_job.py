@@ -327,9 +327,11 @@ def test_live_does_not_flatten_fused_ensemble_into_score(tmp_path, monkeypatch):
     assert 36 in fused_pitches
     assert any(row["action"] == "add" and row["pitch"] == 36 for row in fusion["review"])
     scored = {a.pitch for a in score_attacks(converter.parse(result.musicxml))}
-    assert 36 in scored
+    assert scored == mix_pitches
     interpret = result.stage(StageName.INTERPRET_SCORE)
-    assert interpret.extra["interpreted_from"] == "reconciled"
+    assert interpret.extra["interpreted_from"] == "full_mix"
+    assert "Ensemble" in interpret.extra["interpretation_fallback"]
+    assert any("using full-mix" in warning for warning in result.warnings)
     fused_midi = pretty_midi.PrettyMIDI(str(job_fused_midi_path(audio, "ens1")))
     programs = {inst.program for inst in fused_midi.instruments if inst.notes}
     assert programs
@@ -371,3 +373,16 @@ def test_raw_midi_survives_separator_fusion_and_upload_copy(tmp_path, monkeypatc
     assert counters.track == 1
     assert counters.sep == 1
 
+
+def test_solo_compatible_fusion_still_drives_interpretation(tmp_path, monkeypatch):
+    _live_env(monkeypatch)
+    counters = _Counters()
+    _install_mocks(monkeypatch, tmp_path, counters, stem_fail='bass')
+    audio = _wav(tmp_path / 'solo-fusion.wav')
+    result = PipelineOrchestrator().run(audio, 'solo-fusion', mode='polyphonic')
+    assert 'score-partwise' in result.musicxml
+    assert result.fusion is not None
+    stage = result.stage(StageName.INTERPRET_SCORE)
+    assert stage.extra['interpreted_from'] == 'reconciled'
+    assert not stage.extra['interpretation_fallback']
+    assert counters.mt3 == 1

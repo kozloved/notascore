@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import uuid
+import shutil
+import tempfile
 from pathlib import Path
 
 import database as db
@@ -21,6 +23,8 @@ def _progress(job_id: str, attempt_id: str, progress: int) -> bool:
 def process_job(job_id: str):
     storage_backend = storage_service.get_storage()
     audio_local_path = None
+    downloaded_path = None
+    workspace = None
     attempt_id = uuid.uuid4().hex
 
     try:
@@ -33,9 +37,14 @@ def process_job(job_id: str):
             return
 
         job = db.get_job(job_id)
-        audio_local_path = storage_backend.get_local_audio_path(
+        downloaded_path = storage_backend.get_local_audio_path(
             job["storage_key"]
         )
+        # Engines derive their output folder from the input's parent. Each
+        # attempt needs its own input and scratch files, including on retries.
+        workspace = tempfile.TemporaryDirectory(prefix=f"notascore-{attempt_id}-")
+        audio_local_path = Path(workspace.name) / Path(downloaded_path).name
+        shutil.copyfile(downloaded_path, audio_local_path)
 
         if not _progress(job_id, attempt_id, 20):
             return
@@ -123,5 +132,7 @@ def process_job(job_id: str):
         db.fail_job_attempt(job_id, attempt_id, public_error)
 
     finally:
-        if audio_local_path and storage_backend.backend != "local":
-            Path(audio_local_path).unlink(missing_ok=True)
+        if workspace is not None:
+            workspace.cleanup()
+        if downloaded_path and storage_backend.backend != "local":
+            Path(downloaded_path).unlink(missing_ok=True)

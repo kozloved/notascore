@@ -193,7 +193,10 @@ class LocalStorage:
                 path.unlink()
             if path.parent.exists() and job_id:
                 for sidecar in path.parent.glob(f"{job_id}.*"):
-                    sidecar.unlink(missing_ok=True)
+                    if sidecar.is_dir():
+                        shutil.rmtree(sidecar)
+                    else:
+                        sidecar.unlink(missing_ok=True)
         if job_id:
             shutil.rmtree(LOCAL_RESULTS_DIR / f"{job_id}.attempts", ignore_errors=True)
             shutil.rmtree(LOCAL_RESULTS_DIR / f"{job_id}.edits", ignore_errors=True)
@@ -321,7 +324,7 @@ class SupabaseStorage:
         )
 
     def get_local_audio_path(self, storage_key):
-        local_path = LOCAL_TEMP_DIR / f"audio-{Path(storage_key).name}"
+        local_path = self._temp_file_for_key(f"audio-{Path(storage_key).name}")
 
         data = self._bucket(self.audio_bucket).download(storage_key)
 

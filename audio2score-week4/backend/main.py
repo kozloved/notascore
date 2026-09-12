@@ -1115,7 +1115,9 @@ def score_edits_put(
             storage_backend.gc_edit_bundle(previous_key, score_id, keep_key=edited_key)
     except Exception:
         pass
-    job = db.get_job(score_id)
+    # Return the revision belonging to this model, even if a later writer
+    # commits before this response is serialized.
+    job = dict(job, edit_revision=next_revision, edited_result_storage_key=edited_key)
     return _edits_response(job, model, has_edits=True)
 
 
@@ -1127,6 +1129,14 @@ def score_edits_reset(
     job = _editor_job(score_id, authorization)
     previous_key = job.get("edited_result_storage_key")
     current_revision = int(job.get("edit_revision") or 0)
+    restored_job = dict(job, edited_result_storage_key=None, edit_revision=current_revision + 1)
+    try:
+        model = _load_edit_model(restored_job)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Could not restore the original score.",
+        ) from exc
     published = db.cas_update_job(
         score_id,
         expected={"edit_revision": current_revision},
@@ -1144,15 +1154,7 @@ def score_edits_reset(
             storage_backend.gc_edit_bundle(previous_key, score_id)
     except Exception:
         pass
-    job = db.get_job(score_id)
-    try:
-        model = extract_from_musicxml(_read_original_musicxml(job))
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="Could not restore the original score.",
-        ) from exc
-    return _edits_response(job, model, has_edits=False)
+    return _edits_response(restored_job, model, has_edits=False)
 
 
 @app.patch("/scores/{score_id}")

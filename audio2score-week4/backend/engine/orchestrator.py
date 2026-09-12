@@ -26,6 +26,7 @@ from engine.provenance import live_provenance_fields
 from engine.stages import StageName, StageResult
 from mir.midi_ingest import ingest_midi, is_midi_path
 from mir.pipeline import UnderstandingPipeline
+from mir.score_profile import score_profile
 from mir.raw_midi import (
     job_fused_midi_path,
     job_raw_midi_path,
@@ -211,6 +212,8 @@ class PipelineOrchestrator:
             want_fusion = fusion_enabled()
             fusion = None
             stem_rows = []
+            interpreted_from = "full_mix"
+            interpretation_fallback = ""
 
             with ThreadPoolExecutor(max_workers=4) as later:
                 if want_sep:
@@ -255,6 +258,21 @@ class PipelineOrchestrator:
                         warnings,
                     )
                     interpret_notes = list(fusion.notes) if fusion is not None else None
+                    if interpret_notes is not None:
+                        try:
+                            score_profile(interpret_notes)
+                        except ValueError as exc:
+                            # Keep the reviewable ensemble artifacts, but do
+                            # not send unsupported instrumentation to the solo
+                            # planner or flatten it into a piano score.
+                            interpretation_fallback = str(exc)
+                            warnings.append(
+                                "Fused score interpretation unavailable; using full-mix "
+                                f"notes for notation: {exc}"
+                            )
+                            interpret_notes = None
+                        else:
+                            interpreted_from = "reconciled"
                     xml = pipeline.complete_audio(
                         prepared,
                         notes,
@@ -293,9 +311,8 @@ class PipelineOrchestrator:
                         "bundled_with": "existing_understanding_pipeline",
                         "export_ms": export_ms,
                         "ensemble_render": ensemble_render_enabled(),
-                        "interpreted_from": (
-                            "reconciled" if want_fusion and fusion is not None else "full_mix"
-                        ),
+                        "interpreted_from": interpreted_from,
+                        "interpretation_fallback": interpretation_fallback,
                     },
                 )
             )
