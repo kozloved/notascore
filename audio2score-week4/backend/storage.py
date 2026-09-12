@@ -10,9 +10,9 @@ from functools import lru_cache
 
 from publishing import (
     edit_bundle_directory,
-    edit_bundle_keys,
     is_edit_bundle_key,
     sibling_key,
+    unreachable_attempt_keys,
 )
 
 LOCAL_UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
@@ -125,6 +125,66 @@ class LocalStorage:
         name = Path(edited_key).name
         if name.endswith(".edited.musicxml") or name.endswith(".edits.json"):
             self.delete_edited(job_id, edited_key)
+
+    def list_result_keys(self, prefix):
+        if not prefix:
+            return []
+        root = LOCAL_RESULTS_DIR / prefix
+        if not root.exists():
+            candidate = Path(prefix)
+            root = candidate if candidate.exists() else root
+        if not root.exists():
+            return []
+        if root.is_file():
+            try:
+                return [str(root.relative_to(LOCAL_RESULTS_DIR))]
+            except ValueError:
+                return [str(root)]
+        keys = []
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                keys.append(str(path.relative_to(LOCAL_RESULTS_DIR)))
+            except ValueError:
+                keys.append(str(path))
+        return keys
+
+    def gc_prefix(self, prefix, keep_keys=None):
+        keep = set(keep_keys or [])
+        doomed = [key for key in self.list_result_keys(prefix) if key not in keep]
+        for key in doomed:
+            path = LOCAL_RESULTS_DIR / key
+            if not path.exists():
+                path = Path(key)
+            path.unlink(missing_ok=True)
+        root = LOCAL_RESULTS_DIR / prefix
+        if root.is_dir():
+            for directory in sorted(root.rglob("*"), reverse=True):
+                if directory.is_dir():
+                    try:
+                        directory.rmdir()
+                    except OSError:
+                        pass
+            try:
+                root.rmdir()
+            except OSError:
+                pass
+
+    def gc_unreachable_attempts(self, job_id, keep_attempt_ids=()):
+        prefix = f"{job_id}.attempts"
+        keep = {str(item) for item in (keep_attempt_ids or ()) if item}
+        doomed = unreachable_attempt_keys(self.list_result_keys(prefix), job_id, keep)
+        for key in doomed:
+            path = LOCAL_RESULTS_DIR / key
+            if not path.exists():
+                path = Path(key)
+            path.unlink(missing_ok=True)
+        root = LOCAL_RESULTS_DIR / prefix
+        if root.is_dir():
+            for child in list(root.iterdir()):
+                if child.is_dir() and child.name not in keep:
+                    shutil.rmtree(child, ignore_errors=True)
 
     def delete_result(self, result_storage_key, job_id=None):
         if result_storage_key:
@@ -379,17 +439,61 @@ class SupabaseStorage:
             return
         if is_edit_bundle_key(edited_key, job_id):
             directory = edit_bundle_directory(edited_key, job_id)
-            bundle_id = Path(directory).name if directory else ""
-            if bundle_id:
-                keys = list(edit_bundle_keys(job_id, bundle_id).values())
-                try:
-                    self._bucket(self.results_bucket).remove(keys)
-                except Exception:
-                    return
+            if directory:
+                self.gc_prefix(directory, keep_keys={keep_key} if keep_key else None)
             return
         name = Path(edited_key).name
         if name.endswith(".edited.musicxml") or name.endswith(".edits.json"):
             self.delete_edited(job_id, edited_key)
+
+    def list_result_keys(self, prefix):
+        return self._list_keys(self.results_bucket, str(prefix or "").replace("\\", "/").strip("/"))
+
+    def _list_keys(self, bucket, path):
+        try:
+            items = self._bucket(bucket).list(path) or []
+        except Exception:
+            return []
+        keys = []
+        for item in items:
+            name = item.get("name") if isinstance(item, dict) else getattr(item, "name", None)
+            if not name:
+                continue
+            child = f"{path}/{name}" if path else name
+            metadata = item.get("metadata") if isinstance(item, dict) else getattr(item, "metadata", None)
+            ident = item.get("id") if isinstance(item, dict) else getattr(item, "id", None)
+            looks_like_folder = ident in (None, "") and not metadata
+            if looks_like_folder:
+                nested = self._list_keys(bucket, child)
+                if nested:
+                    keys.extend(nested)
+                else:
+                    keys.append(child)
+            else:
+                keys.append(child)
+        return keys
+
+    def gc_prefix(self, prefix, keep_keys=None):
+        keep = {key for key in (keep_keys or []) if key}
+        doomed = [key for key in self.list_result_keys(prefix) if key not in keep]
+        if not doomed:
+            return
+        try:
+            self._bucket(self.results_bucket).remove(doomed)
+        except Exception:
+            return
+
+    def gc_unreachable_attempts(self, job_id, keep_attempt_ids=()):
+        prefix = f"{job_id}.attempts"
+        doomed = unreachable_attempt_keys(
+            self.list_result_keys(prefix), job_id, keep_attempt_ids
+        )
+        if not doomed:
+            return
+        try:
+            self._bucket(self.results_bucket).remove(doomed)
+        except Exception:
+            return
 
 
 @lru_cache

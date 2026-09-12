@@ -185,6 +185,9 @@ def test_duplicate_process_job_runs_a_single_attempt(isolated_db, monkeypatch):
             path.write_bytes(Path(local_file_path).read_bytes())
             return str(path)
 
+        def gc_unreachable_attempts(self, job_id, keep_attempt_ids=()):
+            return
+
     monkeypatch.setattr(tasks.storage_service, "get_storage", lambda: FakeStorage())
     monkeypatch.setattr(
         "engine.job_runner.run_job",
@@ -380,3 +383,85 @@ def test_save_versus_reset_is_exclusive(isolated_db, monkeypatch):
     else:
         assert job["edited_result_storage_key"] is None
         assert xml_path.read_text(encoding="utf-8") == original
+
+
+def test_fresh_processing_claim_is_not_stolen(isolated_db):
+    job_id = f"job-{uuid.uuid4().hex}"
+    db.create_job(_job_row(job_id))
+    assert db.claim_job_attempt(job_id, "live") is True
+    assert db.claim_job_attempt(job_id, "thief") is False
+    job = db.get_job(job_id)
+    assert job["processing_attempt"] == "live"
+
+
+def test_stale_processing_claim_can_be_reclaimed(isolated_db):
+    from datetime import datetime, timedelta, timezone
+
+    job_id = f"job-{uuid.uuid4().hex}"
+    db.create_job(_job_row(job_id))
+    assert db.claim_job_attempt(job_id, "stuck") is True
+    past = (datetime.now(timezone.utc) - timedelta(seconds=120)).isoformat()
+    session = db.SessionLocal()
+    try:
+        session.query(db.Job).filter(db.Job.id == job_id).update(
+            {"updated_at": past}, synchronize_session=False
+        )
+        session.commit()
+    finally:
+        session.close()
+    assert db.claim_job_attempt(job_id, "rescue", stale_after_seconds=30) is True
+    job = db.get_job(job_id)
+    assert job["processing_attempt"] == "rescue"
+    assert db.complete_job_attempt(job_id, "stuck", result_storage_key="stale.xml") is False
+    assert db.complete_job_attempt(job_id, "rescue", result_storage_key="fresh.xml") is True
+    assert db.get_job(job_id)["result_storage_key"] == "fresh.xml"
+
+
+def test_local_gc_lists_and_deletes_orphaned_attempt_prefix(isolated_db, monkeypatch):
+    from storage import LocalStorage
+
+    monkeypatch.setenv("RESULTS_DIR", str(isolated_db / "results"))
+    import storage as storage_mod
+
+    storage_mod.LOCAL_RESULTS_DIR = isolated_db / "results"
+    storage_mod.LOCAL_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    backend = LocalStorage()
+    job_id = "job-gc"
+    keep = isolated_db / "results" / f"{job_id}.attempts" / "keep" / f"{job_id}.musicxml"
+    drop = isolated_db / "results" / f"{job_id}.attempts" / "drop" / f"{job_id}.extra.json"
+    keep.parent.mkdir(parents=True)
+    drop.parent.mkdir(parents=True)
+    keep.write_text("<score/>", encoding="utf-8")
+    drop.write_text("{}", encoding="utf-8")
+    listed = backend.list_result_keys(f"{job_id}.attempts")
+    assert any(path.endswith("extra.json") for path in listed)
+    backend.gc_unreachable_attempts(job_id, keep_attempt_ids={"keep"})
+    assert keep.is_file()
+    assert not drop.exists()
+
+
+def test_supabase_gc_lists_prefix_instead_of_known_keys_only():
+    from storage import SupabaseStorage
+
+    removed = []
+
+    class FakeBucket:
+        def list(self, path):
+            if path == "job-gc.attempts":
+                return [{"name": "old", "id": None, "metadata": None}]
+            if path == "job-gc.attempts/old":
+                return [
+                    {"name": "job-gc.musicxml", "id": "1", "metadata": {"size": 4}},
+                    {"name": "job-gc.extra.json", "id": "2", "metadata": {"size": 2}},
+                ]
+            return []
+
+        def remove(self, keys):
+            removed.extend(keys)
+
+    backend = SupabaseStorage.__new__(SupabaseStorage)
+    backend.results_bucket = "results"
+    backend._bucket = lambda name: FakeBucket()
+    backend.gc_unreachable_attempts("job-gc", keep_attempt_ids={"keep"})
+    assert "job-gc.attempts/old/job-gc.extra.json" in removed
+    assert "job-gc.attempts/old/job-gc.musicxml" in removed
