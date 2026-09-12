@@ -52,8 +52,6 @@ def analyze_from_tracker(tracker, *, tempo_map=None, duration_sec: float = 1.0) 
         source = "constant_bpm:120"
         fallback_used = True
     time_map = MusicalTimeMap.from_beat_times(beat_times, source=source)
-    if not downbeats:
-        downbeats = list(time_map.beat_times[::4])
     return BeatAnalysis(
         beat_times=list(time_map.beat_times),
         downbeat_times=downbeats,
@@ -72,7 +70,7 @@ def analysis_from_beat_times(
 ) -> BeatAnalysis:
     times = sanitize_beat_times(beat_times)
     time_map = MusicalTimeMap.from_beat_times(times, source=model)
-    downs = sanitize_beat_times(downbeat_times or times[::4])
+    downs = sanitize_beat_times(downbeat_times or [])
     return BeatAnalysis(
         beat_times=list(time_map.beat_times),
         downbeat_times=downs,

@@ -627,6 +627,9 @@ def job_source(
 
 def _musicxml_to_midi_bytes(musicxml_text: str) -> bytes:
     from music21 import converter
+    from mir.types import MusicalEvent
+    from notation_engine.integrity import score_attacks, validate_exports
+    from notation_engine.playback import playback_score
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -634,9 +637,19 @@ def _musicxml_to_midi_bytes(musicxml_text: str) -> bytes:
         xml_path.write_text(musicxml_text, encoding="utf-8")
 
         score = converter.parse(str(xml_path))
-
+        events = [MusicalEvent(a.pitch, a.start, a.end - a.start, velocity=a.velocity,
+                               note_id=str(i), source_track_id=f"{a.track}:{a.voice}",
+                               source_program=score.parts[a.track].getInstrument().midiProgram)
+                  for i, a in enumerate(score_attacks(score))]
+        signatures = list(score.recurse().getElementsByClass("TimeSignature"))
+        signature = signatures[0].ratioString if signatures else "4/4"
+        tempi = {float(m.getOffsetInHierarchy(score)): float(m.number)
+                 for m in score.recurse().getElementsByClass("MetronomeMark")
+                 if m.number is not None}
+        playback = playback_score(events, signature, sorted(tempi.items()) or [(0, 120)])
         midi_path = Path(tmp) / "score.mid"
-        score.write("midi", fp=str(midi_path))
+        playback.write("midi", fp=str(midi_path))
+        validate_exports(xml_path, midi_path, events)
 
         return midi_path.read_bytes()
 

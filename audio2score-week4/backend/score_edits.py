@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import re
 import tempfile
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +31,7 @@ class EditError(ValueError):
 
 
 def snap_grid(value: float) -> float:
-    if not isinstance(value, (int, float)) or value != value:  # NaN
+    if not isinstance(value, (int, float)) or not isfinite(value):
         raise EditError("Timing values must be finite numbers.")
     snapped = round(float(value) / GRID) * GRID
     return float(snapped)
@@ -72,11 +73,13 @@ def validate_notes(raw_notes: Any) -> list[dict]:
         seen_ids.add(note_id)
 
         pitch = _as_int(item.get("pitch"), field="pitch", lo=PITCH_MIN, hi=PITCH_MAX)
-        start = snap_grid(float(item.get("start", 0)))
-        duration = snap_grid(float(item.get("duration", GRID)))
+        start = float(item.get("start", 0))
+        duration = float(item.get("duration", GRID))
+        if not isfinite(start) or not isfinite(duration):
+            raise EditError("Timing values must be finite numbers.")
         if start < 0 or start > MAX_START:
             raise EditError("Note start is out of range.")
-        if duration < GRID or duration > MAX_DURATION:
+        if duration <= 0 or duration > MAX_DURATION:
             raise EditError("Note duration is out of range.")
         velocity = _as_int(item.get("velocity", 64), field="velocity", lo=1, hi=127)
         track = _as_int(item.get("track", 0), field="track", lo=0, hi=3)
@@ -122,6 +125,7 @@ def parse_edits_payload(body: dict) -> dict:
 
 def extract_from_musicxml(musicxml_text: str) -> dict:
     from music21 import converter
+    from notation_engine.integrity import score_attacks
 
     if not musicxml_text or not str(musicxml_text).strip():
         raise EditError("Score is empty.")
@@ -137,44 +141,11 @@ def extract_from_musicxml(musicxml_text: str) -> dict:
     if signatures and getattr(signatures[0], "ratioString", None):
         time_signature = validate_time_signature(signatures[0].ratioString)
 
-    parts = list(score.parts)
-    if not parts:
-        parts = [score]
-
-    notes: list[dict] = []
-    index = 0
-    for track, part in enumerate(parts[:4]):
-        for element in part.recurse().notes:
-            if getattr(element.duration, "isGrace", False):
-                continue
-            try:
-                offset = float(element.getOffsetInHierarchy(score))
-            except Exception:
-                offset = float(element.offset)
-            duration = float(element.quarterLength)
-            if duration <= 0:
-                continue
-            velocity = 64
-            volume = getattr(element, "volume", None)
-            if volume is not None and volume.velocity:
-                velocity = int(volume.velocity)
-            pitches = (
-                [int(pitch.midi) for pitch in element.pitches]
-                if element.isChord
-                else [int(element.pitch.midi)]
-            )
-            for pitch in pitches:
-                notes.append(
-                    {
-                        "id": f"n-{index:04d}",
-                        "pitch": max(PITCH_MIN, min(PITCH_MAX, pitch)),
-                        "start": offset,
-                        "duration": duration,
-                        "velocity": max(1, min(127, velocity)),
-                        "track": track,
-                    }
-                )
-                index += 1
+    notes = [{"id": f"n-{index:04d}", "pitch": attack.pitch,
+              "start": attack.start, "duration": attack.end - attack.start,
+              "velocity": max(1, min(127, attack.velocity)), "track": attack.track}
+             for index, attack in enumerate(score_attacks(score))
+             if attack.end > attack.start]
     return {
         "tempo_bpm": tempo_bpm,
         "time_signature": time_signature,
@@ -186,6 +157,12 @@ def build_musicxml_and_midi(payload: dict) -> tuple[str, bytes]:
     from music21 import clef, converter, instrument, meter, note, stream, tempo
 
     data = parse_edits_payload(payload)
+    from mir.types import MusicalEvent
+    from notation_engine.integrity import validate_exports
+    from notation_engine.playback import playback_score
+
+    events = [MusicalEvent(n["pitch"], n["start"], n["duration"], velocity=n["velocity"],
+                           note_id=n["id"], source_track_id=str(n["track"])) for n in data["notes"]]
     score = stream.Score()
     tracks: dict[int, list[dict]] = {}
     for item in data["notes"]:
@@ -219,7 +196,9 @@ def build_musicxml_and_midi(payload: dict) -> tuple[str, bytes]:
         xml_path = Path(tmp) / "edited.musicxml"
         midi_path = Path(tmp) / "edited.mid"
         score.write("musicxml", fp=str(xml_path))
-        score.write("midi", fp=str(midi_path))
+        playback = playback_score(events, data["time_signature"], [(0, data["tempo_bpm"])])
+        playback.write("midi", fp=str(midi_path))
+        validate_exports(xml_path, midi_path, events)
         xml_text = xml_path.read_text(encoding="utf-8")
         midi_bytes = midi_path.read_bytes()
 

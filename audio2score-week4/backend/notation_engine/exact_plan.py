@@ -12,6 +12,11 @@ def _pieces(start, duration, beat_length=Fraction(1)):
                      for n in (1, 2, 3, 4, 6, 8)}, reverse=True)
     cursor, remaining = start, duration
     while remaining:
+        # A writable syncopation or tuplet is already one note. Splitting it
+        # at every pulse creates repeated-looking heads and needless ties.
+        if remaining in values:
+            yield cursor, remaining
+            return
         cap = remaining
         beat_position = cursor / beat_length
         if beat_position.denominator != 1:
@@ -54,6 +59,12 @@ def build_exact_measures(events, report, meter, key_name):
                         tie = "continue" if before and after else "stop" if before else "start" if after else None
                         groups[(start, end, tie)].append(note)
                 if not groups:
+                    # Keep lane identities stable when other voices finish.
+                    # Importers may flatten a lone remaining voice and lose
+                    # the identity needed to join its cross-bar ties.
+                    voices.append(PlannedVoice(key[1], [
+                        PlannedRest(Fraction(0), mql, key[1], hidden=key != staff_lanes[0])
+                    ]))
                     continue
                 elements, cursor = [], Fraction(0)
                 for (start, end, tie), group in sorted(groups.items(), key=lambda item: item[0][0]):
@@ -68,6 +79,7 @@ def build_exact_measures(events, report, meter, key_name):
                             pitches=[by_id[n.source_id].pitch for n in group],
                             start_q=offset, duration_q=length, voice=key[1],
                             velocity=max(by_id[n.source_id].velocity for n in group),
+                            velocities=[by_id[n.source_id].velocity for n in group],
                             tie=piece_tie, event_ids=[n.source_id for n in group],
                         ))
                     cursor = end

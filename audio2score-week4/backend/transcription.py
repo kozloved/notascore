@@ -341,6 +341,13 @@ class FallbackEngine:
         try:
             return self.primary.transcribe(audio_path, job_id)
         except Exception as exc:
+            from mir.pipeline_config import QuantizationMode
+            from notation_engine.integrity import NotationIntegrityError
+
+            config = getattr(self.primary, "config", None)
+            if (isinstance(exc, NotationIntegrityError)
+                    or getattr(config, "quantization_mode", None) == QuantizationMode.PERFORMANCE):
+                raise
             print(
                 f"[PipelineFallback] understanding failed ({exc!s}), "
                 f"using legacy (job={job_id})"

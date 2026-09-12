@@ -7,48 +7,18 @@ import json
 from pathlib import Path
 from time import perf_counter
 
-from music21 import converter, stream
-
 from evaluation.matching import match_notes
 from mir.cmr_builder import notes_to_events
 from mir.midi_ingest import ingest_midi
 from mir.types import NoteEvent, ScoreMeta
 from notation_engine.writer import NotationWriter
+from notation_engine.integrity import musicxml_attacks
 
 
 def exported_notes(path, tempo_map):
     """Reconstruct source attacks by joining only contiguous same-voice ties."""
-    score = converter.parse(path)
-    result, active = [], {}
-    for part_index, part in enumerate(score.parts):
-        for measure in part.getElementsByClass(stream.Measure):
-            for element in measure.recurse().notes:
-                onset = float(element.getOffsetInHierarchy(part))
-                end = onset + float(element.quarterLength)
-                voice = element.getContextByClass(stream.Voice)
-                members = list(element.notes) if element.isChord else [element]
-                for member in members:
-                    key = (part_index, str(voice.id) if voice else "1", member.pitch.midi)
-                    tie = member.tie.type if member.tie else None
-                    previous = active.get(key)
-                    if tie in ("continue", "stop"):
-                        if previous is None or abs(previous[1] - onset) > 1e-6:
-                            raise ValueError(f"Orphan or non-contiguous exported tie: {key}")
-                        start, _ = previous
-                    else:
-                        if previous is not None:
-                            raise ValueError(f"Unclosed exported tie: {key}")
-                        start = onset
-                    if tie in ("start", "continue"):
-                        active[key] = (start, end)
-                    else:
-                        active.pop(key, None)
-                        result.append(NoteEvent(member.pitch.midi,
-                                                tempo_map.beats_to_seconds(start),
-                                                tempo_map.beats_to_seconds(end)))
-    if active:
-        raise ValueError("Unclosed exported ties at end of score")
-    return result
+    return [NoteEvent(pitch, tempo_map.beats_to_seconds(start), tempo_map.beats_to_seconds(end))
+            for pitch, start, end in musicxml_attacks(path)]
 
 
 def compare_case(source, reference, output):
