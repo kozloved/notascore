@@ -86,7 +86,7 @@ def test_4_staggered_chord_shares_onset():
         _ev(67, 0.06, 0.94, note_id="g", velocity=74),
     ]
     q = MeasureQuantizer(mode="adaptive")
-    notation, _ = q.quantize(events, _meter_44())
+    notation, _ = q.quantize_experimental(events, _meter_44()).as_tuple()
     by_id = _by_id(notation)
     starts = {round(by_id[k].start_beat, 6) for k in ("c", "e", "g")}
     assert starts == {0.0}
@@ -103,7 +103,7 @@ def test_5_genuine_overlap_is_not_cleaned_away():
         _ev(76, 0.75, 0.5, note_id="entry", velocity=81),
     ]
     q = MeasureQuantizer(mode="adaptive")
-    notation, _ = q.quantize(events, _meter_44())
+    notation, _ = q.quantize_experimental(events, _meter_44()).as_tuple()
     by_id = _by_id(notation)
     held = by_id["held"]
     entry = by_id["entry"]
@@ -118,7 +118,7 @@ def test_5_genuine_overlap_is_not_cleaned_away():
 def test_6_legitimate_barline_sustain_is_preserved():
     events = [_ev(72, 3.0, 2.0, note_id="hold", velocity=88)]
     q = MeasureQuantizer(mode="adaptive")
-    notation, _ = q.quantize(events, _meter_44())
+    notation, _ = q.quantize_experimental(events, _meter_44()).as_tuple()
     hold = notation[0]
     assert hold.note_id == "hold"
     assert hold.pitch == 72 and hold.velocity == 88
@@ -134,7 +134,7 @@ def test_7_non_crossing_note_does_not_invent_a_barline_tie():
         _ev(74, 4.0, 1.0, note_id="downbeat", velocity=81),
     ]
     q = MeasureQuantizer(mode="adaptive")
-    notation, _ = q.quantize(events, _meter_44())
+    notation, _ = q.quantize_experimental(events, _meter_44()).as_tuple()
     by_id = _by_id(notation)
     inside = by_id["inside"]
     assert inside.start_beat + inside.duration_beats <= 4.0 + 1e-6
@@ -145,7 +145,7 @@ def test_8_jittered_eighths_stay_on_eighth_grid():
     raw_starts = [0.01, 0.51, 0.99, 1.49, 2.01]
     events = [_ev(72, s, 0.42, note_id=f"n{i}") for i, s in enumerate(raw_starts)]
     q = MeasureQuantizer(mode="adaptive")
-    notation, _ = q.quantize(events, _meter_44())
+    notation, _ = q.quantize_experimental(events, _meter_44()).as_tuple()
     starts = [round(e.start_beat, 6) for e in sorted(notation, key=lambda e: e.start_beat)]
     assert starts == [0.0, 0.5, 1.0, 1.5, 2.0]
     assert q.last_summary.get("triplet_decisions", 0) == 0
@@ -155,7 +155,7 @@ def test_8_jittered_eighths_stay_on_eighth_grid():
 def test_9_genuine_triplets_use_triplet_grid():
     events = [_ev(72, i / 3.0, 1.0 / 3.0, note_id=f"t{i}") for i in range(6)]
     q = MeasureQuantizer(mode="adaptive")
-    notation, _ = q.quantize(events, _meter_44())
+    notation, _ = q.quantize_experimental(events, _meter_44()).as_tuple()
     third_like = sum(
         1 for e in notation if abs((e.start_beat * 3) - round(e.start_beat * 3)) < 0.05
     )
@@ -176,7 +176,7 @@ def test_10_binary_passage_with_one_outlier_stays_binary():
         _ev(84, 3.5, 0.5, note_id="h"),
     ]
     q = MeasureQuantizer(mode="adaptive")
-    notation, _ = q.quantize(events, _meter_44())
+    notation, _ = q.quantize_experimental(events, _meter_44()).as_tuple()
     by_id = _by_id(notation)
     assert round(by_id["a"].start_beat, 3) == 0.0
     assert round(by_id["c"].start_beat, 3) == 1.0

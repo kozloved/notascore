@@ -200,3 +200,46 @@ def test_independent_jobs_keep_distinct_note_provenance(tmp_path):
     with pytest.raises(FrozenInstanceError):
         a.job.mix_notes.notes[0].pitch = 1
     assert b.job.mix_notes.notes[0].pitch == 72
+
+
+def test_quantize_public_entry_ignores_experimental_mode():
+    events = [_ev(60, 0.11, 0.37, "q")]
+    q = MeasureQuantizer(mode="off")
+    out, decisions = q.quantize(events, _meter())
+    assert q.last_result.engine == "performance"
+    assert q.last_result.experimental is False
+    assert all(d.get("reason") != "off_identity" for d in decisions)
+    experimental, experimental_decisions = q.quantize_experimental(
+        events, _meter(), "off"
+    ).as_tuple()
+    assert [round(e.start_beat, 4) for e in experimental] == [0.11]
+    assert all(d.get("reason") == "off_identity" for d in experimental_decisions)
+
+
+def test_musical_event_and_last_events_are_immutable_diagnostics():
+    events = [_ev(60, 0.0, 1.0, "q")]
+    q = MeasureQuantizer()
+    result = q.quantize_production(events, _meter())
+    with pytest.raises(FrozenInstanceError):
+        events[0].pitch = 1
+    with pytest.raises(FrozenInstanceError):
+        result.events[0].pitch = 1
+    snapshot = list(q.last_events)
+    q.last_events.clear()
+    assert len(q.last_events) == len(snapshot)
+    result.events.clear()
+    assert len(q.last_events) == len(snapshot)
+
+
+def test_writer_last_diagnostics_are_derived_copies():
+    from notation_engine.writer import NotationWriter
+
+    writer = NotationWriter()
+    writer.last_quantized_events = [_ev(60, 0.0, 1.0, "q")]
+    writer.last_quantization_summary = {"engine": "performance"}
+    events = writer.last_quantized_events
+    events.clear()
+    summary = writer.last_quantization_summary
+    summary["engine"] = "mutated"
+    assert len(writer.last_quantized_events) == 1
+    assert writer.last_quantization_summary["engine"] == "performance"

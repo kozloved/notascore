@@ -211,9 +211,10 @@ class MusicalRole:
     confidence: float = 0.0
 
 
-@dataclass
+@dataclass(frozen=True)
 class MusicalEvent:
-    """Unified event for notation (source-agnostic)."""
+    """Unified event for notation (source-agnostic). Frozen so a stored
+    result cannot be mutated by a later stage or caller."""
 
     pitch: int
     start_beat: float
