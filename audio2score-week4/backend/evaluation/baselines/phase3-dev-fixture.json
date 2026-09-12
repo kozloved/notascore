@@ -1,0 +1,373 @@
+{
+  "name": "phase3-dev-fixture",
+  "timestamp": "2026-09-12T17:49:52Z",
+  "git": "21fb80e",
+  "branch": "cursor/next-3-phases-lifecycle-2026-09-12",
+  "split": "development",
+  "aggregate": {
+    "mean_onset_f1": 1.0,
+    "mean_onset_pitch_f1": 1.0,
+    "meter_correct": 1,
+    "meter_incorrect": 0,
+    "meter_not_evaluated": 0
+  },
+  "cases": [
+    {
+      "id": "piano_quarters_120",
+      "split": "development",
+      "status": "ran",
+      "title": "Synthetic C major quarters (repo-safe fixture)",
+      "skip_reason": null,
+      "error": null,
+      "notes": {
+        "reference_count": 8,
+        "predicted_count": 8,
+        "matched": 8,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "onset_precision": 1.0,
+        "onset_recall": 1.0,
+        "onset_f1": 1.0,
+        "onset_pitch_precision": 1.0,
+        "onset_pitch_recall": 1.0,
+        "onset_pitch_f1": 1.0,
+        "onset_pitch_offset_precision": 1.0,
+        "onset_pitch_offset_recall": 1.0,
+        "onset_pitch_offset_f1": 1.0,
+        "mean_onset_error_ms": 18.435502306428855,
+        "median_onset_error_ms": 17.943537414965903,
+        "pitch_error_rate": 0.0,
+        "mean_duration_error_ms": 55.43949738796809
+      },
+      "meter": {
+        "predicted": "2/4",
+        "expected": "4/4",
+        "confidence": 0.7,
+        "reason": "simple_grouping_and_estimator",
+        "status": "correct",
+        "correct": true
+      },
+      "tempo": {
+        "reference_bpm": 120.0,
+        "predicted_bpm": 120.0,
+        "error_bpm": 0.0,
+        "status": "evaluated",
+        "within_tolerance": true
+      },
+      "hands": {
+        "status": "evaluated",
+        "accuracy": 1.0,
+        "total": 8,
+        "correct": 8,
+        "lh_to_rh": 0,
+        "rh_to_lh": 0,
+        "confusion": {
+          "right->right": 8
+        },
+        "reference_labeled": 8
+      },
+      "pipeline": {
+        "raw_note_count": 8,
+        "cleaned_note_count": 8,
+        "post_piano_note_count": 8,
+        "structured_note_count": 8,
+        "quantized_note_count": 8,
+        "validated_note_count": 8,
+        "notation_plan_success": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "notation_path": "notation_plan",
+        "cleaner_suppressions": 0,
+        "musicxml_success": true,
+        "source_backend": "basic_pitch",
+        "validation_mode": "conservative",
+        "gemini_enabled": false,
+        "gemini_applied": 0,
+        "quantized_events_changed": 8,
+        "raw_event_preservation_rate": 1.0,
+        "raw_vs_reference_F1": 1.0,
+        "validated_vs_reference_F1": 1.0,
+        "structured_vs_reference_F1": 1.0,
+        "quantized_vs_reference_F1": 1.0
+      },
+      "stages": {
+        "stages": [
+          {
+            "name": "transcription",
+            "note_count": 8,
+            "midi_path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/results/20260912T174945Z/piano_quarters_120/transcription.mid",
+            "metrics": {
+              "reference_count": 8,
+              "predicted_count": 8,
+              "matched": 8,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "onset_precision": 1.0,
+              "onset_recall": 1.0,
+              "onset_f1": 1.0,
+              "onset_pitch_precision": 1.0,
+              "onset_pitch_recall": 1.0,
+              "onset_pitch_f1": 1.0,
+              "onset_pitch_offset_precision": 1.0,
+              "onset_pitch_offset_recall": 1.0,
+              "onset_pitch_offset_f1": 1.0,
+              "mean_onset_error_ms": 5.189229024943396,
+              "median_onset_error_ms": 2.9564625850342363,
+              "pitch_error_rate": 0.0,
+              "mean_duration_error_ms": 54.3066326530612
+            },
+            "extra": {
+              "source": "pipeline.last_raw_notes"
+            }
+          },
+          {
+            "name": "post_cleaner",
+            "note_count": 8,
+            "midi_path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/results/20260912T174945Z/piano_quarters_120/post_cleaner.mid",
+            "metrics": {
+              "reference_count": 8,
+              "predicted_count": 8,
+              "matched": 8,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "onset_precision": 1.0,
+              "onset_recall": 1.0,
+              "onset_f1": 1.0,
+              "onset_pitch_precision": 1.0,
+              "onset_pitch_recall": 1.0,
+              "onset_pitch_f1": 1.0,
+              "onset_pitch_offset_precision": 1.0,
+              "onset_pitch_offset_recall": 1.0,
+              "onset_pitch_offset_f1": 1.0,
+              "mean_onset_error_ms": 5.189229024943396,
+              "median_onset_error_ms": 2.9564625850342363,
+              "pitch_error_rate": 0.0,
+              "mean_duration_error_ms": 54.3066326530612
+            },
+            "extra": {
+              "source": "pipeline.last_cleaned_notes",
+              "suppressions": [],
+              "suppression_count": 0
+            }
+          },
+          {
+            "name": "post_piano",
+            "note_count": 8,
+            "midi_path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/results/20260912T174945Z/piano_quarters_120/post_piano.mid",
+            "metrics": {
+              "reference_count": 8,
+              "predicted_count": 8,
+              "matched": 8,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "onset_precision": 1.0,
+              "onset_recall": 1.0,
+              "onset_f1": 1.0,
+              "onset_pitch_precision": 1.0,
+              "onset_pitch_recall": 1.0,
+              "onset_pitch_f1": 1.0,
+              "onset_pitch_offset_precision": 1.0,
+              "onset_pitch_offset_recall": 1.0,
+              "onset_pitch_offset_f1": 1.0,
+              "mean_onset_error_ms": 5.189229024943396,
+              "median_onset_error_ms": 2.9564625850342363,
+              "pitch_error_rate": 0.0,
+              "mean_duration_error_ms": 54.3066326530612
+            },
+            "extra": {
+              "source": "pipeline.last_post_piano_notes"
+            }
+          },
+          {
+            "name": "structured",
+            "note_count": 8,
+            "midi_path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/results/20260912T174945Z/piano_quarters_120/structured.mid",
+            "metrics": {
+              "reference_count": 8,
+              "predicted_count": 8,
+              "matched": 8,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "onset_precision": 1.0,
+              "onset_recall": 1.0,
+              "onset_f1": 1.0,
+              "onset_pitch_precision": 1.0,
+              "onset_pitch_recall": 1.0,
+              "onset_pitch_f1": 1.0,
+              "onset_pitch_offset_precision": 1.0,
+              "onset_pitch_offset_recall": 1.0,
+              "onset_pitch_offset_f1": 1.0,
+              "mean_onset_error_ms": 18.435502306428855,
+              "median_onset_error_ms": 17.943537414965903,
+              "pitch_error_rate": 0.0,
+              "mean_duration_error_ms": 55.43949738796809
+            },
+            "extra": {
+              "source": "pipeline.last_structure.events"
+            }
+          },
+          {
+            "name": "quantized",
+            "note_count": 8,
+            "midi_path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/results/20260912T174945Z/piano_quarters_120/quantized.mid",
+            "metrics": {
+              "reference_count": 8,
+              "predicted_count": 8,
+              "matched": 8,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "onset_precision": 1.0,
+              "onset_recall": 1.0,
+              "onset_f1": 1.0,
+              "onset_pitch_precision": 1.0,
+              "onset_pitch_recall": 1.0,
+              "onset_pitch_f1": 1.0,
+              "onset_pitch_offset_precision": 1.0,
+              "onset_pitch_offset_recall": 1.0,
+              "onset_pitch_offset_f1": 1.0,
+              "mean_onset_error_ms": 0.0,
+              "median_onset_error_ms": 0.0,
+              "pitch_error_rate": 0.0,
+              "mean_duration_error_ms": 46.875
+            },
+            "extra": {
+              "source": "pipeline.last_quantized_events"
+            }
+          }
+        ],
+        "first_degradation_stage": null,
+        "conclusion": "REFERENCE\n8 notes\n\nTRANSCRIPTION (Basic Pitch)\n8 predicted\nF1 1.00\n\nAFTER CLEANER\n8 predicted\nF1 1.00\n\nAFTER PIANO ANALYZER\n8 predicted\nF1 1.00\n\nAFTER STRUCTURE / MIR\n8 predicted\nF1 1.00\n\nAFTER NOTATION QUANTIZATION\n8 predicted\nF1 1.00\n\nCONCLUSION\nNo large stage-to-stage F1 drop detected.",
+        "pipeline": {
+          "raw_note_count": 8,
+          "cleaned_note_count": 8,
+          "post_piano_note_count": 8,
+          "structured_note_count": 8,
+          "quantized_note_count": 8,
+          "validated_note_count": 8,
+          "stage_source": "pipeline_snapshots",
+          "validation_mode": "conservative",
+          "gemini_enabled": false,
+          "gemini_applied": 0
+        }
+      },
+      "notation": {
+        "status": "evaluated",
+        "measure_count": 4,
+        "note_count": 14,
+        "rest_count": 10,
+        "tie_count": 12,
+        "tuplet_like_count": 0,
+        "staff_assignment": {
+          "0": 14
+        },
+        "time_signature": "2/4"
+      },
+      "reference": {
+        "note_count": 8,
+        "tempo_bpm": 120.0,
+        "time_signature": "4/4",
+        "has_hand_labels": true,
+        "track_count": 1,
+        "source_path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/development/piano_quarters_120/reference.mid",
+        "hands": {
+          "left": 0,
+          "right": 8,
+          "unknown": 0
+        }
+      },
+      "artifacts": {
+        "case_dir": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/development/piano_quarters_120",
+        "audio": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/development/piano_quarters_120/input.wav",
+        "reference_midi": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/development/piano_quarters_120/reference.mid",
+        "output_musicxml": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/results/20260912T174945Z/piano_quarters_120/output.musicxml",
+        "transcription_midi": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/results/20260912T174945Z/piano_quarters_120/transcription.mid",
+        "post_cleaner_midi": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/results/20260912T174945Z/piano_quarters_120/post_cleaner.mid",
+        "post_piano_midi": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/results/20260912T174945Z/piano_quarters_120/post_piano.mid",
+        "structured_midi": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/results/20260912T174945Z/piano_quarters_120/structured.mid",
+        "pipeline_raw_midi": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/results/20260912T174945Z/piano_quarters_120/work/bp_piano_quarters_120/piano_quarters_120.raw.mid",
+        "pipeline_validated_midi": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/results/20260912T174945Z/piano_quarters_120/work/bp_piano_quarters_120/piano_quarters_120.validated.mid",
+        "pipeline_score_midi": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/results/20260912T174945Z/piano_quarters_120/work/bp_piano_quarters_120/piano_quarters_120.score.mid",
+        "pipeline_debug_json": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/results/20260912T174945Z/piano_quarters_120/work/bp_piano_quarters_120/piano_quarters_120.debug.json",
+        "results_dir": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/evaluation/results/20260912T174945Z/piano_quarters_120"
+      },
+      "tags": [
+        "piano",
+        "duration",
+        "quarter",
+        "fixture"
+      ],
+      "preservation": {
+        "raw_note_count": 8,
+        "validated_note_count": 8,
+        "structured_note_count": 8,
+        "quantized_note_count": 8,
+        "raw_vs_validated": {
+          "raw_count": 8,
+          "later_count": 8,
+          "matched": 8,
+          "deleted_from_raw": 0,
+          "added_vs_raw": 0,
+          "pitch_changed_vs_raw": 0,
+          "onset_changed_vs_raw": 0,
+          "duration_changed_vs_raw": 0,
+          "velocity_changed_vs_raw": 0,
+          "raw_event_preservation_rate": 1.0,
+          "unmodified_from_raw": 8
+        },
+        "validated_vs_structured": {
+          "raw_count": 8,
+          "later_count": 8,
+          "matched": 8,
+          "deleted_from_raw": 0,
+          "added_vs_raw": 0,
+          "pitch_changed_vs_raw": 0,
+          "onset_changed_vs_raw": 0,
+          "duration_changed_vs_raw": 0,
+          "velocity_changed_vs_raw": 0,
+          "raw_event_preservation_rate": 1.0,
+          "unmodified_from_raw": 8
+        },
+        "raw_vs_structured": {
+          "raw_count": 8,
+          "later_count": 8,
+          "matched": 8,
+          "deleted_from_raw": 0,
+          "added_vs_raw": 0,
+          "pitch_changed_vs_raw": 0,
+          "onset_changed_vs_raw": 0,
+          "duration_changed_vs_raw": 0,
+          "velocity_changed_vs_raw": 0,
+          "raw_event_preservation_rate": 1.0,
+          "unmodified_from_raw": 8
+        },
+        "raw_vs_quantized": {
+          "raw_count": 8,
+          "later_count": 8,
+          "matched": 8,
+          "deleted_from_raw": 0,
+          "added_vs_raw": 0,
+          "pitch_changed_vs_raw": 0,
+          "onset_changed_vs_raw": 8,
+          "duration_changed_vs_raw": 8,
+          "velocity_changed_vs_raw": 0,
+          "raw_event_preservation_rate": 1.0,
+          "unmodified_from_raw": 0
+        },
+        "quantization": {
+          "quantized_event_count": 8,
+          "source_event_count": 8,
+          "events_moved": 8,
+          "events_unchanged": 0,
+          "average_onset_shift_ms": 18.435502306428855,
+          "max_onset_shift_ms": 25.940615239806508,
+          "average_duration_change_ms": 11.988715393743195,
+          "notes_added": 0,
+          "notes_deleted": 0,
+          "percent_events_changed": 100.0,
+          "count_drop_warning": false
+        }
+      },
+      "onset_pitch_f1": 1.0
+    }
+  ]
+}
