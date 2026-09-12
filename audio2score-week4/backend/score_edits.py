@@ -16,7 +16,54 @@ from pathlib import Path
 from typing import Any
 
 GRID = 0.25  # sixteenth note in quarter-note beats
-MAX_NOTES = 4000
+MAX_TEMPO_CURVE = 512
+
+
+def validate_voice(value: Any) -> int:
+    try:
+        voice = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(15, voice))
+
+
+def validate_source_note_id(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if not ID_RE.match(text):
+        raise EditError("Invalid source_note_id.")
+    return text
+
+
+def validate_tempo_curve(raw: Any, *, fallback_bpm: float) -> list[dict]:
+    if raw is None:
+        return [{"beat": 0.0, "bpm": float(fallback_bpm)}]
+    if not isinstance(raw, list):
+        raise EditError("tempo_curve must be a list.")
+    if len(raw) > MAX_TEMPO_CURVE:
+        raise EditError("tempo_curve is too long.")
+    points: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise EditError("Each tempo_curve point must be an object.")
+        beat = float(item.get("beat", 0))
+        if beat != beat or beat < 0 or beat > MAX_START:
+            raise EditError("tempo_curve beat is out of range.")
+        bpm = validate_tempo(item.get("bpm", fallback_bpm))
+        points.append({"beat": beat, "bpm": bpm})
+    points.sort(key=lambda row: (row["beat"], row["bpm"]))
+    if not points or points[0]["beat"] > 1e-9:
+        points.insert(0, {"beat": 0.0, "bpm": float(fallback_bpm)})
+    deduped: list[dict] = []
+    for point in points:
+        if deduped and abs(deduped[-1]["beat"] - point["beat"]) < 1e-9:
+            deduped[-1] = point
+        else:
+            deduped.append(point)
+    return deduped
 MAX_START = 10_000.0
 MAX_DURATION = 32.0
 PITCH_MIN = 0
@@ -83,11 +130,13 @@ def validate_notes(raw_notes: Any) -> list[dict]:
         notes.append(
             {
                 "id": note_id,
+                "source_note_id": validate_source_note_id(item.get("source_note_id", note_id)),
                 "pitch": pitch,
                 "start": start,
                 "duration": duration,
                 "velocity": velocity,
                 "track": track,
+                "voice": validate_voice(item.get("voice", 0)),
             }
         )
     notes.sort(key=lambda note: (note["start"], note["track"], note["pitch"], note["id"]))
@@ -113,15 +162,17 @@ def validate_tempo(value: Any) -> float:
 
 def parse_edits_payload(body: dict) -> dict:
     notes = validate_notes(body.get("notes"))
+    tempo_bpm = validate_tempo(body.get("tempo_bpm"))
     return {
-        "tempo_bpm": validate_tempo(body.get("tempo_bpm")),
+        "tempo_bpm": tempo_bpm,
         "time_signature": validate_time_signature(body.get("time_signature")),
+        "tempo_curve": validate_tempo_curve(body.get("tempo_curve"), fallback_bpm=tempo_bpm),
         "notes": notes,
     }
 
 
 def extract_from_musicxml(musicxml_text: str) -> dict:
-    from music21 import converter
+    from music21 import converter, stream
 
     if not musicxml_text or not str(musicxml_text).strip():
         raise EditError("Score is empty.")
@@ -131,6 +182,19 @@ def extract_from_musicxml(musicxml_text: str) -> dict:
     marks = list(score.flatten().getElementsByClass("MetronomeMark"))
     if marks and getattr(marks[0], "number", None):
         tempo_bpm = validate_tempo(marks[0].number)
+
+    tempo_curve: list[dict] = []
+    for mark in marks:
+        bpm = getattr(mark, "number", None)
+        if bpm is None:
+            continue
+        try:
+            offset = float(mark.getOffsetInHierarchy(score))
+        except Exception:
+            offset = float(getattr(mark, "offset", 0) or 0)
+        tempo_curve.append({"beat": offset, "bpm": validate_tempo(bpm)})
+    if not tempo_curve:
+        tempo_curve = [{"beat": 0.0, "bpm": float(tempo_bpm)}]
 
     time_signature = "4/4"
     signatures = list(score.flatten().getTimeSignatures())
@@ -158,28 +222,58 @@ def extract_from_musicxml(musicxml_text: str) -> dict:
             volume = getattr(element, "volume", None)
             if volume is not None and volume.velocity:
                 velocity = int(volume.velocity)
+            voice_ctx = element.getContextByClass(stream.Voice)
+            voice = 0
+            if voice_ctx is not None and getattr(voice_ctx, "id", None) is not None:
+                try:
+                    voice = max(0, int(str(voice_ctx.id)) - 1)
+                except (TypeError, ValueError):
+                    voice = 0
+            editorial = getattr(element, "editorial", None)
+            misc = getattr(editorial, "misc", None) if editorial is not None else None
+            stored_source = None
+            if isinstance(misc, dict):
+                stored_source = misc.get("source_note_id")
             pitches = (
                 [int(pitch.midi) for pitch in element.pitches]
                 if element.isChord
                 else [int(element.pitch.midi)]
             )
             for pitch in pitches:
+                note_id = f"n-{index:04d}"
+                source_id = validate_source_note_id(stored_source) if stored_source else note_id
                 notes.append(
                     {
-                        "id": f"n-{index:04d}",
+                        "id": note_id,
+                        "source_note_id": source_id,
                         "pitch": max(PITCH_MIN, min(PITCH_MAX, pitch)),
                         "start": offset,
                         "duration": duration,
                         "velocity": max(1, min(127, velocity)),
                         "track": track,
+                        "voice": validate_voice(voice),
                     }
                 )
                 index += 1
     return {
         "tempo_bpm": tempo_bpm,
         "time_signature": time_signature,
+        "tempo_curve": validate_tempo_curve(tempo_curve, fallback_bpm=tempo_bpm),
         "notes": validate_notes(notes),
     }
+
+
+def _attach_source_identity(event, source_note_id: str | None) -> None:
+    if not source_note_id:
+        return
+    editorial = getattr(event, "editorial", None)
+    if editorial is None:
+        return
+    misc = getattr(editorial, "misc", None)
+    if misc is None:
+        editorial.misc = {"source_note_id": source_note_id}
+    elif isinstance(misc, dict):
+        misc["source_note_id"] = source_note_id
 
 
 def build_musicxml_and_midi(payload: dict) -> tuple[str, bytes]:
@@ -194,24 +288,44 @@ def build_musicxml_and_midi(payload: dict) -> tuple[str, bytes]:
     if max(staff_indexes) >= 1 and 0 not in staff_indexes:
         staff_indexes = [0, *staff_indexes]
 
+    curve = data["tempo_curve"]
     for staff_index in staff_indexes:
         part = stream.Part(id=f"P{staff_index + 1}")
         part.partName = "Piano"
         part.insert(0, instrument.Piano())
-        part.insert(0, tempo.MetronomeMark(number=data["tempo_bpm"]))
         part.insert(0, meter.TimeSignature(data["time_signature"]))
         part.insert(0, clef.TrebleClef() if staff_index == 0 else clef.BassClef())
+        for point in curve:
+            part.insert(float(point["beat"]), tempo.MetronomeMark(number=point["bpm"]))
+        by_voice: dict[int, list[dict]] = {}
         for item in tracks.get(staff_index, []):
-            event = note.Note(item["pitch"])
-            event.quarterLength = item["duration"]
-            event.volume.velocity = item["velocity"]
-            part.insert(item["start"], event)
+            by_voice.setdefault(int(item.get("voice") or 0), []).append(item)
+        if not by_voice:
+            part.append(note.Rest(quarterLength=4.0))
+        elif len(by_voice) == 1:
+            for item in next(iter(by_voice.values())):
+                event = note.Note(item["pitch"])
+                event.quarterLength = item["duration"]
+                event.volume.velocity = item["velocity"]
+                _attach_source_identity(event, item.get("source_note_id"))
+                part.insert(item["start"], event)
+        else:
+            for voice_id, voice_notes in sorted(by_voice.items()):
+                voice = stream.Voice(id=str(voice_id + 1))
+                for item in voice_notes:
+                    event = note.Note(item["pitch"])
+                    event.quarterLength = item["duration"]
+                    event.volume.velocity = item["velocity"]
+                    _attach_source_identity(event, item.get("source_note_id"))
+                    voice.insert(item["start"], event)
+                part.insert(0, voice)
         # makeNotation fills measures/rests/beams from the note list.
         # This is music21 engraving, not the transcription notation planner.
         if part.recurse().notes:
             part.makeNotation(inPlace=True)
         else:
-            part.append(note.Rest(quarterLength=4.0))
+            if not list(part.recurse().getElementsByClass("Rest")):
+                part.append(note.Rest(quarterLength=4.0))
             part.makeNotation(inPlace=True)
         score.insert(0, part)
 

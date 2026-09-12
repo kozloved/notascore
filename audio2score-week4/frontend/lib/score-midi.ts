@@ -3,7 +3,8 @@ import { beatsToSeconds } from "./score-editor";
 
 export async function notesToMidiBytes(
   notes: EditableNote[],
-  tempoBpm: number
+  tempoBpm: number,
+  tempoCurve?: { beat: number; bpm: number }[]
 ): Promise<ArrayBuffer> {
   const { Midi } = await import("@tonejs/midi");
   const midi = new Midi();
@@ -15,10 +16,12 @@ export async function notesToMidiBytes(
       track = midi.addTrack();
       tracks.set(note.track, track);
     }
+    const start = beatsToSeconds(note.start, tempoBpm, tempoCurve);
+    const end = beatsToSeconds(note.start + note.duration, tempoBpm, tempoCurve);
     track.addNote({
       midi: note.pitch,
-      time: beatsToSeconds(note.start, tempoBpm),
-      duration: Math.max(0.05, beatsToSeconds(note.duration, tempoBpm)),
+      time: start,
+      duration: Math.max(0.05, end - start),
       velocity: Math.max(0.1, Math.min(1, note.velocity / 127)),
     });
   }

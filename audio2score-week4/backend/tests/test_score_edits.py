@@ -127,9 +127,31 @@ def test_extract_keeps_chord_tones_independent(tmp_path):
     model = extract_from_musicxml(xml)
     assert model["tempo_bpm"] == 100
     assert model["time_signature"] == "4/4"
+    assert model["tempo_curve"][0]["bpm"] == 100
     pitches = sorted(note["pitch"] for note in model["notes"] if note["start"] == 0)
     assert pitches == [60, 64, 67]
     assert len({note["id"] for note in model["notes"]}) == len(model["notes"])
+    assert all(note.get("source_note_id") for note in model["notes"])
+
+
+def test_pitch_edit_does_not_rewrite_tempo_curve(tmp_path):
+    xml = _write_fixture_xml(tmp_path / "orig.musicxml")
+    model = extract_from_musicxml(xml)
+    curve = [dict(point) for point in model["tempo_curve"]]
+    starts = [note["start"] for note in model["notes"]]
+    c4 = next(note for note in model["notes"] if note["pitch"] == 60)
+    source_id = c4["source_note_id"]
+    c4["pitch"] = 61
+    xml_text, midi_bytes = build_musicxml_and_midi(model)
+    rebuilt = extract_from_musicxml(xml_text)
+    assert rebuilt["tempo_curve"][0]["bpm"] == curve[0]["bpm"]
+    assert [note["start"] for note in rebuilt["notes"]]
+    at_zero = sorted(note["pitch"] for note in rebuilt["notes"] if note["start"] == 0)
+    assert 61 in at_zero
+    assert 60 not in at_zero
+    assert midi_bytes[:4] == b"MThd"
+    assert any(note.get("source_note_id") == source_id for note in model["notes"])
+    assert starts == [note["start"] for note in model["notes"]]
 
 
 def test_rebuild_roundtrip_changes_pitch_not_chord_mates(tmp_path):

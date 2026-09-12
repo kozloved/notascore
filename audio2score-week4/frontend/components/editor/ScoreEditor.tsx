@@ -88,7 +88,7 @@ export default function ScoreEditor({
       setPlaying(false);
       return;
     }
-    const buffer = await notesToMidiBytes(editor.notes, editor.tempoBpm);
+    const buffer = await notesToMidiBytes(editor.notes, editor.tempoBpm, editor.tempoCurve);
     await player.play(buffer, 0, {
       onEnd: () => setPlaying(false),
     });

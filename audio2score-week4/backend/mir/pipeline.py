@@ -28,6 +28,7 @@ from mir.cmr_builder import build_score_meta, notes_to_events
 from mir.debug import PipelineDebug
 from mir.dynamics import DynamicsExtractor
 from mir.hand_separator import build_hand_separator
+from mir.job import ImmutableNoteSet, PipelineJob
 from mir.meter import MeterEstimator
 from mir.meter_arbitrator import BeatGroupingEvidence, MeterArbitrator
 from mir.midi_cleaner import MIDICleaner
@@ -164,6 +165,7 @@ class UnderstandingPipeline:
         self.last_complexity_warnings: list[str] | None = None
         self.last_hand_summary: dict | None = None
         self.last_interpretation_choice: dict | None = None
+        self.job: PipelineJob | None = None
 
     def transcribe(self, audio_path: str | Path, job_id: str) -> str:
         audio_path = Path(audio_path)
@@ -218,11 +220,17 @@ class UnderstandingPipeline:
         notes,
         prediction,
         segments,
+        *,
+        interpret_notes=None,
     ) -> str:
         """Interpretation/export from an already-transcribed full-mix result.
 
         Does not call the AMT backend again. Reuses `_prefetched_tempo` when
         `_prefetch_cpu` already ran, so beat tracking stays a single pass.
+
+        `notes` is the full-mix baseline (raw.mid / validated.mid). When
+        federation supplies `interpret_notes`, those are scored instead; the
+        mix set remains the reviewable baseline.
         """
         audio_path = prepared.audio_path
         job_id = prepared.job_id
@@ -240,13 +248,15 @@ class UnderstandingPipeline:
             else replace_source(n, backend.name)
             for n in notes
         ]
+        mix_set = ImmutableNoteSet.from_notes(notes, source="full_mix")
+        notes = mix_set.copy_notes()
         raw_count = len(notes)
         transcription = TranscriptionResult(
-            notes=list(notes),
+            notes=mix_set.copy_notes(),
             backend=backend.name,
             audio_path=str(transcribe_path),
         )
-        self.last_raw_notes = list(notes)
+        self.last_raw_notes = mix_set.copy_notes()
         source_bytes = getattr(backend, "last_midi_bytes", None)
         provider_sha = getattr(backend, "last_provider_raw_sha256", None)
         self.last_performance_snapshot = getattr(backend, "last_performance", None)
@@ -277,8 +287,9 @@ class UnderstandingPipeline:
             raise TranscriptionError("No notes detected")
 
         notes, clean_decisions = self.cleaner.clean_with_report(notes)
-        self.last_cleaned_notes = list(notes)
-        self.last_validated_notes = list(notes)
+        validated_set = ImmutableNoteSet.from_notes(notes, source="full_mix_validated")
+        self.last_cleaned_notes = validated_set.copy_notes()
+        self.last_validated_notes = validated_set.copy_notes()
         self.last_clean_decisions = list(clean_decisions)
         print(
             f"[MIDICleaner] mode={self.cleaner.mode.value} "
@@ -290,6 +301,23 @@ class UnderstandingPipeline:
             validated_path.write_bytes(source_bytes)
         else:
             write_job_stage_midi(validated_path, notes, bpm=120.0, split_hands=False)
+
+        if interpret_notes is not None:
+            working = [
+                n.ensure_ids(i)
+                for i, n in enumerate(interpret_notes)
+            ]
+            working = [
+                n
+                if n.source_backend and n.source_backend != "unknown"
+                else replace_source(n, backend.name)
+                for n in working
+            ]
+            working_set = ImmutableNoteSet.from_notes(working, source="reconciled")
+            notes = working_set.copy_notes()
+        else:
+            working_set = validated_set
+            notes = validated_set.copy_notes()
 
         pedal_events: list[tuple[float, int]] = []
         pedal_obs: list[PedalObservation] = []
@@ -388,7 +416,7 @@ class UnderstandingPipeline:
         events = self._apply_mir_layers(events)
 
         meter_hyps = self.meter_estimator.estimate(events)
-        decision = self._arbitrate_meter(events, file_meter=None)
+        decision = self._arbitrate_meter(events, file_meter=None, timing=timing)
         selected_meter = decision.hypothesis or meter_hyps[0]
         from mir.meter import meter_from_time_signature
         from mir.score_interpretation import APPLY_MARGIN
@@ -523,7 +551,7 @@ class UnderstandingPipeline:
         )
 
         def _rebuild(next_notes, next_tempo, next_role):
-            mapper = self.last_musical_time_map or next_tempo
+            mapper = timing.time_map or next_tempo
             rebuilt = notes_to_events(
                 next_notes,
                 mapper,
@@ -603,6 +631,13 @@ class UnderstandingPipeline:
         self.last_quantized_events = list(self.notation.last_quantized_events)
         self.last_notation_notes = list(self.last_quantized_events)
         self.last_export_ms = (time.perf_counter() - export_started) * 1000.0
+        self._publish_job(
+            job_id=job_id,
+            mix_set=mix_set,
+            working_set=working_set,
+            validated_set=validated_set,
+            timing=timing,
+        )
         self._attach_notation_debug(job_id, out_dir)
         return xml
 
@@ -644,6 +679,10 @@ class UnderstandingPipeline:
         ingested = ingest_midi(midi_path)
         self.last_performance_snapshot = ingested.performance
         notes = [n.ensure_ids(i) for i, n in enumerate(ingested.notes)]
+        mix_set = ImmutableNoteSet.from_notes(notes, source="midi")
+        notes = mix_set.copy_notes()
+        validated_set = mix_set
+        working_set = mix_set
         tempo_map = ingested.tempo_map
         duration = max((n.end_time for n in notes), default=1.0)
         timing = resolve_from_tempo_map(
@@ -702,7 +741,9 @@ class UnderstandingPipeline:
         events = self._apply_mir_layers(events)
 
         meter_hyps = self.meter_estimator.estimate(events)
-        decision = self._arbitrate_meter(events, file_meter=ingested.time_sig_hint)
+        decision = self._arbitrate_meter(
+            events, file_meter=ingested.time_sig_hint, timing=timing
+        )
         selected_meter = decision.hypothesis or meter_hyps[0]
         structure = MusicalStructure(
             events=events,
@@ -746,7 +787,7 @@ class UnderstandingPipeline:
         midi_pred = InstrumentPrediction(instrument=midi_instrument, confidence=0.9)
 
         def _rebuild(next_notes, next_tempo, next_role):
-            mapper = self.last_musical_time_map or next_tempo
+            mapper = timing.time_map or next_tempo
             rebuilt = notes_to_events(
                 next_notes,
                 mapper,
@@ -793,6 +834,13 @@ class UnderstandingPipeline:
         self.last_notation_notes = list(self.last_quantized_events)
         self.last_gemini_enabled = bool(self.config.enable_gemini)
         self.last_gemini_applied = int(enhanced.applied)
+        self._publish_job(
+            job_id=job_id,
+            mix_set=mix_set,
+            working_set=working_set,
+            validated_set=validated_set,
+            timing=timing,
+        )
         self._attach_notation_debug(job_id, out_dir)
         return xml
 
@@ -856,6 +904,10 @@ class UnderstandingPipeline:
         extra["score_metrics"] = metrics
         self.last_complexity_warnings = warnings_from_metrics(metrics)
         extra["notation_complexity_warning"] = list(self.last_complexity_warnings or [])
+        if self.job is not None:
+            extra["job"] = self.job.to_dict()
+            extra["notes_source"] = self.job.notes.source
+            extra["mix_note_count"] = len(self.job.mix_notes)
         self.last_debug.extra = extra
         out_dir = Path(out_dir)
         out_dir.mkdir(exist_ok=True)
@@ -870,15 +922,50 @@ class UnderstandingPipeline:
             )
         self.last_debug.write_json(out_dir / f"{job_id}.debug.json")
 
+    def _publish_job(
+        self,
+        *,
+        job_id: str,
+        mix_set: ImmutableNoteSet,
+        working_set: ImmutableNoteSet,
+        validated_set: ImmutableNoteSet,
+        timing,
+    ) -> PipelineJob:
+        """Store the immutable note set + time map as the job's stage bundle."""
+        quant = getattr(self.notation.planner.quantizer, "last_result", None)
+        notation = getattr(self.notation, "last_result", None)
+        job = PipelineJob(
+            job_id=job_id,
+            notes=working_set,
+            mix_notes=mix_set,
+            time_map=timing.time_map if timing is not None else self.last_musical_time_map,
+            timing=timing if timing is not None else self.last_timing,
+            transcription=mix_set,
+            validated=validated_set,
+            quantization=quant,
+            notation=notation,
+            structure=self.last_structure,
+            meter_decision=self.last_meter_decision,
+            snapshot=self.last_performance_snapshot,
+            extra={
+                "interpretation_choice": dict(self.last_interpretation_choice or {}),
+                "pickup": dict(self.last_pickup or {}),
+            },
+        )
+        self.job = job
+        return job
+
     def _arbitrate_meter(
         self,
         events: list,
         *,
         file_meter: str | None = None,
+        timing=None,
     ) -> MeterDecision:
         """Canonical meter decision from estimator + beat grouping + accents."""
         evidence = None
         result = getattr(self.beat_tracker, "last_beat_result", None)
+        timing = timing if timing is not None else self.last_timing
         if result is not None:
             evidence = BeatGroupingEvidence(
                 source=self.beat_tracker.last_source or "madmom",
@@ -896,17 +983,17 @@ class UnderstandingPipeline:
                 },
             )
         elif (
-            self.last_timing is not None
-            and self.last_timing.backend_used not in ("midi_file",)
-            and not str(self.last_timing.backend_used).startswith("constant_bpm")
-            and not str(self.last_timing.backend_used).startswith("tempo_map")
+            timing is not None
+            and timing.backend_used not in ("midi_file",)
+            and not str(timing.backend_used).startswith("constant_bpm")
+            and not str(timing.backend_used).startswith("tempo_map")
         ):
-            analysis = self.last_timing.analysis
+            analysis = timing.analysis
             evidence = BeatGroupingEvidence(
                 source=analysis.model,
                 beat_times=list(analysis.beat_times),
                 downbeat_times=list(analysis.downbeat_times),
-                bpm=self.last_timing.quality.median_bpm,
+                bpm=timing.quality.median_bpm,
             )
         decision = self.meter_arbitrator.decide(
             events,

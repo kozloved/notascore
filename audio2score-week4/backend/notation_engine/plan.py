@@ -139,10 +139,11 @@ class NotationPlanner:
         if quantization_mode is not None:
             self.quantizer.mode = parse_quantization_mode(quantization_mode)
         meter = self._resolve_meter(events, meta, structure)
-        quantized, decisions = self.quantizer.quantize(events, meter)
+        quant_result = self.quantizer.quantize_result(events, meter)
+        quantized, decisions = quant_result.events, quant_result.decisions
         bpm = (meta.display_tempo_bpm if meta else None) or int(fallback_bpm)
         key_name = self._resolve_key(quantized, meta, structure)
-        quant_summary = dict(self.quantizer.last_summary)
+        quant_summary = dict(quant_result.summary)
 
         pianoish = self._use_grand_staff(quantized, structure, meta)
         end_beat = 0.0
@@ -154,11 +155,12 @@ class NotationPlanner:
             n_measures = max(1, int(round(end_beat / meter.measure_quarter_length)))
 
         measures: list[PlannedMeasure] = []
-        if self.quantizer.mode == QuantizationMode.PERFORMANCE:
+        production = quant_result.mode == QuantizationMode.PERFORMANCE.value
+        if production:
             from notation_engine.exact_plan import build_exact_measures
 
-            measures = build_exact_measures(quantized, self.quantizer.last_report, meter, key_name)
-        for i in range(0 if self.quantizer.mode == QuantizationMode.PERFORMANCE else n_measures):
+            measures = build_exact_measures(quantized, quant_result.report, meter, key_name)
+        for i in range(0 if production else n_measures):
             start = i * meter.measure_quarter_length
             measures.append(
                 self._build_measure(

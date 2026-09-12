@@ -208,12 +208,11 @@ class PipelineOrchestrator:
 
             interpret_timer = StageTimer(StageName.INTERPRET_SCORE)
             export_ms = 0.0
-
-            def run_interpret():
-                return pipeline.complete_audio(prepared, notes, prediction, segments)
+            want_fusion = fusion_enabled()
+            fusion = None
+            stem_rows = []
 
             with ThreadPoolExecutor(max_workers=4) as later:
-                interpret_fut = later.submit(run_interpret)
                 if want_sep:
                     separation = sep_fut.result() if sep_fut is not None else _skipped_sep()
                 else:
@@ -236,13 +235,54 @@ class PipelineOrchestrator:
                 elif separation.skipped:
                     warnings.append(separation.skip_reason)
 
-                stem_rows = self._transcribe_stems(
-                    later,
-                    separation,
-                    job_id=job_id,
-                    source=audio_path,
-                )
-                xml = interpret_fut.result()
+                if want_fusion:
+                    # Reconcile before interpretation so fused notes are the
+                    # scored set. Full-mix notes stay the reviewable baseline.
+                    stem_rows = self._transcribe_stems(
+                        later,
+                        separation,
+                        job_id=job_id,
+                        source=audio_path,
+                    )
+                    stages.append(_stem_stage(stem_rows))
+                    fusion = self._fuse(
+                        audio_path,
+                        job_id,
+                        pipeline,
+                        notes,
+                        stem_rows,
+                        stages,
+                        warnings,
+                    )
+                    interpret_notes = list(fusion.notes) if fusion is not None else None
+                    xml = pipeline.complete_audio(
+                        prepared,
+                        notes,
+                        prediction,
+                        segments,
+                        interpret_notes=interpret_notes,
+                    )
+                else:
+                    interpret_fut = later.submit(
+                        pipeline.complete_audio, prepared, notes, prediction, segments
+                    )
+                    stem_rows = self._transcribe_stems(
+                        later,
+                        separation,
+                        job_id=job_id,
+                        source=audio_path,
+                    )
+                    xml = interpret_fut.result()
+                    stages.append(_stem_stage(stem_rows))
+                    fusion = self._fuse(
+                        audio_path,
+                        job_id,
+                        pipeline,
+                        notes,
+                        stem_rows,
+                        stages,
+                        warnings,
+                    )
                 export_ms = float(getattr(pipeline, "last_export_ms", 0.0) or 0.0)
 
             stages.append(
@@ -253,20 +293,13 @@ class PipelineOrchestrator:
                         "bundled_with": "existing_understanding_pipeline",
                         "export_ms": export_ms,
                         "ensemble_render": ensemble_render_enabled(),
+                        "interpreted_from": (
+                            "reconciled" if want_fusion and fusion is not None else "full_mix"
+                        ),
                     },
                 )
             )
-            stages.append(_stem_stage(stem_rows))
 
-        fusion = self._fuse(
-            audio_path,
-            job_id,
-            pipeline,
-            notes,
-            stem_rows,
-            stages,
-            warnings,
-        )
         snapshot = pipeline.last_performance_snapshot
         identity = dict(getattr(pipeline, "last_raw_identity", None) or {})
         stages.append(
@@ -612,20 +645,28 @@ class PipelineOrchestrator:
         write_notes_to_midi(fused.notes, fused_midi, split_hands=False)
         fusion_path = out_dir / f"{job_id}.fusion.json"
         fused_json = out_dir / f"{job_id}.fused.json"
-        payload = _fusion_payload(fused)
+        payload = _fusion_payload(fused, mix_notes=list(mix_notes))
         fusion_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         fused_json.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        baseline_path = out_dir / f"{job_id}.baseline.json"
+        baseline_path.write_text(
+            json.dumps(payload.get("baseline") or {}, indent=2) + "\n",
+            encoding="utf-8",
+        )
         stages.append(
             timer.result(
                 ok=True,
                 model="deterministic_reconcile",
-                artifacts=[str(fused_midi), str(fusion_path)],
+                artifacts=[str(fused_midi), str(fusion_path), str(baseline_path)],
                 extra={
                     "canonical_notes": len(fused.notes),
                     "dropped_ghosts": len(fused.dropped_ghosts),
                     "unmatched_global": len(fused.unmatched_global),
                     "unmatched_specialist": len(fused.unmatched_specialist),
                     "keep_global_timing": True,
+                    "baseline": "full_mix",
+                    "review_actions": len(fused.review_ledger()),
+                    "interpreted_from": "reconciled",
                 },
             )
         )
@@ -917,9 +958,25 @@ def _stem_stage(stem_rows) -> StageResult:
     )
 
 
-def _fusion_payload(fused: ReconciliationResult) -> dict:
+def _fusion_payload(fused: ReconciliationResult, *, mix_notes=None) -> dict:
+    baseline_notes = list(mix_notes) if mix_notes is not None else list(fused.baseline_notes)
     return {
         "schema": "fused-performance/v1",
+        "baseline": {
+            "source": "full_mix",
+            "note_count": len(baseline_notes),
+            "note_ids": [n.note_id for n in baseline_notes],
+            "notes": [
+                {
+                    "note_id": n.note_id,
+                    "pitch": int(n.pitch),
+                    "onset_seconds": float(n.start_time),
+                    "offset_seconds": float(n.end_time),
+                }
+                for n in baseline_notes
+            ],
+        },
+        "review": fused.review_ledger(),
         "notes": [
             {
                 "note_id": item.note.note_id,

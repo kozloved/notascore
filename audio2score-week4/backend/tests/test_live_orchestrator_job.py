@@ -305,6 +305,13 @@ def test_live_does_not_flatten_fused_ensemble_into_score(tmp_path, monkeypatch):
     assert result.stage(StageName.RENDER).skipped
     fusion = json.loads((tmp_path / "bp_ens1" / "ens1.fusion.json").read_text())
     assert fusion["notes"]
+    assert fusion["baseline"]["source"] == "full_mix"
+    assert fusion["review"]
+    assert {row["action"] for row in fusion["review"]} <= {"keep", "add", "suppress"}
+    names = [s.name.value for s in result.stages]
+    assert names.index("RECONCILE") < names.index("INTERPRET_SCORE")
+    baseline = json.loads((tmp_path / "bp_ens1" / "ens1.baseline.json").read_text())
+    assert baseline["source"] == "full_mix"
     xml = result.musicxml.lower()
     assert "score-partwise" in xml
     fused_midi = pretty_midi.PrettyMIDI(str(job_fused_midi_path(audio, "ens1")))

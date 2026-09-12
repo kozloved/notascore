@@ -40,4 +40,4 @@ MANIFEST_NAMES = (
     "case.json",
 )
 
-SPLITS = ("development", "holdout", "real_world")
+SPLITS = ("development", "holdout", "real_world", "human_reviewed")

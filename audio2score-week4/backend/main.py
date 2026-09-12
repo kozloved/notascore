@@ -267,6 +267,7 @@ def _edits_response(job: dict, model: dict, *, has_edits: bool | None = None) ->
         else has_edits,
         "tempo_bpm": model["tempo_bpm"],
         "time_signature": model["time_signature"],
+        "tempo_curve": list(model.get("tempo_curve") or [{"beat": 0.0, "bpm": model["tempo_bpm"]}]),
         "notes": model["notes"],
     }
 
@@ -297,6 +298,13 @@ class ScoreNoteIn(BaseModel):
     duration: float = Field(gt=0, le=32)
     velocity: int = Field(default=64, ge=1, le=127)
     track: int = Field(default=0, ge=0, le=3)
+    voice: int = Field(default=0, ge=0, le=15)
+    source_note_id: str | None = Field(default=None, max_length=64)
+
+
+class TempoCurvePointIn(BaseModel):
+    beat: float = Field(ge=0, le=10000)
+    bpm: float = Field(ge=20, le=300)
 
 
 class ScoreEditsIn(BaseModel):
@@ -304,6 +312,7 @@ class ScoreEditsIn(BaseModel):
     notes: list[ScoreNoteIn] = Field(max_length=4000)
     tempo_bpm: float | None = None
     time_signature: str | None = None
+    tempo_curve: list[TempoCurvePointIn] | None = None
 
 
 @app.get("/health")

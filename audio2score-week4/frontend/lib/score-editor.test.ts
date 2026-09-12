@@ -5,6 +5,7 @@ import {
   addNote,
   changeDuration,
   changePitch,
+  cloneTempoCurve,
   deleteNote,
   emptyHistory,
   findNote,
@@ -13,13 +14,14 @@ import {
   pitchName,
   pushHistory,
   redoNotes,
+  secondsAtBeat,
   undoNotes,
 } from "./score-editor.ts";
 
 const chord = [
-  { id: "n-0000", pitch: 60, start: 0, duration: 1, velocity: 80, track: 0 },
-  { id: "n-0001", pitch: 64, start: 0, duration: 1, velocity: 80, track: 0 },
-  { id: "n-0002", pitch: 67, start: 0, duration: 1, velocity: 80, track: 0 },
+  { id: "n-0000", source_note_id: "src-c", pitch: 60, start: 0, duration: 1, velocity: 80, track: 0, voice: 0 },
+  { id: "n-0001", source_note_id: "src-e", pitch: 64, start: 0, duration: 1, velocity: 80, track: 0, voice: 0 },
+  { id: "n-0002", source_note_id: "src-g", pitch: 67, start: 0, duration: 1, velocity: 80, track: 0, voice: 1 },
 ];
 
 test("pitch names stay musician-facing", () => {
@@ -83,4 +85,23 @@ test("undo redo and reset-equivalent history", () => {
   const afterUndo = changePitch(original.notes, "n-0000", 2);
   const invalidated = redoNotes(historyAfterEdit, afterUndo);
   assert.equal(invalidated, null);
+});
+
+test("pitch change keeps source identity voice and timing", () => {
+  const curve = [{ beat: 0, bpm: 80 }, { beat: 4, bpm: 60 }];
+  const next = changePitch(chord, "n-0000", 1);
+  assert.equal(findNote(next, "n-0000")?.pitch, 61);
+  assert.equal(findNote(next, "n-0000")?.source_note_id, "src-c");
+  assert.equal(findNote(next, "n-0000")?.start, 0);
+  assert.equal(findNote(next, "n-0000")?.voice, 0);
+  assert.equal(findNote(next, "n-0002")?.voice, 1);
+  assert.deepEqual(cloneTempoCurve(curve), curve);
+  assert.equal(secondsAtBeat(4, curve, 120), 3);
+  assert.equal(secondsAtBeat(4, curve, 120), secondsAtBeat(4, curve, 999));
+});
+
+test("new notes have no source identity", () => {
+  const { notes, id } = addNote(chord, { start: 2, pitch: 62, duration: 1, voice: 1 });
+  assert.equal(findNote(notes, id)?.source_note_id, null);
+  assert.equal(findNote(notes, id)?.voice, 1);
 });

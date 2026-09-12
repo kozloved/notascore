@@ -162,3 +162,22 @@ def test_g_repeated_same_pitch_attacks_are_not_merged():
     onsets = sorted(n.start_time for n in result.notes)
     assert abs(onsets[0] - 1.000) < 1e-9
     assert abs(onsets[1] - 1.090) < 1e-9
+    review = result.review_ledger()
+    assert {row["action"] for row in review} <= {"keep", "add", "suppress"}
+    assert all("source" in row and "reason" in row for row in review)
+
+
+def test_review_ledger_marks_added_and_suppressed_sources():
+    mix = [_n(60, 0.0, 0.4, ident="mix")]
+    extra = [
+        _n(67, 1.0, 1.3, backend="basic_pitch", conf=0.9, ident="stem-only", instrument=InstrumentKind.GUITAR, stem="guitar"),
+        _n(61, 0.5, 0.7, backend="basic_pitch", conf=0.2, ident="ghost", instrument=InstrumentKind.PIANO, stem="piano"),
+    ]
+    result = reconcile_transcriptions(mix, extra, specialist_backend="basic_pitch")
+    by_id = {row["note_id"]: row for row in result.review_ledger()}
+    assert by_id["mix"]["action"] == "keep"
+    assert by_id["mix"]["source"] == "full_mix"
+    assert by_id["stem-only"]["action"] == "add"
+    assert by_id["ghost"]["action"] == "suppress"
+    assert result.diagnostics["baseline"]["source"] == "full_mix"
+    assert "mix" in result.diagnostics["baseline"]["note_ids"]

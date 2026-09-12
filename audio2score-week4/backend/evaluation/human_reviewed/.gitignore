@@ -1,0 +1,14 @@
+# Generated MIDI fixtures may be local. YAML templates stay in git.
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+*.mid
+*.midi
+*.json
+
+!.gitignore
+!README.md
+!**/case.yaml
+!rubric.yaml
