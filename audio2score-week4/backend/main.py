@@ -26,12 +26,12 @@ from ownership import (
 from score_edits import (
     EditError,
     build_musicxml_and_midi,
-    edited_keys,
     extract_from_musicxml,
     loads_edits,
     dumps_edits,
     parse_edits_payload,
 )
+from publishing import edit_bundle_keys
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 RESULTS_DIR = Path(os.getenv("RESULTS_DIR", "results"))
@@ -220,17 +220,21 @@ def _read_original_musicxml(job: dict) -> str:
 
 
 def _read_edited_sidecar(job: dict, filename: str, *, text: bool = False):
+    edited_key = job.get("edited_result_storage_key")
+    if not edited_key:
+        return None
     storage_backend = storage_service.get_storage()
     try:
         if storage_backend.backend == "local":
-            path = Path(job["result_storage_key"]).with_name(filename)
+            path = Path(edited_key).with_name(filename)
             if not path.exists():
                 return None
             return path.read_text(encoding="utf-8") if text else path.read_bytes()
+        key = storage_backend.result_sidecar_key(edited_key, filename)
         data = (
-            storage_backend.read_result_text(filename)
+            storage_backend.read_result_text(key)
             if text
-            else storage_backend.read_result_bytes(filename)
+            else storage_backend.read_result_bytes(key)
         )
         return data
     except Exception:
@@ -240,13 +244,15 @@ def _read_edited_sidecar(job: dict, filename: str, *, text: bool = False):
 def _write_edited_sidecars(job: dict, json_text: str, musicxml_text: str, midi_bytes: bytes) -> str:
     storage_backend = storage_service.get_storage()
     job_id = job["id"]
-    keys = edited_keys(job_id)
+    bundle_id = uuid.uuid4().hex
+    keys = edit_bundle_keys(job_id, bundle_id)
     if storage_backend.backend == "local":
-        parent = Path(job["result_storage_key"]).parent
-        (parent / keys["json"]).write_text(json_text, encoding="utf-8")
-        xml_path = parent / keys["musicxml"]
+        parent = Path(job["result_storage_key"]).parent / f"{job_id}.edits" / bundle_id
+        parent.mkdir(parents=True, exist_ok=True)
+        (parent / Path(keys["json"]).name).write_text(json_text, encoding="utf-8")
+        xml_path = parent / Path(keys["musicxml"]).name
         xml_path.write_text(musicxml_text, encoding="utf-8")
-        (parent / keys["midi"]).write_bytes(midi_bytes)
+        (parent / Path(keys["midi"]).name).write_bytes(midi_bytes)
         return str(xml_path)
     storage_backend.save_text(keys["json"], json_text, content_type="application/json")
     storage_backend.save_text(
@@ -785,9 +791,11 @@ def job_result(
         # Older jobs: fall back to score MIDI derived from MusicXML.
 
     if fmt == "midi_score":
-        edited_midi = _load_result_artifact_bytes(
-            storage_backend, job_id, result_storage_key, f"{job_id}.edited.mid"
-        )
+        edited_midi = None
+        if edited_key:
+            edited_midi = _load_result_artifact_bytes(
+                storage_backend, job_id, edited_key, f"{job_id}.edited.mid"
+            )
         if edited_key and edited_midi:
             return Response(
                 content=edited_midi,
@@ -1011,11 +1019,29 @@ def score_edits_put(
         ) from exc
 
     next_revision = current_revision + 1
-    db.update_job(
+    previous_key = job.get("edited_result_storage_key")
+    published = db.cas_update_job(
         score_id,
+        expected={"edit_revision": current_revision},
         edited_result_storage_key=edited_key,
         edit_revision=next_revision,
     )
+    storage_backend = storage_service.get_storage()
+    if not published:
+        try:
+            if hasattr(storage_backend, "gc_edit_bundle"):
+                storage_backend.gc_edit_bundle(edited_key, score_id)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=409,
+            detail="This score was updated elsewhere. Reload and try again.",
+        )
+    try:
+        if hasattr(storage_backend, "gc_edit_bundle"):
+            storage_backend.gc_edit_bundle(previous_key, score_id, keep_key=edited_key)
+    except Exception:
+        pass
     job = db.get_job(score_id)
     return _edits_response(job, model, has_edits=True)
 
@@ -1026,17 +1052,25 @@ def score_edits_reset(
     authorization: str | None = Header(default=None),
 ):
     job = _editor_job(score_id, authorization)
+    previous_key = job.get("edited_result_storage_key")
+    current_revision = int(job.get("edit_revision") or 0)
+    published = db.cas_update_job(
+        score_id,
+        expected={"edit_revision": current_revision},
+        edited_result_storage_key=None,
+        edit_revision=current_revision + 1,
+    )
+    if not published:
+        raise HTTPException(
+            status_code=409,
+            detail="This score was updated elsewhere. Reload and try again.",
+        )
     storage_backend = storage_service.get_storage()
     try:
-        storage_backend.delete_edited(score_id, job.get("result_storage_key"))
+        if hasattr(storage_backend, "gc_edit_bundle"):
+            storage_backend.gc_edit_bundle(previous_key, score_id)
     except Exception:
         pass
-    next_revision = int(job.get("edit_revision") or 0) + 1
-    db.update_job(
-        score_id,
-        edited_result_storage_key=None,
-        edit_revision=next_revision,
-    )
     job = db.get_job(score_id)
     try:
         model = extract_from_musicxml(_read_original_musicxml(job))

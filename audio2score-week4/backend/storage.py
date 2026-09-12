@@ -4,8 +4,16 @@ load_dotenv()
 
 import os
 import shutil
+import uuid
 from pathlib import Path
 from functools import lru_cache
+
+from publishing import (
+    edit_bundle_directory,
+    edit_bundle_keys,
+    is_edit_bundle_key,
+    sibling_key,
+)
 
 LOCAL_UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 LOCAL_RESULTS_DIR = Path(os.getenv("RESULTS_DIR", "results"))
@@ -94,15 +102,6 @@ class LocalStorage:
         if work_dir.is_dir():
             shutil.rmtree(work_dir, ignore_errors=True)
 
-    def delete_result(self, result_storage_key, job_id=None):
-        if result_storage_key:
-            path = Path(result_storage_key)
-            if path.exists():
-                path.unlink()
-            if path.parent.exists() and job_id:
-                for sidecar in path.parent.glob(f"{job_id}.*"):
-                    sidecar.unlink(missing_ok=True)
-
     def delete_edited(self, job_id, result_storage_key=None):
         names = (
             f"{job_id}.edits.json",
@@ -114,6 +113,39 @@ class LocalStorage:
             parent = Path(result_storage_key).parent
         for name in names:
             (parent / name).unlink(missing_ok=True)
+
+    def gc_edit_bundle(self, edited_key, job_id, keep_key=None):
+        if not edited_key or edited_key == keep_key:
+            return
+        if is_edit_bundle_key(edited_key, job_id):
+            directory = edit_bundle_directory(edited_key, job_id)
+            if directory:
+                shutil.rmtree(directory, ignore_errors=True)
+            return
+        name = Path(edited_key).name
+        if name.endswith(".edited.musicxml") or name.endswith(".edits.json"):
+            self.delete_edited(job_id, edited_key)
+
+    def delete_result(self, result_storage_key, job_id=None):
+        if result_storage_key:
+            path = Path(result_storage_key)
+            if path.exists():
+                path.unlink()
+            if path.parent.exists() and job_id:
+                for sidecar in path.parent.glob(f"{job_id}.*"):
+                    sidecar.unlink(missing_ok=True)
+        if job_id:
+            shutil.rmtree(LOCAL_RESULTS_DIR / f"{job_id}.attempts", ignore_errors=True)
+            shutil.rmtree(LOCAL_RESULTS_DIR / f"{job_id}.edits", ignore_errors=True)
+            if result_storage_key:
+                root = Path(result_storage_key).parent
+                if root.name and (
+                    root.parent.name == f"{job_id}.attempts"
+                    or root.parent.name == f"{job_id}.edits"
+                ):
+                    root = root.parent.parent
+                shutil.rmtree(root / f"{job_id}.attempts", ignore_errors=True)
+                shutil.rmtree(root / f"{job_id}.edits", ignore_errors=True)
 
 
 class SupabaseStorage:
@@ -154,6 +186,10 @@ class SupabaseStorage:
 
         LOCAL_TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
+    def _temp_file_for_key(self, key):
+        safe = str(key).replace("/", "__").replace("\\", "__")
+        return LOCAL_TEMP_DIR / f"{uuid.uuid4().hex}-{safe}"
+
     def _bucket(self, bucket_name):
         return self.client.storage.from_(bucket_name)
 
@@ -176,7 +212,7 @@ class SupabaseStorage:
         return key
 
     def save_text(self, key, text, content_type=None):
-        temp_file = LOCAL_TEMP_DIR / Path(key).name
+        temp_file = self._temp_file_for_key(key)
 
         temp_file.write_text(
             text,
@@ -202,7 +238,7 @@ class SupabaseStorage:
         return key
 
     def save_bytes(self, key, data, content_type=None):
-        temp_file = LOCAL_TEMP_DIR / Path(key).name
+        temp_file = self._temp_file_for_key(key)
         temp_file.write_bytes(data)
         options = {"upsert": "true"}
         if content_type:
@@ -269,8 +305,9 @@ class SupabaseStorage:
         return bytes(data)
 
     def result_sidecar_key(self, result_storage_key, filename):
-        """Flat result object keys: `{job}.raw.mid`, not worker temp paths."""
-        return Path(filename).name
+        name = Path(filename).name
+        sibling = sibling_key(result_storage_key, name)
+        return sibling or name
 
     def result_exists(self, key):
         if not key:
@@ -293,6 +330,16 @@ class SupabaseStorage:
         keys = []
         if result_storage_key:
             keys.append(result_storage_key)
+            parent = str(Path(result_storage_key).parent).replace("\\", "/")
+            if job_id and parent not in {".", ""}:
+                for name in (
+                    f"{job_id}.musicxml",
+                    f"{job_id}.raw.mid",
+                    f"{job_id}.validated.mid",
+                    f"{job_id}.score.mid",
+                    f"{job_id}.manifest.json",
+                ):
+                    keys.append(f"{parent}/{name}")
         if job_id:
             keys.extend(
                 [
@@ -318,10 +365,31 @@ class SupabaseStorage:
             f"{job_id}.edited.musicxml",
             f"{job_id}.edited.mid",
         ]
+        if result_storage_key:
+            parent = str(Path(result_storage_key).parent).replace("\\", "/")
+            if parent not in {".", ""}:
+                keys.extend(f"{parent}/{name}" for name in list(keys))
         try:
             self._bucket(self.results_bucket).remove(keys)
         except Exception:
             return
+
+    def gc_edit_bundle(self, edited_key, job_id, keep_key=None):
+        if not edited_key or edited_key == keep_key:
+            return
+        if is_edit_bundle_key(edited_key, job_id):
+            directory = edit_bundle_directory(edited_key, job_id)
+            bundle_id = Path(directory).name if directory else ""
+            if bundle_id:
+                keys = list(edit_bundle_keys(job_id, bundle_id).values())
+                try:
+                    self._bucket(self.results_bucket).remove(keys)
+                except Exception:
+                    return
+            return
+        name = Path(edited_key).name
+        if name.endswith(".edited.musicxml") or name.endswith(".edits.json"):
+            self.delete_edited(job_id, edited_key)
 
 
 @lru_cache

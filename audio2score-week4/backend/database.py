@@ -13,6 +13,7 @@ connect_args = {}
 
 if DATABASE_URL.startswith("sqlite"):
     connect_args["check_same_thread"] = False
+    connect_args["timeout"] = 30
 
 engine = create_engine(
     DATABASE_URL,
@@ -54,6 +55,8 @@ class Job(Base):
     deleted_at = Column(String, nullable=True)
     edited_result_storage_key = Column(String, nullable=True)
     edit_revision = Column(Integer, default=0)
+    processing_attempt = Column(String, nullable=True)
+    published_attempt = Column(String, nullable=True)
 
 
 OWNERSHIP_COLUMNS = {
@@ -69,12 +72,18 @@ SCORE_EDIT_COLUMNS = {
     "edit_revision": "INTEGER DEFAULT 0",
 }
 
+ATTEMPT_COLUMNS = {
+    "processing_attempt": "VARCHAR",
+    "published_attempt": "VARCHAR",
+}
+
 
 def init_db():
     Base.metadata.create_all(bind=engine)
     _ensure_job_mode_column()
     _ensure_job_ownership_columns()
     _ensure_score_edit_columns()
+    _ensure_attempt_columns()
 
 
 def _ensure_job_mode_column():
@@ -120,6 +129,17 @@ def _ensure_score_edit_columns():
     columns = {col["name"] for col in inspector.get_columns("jobs")}
     with engine.begin() as conn:
         for name, sql_type in SCORE_EDIT_COLUMNS.items():
+            if name not in columns:
+                conn.execute(text(f"ALTER TABLE jobs ADD COLUMN {name} {sql_type}"))
+
+
+def _ensure_attempt_columns():
+    inspector = inspect(engine)
+    if "jobs" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("jobs")}
+    with engine.begin() as conn:
+        for name, sql_type in ATTEMPT_COLUMNS.items():
             if name not in columns:
                 conn.execute(text(f"ALTER TABLE jobs ADD COLUMN {name} {sql_type}"))
 
@@ -227,6 +247,8 @@ ALLOWED_UPDATE_FIELDS = {
     "deleted_at",
     "edited_result_storage_key",
     "edit_revision",
+    "processing_attempt",
+    "published_attempt",
 }
 
 
@@ -260,3 +282,64 @@ def update_job(job_id: str, **fields):
 
     finally:
         session.close()
+
+
+def cas_update_job(job_id: str, expected: dict | None = None, expected_in: dict | None = None, **fields):
+    """Atomically update a job only when the expected predicates still match."""
+    clean_fields = {
+        key: value
+        for key, value in fields.items()
+        if key in ALLOWED_UPDATE_FIELDS
+    }
+    if not clean_fields:
+        return False
+    clean_fields["updated_at"] = utcnow()
+    session = SessionLocal()
+    try:
+        query = session.query(Job).filter(Job.id == job_id)
+        for key, value in (expected or {}).items():
+            column = getattr(Job, key)
+            if value is None:
+                query = query.filter(column.is_(None))
+            else:
+                query = query.filter(column == value)
+        for key, options in (expected_in or {}).items():
+            query = query.filter(getattr(Job, key).in_(list(options)))
+        updated_count = query.update(clean_fields, synchronize_session=False)
+        session.commit()
+        return updated_count > 0
+    finally:
+        session.close()
+
+
+def claim_job_attempt(job_id: str, attempt_id: str) -> bool:
+    return cas_update_job(
+        job_id,
+        expected_in={"status": ("queued", "failed")},
+        status="processing",
+        processing_attempt=attempt_id,
+        error=None,
+        progress=5,
+    )
+
+
+def complete_job_attempt(job_id: str, attempt_id: str, **fields) -> bool:
+    payload = dict(fields)
+    payload.setdefault("status", "completed")
+    payload.setdefault("progress", 100)
+    payload.setdefault("error", None)
+    payload["published_attempt"] = attempt_id
+    return cas_update_job(
+        job_id,
+        expected={"status": "processing", "processing_attempt": attempt_id},
+        **payload,
+    )
+
+
+def fail_job_attempt(job_id: str, attempt_id: str, error: str) -> bool:
+    return cas_update_job(
+        job_id,
+        expected={"status": "processing", "processing_attempt": attempt_id},
+        status="failed",
+        error=error,
+    )
