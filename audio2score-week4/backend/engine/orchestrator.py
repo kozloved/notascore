@@ -152,32 +152,69 @@ class PipelineOrchestrator:
             amt_fut = pool.submit(run_amt)
             cpu_fut = pool.submit(run_cpu)
             sep_fut = pool.submit(run_sep) if want_sep else None
+            amt_recorded = False
+            amt_actual = getattr(backend, "name", "")
             try:
                 notes = amt_fut.result()
             except Exception as exc:
-                stages.append(
-                    amt_timer.result(
-                        ok=False,
-                        model=getattr(backend, "name", ""),
-                        requested_backend=getattr(backend, "name", ""),
-                        actual_backend="",
-                        error=str(exc),
+                empty_mt3 = poly and "No pitched notes found" in str(exc)
+                if empty_mt3:
+                    warnings.append(
+                        "MT3 returned no pitched notes; falling back to Basic Pitch "
+                        "for this polyphonic job"
                     )
-                )
-                if poly:
+                    from adapters.basic_pitch_backend import BasicPitchBackend
+
+                    notes = BasicPitchBackend().transcribe_notes(prepared.transcribe_path)
+                    amt_actual = "basic_pitch"
                     stages.append(
-                        StageResult(
-                            StageName.TRANSCRIBE_STEMS,
+                        amt_timer.result(
                             ok=True,
-                            skipped=True,
-                            skip_reason=(
-                                "full-mix transcription failed; stem Basic Pitch "
-                                "is not a silent substitute in Polyphonic mode"
-                            ),
-                            duration_ms=0.0,
+                            model="basic_pitch",
+                            backend="basic_pitch",
+                            requested_backend=getattr(backend, "name", ""),
+                            actual_backend="basic_pitch",
+                            extra={
+                                "notes": len(notes),
+                                "fallback_from": getattr(backend, "name", "mt3"),
+                                "fallback_reason": str(exc),
+                            },
                         )
                     )
-                raise
+                    amt_recorded = True
+                else:
+                    stages.append(
+                        amt_timer.result(
+                            ok=False,
+                            model=getattr(backend, "name", ""),
+                            requested_backend=getattr(backend, "name", ""),
+                            actual_backend="",
+                            error=str(exc),
+                        )
+                    )
+                    if poly:
+                        stages.append(
+                            StageResult(
+                                StageName.TRANSCRIBE_STEMS,
+                                ok=True,
+                                skipped=True,
+                                skip_reason=(
+                                    "full-mix transcription failed; stem Basic Pitch "
+                                    "is not a silent substitute in Polyphonic mode"
+                                ),
+                                duration_ms=0.0,
+                            )
+                        )
+                    raise
+            if poly and not notes:
+                warnings.append(
+                    "MT3 returned an empty note list; falling back to Basic Pitch "
+                    "for this polyphonic job"
+                )
+                from adapters.basic_pitch_backend import BasicPitchBackend
+
+                notes = BasicPitchBackend().transcribe_notes(prepared.transcribe_path)
+                amt_actual = "basic_pitch"
             prediction, segments = cpu_fut.result()
             stages.append(
                 cpu_timer.result(
@@ -189,23 +226,29 @@ class PipelineOrchestrator:
                     },
                 )
             )
-            mt3_meta = dict(getattr(backend, "last_timing", None) or {})
-            stages.append(
-                amt_timer.result(
-                    ok=True,
-                    model=getattr(backend, "name", ""),
-                    backend=getattr(backend, "name", ""),
-                    requested_backend=getattr(backend, "name", ""),
-                    actual_backend=getattr(backend, "name", ""),
-                    extra={
-                        "notes": len(notes),
-                        "queue_ms": mt3_meta.get("queue_ms"),
-                        "execution_ms": mt3_meta.get("execution_ms"),
-                        "wall_ms": mt3_meta.get("wall_ms"),
-                        "warmup": False,
-                    },
+            if not amt_recorded:
+                mt3_meta = dict(getattr(backend, "last_timing", None) or {})
+                stages.append(
+                    amt_timer.result(
+                        ok=True,
+                        model=amt_actual,
+                        backend=amt_actual,
+                        requested_backend=getattr(backend, "name", ""),
+                        actual_backend=amt_actual,
+                        extra={
+                            "notes": len(notes),
+                            "queue_ms": mt3_meta.get("queue_ms"),
+                            "execution_ms": mt3_meta.get("execution_ms"),
+                            "wall_ms": mt3_meta.get("wall_ms"),
+                            "warmup": False,
+                            "fallback_from": (
+                                getattr(backend, "name", "")
+                                if amt_actual != getattr(backend, "name", "")
+                                else None
+                            ),
+                        },
+                    )
                 )
-            )
 
             interpret_timer = StageTimer(StageName.INTERPRET_SCORE)
             export_ms = 0.0

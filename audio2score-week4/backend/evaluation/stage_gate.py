@@ -44,6 +44,11 @@ def evaluate(source, reference, output, *, stage="score", onset_floor=0.98, offs
             if len(raw.performance.meter_changes) > 1:
                 raise ValueError("Changing meter is not yet supported")
             events = notes_to_events(raw.notes, raw.tempo_map)
+            # Gate stays strict: production may collapse multi-program MIDI for
+            # solo notation, but evaluation must still reject ensemble inputs.
+            from mir.score_profile import score_profile
+
+            score_profile(events)
             meta = ScoreMeta(time_sig_hint=raw.time_sig_hint, tempo_map=raw.tempo_map,
                              display_tempo_bpm=round(raw.tempo_map.bpm_at(0)))
             writer = NotationWriter()

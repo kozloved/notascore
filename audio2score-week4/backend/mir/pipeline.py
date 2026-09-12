@@ -1065,11 +1065,16 @@ class UnderstandingPipeline:
             return events
         if self.config.quantization_mode.value == "performance":
             from mir.performance_score import assign_pipeline_layout
-            from mir.score_profile import score_profile
+            from mir.score_profile import collapse_for_solo_notation
 
+            events, profile, warning = collapse_for_solo_notation(events)
+            if warning:
+                print(f"[Interpretation] {warning}", flush=True)
+                existing = getattr(self, "last_interpretation_warnings", None) or []
+                self.last_interpretation_warnings = list(existing) + [warning]
             return assign_pipeline_layout(
                 events,
-                score_profile(events),
+                profile,
                 self.hand_separator,
                 self.voice_separator,
             )

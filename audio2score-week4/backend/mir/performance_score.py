@@ -12,7 +12,7 @@ from statistics import mean
 
 from mir.hand_separator import HandSeparator
 from mir.models import staff_for_hand
-from mir.score_profile import ScoreProfile, score_profile
+from mir.score_profile import ScoreProfile, collapse_for_solo_notation, score_profile
 from mir.types import Hand, copy_event
 from mir.voice_separator import VoiceSeparator
 
@@ -294,7 +294,7 @@ def quantize_notation(events, meter, *, config, mode=None):
     if abs(offset - meter.measure_quarter_length) < 1e-7:
         offset = 0.0
     score_input = [copy_event(ev, start_beat=ev.start_beat + offset) for ev in raw]
-    profile = score_profile(score_input)
+    score_input, profile, collapse_warning = collapse_for_solo_notation(score_input)
     interpreted, layout_source = resolve_layout(score_input, profile)
     voices = defaultdict(list)
     for ev in interpreted:
@@ -340,7 +340,7 @@ def quantize_notation(events, meter, *, config, mode=None):
                                ev.role, family, group_id))
         decisions.append({
             "note_id": ev.note_id, "raw_start": source.start_beat,
-            "source_track_id": ev.source_track_id, "source_program": ev.source_program,
+            "source_track_id": source.source_track_id, "source_program": source.source_program,
             "raw_duration": source.duration_beats, "quantized_start": ev.start_beat,
             "quantized_duration": ev.duration_beats, "score_onset": str(onset),
             "score_duration": str(duration),
@@ -355,6 +355,8 @@ def quantize_notation(events, meter, *, config, mode=None):
             "onset_error_beats": ev.start_beat - offset - source.start_beat,
         })
     summary = summarize_quantization(raw, out, decisions)
+    if collapse_warning:
+        summary["solo_collapse_warning"] = collapse_warning
     summary.update(engine="performance", voice_count=len({(n.staff, n.voice) for n in notes}),
                    role_method="contextual_line_hypothesis", role_confidence=0.4,
                    timing_representation="rational", source_notes=len(raw),

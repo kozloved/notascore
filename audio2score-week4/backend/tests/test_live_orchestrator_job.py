@@ -142,6 +142,7 @@ def _install_mocks(monkeypatch, tmp_path, counters: _Counters, *, sep_error=None
                 source_backend="basic_pitch",
                 source_track_id=stem_id,
                 instrument=kind,
+                note_id=f"bp:{stem_id}:{counters.bp}",
             )
         ]
 
@@ -298,6 +299,27 @@ def test_mt3_failure_is_not_replaced_by_stem_basic_pitch(tmp_path, monkeypatch):
     assert counters.mt3 == 1
     assert counters.bp == 0
     assert not job_raw_midi_path(audio, "failmt3").exists()
+
+
+def test_empty_mt3_falls_back_to_basic_pitch_in_polyphonic(tmp_path, monkeypatch):
+    _live_env(monkeypatch)
+    counters = _Counters()
+    _install_mocks(
+        monkeypatch,
+        tmp_path,
+        counters,
+        mt3_error="No pitched notes found in MIDI file",
+    )
+    audio = _wav(tmp_path / "song.wav")
+    result = PipelineOrchestrator().run(audio, "emptymt3", mode="polyphonic")
+    assert "score-partwise" in result.musicxml.lower()
+    assert counters.mt3 == 1
+    # full-mix Basic Pitch fallback + piano/bass stem BP
+    assert counters.bp >= 1
+    assert any("falling back to Basic Pitch" in w for w in result.warnings)
+    transcribe = result.stage(StageName.TRANSCRIBE_GLOBAL)
+    assert transcribe.ok
+    assert transcribe.extra.get("fallback_from") == "mt3" or transcribe.model == "basic_pitch"
 
 
 def test_live_does_not_flatten_fused_ensemble_into_score(tmp_path, monkeypatch):
