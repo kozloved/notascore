@@ -43,7 +43,12 @@ class TimingResolution:
     def score_median_bpm(self) -> float | None:
         return self.quality.median_bpm
 
-    def to_dict(self, *, meter_candidates: list | None = None) -> dict[str, Any]:
+    def to_dict(
+        self,
+        *,
+        meter_candidates: list | None = None,
+        selected_meter: str | None = None,
+    ) -> dict[str, Any]:
         score_beats = list(self.time_map.beat_times)
         perf_beats = list(self.performance_beat_times) if self.performance_beat_times else score_beats
         score_bpm = self.quality.median_bpm
@@ -66,6 +71,7 @@ class TimingResolution:
                 {"beat": m.beat, "bpm": m.bpm, "mark": m.mark, "reason": m.reason}
                 for m in self.printed
             ],
+            "selected_meter": selected_meter,
             "meter_candidates": meter_candidates,
             "quality": self.quality.to_dict(),
             "warnings": list(self.analysis.warnings),
@@ -89,10 +95,10 @@ class TimingResolution:
             ],
         }
 
-    def write_json(self, path: str | Path, *, meter_candidates: list | None = None) -> Path:
+    def write_json(self, path: str | Path, *, meter_candidates: list | None = None, selected_meter: str | None = None) -> Path:
         dest = Path(path)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(json.dumps(self.to_dict(meter_candidates=meter_candidates), indent=2) + "\n")
+        dest.write_text(json.dumps(self.to_dict(meter_candidates=meter_candidates, selected_meter=selected_meter), indent=2) + "\n")
         return dest
 
 

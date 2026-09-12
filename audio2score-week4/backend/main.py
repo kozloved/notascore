@@ -326,11 +326,21 @@ def _load_edit_model(job: dict) -> dict:
             time_map = time_map_from_tempo_payload(tempo_payload)
             printed = tempo_payload.get("printed_tempo") or []
             time_signature = "4/4"
-            meter = (tempo_payload.get("meter_candidates") or [None])[0]
-            if isinstance(meter, dict) and meter.get("ratio"):
-                time_signature = str(meter["ratio"])
-            elif isinstance(meter, str) and "/" in meter:
-                time_signature = meter
+            selected = tempo_payload.get("selected_meter")
+            if isinstance(selected, str) and "/" in selected:
+                time_signature = selected
+            elif isinstance(selected, dict):
+                ratio = selected.get("ratio") or selected.get("meter")
+                if ratio:
+                    time_signature = str(ratio)
+            else:
+                meter = (tempo_payload.get("meter_candidates") or [None])[0]
+                if isinstance(meter, dict):
+                    ratio = meter.get("ratio") or meter.get("meter")
+                    if ratio:
+                        time_signature = str(ratio)
+                elif isinstance(meter, str) and "/" in meter:
+                    time_signature = meter
         else:
             duration = max((note.end_sec for note in snapshot.notes), default=4.0)
             from timing.tempo_map import MusicalTimeMap
