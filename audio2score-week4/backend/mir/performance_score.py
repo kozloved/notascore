@@ -39,12 +39,22 @@ class PerformanceReport:
 
 
 def _onset_candidates(raw, max_move):
+    # An already representable attack is stronger evidence than a preference
+    # for a simpler rhythm. In particular, preserve 64ths and offbeat triplets.
+    for denominator, family in ((1, "binary"), (2, "binary"), (4, "binary"),
+                                (8, "binary"), (16, "binary"),
+                                (3, "triplet"), (6, "triplet"),
+                                (12, "triplet"), (24, "triplet"), (48, "triplet")):
+        exact = Fraction(round(raw * denominator), denominator)
+        if abs(float(exact) - raw) <= min(1e-7, max_move):
+            return [(exact, family, 0.0)]
     candidates = {}
     for denominator, family, complexity in (
         (1, "binary", 0.0), (2, "binary", 0.008),
         (4, "binary", 0.016), (8, "binary", 0.035),
         (3, "triplet", 0.035), (6, "triplet", 0.05),
         (16, "binary", 0.08),
+        (12, "triplet", 0.09), (24, "triplet", 0.12), (48, "triplet", 0.16),
     ):
         center = round(raw * denominator)
         for tick in range(center - 1, center + 2):
@@ -106,15 +116,19 @@ def _written_overlap(raw, onset, next_onset, overlaps):
     return overlaps
 
 
-def _duration(raw, onset, next_onset, overlaps, family):
-    unit = Fraction(1, 6) if family == "triplet" else Fraction(1, 16)
+def _duration(raw, onset, next_onset, overlaps, family, *, preserve=False):
+    unit = Fraction(1, 48) if family == "triplet" else Fraction(1, 16)
     named = {Fraction(n, d) for d in (1, 2, 4, 8, 16)
              for n in (1, 2, 3, 4, 6, 8, 12, 16)}
     if family == "triplet":
-        named.update(Fraction(n, 6) for n in (1, 2, 4, 8, 16))
+        named.update(Fraction(n, d) for d in (6, 12, 24, 48) for n in (1, 2, 4, 8, 16))
     # Long sustains remain possible and will be split into barline ties.
     named.add(max(unit, round(raw / float(unit)) * unit))
-    written_overlap = _written_overlap(raw, onset, next_onset, overlaps)
+    if preserve:
+        exact = min(named, key=lambda d: abs(float(d) - raw))
+        if abs(float(exact) - raw) < 1e-7:
+            return exact
+    written_overlap = overlaps if preserve else _written_overlap(raw, onset, next_onset, overlaps)
     if next_onset is not None and not written_overlap:
         cap = next_onset - onset
         named = {d for d in named if d <= cap}
@@ -273,8 +287,15 @@ def quantize_notation(events, meter, *, config, mode=None):
                 note_id += ":generated"
         used.add(note_id)
         raw.append(copy_event(ev, note_id=note_id))
-    profile = score_profile(raw)
-    interpreted, layout_source = resolve_layout(raw, profile)
+    # Downbeat phase belongs to score coordinates, never to the source MIDI.
+    downbeats = [float(beat) for beat in meter.evidence.get("downbeat_beats", [])
+                 if isfinite(float(beat)) and float(beat) >= 0]
+    offset = (-min(downbeats)) % meter.measure_quarter_length if downbeats else 0.0
+    if abs(offset - meter.measure_quarter_length) < 1e-7:
+        offset = 0.0
+    score_input = [copy_event(ev, start_beat=ev.start_beat + offset) for ev in raw]
+    profile = score_profile(score_input)
+    interpreted, layout_source = resolve_layout(score_input, profile)
     voices = defaultdict(list)
     for ev in interpreted:
         staff = staff_for_hand(ev.hand, ev.pitch) if profile.grand_staff else 0
@@ -285,7 +306,8 @@ def quantize_notation(events, meter, *, config, mode=None):
     for key, voice in voices.items():
         groups = []
         for ev in sorted(voice, key=lambda e: (e.start_beat, e.pitch)):
-            if (groups and abs(ev.start_beat - groups[-1][0].start_beat) <= 0.04
+            chord_tolerance = 1e-7 if ev.source_backend == "midi" else 0.04
+            if (groups and abs(ev.start_beat - groups[-1][0].start_beat) <= chord_tolerance
                     and all(ev.pitch != other.pitch for other in groups[-1])):
                 groups[-1].append(ev)
             else:
@@ -296,12 +318,13 @@ def quantize_notation(events, meter, *, config, mode=None):
             neighbors = ([nxt - onset] if nxt is not None else [])
             if i:
                 neighbors.append(onset - path[i - 1][0])
-            if onset.denominator == 1 and any(d.denominator in (3, 6) for d in neighbors):
+            if onset.denominator == 1 and any(d.denominator % 3 == 0 for d in neighbors):
                 family = "triplet"
             raw_next = min(e.start_beat for e in groups[i + 1]) if nxt is not None else None
             for ev in group:
                 overlaps = raw_next is not None and ev.start_beat + ev.duration_beats > raw_next + 0.04
-                duration = _duration(ev.duration_beats, onset, nxt, overlaps, family)
+                duration = _duration(ev.duration_beats, onset, nxt, overlaps, family,
+                                     preserve=ev.source_backend == "midi")
                 exact[ev.note_id] = (onset, duration, family, f"{key[0]}:{key[1]}:{i}")
                 role, phrase = roles[ev.note_id]
                 out.append(copy_event(ev, start_beat=float(onset), duration_beats=float(duration),
@@ -328,11 +351,16 @@ def quantize_notation(events, meter, *, config, mode=None):
             "phrase_id": ev.phrase_id, "hand_confidence": ev.hand_confidence,
             "voice_confidence": ev.voice_confidence,
             "group_id": group_id, "reason": "bounded_voice_search",
+            "score_beat_offset": offset,
+            "onset_error_beats": ev.start_beat - offset - source.start_beat,
         })
     summary = summarize_quantization(raw, out, decisions)
     summary.update(engine="performance", voice_count=len({(n.staff, n.voice) for n in notes}),
                    role_method="contextual_line_hypothesis", role_confidence=0.4,
                    timing_representation="rational", source_notes=len(raw),
                    layout_source=layout_source,
+                   score_beat_offset=offset,
+                   beat_origin_source="detected_downbeat" if downbeats else "file_origin",
+                   max_onset_error_beats=max((abs(d["onset_error_beats"]) for d in decisions), default=0),
                    score_profile=profile.to_dict())
     return out, decisions, PerformanceReport(summary, tuple(notes), decisions)

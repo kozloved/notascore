@@ -274,12 +274,17 @@ def align_tempo_map(tempo_map: TempoMap, target_bpm: float) -> TempoMap:
 
 
 def beat_status() -> dict:
+    from shutil import which
     from audio_engine.audioset_tagger import audioset_status
     from audio_engine.madmom_beats import madmom_available
 
     backend = os.getenv("BEAT_TRACKER_BACKEND", "madmom").strip().lower()
+    available = madmom_available()
+    ffmpeg = which("ffmpeg") is not None
     return {
         "backend": backend or "madmom",
-        "madmom_available": madmom_available(),
+        "madmom_available": available,
+        "ffmpeg_available": ffmpeg,
+        "madmom_ready": available and ffmpeg,
         "audioset": audioset_status(),
     }

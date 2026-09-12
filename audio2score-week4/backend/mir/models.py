@@ -168,6 +168,9 @@ class PlannedNote:
     beams: list[tuple[str, Optional[str]]] = field(default_factory=list)
     tuplet: Optional[PlannedTuplet] = None
 
+    # Parallel to pitches/event_ids, including every fragment of a tied chord.
+    velocities: list[int] = field(default_factory=list)
+
 
 @dataclass
 class PlannedRest:

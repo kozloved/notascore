@@ -24,7 +24,7 @@ pytest
 # Beat / downbeat (meter). PyPI 0.16.1 breaks on Python 3.11 + modern NumPy.
 # Cython is required to build madmom from git.
 Cython
-madmom @ git+https://github.com/CPJKU/madmom.git
+madmom @ git+https://github.com/CPJKU/madmom.git@27f032e8947204902c675e5e341a3faf5dc86dae
 # Optional AudioSet instrument tagging (not beat tracking):
 #   pip install tensorflow-hub          # YAMNet
 #   pip install panns-inference         # PANNs CNN14 (PyTorch, ~300MB weights)
@@ -33,4 +33,3 @@ madmom @ git+https://github.com/CPJKU/madmom.git
 # (TRANSCRIPTION_HAND_SEPARATOR=pm2s, TRANSCRIPTION_QUANTIZATION_MODE=pm2s).
 # Not installed by default — torch is large. See requirements-pm2s.txt
 # and scripts/setup_pm2s.sh.
-

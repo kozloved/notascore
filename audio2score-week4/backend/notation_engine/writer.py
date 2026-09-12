@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from music21 import (
     articulations,
@@ -37,6 +38,7 @@ from mir.types import Hand, MusicalEvent, ScoreMeta, TempoMap
 from notation_engine.meter import bar_length, estimate_key, estimate_time_signature
 from notation_engine.plan import NotationPlanner, log_notation_invariant, validate_voice_timeline
 from notation_engine.quantize import quantize_events
+from notation_engine.integrity import NotationIntegrityError, validate_event_identity, validate_exports
 from mir.pipeline_config import (
     QuantizationMode,
     parse_quantization_mode,
@@ -68,6 +70,7 @@ class NotationWriter:
         self.last_fit_trim_count: int = 0
         self.last_invariant_issues: list[dict] = []
         self.last_result: NotationResult | None = None
+        self.last_export_integrity: dict = {}
 
     def _remember_notation(self, result: NotationResult) -> None:
         self.last_result = result
@@ -92,6 +95,7 @@ class NotationWriter:
             payload["fit_trim_count"] = self.last_fit_trim_count
             payload["invariant_issues"] = list(self.last_invariant_issues)
             payload["musicxml_export_failure"] = self.last_export_failure
+            payload["export_integrity"] = dict(self.last_export_integrity)
             return payload
         plan = self.last_plan
         plan_ok = plan is not None and not self.last_plan_failure
@@ -116,9 +120,32 @@ class NotationWriter:
             "invariant_issues": list(self.last_invariant_issues),
             "quantization_decisions": list(self.last_quantization_decisions),
             "quantization_summary": dict(self.last_quantization_summary),
+            "export_integrity": dict(self.last_export_integrity),
         }
 
     def write_musicxml(
+        self, events, meta, job_id, audio_path, quantize_divisors=(4, 3),
+        fallback_bpm=120.0, structure=None, quantization_mode=None,
+    ) -> str:
+        out_dir = Path(audio_path).parent / f"bp_{job_id}"
+        out_dir.mkdir(exist_ok=True)
+        self.last_export_integrity = {}
+        # Failed validation must not publish a partial or corrupted score.
+        with TemporaryDirectory(prefix=".notation-", dir=out_dir) as staging:
+            staged_source = Path(staging) / Path(audio_path).name
+            try:
+                xml = self._write_musicxml_files(
+                    events, meta, job_id, staged_source, quantize_divisors,
+                    fallback_bpm, structure, quantization_mode)
+            except NotationIntegrityError as exc:
+                self.last_export_failure = True
+                self.last_export_integrity = {"status": "failed", "error": str(exc)}
+                raise
+            for artifact in (Path(staging) / f"bp_{job_id}").iterdir():
+                artifact.replace(out_dir / artifact.name)
+        return xml
+
+    def _write_musicxml_files(
         self,
         events: list[MusicalEvent],
         meta: ScoreMeta,
@@ -182,10 +209,36 @@ class NotationWriter:
             )
             self._export_musicxml(score, xml_path)
         try:
-            score.write("midi", fp=str(out_dir / f"{job_id}.score.mid"))
+            playback = self._score_for_playback(score, meta)
+            playback.write("midi", fp=str(out_dir / f"{job_id}.score.mid"))
         except Exception as exc:
+            if self.last_quantization_mode == QuantizationMode.PERFORMANCE:
+                raise NotationIntegrityError(f"Score MIDI export failed: {exc}") from exc
             print(f"[Notation] score MIDI write failed ({exc!s})")
+        if self.last_quantization_mode == QuantizationMode.PERFORMANCE:
+            validate_event_identity(events, self.last_quantized_events)
+            self.last_export_integrity = validate_exports(
+                xml_path, out_dir / f"{job_id}.score.mid", self.last_quantized_events)
         return xml_path.read_text(encoding="utf-8")
+
+    def _score_for_playback(self, score, meta):
+        from notation_engine.playback import playback_score
+
+        tempi = (meta.extra or {}).get("playback_tempo")
+        if self.last_quantization_mode != QuantizationMode.PERFORMANCE:
+            return score
+        # The page keeps sparse markings; MIDI needs the full score-time curve.
+        offset = float(self.last_quantization_summary.get("score_beat_offset", 0.0))
+        if tempi:
+            points = {0.0: float(tempi[0]["bpm"])}
+            points.update({float(p["beat"]) + offset: float(p["bpm"]) for p in tempi
+                           if 0 <= float(p["beat"]) + offset < float(score.highestTime)})
+        else:
+            points = {float(m.getOffsetInHierarchy(score.parts[0])): float(m.number)
+                      for m in score.parts[0].recurse().getElementsByClass(m21tempo.MetronomeMark)
+                      if m.number is not None}
+        return playback_score(self.last_quantized_events, self.last_plan.time_signature,
+                              sorted(points.items()))
 
     def write_from_events_direct(
         self,
@@ -443,7 +496,8 @@ class NotationWriter:
         # in memory but music21 omits it from MusicXML, so OSMD never draws BPM.
         self._insert_metronome_at_beat(score, 0.0, bpm)
         if meta is not None:
-            self._apply_tempo_map(score, meta)
+            self._apply_tempo_map(score, meta, score_beat_offset=float(
+                (plan.extra.get("quantization") or {}).get("score_beat_offset", 0)))
         return score
 
     def _element_to_m21(self, el):
@@ -484,6 +538,13 @@ class NotationWriter:
             n.volume.velocity = int(el.velocity)
         except Exception:
             pass
+        velocities = getattr(el, "velocities", [])
+        if velocities and len(velocities) == len(pitches):
+            if isinstance(n, m21chord.Chord):
+                for component, velocity in zip(n.notes, velocities):
+                    component.volume.velocity = int(velocity)
+            else:
+                n.volume.velocity = int(velocities[0])
         if getattr(el, "tie", None) in ("start", "stop", "continue"):
             n.tie = m21tie.Tie(el.tie)
         arts = getattr(el, "articulations", None) or []
@@ -809,7 +870,13 @@ class NotationWriter:
         self._apply_tempo_map(score, meta)
         return score
 
-    def _apply_tempo_map(self, score, meta: ScoreMeta) -> None:
+    def _apply_tempo_map(self, score, meta: ScoreMeta, score_beat_offset: float = 0.0) -> None:
+        if (meta.extra or {}).get("preserve_midi_tempo") and meta.tempo_map is not None:
+            for pt in meta.tempo_map.sorted_points():
+                beat = meta.tempo_map.seconds_to_beats(pt.time_sec) + score_beat_offset
+                if 0 <= beat < float(score.highestTime):
+                    self._insert_metronome_at_beat(score, beat, float(pt.bpm))
+            return
         printed = (meta.extra or {}).get("printed_tempo")
         if self.last_quantization_mode == QuantizationMode.PERFORMANCE and printed is not None:
             # MusicalTimeMap handles performed rubato. Only sustained tempo
@@ -837,15 +904,15 @@ class NotationWriter:
             )
             if abs(next_bpm - last_bpm) / max(last_bpm, 1.0) < 0.08:
                 continue
-            offset = tempo_map.seconds_to_beats(pt.time_sec)
+            offset = tempo_map.seconds_to_beats(pt.time_sec) + score_beat_offset
             if offset <= 0:
                 continue
             self._insert_metronome_at_beat(score, offset, int(round(next_bpm)))
             last_bpm = next_bpm
 
-    def _insert_metronome_at_beat(self, score, beat: float, bpm: int) -> None:
+    def _insert_metronome_at_beat(self, score, beat: float, bpm: float) -> None:
         """Put a metronome mark inside the measure that OSMD/MusicXML will export."""
-        mark = m21tempo.MetronomeMark(number=int(bpm))
+        mark = m21tempo.MetronomeMark(number=float(bpm))
         try:
             mark.placement = "above"
         except Exception:
@@ -872,14 +939,14 @@ class NotationWriter:
                     if abs(float(item.offset) - local) < 1e-6
                 ]
                 if existing:
-                    existing[0].number = int(bpm)
+                    existing[0].number = float(bpm)
                     return
                 self._safe_insert(meas, local, mark)
                 return
         first = measures[0]
         existing = list(first.getElementsByClass(m21tempo.MetronomeMark))
         if existing:
-            existing[0].number = int(bpm)
+            existing[0].number = float(bpm)
             return
         self._safe_insert(first, 0, mark)
 

@@ -534,6 +534,10 @@ class UnderstandingPipeline:
             ],
             "interpretation_choice": dict(self.last_interpretation_choice),
         }
+        meta.extra["playback_tempo"] = [
+            {"beat": beat, "bpm": bpm}
+            for beat, bpm in timing.time_map.interval_bpms()
+        ]
         self._write_timing_artifact(out_dir, job_id, timing, decision)
 
         self._write_debug(
@@ -618,6 +622,8 @@ class UnderstandingPipeline:
         )
 
         export_started = time.perf_counter()
+        # _align_score_meter already put events on the measured bar phase.
+        # Passing performance-map downbeats here would rotate that grid twice.
         xml = self.notation.write_musicxml(
             events,
             meta,
@@ -694,7 +700,8 @@ class UnderstandingPipeline:
             failure_reason="",
             audio_duration_sec=duration,
         )
-        # MIDI files already encode tempo; sampling TempoMap is the source of truth.
+        # Integer beat samples are diagnostics; MIDI endpoints must use every
+        # encoded tempo change, including changes inside a quarter note.
         timing.fallback_used = False
         timing.quality.fallback_used = False
         timing.failure_reason = ""
@@ -733,7 +740,7 @@ class UnderstandingPipeline:
         midi_instrument = next(iter(kinds)) if len(kinds) == 1 else InstrumentKind.UNKNOWN
         events = notes_to_events(
             notes,
-            timing.time_map,
+            tempo_map,
             role=role,
             instrument=midi_instrument,
             source_backend="midi",
@@ -771,6 +778,7 @@ class UnderstandingPipeline:
         )
         meta.extra = {
             **(meta.extra or {}),
+            "preserve_midi_tempo": True,
             "meter_source": "meter_decision",
             "meter_decision": decision.to_dict(),
             "file_meter": ingested.time_sig_hint,
@@ -862,6 +870,7 @@ class UnderstandingPipeline:
         extra["legacy_fallback_used"] = payload.get("legacy_fallback_used")
         extra["music21_conversion_failure"] = payload.get("music21_conversion_failure")
         extra["musicxml_export_failure"] = payload.get("musicxml_export_failure")
+        extra["export_integrity"] = payload.get("export_integrity") or {}
         extra["notation_mode"] = payload.get("notation_mode")
         extra["fit_trim_count"] = payload.get("fit_trim_count")
         extra["invariant_issue_count"] = len(payload.get("invariant_issues") or [])

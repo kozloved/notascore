@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import replace
 
 from mir.meter import MeterEstimator, meter_from_time_signature
 from mir.models import (
@@ -139,6 +140,12 @@ class NotationPlanner:
         if quantization_mode is not None:
             self.quantizer.mode = parse_quantization_mode(quantization_mode)
         meter = self._resolve_meter(events, meta, structure)
+        if self.quantizer.mode == QuantizationMode.PERFORMANCE and meta and meta.tempo_map:
+            extra = meta.extra or {}
+            if extra.get("detected_downbeat_meter") == meter.time_signature:
+                downbeats = [meta.tempo_map.seconds_to_beats(t)
+                             for t in extra.get("detected_downbeats_seconds", [])]
+                meter = replace(meter, evidence={**meter.evidence, "downbeat_beats": downbeats})
         quant_result = self.quantizer.quantize_result(events, meter)
         quantized, decisions = quant_result.events, quant_result.decisions
         bpm = (meta.display_tempo_bpm if meta else None) or int(fallback_bpm)
