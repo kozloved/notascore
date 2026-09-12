@@ -111,6 +111,7 @@ def process_job(job_id: str):
         )
         if not published:
             return
+        storage_backend.gc_unreachable_attempts(job_id, keep_attempt_ids={attempt_id})
 
     except Exception as exc:
         public_error = str(exc)

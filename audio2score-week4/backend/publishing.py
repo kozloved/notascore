@@ -93,3 +93,24 @@ def attempt_directory(storage_key: str | None, job_id: str) -> str | None:
     if not attempt_id:
         return None
     return normalized[: index + len(marker)] + attempt_id
+
+
+def attempt_id_from_key(storage_key: str | None, job_id: str) -> str | None:
+    directory = attempt_directory(storage_key, job_id)
+    if not directory:
+        return None
+    return Path(directory).name
+
+
+def unreachable_attempt_keys(
+    keys: list[str],
+    job_id: str,
+    keep_attempt_ids,
+) -> list[str]:
+    keep = {str(item) for item in (keep_attempt_ids or ()) if item}
+    doomed: list[str] = []
+    for key in keys:
+        attempt_id = attempt_id_from_key(key, job_id)
+        if attempt_id and attempt_id not in keep:
+            doomed.append(key)
+    return doomed

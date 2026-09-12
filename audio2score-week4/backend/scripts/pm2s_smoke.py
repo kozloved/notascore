@@ -54,7 +54,7 @@ def main() -> int:
     sep = Pm2sHandSeparator()
     hands = sep.separate(list(events))
     q = MeasureQuantizer(mode="pm2s")
-    quantized, decisions = q.quantize(list(hands), MeterEstimator().select(events))
+    quantized, decisions = q.quantize_experimental(list(hands), MeterEstimator().select(events)).as_tuple()
     raw = {e.note_id: e for e in events}
     payload = {
         "ok": sep.last_source == "pm2s"

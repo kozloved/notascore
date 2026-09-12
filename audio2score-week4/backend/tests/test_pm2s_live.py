@@ -21,13 +21,13 @@ def _ensure_repo(monkeypatch):
         monkeypatch.setenv("PM2S_REPO", str(default))
 
 
-def _ev(pitch, start_beat, dur, *, start_sec, note_id):
+def _ev(pitch, start_beat, dur, *, start_sec, note_id, hand=Hand.UNKNOWN):
     return MusicalEvent(
         pitch=pitch,
         start_beat=start_beat,
         duration_beats=dur,
         velocity=80,
-        hand=Hand.UNKNOWN,
+        hand=hand,
         note_id=note_id,
         start_time_sec=start_sec,
         end_time_sec=start_sec + dur * 0.5,
@@ -71,10 +71,11 @@ def test_live_pm2s_quantizer_rewrites_beats(pm2s_env):
     for i in range(8):
         t = i * 0.5
         events.append(_ev(72, 0.11 + i, 0.37, start_sec=t, note_id=f"r{i}"))
-        events.append(_ev(48, 0.51 + i, 0.41, start_sec=t + 0.2, note_id=f"l{i}"))
-        events[-1].hand = Hand.LEFT
+        events.append(
+            _ev(48, 0.51 + i, 0.41, start_sec=t + 0.2, note_id=f"l{i}", hand=Hand.LEFT)
+        )
     q = MeasureQuantizer(mode="pm2s")
-    out, decisions = q.quantize(events, MeterEstimator().select(events))
+    out, decisions = q.quantize_experimental(events, MeterEstimator().select(events)).as_tuple()
     assert q.last_summary.get("engine") == "pm2s"
     assert all(d.get("reason") == "pm2s_quant" for d in decisions)
     by_id = {e.note_id: e for e in out}

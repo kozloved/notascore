@@ -284,7 +284,13 @@ def update_job(job_id: str, **fields):
         session.close()
 
 
-def cas_update_job(job_id: str, expected: dict | None = None, expected_in: dict | None = None, **fields):
+def cas_update_job(
+    job_id: str,
+    expected: dict | None = None,
+    expected_in: dict | None = None,
+    expected_lt: dict | None = None,
+    **fields,
+):
     """Atomically update a job only when the expected predicates still match."""
     clean_fields = {
         key: value
@@ -305,6 +311,8 @@ def cas_update_job(job_id: str, expected: dict | None = None, expected_in: dict 
                 query = query.filter(column == value)
         for key, options in (expected_in or {}).items():
             query = query.filter(getattr(Job, key).in_(list(options)))
+        for key, value in (expected_lt or {}).items():
+            query = query.filter(getattr(Job, key) < value)
         updated_count = query.update(clean_fields, synchronize_session=False)
         session.commit()
         return updated_count > 0
@@ -312,10 +320,56 @@ def cas_update_job(job_id: str, expected: dict | None = None, expected_in: dict 
         session.close()
 
 
-def claim_job_attempt(job_id: str, attempt_id: str) -> bool:
-    return cas_update_job(
+def claim_stale_seconds() -> int:
+    raw = os.getenv("JOB_CLAIM_STALE_SECONDS", "900")
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return 900
+
+
+def _stale_cutoff_iso(stale_after_seconds: int | None = None) -> str:
+    seconds = claim_stale_seconds() if stale_after_seconds is None else max(0, int(stale_after_seconds))
+    from datetime import timedelta
+
+    return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat()
+
+
+def claim_job_attempt(
+    job_id: str,
+    attempt_id: str,
+    *,
+    stale_after_seconds: int | None = None,
+) -> bool:
+    if cas_update_job(
         job_id,
         expected_in={"status": ("queued", "failed")},
+        status="processing",
+        processing_attempt=attempt_id,
+        error=None,
+        progress=5,
+    ):
+        return True
+    return reclaim_stale_job_attempt(
+        job_id, attempt_id, stale_after_seconds=stale_after_seconds
+    )
+
+
+def reclaim_stale_job_attempt(
+    job_id: str,
+    attempt_id: str,
+    *,
+    stale_after_seconds: int | None = None,
+) -> bool:
+    """Steal a processing job whose heartbeat is older than the stale window.
+
+    Compare-and-swap on status + updated_at. A live worker that still
+    heartbeats via progress updates cannot be stolen.
+    """
+    return cas_update_job(
+        job_id,
+        expected={"status": "processing"},
+        expected_lt={"updated_at": _stale_cutoff_iso(stale_after_seconds)},
         status="processing",
         processing_attempt=attempt_id,
         error=None,

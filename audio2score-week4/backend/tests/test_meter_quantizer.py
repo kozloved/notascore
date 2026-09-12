@@ -6,9 +6,9 @@ from mir.types import Hand, MusicalEvent, ScoreMeta
 from notation_engine.plan import NotationPlanner
 
 
-def _ev(pitch, start, dur, hand=Hand.RIGHT):
+def _ev(pitch, start, dur, hand=Hand.RIGHT, **kwargs):
     return MusicalEvent(
-        pitch=pitch, start_beat=start, duration_beats=dur, hand=hand, voice=0, velocity=80
+        pitch=pitch, start_beat=start, duration_beats=dur, hand=hand, voice=0, velocity=80, **kwargs
     )
 
 
@@ -111,15 +111,15 @@ def test_quantization_off_keeps_raw_beats():
         _ev(72, 0.11, 0.37),
         _ev(74, 0.51, 0.41),
     ]
-    q, decisions = MeasureQuantizer(mode="off").quantize(
+    q, decisions = MeasureQuantizer(mode="off").quantize_experimental(
         events, MeterEstimator().select(events)
-    )
+    ).as_tuple()
     assert [round(e.start_beat, 4) for e in q] == [0.11, 0.51]
     assert [round(e.duration_beats, 4) for e in q] == [0.37, 0.41]
     assert all(d.get("reason") == "off_identity" for d in decisions)
-    adaptive, _ = MeasureQuantizer(mode="adaptive").quantize(
+    adaptive, _ = MeasureQuantizer(mode="adaptive").quantize_experimental(
         events, MeterEstimator().select(events)
-    )
+    ).as_tuple()
     assert [e.start_beat for e in q] != [e.start_beat for e in adaptive] or [
         e.duration_beats for e in q
     ] != [e.duration_beats for e in adaptive]
@@ -225,17 +225,13 @@ class _FakePm2sQuant:
 
 def test_pm2s_quantizer_rewrites_beats_not_pitches():
     events = [
-        _ev(72, 0.11, 0.37),
-        _ev(48, 0.51, 0.41, hand=Hand.LEFT),
+        _ev(72, 0.11, 0.37, note_id="r", start_time_sec=0.05),
+        _ev(48, 0.51, 0.41, hand=Hand.LEFT, note_id="l", start_time_sec=0.25),
     ]
-    events[0].note_id = "r"
-    events[1].note_id = "l"
-    events[0].start_time_sec = 0.05
-    events[1].start_time_sec = 0.25
     fake = _FakePm2sQuant([0.0, 1.0], [1.0, 2.0])
-    q, decisions = MeasureQuantizer(mode="pm2s", pm2s_processor=fake).quantize(
+    q, decisions = MeasureQuantizer(mode="pm2s", pm2s_processor=fake).quantize_experimental(
         events, MeterEstimator().select(events)
-    )
+    ).as_tuple()
     by_id = {e.note_id: e for e in q}
     assert by_id["r"].pitch == 72
     assert by_id["l"].pitch == 48
@@ -259,9 +255,9 @@ def test_pm2s_quantizer_falls_back_to_identity_on_failure(monkeypatch):
             raise RuntimeError("no weights")
 
     events = [_ev(72, 0.11, 0.37)]
-    q, decisions = MeasureQuantizer(mode="pm2s", pm2s_processor=Boom()).quantize(
+    q, decisions = MeasureQuantizer(mode="pm2s", pm2s_processor=Boom()).quantize_experimental(
         events, MeterEstimator().select(events)
-    )
+    ).as_tuple()
     assert q[0].start_beat == 0.11
     assert q[0].duration_beats == 0.37
     assert all(d.get("reason") == "off_identity" for d in decisions)
@@ -277,7 +273,7 @@ def test_pm2s_required_raises_on_quantizer_failure(monkeypatch):
             raise RuntimeError("no weights")
 
     with pytest.raises(RuntimeError, match="PM2S quantizer failed"):
-        MeasureQuantizer(mode="pm2s", pm2s_processor=Boom()).quantize(
+        MeasureQuantizer(mode="pm2s", pm2s_processor=Boom()).quantize_experimental(
             [_ev(72, 0.11, 0.37)], MeterEstimator().select([_ev(72, 0.11, 0.37)])
         )
 
@@ -286,7 +282,7 @@ def test_pm2s_quantizer_missing_processor_keeps_timing():
     q = MeasureQuantizer(mode="pm2s")
     q._pm2s_load_failed = True
     events = [_ev(60, 0.2, 0.3)]
-    out, decisions = q.quantize(events, MeterEstimator().select(events))
+    out, decisions = q.quantize_experimental(events, MeterEstimator().select(events)).as_tuple()
     assert out[0].start_beat == 0.2
     assert all(d.get("reason") == "off_identity" for d in decisions)
 

@@ -18,7 +18,6 @@ from mir.job import QuantizationResult
 from mir.models import MeterHypothesis, staff_for_hand
 from mir.pipeline_config import (
     QuantizationMode,
-    is_experimental_quantization,
     parse_quantization_mode,
     pm2s_required,
 )
@@ -172,28 +171,40 @@ class MeasureQuantizer:
     ):
         self.config = config or QuantizerConfig()
         self.mode = parse_quantization_mode(mode)
-        self.last_summary: dict = {}
-        self.last_events: list[MusicalEvent] = []
-        self.last_raw_events: list[MusicalEvent] = []
-        self.last_notation_events: list[MusicalEvent] = []
-        self.last_report = None
         self.last_result: QuantizationResult | None = None
         self._pm2s_processor = pm2s_processor
         self._pm2s_load_failed = False
+
+    @property
+    def last_summary(self) -> dict:
+        return dict(self.last_result.summary) if self.last_result else {}
+
+    @property
+    def last_events(self) -> list[MusicalEvent]:
+        return list(self.last_result.events) if self.last_result else []
+
+    @property
+    def last_raw_events(self) -> list[MusicalEvent]:
+        return list(self.last_result.raw_events) if self.last_result else []
+
+    @property
+    def last_notation_events(self) -> list[MusicalEvent]:
+        return list(self.last_result.events) if self.last_result else []
+
+    @property
+    def last_report(self):
+        return None if self.last_result is None else self.last_result.report
 
     def quantize(
         self,
         events: list[MusicalEvent],
         meter: MeterHypothesis,
     ) -> tuple[list[MusicalEvent], list[dict]]:
-        """Mode-dispatch for tests and experimental callers.
+        """Public product entry point. Always the performance engine.
 
-        Product code must call `quantize_production` or `quantize_experimental`
-        explicitly. This helper follows `self.mode` and is not the production
-        boundary.
+        Experimental engines must be requested via `quantize_experimental`
+        or `compare_quantizers`. `self.mode` cannot change this path.
         """
-        if is_experimental_quantization(self.mode):
-            return self.quantize_experimental(events, meter, self.mode).as_tuple()
         return self.quantize_production(events, meter).as_tuple()
 
     def quantize_result(
@@ -287,12 +298,7 @@ class MeasureQuantizer:
         return result
 
     def _remember(self, result: QuantizationResult) -> None:
-        self.last_result = result
-        self.last_raw_events = list(result.raw_events)
-        self.last_events = list(result.events)
-        self.last_notation_events = list(result.events)
-        self.last_report = result.report
-        self.last_summary = dict(result.summary)
+        self.last_result = result.copy()
 
     def _identity_result(self, events: list[MusicalEvent]) -> QuantizationResult:
         """Keep transcribed onsets and durations.

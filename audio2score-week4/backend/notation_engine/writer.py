@@ -55,39 +55,127 @@ class NotationWriter:
 
     def __init__(self):
         self.planner = NotationPlanner()
-        self.last_plan: NotationPlan | None = None
-        self.last_quantization_decisions: list[dict] = []
-        self.last_quantization_summary: dict = {}
-        self.last_quantized_events: list = []
-        self.last_fallback_used: bool = False
-        self.last_fallback_error: str | None = None
-        self.last_quantization_mode: QuantizationMode = parse_quantization_mode(None)
-        self.last_job_id: str | None = None
-        self.last_source_event_count: int = 0
-        self.last_plan_failure: bool = False
-        self.last_conversion_failure: bool = False
-        self.last_export_failure: bool = False
-        self.last_fit_trim_count: int = 0
-        self.last_invariant_issues: list[dict] = []
         self.last_result: NotationResult | None = None
         self.last_export_integrity: dict = {}
+        self.last_job_id: str | None = None
+
+    def _ensure_result(self) -> NotationResult:
+        if self.last_result is None:
+            self.last_result = NotationResult(job_id=self.last_job_id)
+        return self.last_result
 
     def _remember_notation(self, result: NotationResult) -> None:
-        self.last_result = result
-        self.last_plan = result.plan
-        self.last_quantization_decisions = list(result.decisions)
-        self.last_quantization_summary = dict(result.summary)
-        self.last_quantized_events = list(result.quantized_events)
-        self.last_fallback_used = result.fallback_used
-        self.last_fallback_error = result.fallback_error
-        self.last_quantization_mode = parse_quantization_mode(result.quantization_mode)
-        self.last_job_id = result.job_id
-        self.last_source_event_count = result.source_event_count
-        self.last_plan_failure = result.plan_failure
-        self.last_conversion_failure = result.conversion_failure
-        self.last_export_failure = result.export_failure
-        self.last_fit_trim_count = result.fit_trim_count
-        self.last_invariant_issues = list(result.invariant_issues)
+        snapshot = result.copy()
+        self.last_result = snapshot
+        if snapshot.job_id:
+            self.last_job_id = snapshot.job_id
+
+    @property
+    def last_plan(self):
+        return None if self.last_result is None else self.last_result.plan
+
+    @last_plan.setter
+    def last_plan(self, value) -> None:
+        self._ensure_result().plan = value
+
+    @property
+    def last_quantization_decisions(self) -> list[dict]:
+        return list(self.last_result.decisions) if self.last_result else []
+
+    @last_quantization_decisions.setter
+    def last_quantization_decisions(self, value) -> None:
+        self._ensure_result().decisions = list(value or [])
+
+    @property
+    def last_quantization_summary(self) -> dict:
+        return dict(self.last_result.summary) if self.last_result else {}
+
+    @last_quantization_summary.setter
+    def last_quantization_summary(self, value) -> None:
+        self._ensure_result().summary = dict(value or {})
+
+    @property
+    def last_quantized_events(self) -> list:
+        return list(self.last_result.quantized_events) if self.last_result else []
+
+    @last_quantized_events.setter
+    def last_quantized_events(self, value) -> None:
+        self._ensure_result().quantized_events = list(value or [])
+
+    @property
+    def last_fallback_used(self) -> bool:
+        return bool(self.last_result.fallback_used) if self.last_result else False
+
+    @last_fallback_used.setter
+    def last_fallback_used(self, value) -> None:
+        self._ensure_result().fallback_used = bool(value)
+
+    @property
+    def last_fallback_error(self) -> str | None:
+        return None if self.last_result is None else self.last_result.fallback_error
+
+    @last_fallback_error.setter
+    def last_fallback_error(self, value) -> None:
+        self._ensure_result().fallback_error = value
+
+    @property
+    def last_quantization_mode(self) -> QuantizationMode:
+        if self.last_result is None:
+            return parse_quantization_mode(None)
+        return parse_quantization_mode(self.last_result.quantization_mode)
+
+    @last_quantization_mode.setter
+    def last_quantization_mode(self, value) -> None:
+        parsed = parse_quantization_mode(value)
+        self._ensure_result().quantization_mode = parsed.value
+
+    @property
+    def last_source_event_count(self) -> int:
+        return int(self.last_result.source_event_count) if self.last_result else 0
+
+    @last_source_event_count.setter
+    def last_source_event_count(self, value) -> None:
+        self._ensure_result().source_event_count = int(value)
+
+    @property
+    def last_plan_failure(self) -> bool:
+        return bool(self.last_result.plan_failure) if self.last_result else False
+
+    @last_plan_failure.setter
+    def last_plan_failure(self, value) -> None:
+        self._ensure_result().plan_failure = bool(value)
+
+    @property
+    def last_conversion_failure(self) -> bool:
+        return bool(self.last_result.conversion_failure) if self.last_result else False
+
+    @last_conversion_failure.setter
+    def last_conversion_failure(self, value) -> None:
+        self._ensure_result().conversion_failure = bool(value)
+
+    @property
+    def last_export_failure(self) -> bool:
+        return bool(self.last_result.export_failure) if self.last_result else False
+
+    @last_export_failure.setter
+    def last_export_failure(self, value) -> None:
+        self._ensure_result().export_failure = bool(value)
+
+    @property
+    def last_fit_trim_count(self) -> int:
+        return int(self.last_result.fit_trim_count) if self.last_result else 0
+
+    @last_fit_trim_count.setter
+    def last_fit_trim_count(self, value) -> None:
+        self._ensure_result().fit_trim_count = int(value)
+
+    @property
+    def last_invariant_issues(self) -> list[dict]:
+        return list(self.last_result.invariant_issues) if self.last_result else []
+
+    @last_invariant_issues.setter
+    def last_invariant_issues(self, value) -> None:
+        self._ensure_result().invariant_issues = [dict(item) for item in (value or [])]
 
     def notation_debug_payload(self) -> dict:
         if self.last_result is not None:

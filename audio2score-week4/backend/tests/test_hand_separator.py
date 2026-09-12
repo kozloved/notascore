@@ -19,7 +19,7 @@ from mir.types import (
 )
 
 
-def _ev(pitch, start, dur=0.5, role=None, velocity=80, hand=Hand.UNKNOWN, hand_locked=False, note_id=""):
+def _ev(pitch, start, dur=0.5, role=None, velocity=80, hand=Hand.UNKNOWN, hand_locked=False, note_id="", **kwargs):
     return MusicalEvent(
         pitch=pitch,
         start_beat=start,
@@ -30,6 +30,7 @@ def _ev(pitch, start, dur=0.5, role=None, velocity=80, hand=Hand.UNKNOWN, hand_l
         hand_locked=hand_locked,
         hand_confidence=1.0 if hand != Hand.UNKNOWN else 0.0,
         note_id=note_id,
+        **kwargs,
     )
 
 
@@ -280,15 +281,11 @@ class _FakePm2s:
 
 def test_pm2s_assigns_by_label_without_changing_notes():
     events = [
-        _ev(72, 0.0, note_id="r", hand=Hand.UNKNOWN),
-        _ev(48, 0.0, note_id="l", hand=Hand.UNKNOWN),
-        _ev(76, 1.0, note_id="r2", hand=Hand.UNKNOWN),
-        _ev(36, 1.0, note_id="l2", hand=Hand.UNKNOWN),
+        _ev(72, 0.0, note_id="r", hand=Hand.UNKNOWN, start_time_sec=0.0),
+        _ev(48, 0.0, note_id="l", hand=Hand.UNKNOWN, start_time_sec=0.0),
+        _ev(76, 1.0, note_id="r2", hand=Hand.UNKNOWN, start_time_sec=0.5),
+        _ev(36, 1.0, note_id="l2", hand=Hand.UNKNOWN, start_time_sec=0.5),
     ]
-    events[0].start_time_sec = 0.0
-    events[1].start_time_sec = 0.0
-    events[2].start_time_sec = 0.5
-    events[3].start_time_sec = 0.5
     fake = _FakePm2s([0, 1, 0, 1])
     sep = Pm2sHandSeparator(processor=fake)
     original = [(e.note_id, e.pitch, e.start_beat, e.duration_beats) for e in events]
@@ -369,9 +366,7 @@ def test_build_hand_separator_pm25_alias():
 
 
 def test_events_to_note_seq_uses_seconds_not_beats():
-    ev = _ev(64, 4.0, dur=2.0)
-    ev.start_time_sec = 1.25
-    ev.end_time_sec = 1.75
+    ev = _ev(64, 4.0, dur=2.0, start_time_sec=1.25, end_time_sec=1.75)
     seq, ordered = events_to_note_seq([ev])
     assert ordered[0] is ev
     assert list(seq[0]) == [64.0, 1.25, 0.5, 80.0]
