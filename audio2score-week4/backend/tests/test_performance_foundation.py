@@ -67,8 +67,8 @@ def test_snapshot_retains_short_notes_controllers_drums_and_identity(tmp_path):
     assert len({e.note_id for e in events}) == 2
     assert snapshot.tracks[0].controls[0][1:] == (11, 91)
     assert snapshot.tracks[0].pitch_bends[0][1] == 256
-    ingested.notes[0].pitch = 1
-    assert all(n.pitch != 1 for n in snapshot.notes)
+    with pytest.raises(FrozenInstanceError):
+        ingested.notes[0].pitch = 1
     with pytest.raises(FrozenInstanceError):
         snapshot.notes[0].pitch = 2
     snapshot.verify_midi(raw)

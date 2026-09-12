@@ -17,7 +17,8 @@ from mir.types import NoteEvent
 class ImmutableNoteSet:
     """Frozen copy of the notes that belong to one job view.
 
-    Callers receive `copy_notes()` if they need a mutable working list.
+    `NoteEvent` records are themselves frozen. `copy_notes()` returns
+    independent frozen copies; edit them with `dataclasses.replace`.
     The stored tuple is never mutated in place.
     """
 
@@ -64,6 +65,19 @@ class QuantizationResult:
     def as_tuple(self) -> tuple[list, list[dict]]:
         return list(self.events), list(self.decisions)
 
+    def copy(self) -> "QuantizationResult":
+        """Detached snapshot. Mutating the original lists cannot change this."""
+        return QuantizationResult(
+            events=list(self.events),
+            decisions=[dict(d) for d in self.decisions],
+            summary=dict(self.summary or {}),
+            report=self.report,
+            raw_events=list(self.raw_events),
+            mode=self.mode,
+            engine=self.engine,
+            experimental=self.experimental,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "mode": self.mode,
@@ -96,6 +110,27 @@ class NotationResult:
     invariant_issues: list[dict] = field(default_factory=list)
     source_event_count: int = 0
     job_id: str | None = None
+    quantization: QuantizationResult | None = None
+
+    def copy(self) -> "NotationResult":
+        """Detached snapshot used as a job stage output, not a live view."""
+        return NotationResult(
+            plan=self.plan,
+            quantized_events=list(self.quantized_events),
+            decisions=[dict(d) for d in self.decisions],
+            summary=dict(self.summary or {}),
+            quantization_mode=self.quantization_mode,
+            fallback_used=self.fallback_used,
+            fallback_error=self.fallback_error,
+            plan_failure=self.plan_failure,
+            conversion_failure=self.conversion_failure,
+            export_failure=self.export_failure,
+            fit_trim_count=self.fit_trim_count,
+            invariant_issues=[dict(item) for item in self.invariant_issues],
+            source_event_count=self.source_event_count,
+            job_id=self.job_id,
+            quantization=self.quantization.copy() if self.quantization else None,
+        )
 
     def to_debug_payload(self) -> dict[str, Any]:
         plan = self.plan
@@ -126,7 +161,7 @@ class NotationResult:
         }
 
 
-@dataclass
+@dataclass(frozen=True)
 class PipelineJob:
     """One job's authoritative inputs plus named stage outputs.
 

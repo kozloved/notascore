@@ -186,19 +186,24 @@ class MeasureQuantizer:
         events: list[MusicalEvent],
         meter: MeterHypothesis,
     ) -> tuple[list[MusicalEvent], list[dict]]:
-        """Dispatch. Production mode uses the performance engine; other modes
-        are experimental and must be requested explicitly via `self.mode`."""
-        return self.quantize_result(events, meter).as_tuple()
+        """Mode-dispatch for tests and experimental callers.
+
+        Product code must call `quantize_production` or `quantize_experimental`
+        explicitly. This helper follows `self.mode` and is not the production
+        boundary.
+        """
+        if is_experimental_quantization(self.mode):
+            return self.quantize_experimental(events, meter, self.mode).as_tuple()
+        return self.quantize_production(events, meter).as_tuple()
 
     def quantize_result(
         self,
         events: list[MusicalEvent],
         meter: MeterHypothesis,
         *,
-        experimental: bool | None = None,
+        experimental: bool = False,
     ) -> QuantizationResult:
-        if experimental is None:
-            experimental = is_experimental_quantization(self.mode)
+        """Explicit result API. Defaults to production; experimental must be asked."""
         if experimental:
             return self.quantize_experimental(events, meter, self.mode)
         return self.quantize_production(events, meter)
