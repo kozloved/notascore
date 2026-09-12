@@ -87,6 +87,8 @@ export type ScoreEditsPayload = {
   tempo_bpm: number;
   time_signature: string;
   tempo_curve: { beat: number; bpm: number }[];
+  printed_tempo_marks?: { beat: number; bpm: number | null; mark: string; reason: string }[];
+  provenance?: string | null;
   notes: EditableNote[];
 };
 
@@ -106,6 +108,8 @@ export async function saveScoreEdits(
     tempo_bpm: number;
     time_signature: string;
     tempo_curve?: { beat: number; bpm: number }[];
+    printed_tempo_marks?: { beat: number; bpm: number | null; mark: string; reason: string }[];
+    provenance?: string | null;
   }
 ): Promise<ScoreEditsPayload> {
   const response = await apiFetch(`${API_URL}/scores/${id}/edits`, {

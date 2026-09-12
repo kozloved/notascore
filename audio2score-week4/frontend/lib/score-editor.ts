@@ -12,11 +12,20 @@ export type EditableNote = {
   velocity: number;
   track: number;
   voice: number;
+  start_sec?: number | null;
+  end_sec?: number | null;
 };
 
 export type TempoCurvePoint = {
   beat: number;
   bpm: number;
+};
+
+export type PrintedTempoMark = {
+  beat: number;
+  bpm: number | null;
+  mark: string;
+  reason: string;
 };
 
 export type EditableScore = {
@@ -25,6 +34,8 @@ export type EditableScore = {
   tempo_bpm: number;
   time_signature: string;
   tempo_curve: TempoCurvePoint[];
+  printed_tempo_marks?: PrintedTempoMark[];
+  provenance?: string | null;
   notes: EditableNote[];
 };
 
@@ -72,7 +83,9 @@ export function notesEqual(left: EditableNote[], right: EditableNote[]): boolean
       note.velocity === other.velocity &&
       note.track === other.track &&
       note.voice === other.voice &&
-      note.source_note_id === other.source_note_id
+      note.source_note_id === other.source_note_id &&
+      (note.start_sec ?? null) === (other.start_sec ?? null) &&
+      (note.end_sec ?? null) === (other.end_sec ?? null)
     );
   });
 }

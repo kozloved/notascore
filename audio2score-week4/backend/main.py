@@ -27,9 +27,11 @@ from score_edits import (
     EditError,
     build_musicxml_and_midi,
     extract_from_musicxml,
+    extract_from_performance,
     loads_edits,
     dumps_edits,
     parse_edits_payload,
+    time_map_from_tempo_payload,
 )
 from publishing import edit_bundle_keys
 
@@ -274,14 +276,74 @@ def _edits_response(job: dict, model: dict, *, has_edits: bool | None = None) ->
         "tempo_bpm": model["tempo_bpm"],
         "time_signature": model["time_signature"],
         "tempo_curve": list(model.get("tempo_curve") or [{"beat": 0.0, "bpm": model["tempo_bpm"]}]),
+        "printed_tempo_marks": list(model.get("printed_tempo_marks") or []),
+        "provenance": model.get("provenance"),
         "notes": model["notes"],
     }
+
+
+def _read_result_sidecar(job: dict, filename: str, *, text: bool = False):
+    storage_backend = storage_service.get_storage()
+    result_key = job.get("result_storage_key")
+    if not result_key:
+        return None
+    try:
+        key = storage_backend.result_sidecar_key(result_key, filename)
+        if storage_backend.backend == "local":
+            path = Path(key)
+            if not path.exists():
+                return None
+            return path.read_text(encoding="utf-8") if text else path.read_bytes()
+        if hasattr(storage_backend, "result_exists") and not storage_backend.result_exists(key):
+            return None
+        return (
+            storage_backend.read_result_text(key)
+            if text
+            else storage_backend.read_result_bytes(key)
+        )
+    except Exception:
+        return None
 
 
 def _load_edit_model(job: dict) -> dict:
     raw = _read_edited_sidecar(job, f"{job['id']}.edits.json", text=True)
     if raw:
         return loads_edits(raw)
+    performance_raw = _read_result_sidecar(job, f"{job['id']}.performance.json", text=True)
+    tempo_raw = _read_result_sidecar(job, f"{job['id']}.tempo.json", text=True)
+    if performance_raw:
+        import json as json_lib
+        import tempfile
+
+        from mir.performance import PerformanceSnapshot
+
+        with tempfile.TemporaryDirectory() as tmp:
+            snap_path = Path(tmp) / "performance.json"
+            snap_path.write_text(performance_raw, encoding="utf-8")
+            snapshot = PerformanceSnapshot.read_json(snap_path)
+        if tempo_raw:
+            tempo_payload = json_lib.loads(tempo_raw)
+            time_map = time_map_from_tempo_payload(tempo_payload)
+            printed = tempo_payload.get("printed_tempo") or []
+            time_signature = "4/4"
+            meter = (tempo_payload.get("meter_candidates") or [None])[0]
+            if isinstance(meter, dict) and meter.get("ratio"):
+                time_signature = str(meter["ratio"])
+            elif isinstance(meter, str) and "/" in meter:
+                time_signature = meter
+        else:
+            duration = max((note.end_sec for note in snapshot.notes), default=4.0)
+            from timing.tempo_map import MusicalTimeMap
+
+            time_map = MusicalTimeMap.from_bpm(120.0, duration_sec=max(duration, 1.0))
+            printed = []
+            time_signature = "4/4"
+        return extract_from_performance(
+            snapshot,
+            time_map,
+            printed_marks=printed,
+            time_signature=time_signature,
+        )
     return extract_from_musicxml(_read_original_musicxml(job))
 
 
@@ -298,14 +360,16 @@ class ClaimUnownedBody(BaseModel):
 
 
 class ScoreNoteIn(BaseModel):
-    id: str = Field(min_length=1, max_length=64)
+    id: str = Field(min_length=1, max_length=128)
     pitch: int = Field(ge=0, le=127)
     start: float = Field(ge=0, le=10000)
     duration: float = Field(gt=0, le=32)
     velocity: int = Field(default=64, ge=1, le=127)
     track: int = Field(default=0, ge=0, le=3)
     voice: int = Field(default=0, ge=0, le=15)
-    source_note_id: str | None = Field(default=None, max_length=64)
+    source_note_id: str | None = Field(default=None, max_length=128)
+    start_sec: float | None = Field(default=None, ge=0, le=10000)
+    end_sec: float | None = Field(default=None, ge=0, le=10000)
 
 
 class TempoCurvePointIn(BaseModel):
@@ -313,12 +377,21 @@ class TempoCurvePointIn(BaseModel):
     bpm: float = Field(ge=20, le=300)
 
 
+class PrintedTempoMarkIn(BaseModel):
+    beat: float = Field(ge=0, le=10000)
+    bpm: float | None = Field(default=None, ge=20, le=300)
+    mark: str = "metronome"
+    reason: str = ""
+
+
 class ScoreEditsIn(BaseModel):
     revision: int = Field(ge=0)
     notes: list[ScoreNoteIn] = Field(max_length=4000)
     tempo_bpm: float | None = None
     time_signature: str | None = None
-    tempo_curve: list[TempoCurvePointIn] | None = None
+    tempo_curve: list[TempoCurvePointIn] | None = Field(default=None, max_length=8192)
+    printed_tempo_marks: list[PrintedTempoMarkIn] | None = None
+    provenance: str | None = None
 
 
 @app.get("/health")
