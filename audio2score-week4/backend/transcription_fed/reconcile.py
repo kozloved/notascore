@@ -29,6 +29,11 @@ class ReconciliationResult:
     unmatched_specialist: list[NoteEvent]
     dropped_ghosts: list[NoteEvent]
     diagnostics: dict = field(default_factory=dict)
+    baseline_notes: list[NoteEvent] = field(default_factory=list)
+
+    def review_ledger(self) -> list[dict]:
+        """Every keep / add / suppress with a reviewable source."""
+        return list(self.diagnostics.get("review") or [])
 
 
 def _onset(note: NoteEvent) -> float:
@@ -235,12 +240,52 @@ def reconcile_transcriptions(
         )
 
     fused.sort(key=lambda item: (_onset(item.note), item.note.pitch, item.instrument))
+    added_ids = {n.note_id for n in unmatched_specialist if n.note_id}
+    review = []
+    for item in fused:
+        sources = [ev.source or ev.backend for ev in item.evidence]
+        if item.note.note_id in added_ids:
+            action = "add"
+            reason = "high-confidence stem-only candidate"
+            source = sources[0] if sources else "stem"
+        else:
+            action = "keep"
+            reason = (
+                "full_mix baseline"
+                if all(src == FULL_MIX_SOURCE for src in sources)
+                else "full_mix matched by stem"
+            )
+            source = FULL_MIX_SOURCE
+        review.append(
+            {
+                "action": action,
+                "note_id": item.note.note_id,
+                "pitch": int(item.note.pitch),
+                "onset_sec": float(item.note.start_time),
+                "source": source,
+                "sources": sources,
+                "reason": reason,
+            }
+        )
+    for n in dropped_ghosts:
+        review.append(
+            {
+                "action": "suppress",
+                "note_id": n.note_id,
+                "pitch": int(n.pitch),
+                "onset_sec": _onset(n),
+                "source": _stem_id(n) or _instrument(n) or "stem",
+                "sources": [_stem_id(n) or _instrument(n) or "stem"],
+                "reason": "weak stem ghost",
+            }
+        )
     return ReconciliationResult(
         notes=[item.note for item in fused],
         fused=fused,
         unmatched_global=unmatched_global,
         unmatched_specialist=unmatched_specialist,
         dropped_ghosts=dropped_ghosts,
+        baseline_notes=list(global_notes),
         diagnostics={
             "dropped_ghosts": [_note_debug(n) for n in dropped_ghosts],
             "unmatched_global": [_note_debug(n) for n in unmatched_global],
@@ -248,6 +293,12 @@ def reconcile_transcriptions(
             "keep_global_timing": not specialist_may_replace_timing,
             "stem_only_min_confidence": stem_only_min_confidence,
             "ghost_confidence": ghost_confidence,
+            "baseline": {
+                "source": FULL_MIX_SOURCE,
+                "note_count": len(global_notes),
+                "note_ids": [n.note_id for n in global_notes],
+            },
+            "review": review,
         },
     )
 

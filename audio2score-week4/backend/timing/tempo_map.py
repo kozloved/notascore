@@ -30,11 +30,16 @@ class MusicalTimeMap:
 
     Extrapolates using the first/last inter-beat interval. This is a
     coordinate transform, not a quantizer: fractional beats are preserved.
+
+    When `exact_points` is set (from a TempoMap), seconds↔beats uses that
+    map. Integer `beat_times` remain a diagnostic grid and must not be used
+    to reinterpret subbeat tempo changes.
     """
 
     beat_times: tuple[float, ...]
     confidence: tuple[float, ...] = ()
     source: str = "explicit_beats"
+    exact_points: tuple[tuple[float, float, float], ...] = ()
 
     def __post_init__(self):
         times = list(self.beat_times)
@@ -61,7 +66,7 @@ class MusicalTimeMap:
 
     @classmethod
     def from_tempo_map(cls, tempo_map, *, duration_sec: float) -> "MusicalTimeMap":
-        """Sample integer beats from an existing TempoMap (including MIDI tempi)."""
+        """Own a TempoMap: exact conversion plus an integer-beat diagnostic grid."""
         duration = max(float(duration_sec), 1e-6)
         if tempo_map is None:
             return cls.from_bpm(120.0, duration_sec=duration)
@@ -77,12 +82,30 @@ class MusicalTimeMap:
                 t = prev + 1e-4
             times.append(t)
             prev = t
-        return cls.from_beat_times(times, source="tempo_map")
+        exact: list[tuple[float, float, float]] = []
+        points = tempo_map.sorted_points() if hasattr(tempo_map, "sorted_points") else []
+        for pt in points:
+            t = float(pt.time_sec)
+            bpm = float(pt.bpm)
+            raw_beat = getattr(pt, "beat", None)
+            beat = float(raw_beat) if raw_beat is not None else float(tempo_map.seconds_to_beats(t))
+            exact.append((t, beat, bpm))
+        sampled = cls.from_beat_times(times, source="tempo_map")
+        if not exact:
+            return sampled
+        return cls(
+            sampled.beat_times,
+            source="tempo_map",
+            exact_points=tuple(exact),
+        )
 
     def seconds_to_beats(self, time_sec: float) -> float:
         t = float(time_sec)
         if not isfinite(t):
             raise ValueError("time_sec must be finite")
+        exact = self._exact_tempo_map()
+        if exact is not None:
+            return float(exact.seconds_to_beats(t))
         times = self.beat_times
         if t <= times[0]:
             interval = times[1] - times[0]
@@ -105,6 +128,9 @@ class MusicalTimeMap:
         b = float(beat)
         if not isfinite(b):
             raise ValueError("beat must be finite")
+        exact = self._exact_tempo_map()
+        if exact is not None:
+            return float(exact.beats_to_seconds(b))
         times = self.beat_times
         if b <= 0:
             interval = times[1] - times[0]
@@ -116,6 +142,18 @@ class MusicalTimeMap:
         idx = int(b)
         frac = b - idx
         return times[idx] + frac * (times[idx + 1] - times[idx])
+
+    def _exact_tempo_map(self):
+        if not self.exact_points:
+            return None
+        from mir.types import TempoMap, TempoPoint
+
+        return TempoMap(
+            points=[
+                TempoPoint(time_sec=t, beat=beat, bpm=bpm)
+                for t, beat, bpm in self.exact_points
+            ]
+        )
 
     def interval_bpms(self) -> list[tuple[float, float]]:
         times = self.beat_times

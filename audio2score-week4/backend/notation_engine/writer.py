@@ -31,6 +31,7 @@ from music21 import (
 )
 from music21.base import Music21Object
 
+from mir.job import NotationResult
 from mir.models import NotationPlan, PlannedRest
 from mir.quantizer import SMALLEST_WRITABLE, snap_writable_length
 from mir.types import Hand, MusicalEvent, ScoreMeta, TempoMap
@@ -68,9 +69,39 @@ class NotationWriter:
         self.last_export_failure: bool = False
         self.last_fit_trim_count: int = 0
         self.last_invariant_issues: list[dict] = []
+        self.last_result: NotationResult | None = None
         self.last_export_integrity: dict = {}
 
+    def _remember_notation(self, result: NotationResult) -> None:
+        self.last_result = result
+        self.last_plan = result.plan
+        self.last_quantization_decisions = list(result.decisions)
+        self.last_quantization_summary = dict(result.summary)
+        self.last_quantized_events = list(result.quantized_events)
+        self.last_fallback_used = result.fallback_used
+        self.last_fallback_error = result.fallback_error
+        self.last_quantization_mode = parse_quantization_mode(result.quantization_mode)
+        self.last_job_id = result.job_id
+        self.last_source_event_count = result.source_event_count
+        self.last_plan_failure = result.plan_failure
+        self.last_conversion_failure = result.conversion_failure
+        self.last_export_failure = result.export_failure
+        self.last_fit_trim_count = result.fit_trim_count
+        self.last_invariant_issues = list(result.invariant_issues)
+
     def notation_debug_payload(self) -> dict:
+        if self.last_result is not None:
+            payload = self.last_result.to_debug_payload()
+            payload["fit_trim_count"] = self.last_fit_trim_count
+            payload["invariant_issues"] = list(self.last_invariant_issues)
+            payload["musicxml_export_failure"] = self.last_export_failure
+            payload["export_integrity"] = dict(self.last_export_integrity)
+            payload["score_is_hypothesis"] = True
+            payload["readability_requires_human"] = True
+            payload["source_identity_gate"] = (
+                self.last_quantization_mode == QuantizationMode.PERFORMANCE
+            )
+            return payload
         plan = self.last_plan
         plan_ok = plan is not None and not self.last_plan_failure
         return {
@@ -95,6 +126,9 @@ class NotationWriter:
             "quantization_decisions": list(self.last_quantization_decisions),
             "quantization_summary": dict(self.last_quantization_summary),
             "export_integrity": dict(self.last_export_integrity),
+            "score_is_hypothesis": True,
+            "readability_requires_human": True,
+            "source_identity_gate": self.last_quantization_mode == QuantizationMode.PERFORMANCE,
         }
 
     def write_musicxml(
@@ -193,6 +227,13 @@ class NotationWriter:
             validate_event_identity(events, self.last_quantized_events)
             self.last_export_integrity = validate_exports(
                 xml_path, out_dir / f"{job_id}.score.mid", self.last_quantized_events)
+        else:
+            self.last_export_integrity = {
+                "status": "skipped",
+                "reason": "source identity gate is production performance only",
+                "quantization_mode": self.last_quantization_mode.value,
+                "lossless": False,
+            }
         return xml_path.read_text(encoding="utf-8")
 
     def _score_for_playback(self, score, meta):
@@ -247,6 +288,11 @@ class NotationWriter:
             if quantization_mode is not None
             else parse_quantization_mode(None)
         )
+        result = NotationResult(
+            quantization_mode=mode.value,
+            source_event_count=len(events),
+            job_id=self.last_job_id,
+        )
         self.last_quantization_mode = mode
         self.last_plan = None
         self.last_quantization_decisions = []
@@ -259,6 +305,7 @@ class NotationWriter:
         self.last_fit_trim_count = 0
         self.last_invariant_issues = []
         self.last_source_event_count = len(events)
+        self.last_result = result
         plan = None
         decisions: list[dict] = []
         try:
@@ -271,13 +318,14 @@ class NotationWriter:
             )
         except Exception as exc:
             reason = f"{type(exc).__name__}: {exc}"
+            result.plan_failure = True
+            result.fallback_error = reason
             if mode == QuantizationMode.PERFORMANCE:
-                self.last_plan_failure = True
+                self._remember_notation(result)
                 raise
             print(f"[Notation] NotationPlanner failed ({reason}); falling back to legacy build_score")
-            self.last_plan_failure = True
-            self.last_fallback_used = True
-            self.last_fallback_error = reason
+            result.fallback_used = True
+            self._remember_notation(result)
             return self.build_score(
                 events,
                 meta,
@@ -287,39 +335,43 @@ class NotationWriter:
             )
         try:
             score = self.score_from_plan(plan, meta=meta)
-            self.last_plan = plan
-            self.last_quantization_decisions = decisions
-            self.last_quantization_summary = dict(
-                (plan.extra or {}).get("quantization") or {}
+            quant_result = getattr(self.planner.quantizer, "last_result", None)
+            result.plan = plan
+            result.decisions = decisions
+            result.summary = dict((plan.extra or {}).get("quantization") or {})
+            result.quantized_events = list(
+                quant_result.events if quant_result is not None else self.planner.quantizer.last_events
             )
-            self.last_quantized_events = list(self.planner.quantizer.last_events)
-            self.last_invariant_issues = list(
+            result.invariant_issues = list(
                 (plan.extra or {}).get("invariant_issues") or []
             )
+            result.fit_trim_count = self.last_fit_trim_count
+            self._remember_notation(result)
             print(
                 f"[Notation] NotationPlan "
                 f"job={self.last_job_id or '-'} "
                 f"mode={mode.value} "
                 f"source_events={len(events)} "
-                f"quantized_events={len(self.last_quantized_events)} "
+                f"quantized_events={len(result.quantized_events)} "
                 f"({plan.time_signature}, {len(plan.measures)} measures, "
                 f"{len(decisions)} quantized events)"
             )
             return score
         except Exception as exc:
             reason = f"{type(exc).__name__}: {exc}"
+            result.plan = plan
+            result.decisions = decisions
+            result.conversion_failure = True
+            result.fallback_error = reason
             if mode == QuantizationMode.PERFORMANCE:
-                self.last_conversion_failure = True
+                self._remember_notation(result)
                 raise
             print(
                 f"[Notation] music21 conversion failed ({reason}); "
                 "falling back to legacy build_score"
             )
-            self.last_conversion_failure = True
-            self.last_fallback_used = True
-            self.last_fallback_error = reason
-            self.last_plan = plan
-            self.last_quantization_decisions = decisions
+            result.fallback_used = True
+            self._remember_notation(result)
             return self.build_score(
                 events,
                 meta,

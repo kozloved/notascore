@@ -9,6 +9,7 @@ import {
   changeDuration,
   changePitch,
   cloneNotes,
+  cloneTempoCurve,
   deleteNote,
   emptyHistory,
   findNote,
@@ -20,6 +21,7 @@ import {
   undoNotes,
   type EditableNote,
   type HistoryState,
+  type TempoCurvePoint,
 } from "../lib/score-editor";
 
 export type SaveStatus = "loading" | "ready" | "saving" | "saved" | "error";
@@ -36,6 +38,7 @@ export function useScoreEditor(scoreId: string | null) {
   const [hasEdits, setHasEdits] = useState(false);
   const [tempoBpm, setTempoBpm] = useState(120);
   const [timeSignature, setTimeSignature] = useState("4/4");
+  const [tempoCurve, setTempoCurve] = useState<TempoCurvePoint[]>([{ beat: 0, bpm: 120 }]);
   const [renderKey, setRenderKey] = useState(0);
   const [historyTick, setHistoryTick] = useState(0);
 
@@ -69,6 +72,7 @@ export function useScoreEditor(scoreId: string | null) {
         notes: notesRef.current,
         tempo_bpm: tempoBpm,
         time_signature: timeSignature,
+        tempo_curve: tempoCurve,
       });
       dirtyRef.current = false;
       setRevision(saved.revision);
@@ -81,7 +85,7 @@ export function useScoreEditor(scoreId: string | null) {
       setError("Changes couldn't be saved.");
       track("edit_save_failed");
     }
-  }, [tempoBpm, timeSignature]);
+  }, [tempoBpm, timeSignature, tempoCurve]);
 
   const scheduleSave = useCallback(() => {
     dirtyRef.current = true;
@@ -108,6 +112,9 @@ export function useScoreEditor(scoreId: string | null) {
         setHasEdits(payload.has_edits);
         setTempoBpm(payload.tempo_bpm);
         setTimeSignature(payload.time_signature);
+        setTempoCurve(
+          cloneTempoCurve(payload.tempo_curve || [{ beat: 0, bpm: payload.tempo_bpm }])
+        );
         setRenderKey((value) => value + 1);
         setStatus("ready");
         track("score_editor_opened");
@@ -225,6 +232,11 @@ export function useScoreEditor(scoreId: string | null) {
       setHasEdits(false);
       setSelectedId(null);
       setInsertAt(null);
+      setTempoBpm(restored.tempo_bpm);
+      setTimeSignature(restored.time_signature);
+      setTempoCurve(
+        cloneTempoCurve(restored.tempo_curve || [{ beat: 0, bpm: restored.tempo_bpm }])
+      );
       setRenderKey((value) => value + 1);
       setStatus("saved");
       track("edit_reset");
@@ -262,6 +274,7 @@ export function useScoreEditor(scoreId: string | null) {
     hasEdits,
     tempoBpm,
     timeSignature,
+    tempoCurve,
     renderKey,
     dirty: dirty && (hasEdits || !notesEqual(notes, originalRef.current)),
     canUndo,

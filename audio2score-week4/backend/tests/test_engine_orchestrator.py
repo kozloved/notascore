@@ -67,11 +67,21 @@ def test_printed_tempo_emits_rit_for_persistent_slowing():
     assert marks[0].bpm == 90
 
 
-def test_transkun_and_beat_this_stay_disabled():
-    from transcription_fed.transkun import TranskunTranscriber, TranskunUnavailable
+def test_transkun_and_beat_this_stay_disabled(monkeypatch):
+    from engine.flags import transkun_configured, transkun_operational
+    from transcription_fed.router import select_transcriber
+    from transcription_fed.transkun import TranskunTranscriber, TranskunUnavailable, transkun_available
     from timing.beat_this import BeatThisAnalyzer, BeatThisUnavailable
     import pytest
 
+    monkeypatch.setenv("NEXTGEN_TRANSKUN", "1")
+    monkeypatch.setenv("NEXTGEN_TRANSKUN_CHECKPOINT", "/tmp/missing-transkun.ckpt")
+    monkeypatch.setenv("NEXTGEN_BEAT_THIS", "1")
+    monkeypatch.setenv("NEXTGEN_BEAT_THIS_CHECKPOINT", "/tmp/missing-beat-this.ckpt")
+    assert transkun_configured() is True
+    assert transkun_operational() is False
+    assert transkun_available() is False
+    assert select_transcriber(mode="polyphonic", instrument_hint="piano").name != "transkun"
     with pytest.raises(TranskunUnavailable):
         TranskunTranscriber().transcribe("x.wav")
     with pytest.raises(BeatThisUnavailable):

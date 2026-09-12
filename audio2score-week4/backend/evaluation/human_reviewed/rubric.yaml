@@ -1,0 +1,17 @@
+# Musician review rubric. Acoustic and readability are independent of export.
+tracks:
+  acoustic:
+    description: Performed pitches and timings match the recording.
+    automated: onset/pitch F1 vs performed reference MIDI
+  readability:
+    description: The printed score is usable (meter, voices, ornaments, pedal).
+    automated: notation plan metrics only; musician rating required for ship
+  export:
+    description: MusicXML/MIDI write without fallback or identity loss.
+    automated: mechanical stage-gate checks
+families:
+  - rubato
+  - ornaments
+  - pedal
+  - repeated_notes
+  - meter_changes

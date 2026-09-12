@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from engine.flags import transkun_checkpoint, transkun_enabled
+from engine.flags import transkun_checkpoint, transkun_enabled, transkun_operational
 from transcription_fed.base import TranscriptionCapabilities, TranscriptionContext
 
 
@@ -20,9 +20,21 @@ class TranskunTranscriber:
         raise TranskunUnavailable(
             "Transkun V2 is disabled until code and checkpoint licenses "
             f"are documented (NEXTGEN_TRANSKUN={transkun_enabled()}, "
+            f"operational={transkun_operational()}, "
             f"checkpoint={transkun_checkpoint() or 'unset'})."
         )
 
 
 def transkun_available() -> bool:
-    return transkun_enabled() and bool(transkun_checkpoint())
+    """Operational readiness for routing. Configured flags never imply this."""
+    return transkun_operational()
+
+
+def transkun_status() -> dict:
+    from engine.flags import transkun_configured, transkun_enabled, transkun_operational
+
+    return {
+        "configured": transkun_configured(),
+        "operational": transkun_operational(),
+        "enabled": transkun_enabled(),
+    }

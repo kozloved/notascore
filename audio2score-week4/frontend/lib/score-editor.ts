@@ -5,11 +5,18 @@ export const MAX_PITCH = 108;
 
 export type EditableNote = {
   id: string;
+  source_note_id: string | null;
   pitch: number;
   start: number;
   duration: number;
   velocity: number;
   track: number;
+  voice: number;
+};
+
+export type TempoCurvePoint = {
+  beat: number;
+  bpm: number;
 };
 
 export type EditableScore = {
@@ -17,6 +24,7 @@ export type EditableScore = {
   has_edits: boolean;
   tempo_bpm: number;
   time_signature: string;
+  tempo_curve: TempoCurvePoint[];
   notes: EditableNote[];
 };
 
@@ -62,7 +70,9 @@ export function notesEqual(left: EditableNote[], right: EditableNote[]): boolean
       note.start === other.start &&
       note.duration === other.duration &&
       note.velocity === other.velocity &&
-      note.track === other.track
+      note.track === other.track &&
+      note.voice === other.voice &&
+      note.source_note_id === other.source_note_id
     );
   });
 }
@@ -118,7 +128,7 @@ export function defaultPitchNear(notes: EditableNote[], start: number, track: nu
 
 export function addNote(
   notes: EditableNote[],
-  at: { start: number; track?: number; pitch?: number; duration?: number }
+  at: { start: number; track?: number; pitch?: number; duration?: number; voice?: number }
 ): { notes: EditableNote[]; id: string } {
   if (notes.length >= MAX_NOTES) return { notes, id: notes[notes.length - 1]?.id || "" };
   const start = Math.max(0, snapGrid(at.start));
@@ -126,11 +136,13 @@ export function addNote(
   const id = nextNoteId(notes);
   const created: EditableNote = {
     id,
+    source_note_id: null,
     pitch: clampPitch(at.pitch ?? defaultPitchNear(notes, start, track)),
     start,
     duration: Math.max(GRID, snapGrid(at.duration ?? 1)),
     velocity: 80,
     track,
+    voice: Math.max(0, at.voice ?? 0),
   };
   return { notes: [...notes, created], id };
 }
@@ -150,7 +162,43 @@ export function nearestNoteId(notes: EditableNote[], fromId: string | null): str
   return ranked[0]?.id || null;
 }
 
-export function beatsToSeconds(beats: number, tempoBpm: number): number {
+export function cloneTempoCurve(curve: TempoCurvePoint[]): TempoCurvePoint[] {
+  return curve.map((point) => ({ beat: point.beat, bpm: point.bpm }));
+}
+
+export function secondsAtBeat(
+  beat: number,
+  curve: TempoCurvePoint[] | undefined,
+  fallbackBpm: number
+): number {
+  const bpm = fallbackBpm > 0 ? fallbackBpm : 120;
+  const points = [...(curve || [])]
+    .filter((point) => Number.isFinite(point.beat) && Number.isFinite(point.bpm) && point.bpm > 0)
+    .sort((a, b) => a.beat - b.beat);
+  if (!points.length) {
+    return (beat * 60) / bpm;
+  }
+  if (points[0].beat > 0) {
+    points.unshift({ beat: 0, bpm: points[0].bpm });
+  }
+  let seconds = 0;
+  for (let i = 0; i < points.length; i += 1) {
+    const start = points[i].beat;
+    const end = i + 1 < points.length ? points[i + 1].beat : beat;
+    if (beat <= start) break;
+    const until = Math.min(beat, end);
+    seconds += ((until - start) * 60) / points[i].bpm;
+    if (i + 1 >= points.length || beat <= end) break;
+  }
+  return seconds;
+}
+
+export function beatsToSeconds(
+  beats: number,
+  tempoBpm: number,
+  curve?: TempoCurvePoint[]
+): number {
+  if (curve && curve.length) return secondsAtBeat(beats, curve, tempoBpm);
   const bpm = tempoBpm > 0 ? tempoBpm : 120;
   return (beats * 60) / bpm;
 }

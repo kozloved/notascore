@@ -1,0 +1,22 @@
+id: rubato
+title: Rubato quarters (template)
+instrument: piano
+reference:
+  midi: reference.mid
+expected:
+  meter: "4/4"
+  tempo_bpm: 80
+tags:
+  - rubato
+  - piano
+  - human_reviewed
+review:
+  acoustic:
+    status: pending
+  readability:
+    status: pending
+  export:
+    status: mechanical
+notes: >
+  Musician-reviewed rubato clip. Do not commit copyrighted audio; generate
+  the MIDI fixture with python -m evaluation.human_review --prepare.

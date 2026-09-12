@@ -159,6 +159,16 @@ def quantization_snaps_display_tempo(mode: QuantizationMode) -> bool:
     return mode in (QuantizationMode.ADAPTIVE, QuantizationMode.STRICT_GRID)
 
 
+def is_experimental_quantization(mode: QuantizationMode | str | None) -> bool:
+    """Adaptive / grid / identity / PM2S are comparison or experimental engines.
+
+    Production always uses the performance quantizer. These modes stay available
+    through `MeasureQuantizer.quantize_experimental` and `compare_quantizers`.
+    """
+    parsed = parse_quantization_mode(mode)
+    return parsed != QuantizationMode.PERFORMANCE
+
+
 def pm2s_required() -> bool:
     """When true, missing PM2S weights/imports fail the job instead of falling back."""
     return env_bool("TRANSCRIPTION_PM2S_REQUIRED", default=False)

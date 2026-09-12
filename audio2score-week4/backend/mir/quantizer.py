@@ -1,10 +1,12 @@
 """Notation quantization facade.
 
-Raw transcribed events are copied into `last_raw_events` and never mutated.
-Adaptive / strict modes build a separate notation representation via
-`mir.adaptive_quantizer`. Off and PM2S keep their existing behaviour.
+Production always uses the performance quantizer. Adaptive, strict-grid,
+identity, and PM2S live behind `quantize_experimental` / `compare_quantizers`
+and must not grow new product behavior.
 
-Writable-duration helpers used by NotationPlanner also live here.
+Raw transcribed events are copied into the returned `QuantizationResult` and
+never mutated. `last_*` on the quantizer is a published snapshot of that
+result for older callers.
 """
 
 from __future__ import annotations
@@ -12,8 +14,14 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from mir.job import QuantizationResult
 from mir.models import MeterHypothesis, staff_for_hand
-from mir.pipeline_config import QuantizationMode, parse_quantization_mode, pm2s_required
+from mir.pipeline_config import (
+    QuantizationMode,
+    is_experimental_quantization,
+    parse_quantization_mode,
+    pm2s_required,
+)
 from mir.types import MusicalEvent, copy_event
 
 
@@ -169,6 +177,7 @@ class MeasureQuantizer:
         self.last_raw_events: list[MusicalEvent] = []
         self.last_notation_events: list[MusicalEvent] = []
         self.last_report = None
+        self.last_result: QuantizationResult | None = None
         self._pm2s_processor = pm2s_processor
         self._pm2s_load_failed = False
 
@@ -177,38 +186,110 @@ class MeasureQuantizer:
         events: list[MusicalEvent],
         meter: MeterHypothesis,
     ) -> tuple[list[MusicalEvent], list[dict]]:
-        self.last_raw_events = [copy_event(ev) for ev in events]
-        if not events and self.mode != QuantizationMode.PERFORMANCE:
-            self.last_summary = _empty_quantizer_summary()
-            self.last_events = []
-            self.last_notation_events = []
-            self.last_report = None
-            return [], []
-        if self.mode == QuantizationMode.OFF:
-            return self._identity(events)
-        if self.mode == QuantizationMode.PM2S:
-            return self._quantize_pm2s(events)
+        """Dispatch. Production mode uses the performance engine; other modes
+        are experimental and must be requested explicitly via `self.mode`."""
+        return self.quantize_result(events, meter).as_tuple()
 
-        if self.mode == QuantizationMode.PERFORMANCE:
-            from mir.performance_score import quantize_notation
-        else:
-            from mir.adaptive_quantizer import quantize_notation
+    def quantize_result(
+        self,
+        events: list[MusicalEvent],
+        meter: MeterHypothesis,
+        *,
+        experimental: bool | None = None,
+    ) -> QuantizationResult:
+        if experimental is None:
+            experimental = is_experimental_quantization(self.mode)
+        if experimental:
+            return self.quantize_experimental(events, meter, self.mode)
+        return self.quantize_production(events, meter)
+
+    def quantize_production(
+        self,
+        events: list[MusicalEvent],
+        meter: MeterHypothesis,
+    ) -> QuantizationResult:
+        """Product path: performance quantizer only."""
+        raw = [copy_event(ev) for ev in events]
+        from mir.performance_score import quantize_notation
 
         out, decisions, report = quantize_notation(
-            self.last_raw_events,
+            raw,
             meter,
             config=self.config,
-            mode=self.mode,
+            mode=QuantizationMode.PERFORMANCE,
         )
-        self.last_events = list(out)
-        self.last_notation_events = list(out)
-        self.last_report = report
-        self.last_summary = dict(report.summary)
-        return out, decisions
+        result = QuantizationResult(
+            events=list(out),
+            decisions=list(decisions),
+            summary=dict(report.summary),
+            report=report,
+            raw_events=raw,
+            mode=QuantizationMode.PERFORMANCE.value,
+            engine="performance",
+            experimental=False,
+        )
+        self._remember(result)
+        return result
 
-    def _identity(
-        self, events: list[MusicalEvent]
-    ) -> tuple[list[MusicalEvent], list[dict]]:
+    def quantize_experimental(
+        self,
+        events: list[MusicalEvent],
+        meter: MeterHypothesis,
+        mode: QuantizationMode | str | None = None,
+    ) -> QuantizationResult:
+        """Adaptive / identity / PM2S / strict-grid. Comparison and tests only."""
+        parsed = parse_quantization_mode(mode if mode is not None else self.mode)
+        raw = [copy_event(ev) for ev in events]
+        if parsed == QuantizationMode.PERFORMANCE:
+            return self.quantize_production(events, meter)
+        if not events:
+            result = QuantizationResult(
+                events=[],
+                decisions=[],
+                summary=_empty_quantizer_summary(),
+                raw_events=raw,
+                mode=parsed.value,
+                engine=parsed.value,
+                experimental=True,
+            )
+            self._remember(result)
+            return result
+        if parsed == QuantizationMode.OFF:
+            return self._identity_result(raw)
+        if parsed == QuantizationMode.PM2S:
+            return self._pm2s_result(raw)
+        from mir.adaptive_quantizer import quantize_notation
+
+        out, decisions, report = quantize_notation(
+            raw,
+            meter,
+            config=self.config,
+            mode=parsed,
+        )
+        summary = dict(report.summary)
+        summary.setdefault("engine", parsed.value)
+        result = QuantizationResult(
+            events=list(out),
+            decisions=list(decisions),
+            summary=summary,
+            report=report,
+            raw_events=raw,
+            mode=parsed.value,
+            engine=str(summary.get("engine") or parsed.value),
+            experimental=True,
+        )
+        self._remember(result)
+        return result
+
+    def _remember(self, result: QuantizationResult) -> None:
+        self.last_result = result
+        self.last_raw_events = list(result.raw_events)
+        self.last_events = list(result.events)
+        self.last_notation_events = list(result.events)
+        self.last_report = result.report
+        self.last_summary = dict(result.summary)
+
+    def _identity_result(self, events: list[MusicalEvent]) -> QuantizationResult:
         """Keep transcribed onsets and durations.
 
         MusicXML still needs named note types. That spelling (tied 64th-based
@@ -231,14 +312,24 @@ class MeasureQuantizer:
                     "reason": "off_identity",
                 }
             )
-        self.last_events = list(out)
-        self.last_notation_events = list(out)
-        self.last_summary = summarize_quantization(events, out, decisions)
-        return out, decisions
+        result = QuantizationResult(
+            events=out,
+            decisions=decisions,
+            summary=summarize_quantization(events, out, decisions),
+            raw_events=list(events),
+            mode=QuantizationMode.OFF.value,
+            engine="identity",
+            experimental=True,
+        )
+        self._remember(result)
+        return result
 
-    def _quantize_pm2s(
+    def _identity(
         self, events: list[MusicalEvent]
     ) -> tuple[list[MusicalEvent], list[dict]]:
+        return self._identity_result(events).as_tuple()
+
+    def _pm2s_result(self, events: list[MusicalEvent]) -> QuantizationResult:
         try:
             processor = self._load_pm2s_processor()
             if processor is None:
@@ -248,7 +339,11 @@ class MeasureQuantizer:
                         "Run scripts/setup_pm2s.sh or set TRANSCRIPTION_PM2S_REQUIRED=0."
                     )
                 print("[PM2S] quantizer unavailable; keeping transcribed timing")
-                return self._identity(events)
+                result = self._identity_result(events)
+                result.mode = QuantizationMode.PM2S.value
+                result.engine = "identity"
+                self._remember(result)
+                return result
             from mir.pm2s_quantizer import apply_pm2s_rhythm
 
             out, decisions = apply_pm2s_rhythm(events, processor)
@@ -259,12 +354,29 @@ class MeasureQuantizer:
                     "Set TRANSCRIPTION_PM2S_REQUIRED=0 to keep transcribed timing."
                 ) from exc
             print(f"[PM2S] quantizer failed ({exc}); keeping transcribed timing")
-            return self._identity(events)
-        self.last_events = list(out)
-        self.last_notation_events = list(out)
-        self.last_summary = summarize_quantization(events, out, decisions)
-        self.last_summary["engine"] = "pm2s"
-        return out, decisions
+            result = self._identity_result(events)
+            result.mode = QuantizationMode.PM2S.value
+            result.engine = "identity"
+            self._remember(result)
+            return result
+        summary = summarize_quantization(events, out, decisions)
+        summary["engine"] = "pm2s"
+        result = QuantizationResult(
+            events=list(out),
+            decisions=list(decisions),
+            summary=summary,
+            raw_events=list(events),
+            mode=QuantizationMode.PM2S.value,
+            engine="pm2s",
+            experimental=True,
+        )
+        self._remember(result)
+        return result
+
+    def _quantize_pm2s(
+        self, events: list[MusicalEvent]
+    ) -> tuple[list[MusicalEvent], list[dict]]:
+        return self._pm2s_result(events).as_tuple()
 
     def _load_pm2s_processor(self):
         if self._pm2s_processor is not None:

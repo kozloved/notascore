@@ -68,6 +68,10 @@ def test_health_nextgen_live_cutover_flags(monkeypatch):
         "beat_this_enabled": False,
         "ensemble_render_enabled": False,
         "write_manifest": True,
+        "optional_models": {
+            "transkun": {"configured": False, "operational": False},
+            "beat_this": {"configured": False, "operational": False},
+        },
     }
     dumped = json.dumps(payload)
     assert "super-secret-key" not in dumped

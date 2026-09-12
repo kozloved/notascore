@@ -63,6 +63,23 @@ def test_corrupt_xml_is_not_published(tmp_path, monkeypatch, corruption):
     assert writer.last_export_integrity["status"] == "failed"
 
 
+def test_off_mode_skips_source_identity_gate(tmp_path):
+    writer = NotationWriter()
+    writer.write_musicxml(
+        [event("a")],
+        ScoreMeta(time_sig_hint="4/4"),
+        "legacy",
+        tmp_path / "input.mid",
+        quantization_mode="off",
+    )
+    assert writer.last_export_integrity["status"] == "skipped"
+    assert writer.last_export_integrity["lossless"] is False
+    debug = writer.notation_debug_payload()
+    assert debug["score_is_hypothesis"] is True
+    assert debug["source_identity_gate"] is False
+    assert debug["readability_requires_human"] is True
+
+
 def test_corrupt_midi_is_not_published(tmp_path, monkeypatch):
     from music21 import stream
 
