@@ -16,7 +16,18 @@ from pathlib import Path
 from typing import Any
 
 GRID = 0.25  # sixteenth note in quarter-note beats
+MAX_NOTES = 4000
 MAX_TEMPO_CURVE = 512
+MAX_START = 10_000.0
+MAX_DURATION = 32.0
+PITCH_MIN = 0
+PITCH_MAX = 127
+ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+TIME_SIG_RE = re.compile(r"^([1-9]|1[0-6])/(1|2|4|8|16)$")
+
+
+class EditError(ValueError):
+    """Invalid edited score payload."""
 
 
 def validate_voice(value: Any) -> int:
@@ -64,16 +75,6 @@ def validate_tempo_curve(raw: Any, *, fallback_bpm: float) -> list[dict]:
         else:
             deduped.append(point)
     return deduped
-MAX_START = 10_000.0
-MAX_DURATION = 32.0
-PITCH_MIN = 0
-PITCH_MAX = 127
-ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-TIME_SIG_RE = re.compile(r"^([1-9]|1[0-6])/(1|2|4|8|16)$")
-
-
-class EditError(ValueError):
-    """Invalid edited score payload."""
 
 
 def snap_grid(value: float) -> float:
