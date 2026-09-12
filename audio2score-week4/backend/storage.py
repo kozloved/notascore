@@ -73,10 +73,20 @@ class LocalStorage:
         return None
 
     def read_result_text(self, result_storage_key):
-        return Path(result_storage_key).read_text(encoding="utf-8")
+        path = Path(result_storage_key)
+        if not path.is_file():
+            candidate = LOCAL_RESULTS_DIR / result_storage_key
+            if candidate.is_file():
+                path = candidate
+        return path.read_text(encoding="utf-8")
 
     def read_result_bytes(self, result_storage_key):
-        return Path(result_storage_key).read_bytes()
+        path = Path(result_storage_key)
+        if not path.is_file():
+            candidate = LOCAL_RESULTS_DIR / result_storage_key
+            if candidate.is_file():
+                path = candidate
+        return path.read_bytes()
 
     def result_sidecar_key(self, result_storage_key, filename):
         name = Path(filename).name
@@ -452,28 +462,47 @@ class SupabaseStorage:
     def list_result_keys(self, prefix):
         return self._list_keys(self.results_bucket, str(prefix or "").replace("\\", "/").strip("/"))
 
-    def _list_keys(self, bucket, path):
-        try:
-            items = self._bucket(bucket).list(path) or []
-        except Exception:
-            return []
+    def _list_keys(self, bucket, path, *, page_size=100):
+        """Recursively list object keys with pagination (Supabase/S3 style)."""
         keys = []
-        for item in items:
-            name = item.get("name") if isinstance(item, dict) else getattr(item, "name", None)
-            if not name:
-                continue
-            child = f"{path}/{name}" if path else name
-            metadata = item.get("metadata") if isinstance(item, dict) else getattr(item, "metadata", None)
-            ident = item.get("id") if isinstance(item, dict) else getattr(item, "id", None)
-            looks_like_folder = ident in (None, "") and not metadata
-            if looks_like_folder:
-                nested = self._list_keys(bucket, child)
-                if nested:
-                    keys.extend(nested)
+        offset = 0
+        while True:
+            try:
+                items = self._bucket(bucket).list(
+                    path,
+                    {"limit": int(page_size), "offset": int(offset)},
+                ) or []
+            except TypeError:
+                try:
+                    items = self._bucket(bucket).list(path) or []
+                except Exception:
+                    return keys
+            except Exception:
+                return keys
+            if not items:
+                break
+            for item in items:
+                name = item.get("name") if isinstance(item, dict) else getattr(item, "name", None)
+                if not name:
+                    continue
+                child = f"{path}/{name}" if path else name
+                metadata = item.get("metadata") if isinstance(item, dict) else getattr(item, "metadata", None)
+                ident = item.get("id") if isinstance(item, dict) else getattr(item, "id", None)
+                looks_like_folder = ident in (None, "") and not metadata
+                if looks_like_folder:
+                    nested = self._list_keys(bucket, child, page_size=page_size)
+                    if nested:
+                        keys.extend(nested)
+                    else:
+                        keys.append(child)
                 else:
                     keys.append(child)
-            else:
-                keys.append(child)
+            if len(items) < int(page_size):
+                break
+            offset += len(items)
+            # Safety bound for pathological listing implementations.
+            if offset > 100_000:
+                break
         return keys
 
     def gc_prefix(self, prefix, keep_keys=None):

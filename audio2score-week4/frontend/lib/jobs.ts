@@ -4,6 +4,16 @@ import { consumePendingClaim } from "./pending-claim";
 import type { EditableNote } from "./score-editor";
 import { listStoredScores } from "./session-jobs";
 
+export class ApiRequestError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+  }
+}
+
 async function readError(response: Response, fallback: string): Promise<string> {
   await response.json().catch(() => ({}));
   return fallback;
@@ -118,17 +128,28 @@ export async function saveScoreEdits(
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    throw new Error(await readError(response, "Changes couldn't be saved."));
+    throw new ApiRequestError(
+      await readError(response, "Changes couldn't be saved."),
+      response.status
+    );
   }
   return (await response.json()) as ScoreEditsPayload;
 }
 
-export async function resetScoreEdits(id: string): Promise<ScoreEditsPayload> {
+export async function resetScoreEdits(
+  id: string,
+  body?: { revision?: number }
+): Promise<ScoreEditsPayload> {
   const response = await apiFetch(`${API_URL}/scores/${id}/edits/reset`, {
     method: "POST",
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
   });
   if (!response.ok) {
-    throw new Error(await readError(response, "Could not reset changes"));
+    throw new ApiRequestError(
+      await readError(response, "Could not reset changes"),
+      response.status
+    );
   }
   return (await response.json()) as ScoreEditsPayload;
 }
