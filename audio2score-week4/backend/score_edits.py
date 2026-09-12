@@ -285,28 +285,15 @@ def build_musicxml_and_midi(payload: dict) -> tuple[str, bytes]:
         part.insert(0, clef.TrebleClef() if staff_index == 0 else clef.BassClef())
         for point in curve:
             part.insert(float(point["beat"]), tempo.MetronomeMark(number=point["bpm"]))
-        by_voice: dict[int, list[dict]] = {}
-        for item in tracks.get(staff_index, []):
-            by_voice.setdefault(int(item.get("voice") or 0), []).append(item)
-        if not by_voice:
+        staff_notes = tracks.get(staff_index, [])
+        if not staff_notes:
             part.append(note.Rest(quarterLength=4.0))
-        elif len(by_voice) == 1:
-            for item in next(iter(by_voice.values())):
-                event = note.Note(item["pitch"])
-                event.quarterLength = item["duration"]
-                event.volume.velocity = item["velocity"]
-                _attach_source_identity(event, item.get("source_note_id"))
-                part.insert(item["start"], event)
-        else:
-            for voice_id, voice_notes in sorted(by_voice.items()):
-                voice = stream.Voice(id=str(voice_id + 1))
-                for item in voice_notes:
-                    event = note.Note(item["pitch"])
-                    event.quarterLength = item["duration"]
-                    event.volume.velocity = item["velocity"]
-                    _attach_source_identity(event, item.get("source_note_id"))
-                    voice.insert(item["start"], event)
-                part.insert(0, voice)
+        for item in staff_notes:
+            event = note.Note(item["pitch"])
+            event.quarterLength = item["duration"]
+            event.volume.velocity = item["velocity"]
+            _attach_source_identity(event, item.get("source_note_id"))
+            part.insert(item["start"], event)
         # makeNotation fills measures/rests/beams from the note list.
         # This is music21 engraving, not the transcription notation planner.
         if part.recurse().notes:
