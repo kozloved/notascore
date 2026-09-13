@@ -893,3 +893,122 @@ def test_cross_bar_written_release_exports_necessary_ties(tmp_path):
     hold_span = next(s for s in spans if s[0] == 48 and abs(s[1] - 3.0) < 1e-6)
     assert hold_span[3] > 1 and hold_span[4], "barline crossing must export ties"
     assert "<tie" in xml.lower()
+
+
+def test_printed_lanes_reuse_inactive_musical_voices():
+    """Distinct musical lines pack into peak concurrency, not historical IDs."""
+    from mir.performance_score import _stable_lanes
+
+    events = [
+        MusicalEvent(80, 0.0, 0.375, note_id="a", hand=Hand.RIGHT, voice=0,
+                     voice_assigned=True, hand_locked=True, velocity=80, source_backend="mt3"),
+        MusicalEvent(82, 0.25, 0.25, note_id="b", hand=Hand.RIGHT, voice=1,
+                     voice_assigned=True, hand_locked=True, velocity=80, source_backend="mt3"),
+        MusicalEvent(80, 0.5, 0.75, note_id="c", hand=Hand.RIGHT, voice=2,
+                     voice_assigned=True, hand_locked=True, velocity=80, source_backend="mt3"),
+        MusicalEvent(77, 1.083, 1.0, note_id="d", hand=Hand.RIGHT, voice=3,
+                     voice_assigned=True, hand_locked=True, velocity=80, source_backend="mt3"),
+        MusicalEvent(75, 2.125, 0.75, note_id="e", hand=Hand.RIGHT, voice=2,
+                     voice_assigned=True, hand_locked=True, velocity=80, source_backend="mt3"),
+    ]
+    exact = {
+        "a": (Fraction(0), Fraction(3, 8), "binary", "g"),
+        "b": (Fraction(1, 4), Fraction(1, 4), "binary", "g"),
+        "c": (Fraction(1, 2), Fraction(3, 4), "binary", "g"),
+        "d": (Fraction(13, 12), Fraction(1), "binary", "g"),
+        "e": (Fraction(17, 8), Fraction(3, 4), "binary", "g"),
+    }
+    # Written durations stay exactly as supplied to lane allocation.
+    before_durs = {i: exact[i][1] for i in exact}
+    out = _stable_lanes(events, exact)
+    by_id = {e.note_id: e for e in out}
+    assert max(e.voice for e in out) <= 1
+    assert by_id["a"].voice != by_id["b"].voice
+    assert by_id["c"].voice != by_id["d"].voice
+    # Musical line 2 (c then e) prefers its home lane when free.
+    assert by_id["c"].voice == by_id["e"].voice
+    assert before_durs == {i: exact[i][1] for i in exact}
+    assert all(e.duration_beats == dur for e, dur in zip(
+        events, [0.375, 0.25, 0.75, 1.0, 0.75]
+    ))
+
+
+def test_crossing_lines_keep_home_lane_when_free():
+    from mir.performance_score import _stable_lanes
+
+    events = [
+        MusicalEvent(72, 0.0, 1.0, note_id="hi0", hand=Hand.RIGHT, voice=0,
+                     voice_assigned=True, hand_locked=True, velocity=80, source_backend="mt3"),
+        MusicalEvent(60, 0.0, 1.0, note_id="lo0", hand=Hand.RIGHT, voice=1,
+                     voice_assigned=True, hand_locked=True, velocity=80, source_backend="mt3"),
+        MusicalEvent(60, 1.0, 1.0, note_id="hi1", hand=Hand.RIGHT, voice=0,
+                     voice_assigned=True, hand_locked=True, velocity=80, source_backend="mt3"),
+        MusicalEvent(72, 1.0, 1.0, note_id="lo1", hand=Hand.RIGHT, voice=1,
+                     voice_assigned=True, hand_locked=True, velocity=80, source_backend="mt3"),
+    ]
+    exact = {e.note_id: (Fraction(e.start_beat), Fraction(1), "binary", "g") for e in events}
+    out = _stable_lanes(events, exact)
+    by_id = {e.note_id: e for e in out}
+    assert by_id["hi0"].voice == by_id["hi1"].voice
+    assert by_id["lo0"].voice == by_id["lo1"].voice
+    assert by_id["hi0"].voice != by_id["lo0"].voice
+
+
+def test_chord_ties_share_lane_and_cross_bar(tmp_path):
+    raw = [
+        MusicalEvent(60, 3.0, 2.0, note_id="c", hand=Hand.RIGHT, voice=0,
+                     voice_assigned=True, hand_locked=True, velocity=80, source_backend="mt3"),
+        MusicalEvent(64, 3.0, 2.0, note_id="e", hand=Hand.RIGHT, voice=0,
+                     voice_assigned=True, hand_locked=True, velocity=80, source_backend="mt3"),
+    ]
+    before = [(x.note_id, x.start_beat, x.duration_beats) for x in raw]
+    out, report = quantize(raw)
+    assert [(x.note_id, x.start_beat, x.duration_beats) for x in raw] == before
+    notes = {n.source_id: n for n in report.notes}
+    assert notes["c"].voice == notes["e"].voice
+    assert notes["c"].duration == Fraction(2)
+    assert notes["e"].duration == Fraction(2)
+    writer = NotationWriter()
+    xml = writer.write_musicxml(
+        out, ScoreMeta(time_sig_hint="4/4"), "chord_tie_lanes", tmp_path / "src.mid"
+    )
+    _assert_exported_attacks(
+        xml,
+        tmp_path / "chord_tie_lanes.musicxml",
+        {"c": (60, 3.0, 2.0), "e": (64, 3.0, 2.0)},
+    )
+    assert "<tie" in xml.lower()
+
+
+def test_repeated_pitch_reattacks_remain_distinct_lanes_when_overlapping():
+    raw = [
+        MusicalEvent(60, 0.0, 2.0, note_id="hold", hand=Hand.RIGHT, voice=0,
+                     voice_assigned=True, hand_locked=True, velocity=80, source_backend="mt3"),
+        MusicalEvent(60, 0.5, 0.5, note_id="re", hand=Hand.RIGHT, voice=1,
+                     voice_assigned=True, hand_locked=True, velocity=70, source_backend="mt3"),
+    ]
+    out, report = quantize(raw)
+    notes = {n.source_id: n for n in report.notes}
+    assert notes["hold"].duration == Fraction(2)
+    assert notes["re"].duration == Fraction(1, 2)
+    assert notes["hold"].voice != notes["re"].voice
+    assert {e.note_id for e in out} == {"hold", "re"}
+
+
+def test_voice_metrics_separate_distinct_ids_from_peak_concurrency():
+    from evaluation.hands_rhythm_metrics import _voice_distribution
+
+    events = [
+        MusicalEvent(80, 0.0, 0.375, note_id="a", hand=Hand.RIGHT, voice=0, velocity=80),
+        MusicalEvent(82, 0.25, 0.25, note_id="b", hand=Hand.RIGHT, voice=1, velocity=80),
+        MusicalEvent(80, 0.5, 0.75, note_id="c", hand=Hand.RIGHT, voice=0, velocity=80),
+        MusicalEvent(77, 1.083, 1.0, note_id="d", hand=Hand.RIGHT, voice=1, velocity=80),
+        # Chord on one lane while a sustain occupies another.
+        MusicalEvent(48, 0.0, 2.0, note_id="bass", hand=Hand.LEFT, voice=0, velocity=80),
+        MusicalEvent(55, 1.0, 1.0, note_id="c1", hand=Hand.LEFT, voice=1, velocity=70),
+        MusicalEvent(60, 1.0, 1.0, note_id="c2", hand=Hand.LEFT, voice=1, velocity=70),
+    ]
+    probe = _voice_distribution(events, measure_quarter_length=4.0)
+    assert probe["max_peak_concurrency_in_measure_staff"] == 2
+    assert probe["max_peak_note_concurrency_in_measure_staff"] >= 3
+    assert probe["max_distinct_voice_ids_in_measure_staff"] == 2

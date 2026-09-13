@@ -1,70 +1,59 @@
-# Hands and rhythm review update (after ec1324a)
+# Hands and rhythm review update (after 80077f6)
 
-Built on `ec1324a` (accepted pedal releases authoritative over same-voice
-neighbors). This follow-up strengthens **export validation** and refreshes Autumn
-Walks metrics/renders. Release-target / duration behavior from `ec1324a` is
-unchanged.
+Built on `80077f6`. Improves **printed lane reuse** without changing release
+hypotheses, downbeat alignment, or performed timings.
 
-**Visual review is not marked complete** — matched phrase MusicXML was refreshed;
-OSMD PNGs depend on local Playwright Chromium.
+**Visual review is not marked complete** — matched phrase MusicXML refreshed;
+OSMD PNGs need local Playwright Chromium.
 
-## A. Validation fixes (not engine changes)
+## Code changes
 
-1. **`score_attacks` / `_musicxml_attack_spans`** — tie chains keyed by
-   `(part, staff, voice, pitch)`; chord members tracked individually; independent
-   unisons retained; timing continuity required; orphan continue/stop, gaps, and
-   unfinished starts raise.
-2. **`_assert_exported_attacks`** — exact attack multiplicity + total written
-   duration (no silent summing of untied same-pitch fragments).
-3. **Fixtures** — tied C with interleaved E; simultaneous tied voices; chord ties;
-   repeated same-pitch reattacks + unison; orphan / unfinished / non-contiguous
-   chains.
+1. **`_stable_lanes`** — musical `voice` is line identity (home-lane preference,
+   chord grouping). Printed lanes reuse any inactive lane. Independent unisons
+   stay separate; holds are not shortened to reduce lane count.
+2. **Voice metrics** — distinct voice IDs per measure·staff vs peak **voice**
+   concurrency (sustains from earlier measures included) vs peak **note**
+   concurrency (chord members counted separately).
+3. **Synthetic regressions** — overlapping lines, pitch crossings, chord ties
+   across bars, repeated-pitch overlaps, metrics separation.
 
-## B. Engine observations (not “fixed” by truncating holds)
+## Autumn Walks hotspot (measure 4 / RIGHT)
 
-**Four-voice hotspot (aligned Autumn Walks, measure 4 / staff 0 / RIGHT):**
+Before lane reuse: voices `[0,1,2,3]` with peak concurrency 2.  
+After: printed voices `0/1` only (`18→0`, `19→1`, `20→0`, `24→1`, `28→0`).
 
-| note_id | pitch | start | dur | voice |
-| --- | ---: | ---: | ---: | ---: |
-| track:0:note:18 | 80 | 12.00 | 0.375 | 0 |
-| track:0:note:19 | 82 | 12.25 | 0.25 | 1 |
-| track:0:note:20 | 80 | 12.50 | 0.75 | 2 |
-| track:0:note:24 | 77 | 13.08 | 1.0 | 3 |
-| track:0:note:28 | 75 | 14.125 | 0.75 | 2 |
-
-Overlaps are pairwise (18∩19, 20∩24); peak concurrency is **2**, but the measure
-uses **four distinct voice IDs**. That inflates `max_voices_in_measure_staff`
-versus simultaneous sounding voices. Do **not** reduce this by shortening
-legitimate overlapping holds — lane compaction / voice reuse is a separate
-layout concern.
-
-Hotspot rows in metrics now include `source_notes` context for inspection.
+Whole-score MusicXML `max_voices_in_measure_staff`: **4 → 3** (Δ vs frozen
+before: **0**). Event metrics: distinct IDs 3, peak voices 3, peak notes 4
+(left-hand chord under long sustains — real polyphony, not ID inflation).
 
 ## Tests
 
-- Supported backend suite: `pytest -m 'not integration and not pm2s'` →
-  **752 passed, 4 deselected**
+Supported suite: `pytest -m 'not integration and not pm2s'` → **757 passed**,
+4 deselected (reconfirm after peak-note metric tweak in the same change set).
 
-## Comparable Autumn Walks metrics (MT3 semantics)
+## Comparable metrics (MT3 semantics)
 
-| Metric | `current-main.musicxml` | Aligned after | Δ |
+| Metric | Before | After | Δ |
 | --- | ---: | ---: | ---: |
 | Pitched symbols | 155 | 120 | −35 |
-| Tie starts (once each) | 55 | 20 | −35 |
+| Tie starts | 55 | 20 | −35 |
 | Tiny (32nd+) | 37 | 5 | −32 |
 | Time modifications | 20 | 2 | −18 |
-| Max voices / measure·staff | 3 | 4 | +1 |
-| Source attacks | 100 | 100 | 0 |
+| Max voices / measure·staff (MusicXML IDs) | 3 | 3 | 0 |
+| Peak voice concurrency (events) | — | 3 | — |
+| Peak note concurrency (events) | — | 4 | — |
+| Attacks | 100 | 100 | 0 |
 
-Matched phrases: `.tmp/autumn-walks-review/phrase_renders_matched/` with
-`force_fifths=-5`, source-ID manifests (mm1–4 / mm5–8 / mm13–16).
+Matched phrases (`.tmp/.../phrase_renders_matched/`, `fifths=-5`): readability
+improves via fewer idle voice IDs; attack inventory and performed times unchanged
+by design.
 
 ## Remaining limitations
 
-- Voice-ID compaction inside a measure (hotspot above) still open.
-- OSMD PNG refresh requires Playwright browsers on the machine.
-- Pianist phrase review still outstanding.
-- Do not claim perfect hands from Autumn Walks alone.
+- Peak note concurrency can exceed peak voices when chords share a lane (expected).
+- Dense left-hand sustains still need 3 written voices; not forced down to 2.
+- OSMD PNG refresh blocked without Playwright browsers.
+- Pianist sign-off still outstanding.
 
 ## Reproduce
 

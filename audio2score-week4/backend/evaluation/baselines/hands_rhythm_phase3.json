@@ -1,6 +1,6 @@
 {
   "name": "hands_rhythm_phase3",
-  "generated_at": "2026-09-13T20:57:52Z",
+  "generated_at": "2026-09-13T22:29:08Z",
   "synthetic": {
     "pedal_quarters": {
       "layout": {
@@ -155,7 +155,7 @@
         "printed_notes": 61,
         "ties": 29,
         "notes_32nd_or_shorter": 5,
-        "voices_max_per_staff": 6,
+        "voices_max_per_staff": 3,
         "fragment_ties": 5,
         "tuplets": 2,
         "source_identity_preserved": true
@@ -168,90 +168,223 @@
         "tiny_128th": 0,
         "tiny_total": 5,
         "time_modifications": 2,
-        "max_voices_in_measure_staff": 4
+        "max_voices_in_measure_staff": 3
       },
       "voice_distribution": {
         "voices_by_staff": {
           "0": [
             0,
             1,
-            2,
-            3,
-            4,
-            5
+            2
           ],
           "1": [
             0,
             1,
-            2,
-            3
+            2
           ]
         },
-        "max_voices_in_measure_staff_events": 4,
+        "max_distinct_voice_ids_in_measure_staff": 3,
+        "max_peak_concurrency_in_measure_staff": 3,
+        "max_peak_note_concurrency_in_measure_staff": 4,
+        "max_voices_in_measure_staff_events": 3,
         "hotspots_ge_4": [
           {
-            "measure": 4,
-            "staff": 0,
+            "measure": 10,
+            "staff": 1,
             "voices": [
               0,
               1,
-              2,
-              3
+              2
             ],
+            "distinct_voice_ids": 3,
+            "peak_concurrency": 3,
+            "peak_note_concurrency": 4,
             "source_notes": [
               {
-                "note_id": "track:0:note:18",
-                "pitch": 80,
-                "start_beat": 12.0,
-                "duration_beats": 0.375,
+                "note_id": "track:0:note:59",
+                "pitch": 44,
+                "start_beat": 27.0,
+                "duration_beats": 4.5,
                 "voice": 0,
-                "hand": "right"
+                "hand": "left"
               },
               {
-                "note_id": "track:0:note:19",
-                "pitch": 82,
-                "start_beat": 12.25,
-                "duration_beats": 0.25,
+                "note_id": "track:0:note:63",
+                "pitch": 56,
+                "start_beat": 30.0,
+                "duration_beats": 3.0,
                 "voice": 1,
-                "hand": "right"
+                "hand": "left"
               },
               {
-                "note_id": "track:0:note:20",
-                "pitch": 80,
-                "start_beat": 12.5,
-                "duration_beats": 0.75,
-                "voice": 2,
-                "hand": "right"
-              },
-              {
-                "note_id": "track:0:note:24",
-                "pitch": 77,
-                "start_beat": 13.083333333333334,
+                "note_id": "track:0:note:61",
+                "pitch": 60,
+                "start_beat": 31.0,
                 "duration_beats": 1.0,
-                "voice": 3,
-                "hand": "right"
+                "voice": 2,
+                "hand": "left"
               },
               {
-                "note_id": "track:0:note:28",
-                "pitch": 75,
-                "start_beat": 14.125,
+                "note_id": "track:0:note:62",
+                "pitch": 63,
+                "start_beat": 31.0,
+                "duration_beats": 1.0,
+                "voice": 2,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:64",
+                "pitch": 60,
+                "start_beat": 32.0,
                 "duration_beats": 0.75,
                 "voice": 2,
-                "hand": "right"
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:65",
+                "pitch": 63,
+                "start_beat": 32.0,
+                "duration_beats": 0.75,
+                "voice": 2,
+                "hand": "left"
+              }
+            ]
+          },
+          {
+            "measure": 13,
+            "staff": 1,
+            "voices": [
+              0,
+              1,
+              2
+            ],
+            "distinct_voice_ids": 3,
+            "peak_concurrency": 3,
+            "peak_note_concurrency": 4,
+            "source_notes": [
+              {
+                "note_id": "track:0:note:83",
+                "pitch": 39,
+                "start_beat": 39.0,
+                "duration_beats": 3.0,
+                "voice": 0,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:86",
+                "pitch": 46,
+                "start_beat": 39.25,
+                "duration_beats": 4.0,
+                "voice": 1,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:81",
+                "pitch": 55,
+                "start_beat": 40.0,
+                "duration_beats": 1.0,
+                "voice": 2,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:82",
+                "pitch": 58,
+                "start_beat": 40.0,
+                "duration_beats": 1.0,
+                "voice": 2,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:84",
+                "pitch": 55,
+                "start_beat": 41.0,
+                "duration_beats": 0.75,
+                "voice": 2,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:85",
+                "pitch": 58,
+                "start_beat": 41.0,
+                "duration_beats": 0.75,
+                "voice": 2,
+                "hand": "left"
+              }
+            ]
+          },
+          {
+            "measure": 14,
+            "staff": 1,
+            "voices": [
+              0,
+              1,
+              2
+            ],
+            "distinct_voice_ids": 3,
+            "peak_concurrency": 3,
+            "peak_note_concurrency": 4,
+            "source_notes": [
+              {
+                "note_id": "track:0:note:86",
+                "pitch": 46,
+                "start_beat": 39.25,
+                "duration_beats": 4.0,
+                "voice": 1,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:90",
+                "pitch": 51,
+                "start_beat": 42.0,
+                "duration_beats": 3.0,
+                "voice": 2,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:88",
+                "pitch": 55,
+                "start_beat": 43.0,
+                "duration_beats": 0.75,
+                "voice": 0,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:89",
+                "pitch": 58,
+                "start_beat": 43.0,
+                "duration_beats": 0.75,
+                "voice": 0,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:91",
+                "pitch": 55,
+                "start_beat": 44.0,
+                "duration_beats": 0.75,
+                "voice": 1,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:92",
+                "pitch": 58,
+                "start_beat": 44.0,
+                "duration_beats": 0.75,
+                "voice": 1,
+                "hand": "left"
               }
             ]
           }
         ]
       },
       "xml_path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/.tmp/autumn-walks-review/bp_hands_rhythm_aligned/hands_rhythm_aligned.musicxml",
-      "xml_chars": 91737
+      "xml_chars": 73998
     },
     "deltas_vs_current_main": {
       "pitched_symbols": -35,
       "tie_starts": -35,
       "tiny_total": -32,
       "time_modifications": -18,
-      "max_voices_in_measure_staff": 1
+      "max_voices_in_measure_staff": 0
     },
     "comparable": {
       "same_midi": true,
@@ -268,74 +401,210 @@
           "0": [
             0,
             1,
-            2,
-            3,
-            4,
-            5
+            2
           ],
           "1": [
             0,
             1,
-            2,
-            3
+            2
           ]
         },
-        "max_voices_in_measure_staff_events": 4,
+        "max_distinct_voice_ids_in_measure_staff": 3,
+        "max_peak_concurrency_in_measure_staff": 3,
+        "max_peak_note_concurrency_in_measure_staff": 4,
+        "max_voices_in_measure_staff_events": 3,
         "hotspots_ge_4": [
           {
-            "measure": 4,
-            "staff": 0,
+            "measure": 10,
+            "staff": 1,
             "voices": [
               0,
               1,
-              2,
-              3
+              2
             ],
+            "distinct_voice_ids": 3,
+            "peak_concurrency": 3,
+            "peak_note_concurrency": 4,
             "source_notes": [
               {
-                "note_id": "track:0:note:18",
-                "pitch": 80,
-                "start_beat": 12.0,
-                "duration_beats": 0.375,
+                "note_id": "track:0:note:59",
+                "pitch": 44,
+                "start_beat": 27.0,
+                "duration_beats": 4.5,
                 "voice": 0,
-                "hand": "right"
+                "hand": "left"
               },
               {
-                "note_id": "track:0:note:19",
-                "pitch": 82,
-                "start_beat": 12.25,
-                "duration_beats": 0.25,
+                "note_id": "track:0:note:63",
+                "pitch": 56,
+                "start_beat": 30.0,
+                "duration_beats": 3.0,
                 "voice": 1,
-                "hand": "right"
+                "hand": "left"
               },
               {
-                "note_id": "track:0:note:20",
-                "pitch": 80,
-                "start_beat": 12.5,
-                "duration_beats": 0.75,
-                "voice": 2,
-                "hand": "right"
-              },
-              {
-                "note_id": "track:0:note:24",
-                "pitch": 77,
-                "start_beat": 13.083333333333334,
+                "note_id": "track:0:note:61",
+                "pitch": 60,
+                "start_beat": 31.0,
                 "duration_beats": 1.0,
-                "voice": 3,
-                "hand": "right"
+                "voice": 2,
+                "hand": "left"
               },
               {
-                "note_id": "track:0:note:28",
-                "pitch": 75,
-                "start_beat": 14.125,
+                "note_id": "track:0:note:62",
+                "pitch": 63,
+                "start_beat": 31.0,
+                "duration_beats": 1.0,
+                "voice": 2,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:64",
+                "pitch": 60,
+                "start_beat": 32.0,
                 "duration_beats": 0.75,
                 "voice": 2,
-                "hand": "right"
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:65",
+                "pitch": 63,
+                "start_beat": 32.0,
+                "duration_beats": 0.75,
+                "voice": 2,
+                "hand": "left"
+              }
+            ]
+          },
+          {
+            "measure": 13,
+            "staff": 1,
+            "voices": [
+              0,
+              1,
+              2
+            ],
+            "distinct_voice_ids": 3,
+            "peak_concurrency": 3,
+            "peak_note_concurrency": 4,
+            "source_notes": [
+              {
+                "note_id": "track:0:note:83",
+                "pitch": 39,
+                "start_beat": 39.0,
+                "duration_beats": 3.0,
+                "voice": 0,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:86",
+                "pitch": 46,
+                "start_beat": 39.25,
+                "duration_beats": 4.0,
+                "voice": 1,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:81",
+                "pitch": 55,
+                "start_beat": 40.0,
+                "duration_beats": 1.0,
+                "voice": 2,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:82",
+                "pitch": 58,
+                "start_beat": 40.0,
+                "duration_beats": 1.0,
+                "voice": 2,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:84",
+                "pitch": 55,
+                "start_beat": 41.0,
+                "duration_beats": 0.75,
+                "voice": 2,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:85",
+                "pitch": 58,
+                "start_beat": 41.0,
+                "duration_beats": 0.75,
+                "voice": 2,
+                "hand": "left"
+              }
+            ]
+          },
+          {
+            "measure": 14,
+            "staff": 1,
+            "voices": [
+              0,
+              1,
+              2
+            ],
+            "distinct_voice_ids": 3,
+            "peak_concurrency": 3,
+            "peak_note_concurrency": 4,
+            "source_notes": [
+              {
+                "note_id": "track:0:note:86",
+                "pitch": 46,
+                "start_beat": 39.25,
+                "duration_beats": 4.0,
+                "voice": 1,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:90",
+                "pitch": 51,
+                "start_beat": 42.0,
+                "duration_beats": 3.0,
+                "voice": 2,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:88",
+                "pitch": 55,
+                "start_beat": 43.0,
+                "duration_beats": 0.75,
+                "voice": 0,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:89",
+                "pitch": 58,
+                "start_beat": 43.0,
+                "duration_beats": 0.75,
+                "voice": 0,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:91",
+                "pitch": 55,
+                "start_beat": 44.0,
+                "duration_beats": 0.75,
+                "voice": 1,
+                "hand": "left"
+              },
+              {
+                "note_id": "track:0:note:92",
+                "pitch": 58,
+                "start_beat": 44.0,
+                "duration_beats": 0.75,
+                "voice": 1,
+                "hand": "left"
               }
             ]
           }
         ]
-      }
+      },
+      "max_distinct_voice_ids_in_measure_staff": 3,
+      "max_peak_concurrency_in_measure_staff": 3,
+      "max_peak_note_concurrency_in_measure_staff": 4
     },
     "matched_phrases": {
       "force_fifths": "-5",
@@ -517,7 +786,6 @@
           "key_fifths": "-5"
         }
       }
-    },
-    "voice_increase_note": "Max simultaneous written voices rose versus current-main.musicxml. Inspect voice_distribution.hotspots_ge_4; likely pedal-tail lines kept as independent holds after release hypotheses, not a meter drift."
+    }
   }
 }

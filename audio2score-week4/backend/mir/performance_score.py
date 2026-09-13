@@ -441,27 +441,62 @@ def _voice_search_events(events):
 
 
 def _stable_lanes(events, exact, grand_staff=True):
-    """Allocate over the entire piece so tied notes keep one lane across bars."""
-    lanes = defaultdict(list)
+    """Allocate printed lanes; musical voice is line identity, not a hard partition.
+
+    Reuses inactive lanes so peak concurrency—not historical voice IDs—drives
+    printed voice count. Prefers each musical line's home lane when free, keeps
+    chord mates together, and never merges independent unisons.
+    """
+    musical_line = {ev.note_id: ev.voice for ev in events}
+    lanes = defaultdict(list)  # staff -> list of event lists (printed lanes)
+    home_lane = {}  # (staff, musical_line) -> preferred printed lane
     result = []
+
+    def _lane_free(staff, lane_idx, onset):
+        if not lanes[staff][lane_idx]:
+            return True
+        last = lanes[staff][lane_idx][-1]
+        last_onset, last_duration = exact[last.note_id][:2]
+        return last_onset + last_duration <= onset
+
     for ev in sorted(events, key=lambda e: (e.start_beat, e.pitch, e.note_id)):
         staff = staff_for_hand(ev.hand, ev.pitch) if grand_staff else 0
+        onset, duration = exact[ev.note_id][:2]
+        line = musical_line[ev.note_id]
         selected = None
+
+        # Chord grouping: share the lane of a same-line mate already opened
+        # at this onset/duration (different pitch).
         for i, lane in enumerate(lanes[staff]):
             last = lane[-1]
-            onset, duration = exact[ev.note_id][:2]
             last_onset, last_duration = exact[last.note_id][:2]
-            same_chord = (onset == last_onset
-                          and duration == last_duration
-                          and ev.voice == last.voice
-                          and ev.pitch != last.pitch)
-            if same_chord or (last_onset + last_duration <= onset
-                              and ev.voice == last.voice):
+            if (
+                last_onset == onset
+                and last_duration == duration
+                and last.pitch != ev.pitch
+                and musical_line[last.note_id] == line
+            ):
                 selected = i
                 break
+
+        if selected is None:
+            home = home_lane.get((staff, line))
+            if home is not None and home < len(lanes[staff]) and _lane_free(staff, home, onset):
+                selected = home
+
+        if selected is None:
+            # Reuse any inactive printed lane (lowest index for stability).
+            for i in range(len(lanes[staff])):
+                if _lane_free(staff, i, onset):
+                    selected = i
+                    break
+
         if selected is None:
             selected = len(lanes[staff])
             lanes[staff].append([])
+
+        if (staff, line) not in home_lane:
+            home_lane[(staff, line)] = selected
         lanes[staff][selected].append(ev)
         result.append(copy_event(ev, voice=selected))
     return result

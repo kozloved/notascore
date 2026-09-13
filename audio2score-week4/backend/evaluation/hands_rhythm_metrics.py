@@ -486,7 +486,9 @@ def replay_autumn_walks_aligned(review_dir: Path, job_id: str = "hands_rhythm_al
         quantized=notation_result.quantized_events,
     )
     xml_m = musicxml_complexity(xml_path) if xml_path.is_file() else None
-    voice_probe = _voice_distribution(notation_result.quantized_events)
+    voice_probe = _voice_distribution(
+        notation_result.quantized_events, measure_quarter_length=3.0
+    )
     summary = getattr(pipe.notation, "last_quantization_summary", None) or {}
     if not summary and getattr(notation_result, "quantization", None) is not None:
         summary = getattr(notation_result.quantization, "summary", None) or {}
@@ -524,30 +526,76 @@ def replay_autumn_walks_aligned(review_dir: Path, job_id: str = "hands_rhythm_al
     }
 
 
-def _voice_distribution(events) -> dict[str, Any]:
+def _voice_distribution(events, measure_quarter_length: float = 3.0) -> dict[str, Any]:
+    """Report distinct printed voice IDs and true peak concurrency per measure.
+
+    Peak concurrency counts notes sounding in the measure window, including
+    holds that began in earlier measures.
+    """
     by_staff: dict[int, set[int]] = defaultdict(set)
-    by_measure_staff: dict[tuple[int, int], set[int]] = defaultdict(set)
+    by_measure_staff_ids: dict[tuple[int, int], set[int]] = defaultdict(set)
     notes_by_cell: dict[tuple[int, int], list[Any]] = defaultdict(list)
+    mql = float(measure_quarter_length) if measure_quarter_length else 3.0
+
+    staffed = []
     for ev in events or []:
         staff = 0 if ev.hand == Hand.RIGHT else 1 if ev.hand == Hand.LEFT else 0
         voice = int(ev.voice)
         by_staff[staff].add(voice)
-        measure = int(ev.start_beat // 3)
-        by_measure_staff[(measure, staff)].add(voice)
-        notes_by_cell[(measure, staff)].append(ev)
-    max_cell = max((len(v) for v in by_measure_staff.values()), default=0)
+        start = float(ev.start_beat)
+        end = start + float(ev.duration_beats)
+        staffed.append((staff, voice, start, end, ev))
+        # Distinct IDs: any note that overlaps the measure contributes its voice.
+        if mql > 0:
+            first_m = int(start // mql)
+            last_m = int(max(start, end - 1e-12) // mql)
+            for measure in range(first_m, last_m + 1):
+                by_measure_staff_ids[(measure, staff)].add(voice)
+                m0, m1 = measure * mql, (measure + 1) * mql
+                if start < m1 and end > m0:
+                    notes_by_cell[(measure, staff)].append(ev)
+
+    peak_voice_by_cell: dict[tuple[int, int], int] = {}
+    peak_notes_by_cell: dict[tuple[int, int], int] = {}
+    for (measure, staff), cell_notes in notes_by_cell.items():
+        m0, m1 = measure * mql, (measure + 1) * mql
+        peak_voices = 0
+        peak_notes = 0
+        sample_times = {m0}
+        for e in cell_notes:
+            t = float(e.start_beat)
+            if m0 <= t < m1:
+                sample_times.add(t)
+        for t in sorted(sample_times):
+            sounding = [
+                e for e in cell_notes
+                if float(e.start_beat) <= t < float(e.start_beat) + float(e.duration_beats) - 1e-15
+            ]
+            peak_notes = max(peak_notes, len(sounding))
+            peak_voices = max(peak_voices, len({int(e.voice) for e in sounding}))
+        peak_voice_by_cell[(measure, staff)] = peak_voices
+        peak_notes_by_cell[(measure, staff)] = peak_notes
+
+    max_distinct = max((len(v) for v in by_measure_staff_ids.values()), default=0)
+    max_peak_voices = max(peak_voice_by_cell.values(), default=0)
+    max_peak_notes = max(peak_notes_by_cell.values(), default=0)
     hotspots = []
-    for (m, s), vs in by_measure_staff.items():
-        if len(vs) < 4:
+    for (m, s), vs in by_measure_staff_ids.items():
+        peak_v = peak_voice_by_cell.get((m, s), 0)
+        peak_n = peak_notes_by_cell.get((m, s), 0)
+        if len(vs) < 4 and peak_v < 4 and peak_n < 4:
             continue
         cell_notes = sorted(
-            notes_by_cell[(m, s)],
+            notes_by_cell.get((m, s), []),
             key=lambda e: (e.start_beat, e.pitch, e.note_id or ""),
         )
         hotspots.append({
             "measure": m,
             "staff": s,
             "voices": sorted(vs),
+            "distinct_voice_ids": len(vs),
+            "peak_concurrency": peak_v,
+            "peak_note_concurrency": peak_n,
             "source_notes": [
                 {
                     "note_id": e.note_id,
@@ -562,11 +610,21 @@ def _voice_distribution(events) -> dict[str, Any]:
         })
     hotspots = sorted(
         hotspots,
-        key=lambda row: (-len(row["voices"]), row["measure"], row["staff"]),
+        key=lambda row: (
+            -row["peak_concurrency"],
+            -row["peak_note_concurrency"],
+            -row["distinct_voice_ids"],
+            row["measure"],
+            row["staff"],
+        ),
     )[:8]
     return {
         "voices_by_staff": {str(k): sorted(v) for k, v in sorted(by_staff.items())},
-        "max_voices_in_measure_staff_events": max_cell,
+        "max_distinct_voice_ids_in_measure_staff": max_distinct,
+        "max_peak_concurrency_in_measure_staff": max_peak_voices,
+        "max_peak_note_concurrency_in_measure_staff": max_peak_notes,
+        # Backward-compatible alias: distinct IDs (historical metric name).
+        "max_voices_in_measure_staff_events": max_distinct,
         "hotspots_ge_4": hotspots,
     }
 
@@ -612,6 +670,21 @@ def autumn_walks_metrics() -> dict[str, Any] | None:
             "event_source_backends": aligned.get("event_source_backends"),
             "attacks": aligned.get("attacks"),
             "voice_investigation": aligned.get("voice_distribution"),
+            "max_distinct_voice_ids_in_measure_staff": (
+                (aligned.get("voice_distribution") or {}).get(
+                    "max_distinct_voice_ids_in_measure_staff"
+                )
+            ),
+            "max_peak_concurrency_in_measure_staff": (
+                (aligned.get("voice_distribution") or {}).get(
+                    "max_peak_concurrency_in_measure_staff"
+                )
+            ),
+            "max_peak_note_concurrency_in_measure_staff": (
+                (aligned.get("voice_distribution") or {}).get(
+                    "max_peak_note_concurrency_in_measure_staff"
+                )
+            ),
         }
         after_path = Path(aligned["xml_path"])
         before_path = AUTUMN_REVIEW / "current-main.musicxml"
@@ -625,10 +698,13 @@ def autumn_walks_metrics() -> dict[str, Any] | None:
                 measure_quarter_length=3.0,
             )
         if after_xml["max_voices_in_measure_staff"] > before_m["max_voices_in_measure_staff"]:
+            peak = (aligned.get("voice_distribution") or {}).get(
+                "max_peak_concurrency_in_measure_staff"
+            )
             payload["voice_increase_note"] = (
-                "Max simultaneous written voices rose versus current-main.musicxml. "
-                "Inspect voice_distribution.hotspots_ge_4; likely pedal-tail lines "
-                "kept as independent holds after release hypotheses, not a meter drift."
+                "Distinct written voice IDs per measure·staff rose versus "
+                f"current-main.musicxml (peak concurrency={peak}). Inspect "
+                "voice_distribution.hotspots_ge_4; do not truncate legitimate holds."
             )
     else:
         payload["deltas_vs_current_main"] = None
