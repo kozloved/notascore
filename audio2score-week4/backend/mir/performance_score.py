@@ -1,7 +1,10 @@
 """Bounded performance-to-score inference with immutable source provenance.
 
-Tempo and meter remain upstream hypotheses. Rhythm search consumes assigned
-hands/voices when present; unlabeled piano still infers a layout.
+Tempo and meter remain upstream hypotheses. Rhythm search consumes the
+pipeline's hand/voice graph when it is already assigned. Separators run
+only for unlabeled piano (or unlabeled voices on a single staff). Exact
+score positions are retained separately from the float-based compatibility
+events.
 """
 
 from collections import defaultdict
@@ -227,6 +230,7 @@ def hands_provided(events) -> bool:
 
 
 def voices_provided(events) -> bool:
+    """True when upstream split more than the default single voice."""
     voices = {int(ev.voice) for ev in events}
     return len(voices) > 1 or any(int(ev.voice) != 0 for ev in events)
 
@@ -244,6 +248,13 @@ def _score_voices(events, separator):
 
 
 def assign_pipeline_layout(events, profile: ScoreProfile, hand_separator, voice_separator):
+    """Assign hands/voices once on the understanding path.
+
+    Piano gets the configured hand separator only when hands are still
+    unlabeled. Voices are inferred after that. Non-piano never receives
+    piano hand labels. The quantizer will not run these separators again
+    when this output already carries a layout.
+    """
     out = list(events)
     if profile.grand_staff and not hands_provided(out):
         out = hand_separator.separate(out)
@@ -253,6 +264,7 @@ def assign_pipeline_layout(events, profile: ScoreProfile, hand_separator, voice_
 
 
 def resolve_layout(raw, profile: ScoreProfile):
+    """Keep pipeline/MIDI layout; infer only when the events are unlabeled."""
     if not profile.grand_staff:
         cleared = [
             copy_event(ev, hand=Hand.UNKNOWN, hand_confidence=0.0, hand_locked=False)

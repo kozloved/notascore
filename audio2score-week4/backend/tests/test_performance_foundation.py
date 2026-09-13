@@ -127,6 +127,24 @@ def test_derived_midi_keeps_programs_and_does_not_lengthen_short_notes(tmp_path)
     assert derived.notes[0].duration < .01
 
 
+def test_named_piano_tracks_keep_right_hand_inner_voice(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRANSCRIPTION_QUANTIZATION_MODE", "performance")
+    midi = pretty_midi.PrettyMIDI(initial_tempo=120)
+    left = pretty_midi.Instrument(0, name="Left")
+    right = pretty_midi.Instrument(0, name="Right")
+    left.notes = [pretty_midi.Note(80, 36, 0, 2), pretty_midi.Note(80, 48, 0, 2)]
+    right.notes = [pretty_midi.Note(70, 60, 0, 2), pretty_midi.Note(80, 76, 0, 0.5)]
+    midi.instruments.extend([left, right])
+    source = tmp_path / "named-hands.mid"
+    midi.write(str(source))
+    from mir.pipeline import UnderstandingPipeline
+    pipeline = UnderstandingPipeline()
+    pipeline.transcribe_midi(source, "named")
+    inner = next(e for e in pipeline.last_quantized_events if e.pitch == 60)
+    assert inner.hand == Hand.RIGHT
+    assert pipeline.notation.last_quantization_summary["layout_source"] == "pipeline"
+
+
 def test_solo_pipeline_never_assigns_piano_hands(tmp_path, monkeypatch):
     from mir.pipeline import UnderstandingPipeline
     monkeypatch.setenv("TRANSCRIPTION_QUANTIZATION_MODE", "performance")

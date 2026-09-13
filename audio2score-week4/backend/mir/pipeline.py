@@ -1076,6 +1076,9 @@ class UnderstandingPipeline:
             from mir.performance_score import assign_pipeline_layout
             from mir.score_profile import collapse_for_solo_notation
 
+            # Hands/voices are assigned once here. The performance quantizer
+            # consumes this graph and does not re-run the separators.
+            # Non-piano sources never receive piano hand labels.
             events, profile, warning = collapse_for_solo_notation(events)
             if warning:
                 print(f"[Interpretation] {warning}", flush=True)
