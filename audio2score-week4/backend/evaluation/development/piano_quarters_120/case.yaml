@@ -1,0 +1,16 @@
+id: piano_quarters_120
+title: Synthetic C major quarters (repo-safe fixture)
+instrument: piano
+reference:
+  midi: reference.mid
+expected:
+  meter: "4/4"
+  tempo_bpm: 120
+tags:
+  - piano
+  - duration
+  - quarter
+  - fixture
+notes: >
+  Generated additive-synthesis fixture for Checkpoint 7 harness validation.
+  Not a real recording. Safe to regenerate locally.

@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-08-25T07:50:21Z",
-  "git": "e581c4c",
+  "timestamp": "2026-09-13T09:25:51Z",
+  "git": "fb3e9b7",
   "mode": "midi",
   "mode_label": "MIDI ingest",
   "case_count": 21,
@@ -9,7 +9,7 @@
   "skipped": 0,
   "fallback_count": 0,
   "regressions": [],
-  "baseline_git": "7bb1319",
+  "baseline_git": null,
   "cases": [
     {
       "id": "c_major_quarters",
@@ -80,9 +80,9 @@
         "hand_assignments": {},
         "production_hands": {
           "left": 0,
-          "right": 7,
+          "right": 8,
           "unknown": 0,
-          "ambiguous": 1
+          "ambiguous": 0
         },
         "voice_count": 1,
         "measure_count": 2,
@@ -398,8 +398,8 @@
         "event_count_structure": 8,
         "hand_assignments": {},
         "production_hands": {
-          "left": 4,
-          "right": 4,
+          "left": 1,
+          "right": 7,
           "unknown": 0,
           "ambiguous": 0
         },
@@ -626,7 +626,7 @@
         "measure_valid": true,
         "voice_sum_ok": true,
         "tie_count": 0,
-        "rest_count": 4,
+        "rest_count": 3,
         "tuplet_count": 0,
         "complexity": 0.0,
         "xml_valid": true,
@@ -638,8 +638,8 @@
         "event_count_structure": 6,
         "hand_assignments": {},
         "production_hands": {
-          "left": 4,
-          "right": 2,
+          "left": 2,
+          "right": 4,
           "unknown": 0,
           "ambiguous": 0
         },
@@ -956,8 +956,8 @@
         "event_count_structure": 6,
         "hand_assignments": {},
         "production_hands": {
-          "left": 2,
-          "right": 4,
+          "left": 1,
+          "right": 5,
           "unknown": 0,
           "ambiguous": 0
         },
@@ -1570,9 +1570,9 @@
         "measure_valid": true,
         "voice_sum_ok": true,
         "tie_count": 0,
-        "rest_count": 5,
-        "tuplet_count": 0,
-        "complexity": 0.0,
+        "rest_count": 1,
+        "tuplet_count": 6,
+        "complexity": 0.75,
         "xml_valid": true,
         "xml_errors": []
       },

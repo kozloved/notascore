@@ -377,8 +377,9 @@ class UnderstandingPipeline:
             (n.note_id, n.pitch, n.velocity, n.start_time, n.end_time) for n in notes
         ]
         candidates = evaluate_candidates(notes, timing.time_map)
+        eligible_candidates = self._downbeat_candidates(candidates, timing)
         self.last_candidate_scores = [c.to_dict() for c in candidates]
-        chosen = choose_candidate(candidates)
+        chosen = choose_candidate(eligible_candidates)
         if chosen is not None and abs(chosen.tempo_scale - 1.0) > 1e-9:
             new_map = scaled_time_map(timing.time_map, chosen.tempo_scale)
             timing = apply_score_time_map(
@@ -433,7 +434,7 @@ class UnderstandingPipeline:
         scale = chosen.tempo_scale if chosen is not None else 1.0
         same_scale = [
             c
-            for c in candidates
+            for c in eligible_candidates
             if abs(c.tempo_scale - scale) < 1e-9
         ]
         best_at_scale = min(same_scale, key=lambda c: c.total) if same_scale else None
@@ -456,17 +457,25 @@ class UnderstandingPipeline:
                 f"[Interpretation] meter={selected_meter.time_signature} "
                 f"over {decision.meter} cost={best_at_scale.total:.3f}"
             )
+        if (eligible_candidates is not candidates and best_at_scale is not None
+                and not self._score_downbeats(timing, selected_meter)):
+            selected_meter = meter_from_time_signature(
+                best_at_scale.meter, confidence=decision.confidence,
+                source="measured_downbeats",
+            )
+        if selected_meter.time_signature != decision.meter:
+            decision = replace(
+                decision, meter=selected_meter.time_signature, hypothesis=selected_meter,
+                reason="score_interpretation_with_downbeat_evidence",
+                was_hint_overridden=True,
+            )
+            self.last_meter_decision = decision
         events = self._align_score_meter(events, notes, timing, selected_meter)
         self.last_timing = timing
         self.last_musical_time_map = timing.time_map
         first_beat = min((e.start_beat for e in events), default=0.0)
-        down_beats = []
-        result = getattr(self.beat_tracker, "last_beat_result", None)
-        if result is not None:
-            down_beats = [
-                timing.time_map.seconds_to_beats(t)
-                for t in (result.downbeat_times or [])
-            ]
+        down_beats = [timing.time_map.seconds_to_beats(t)
+                      for t in self._score_downbeats(timing, selected_meter)]
         self.last_pickup = infer_pickup(
             first_beat,
             selected_meter.measure_quarter_length,
@@ -1231,30 +1240,90 @@ class UnderstandingPipeline:
         return timing
 
     def _align_score_meter(self, events, notes, timing, selected_meter):
-        """Apply measured bar phase only when its units match the chosen meter."""
+        """Align measured downbeats in the final score's quarter-note units."""
         from mir.types import copy_event
 
-        result = getattr(self.beat_tracker, "last_beat_result", None)
-        beats_per_bar = getattr(result, "beats_per_bar", None)
-        if not notes or beats_per_bar != selected_meter.measure_quarter_length:
+        if not notes:
             return events
+        downbeats = self._score_downbeats(timing, selected_meter)
         old_map = timing.time_map
         align_score_origin(
             timing,
             min(n.start_time for n in notes),
-            downbeat_times=getattr(result, "downbeat_times", ()) or (),
-            beats_per_bar=beats_per_bar,
+            downbeat_times=downbeats,
+            beats_per_bar=selected_meter.measure_quarter_length,
         )
         self.last_timing = timing
         self.last_musical_time_map = timing.time_map
         shift = timing.time_map.seconds_to_beats(old_map.beat_times[0])
-        return [copy_event(ev, start_beat=ev.start_beat + shift) for ev in events]
+        # A performed onset a few milliseconds before the opening detected
+        # downbeat is timing jitter, not a whole extra pickup bar. Only its
+        # displayed attack is clamped; the original seconds remain intact.
+        return [copy_event(ev, start_beat=max(0.0,
+                    timing.time_map.seconds_to_beats(ev.start_time_sec)
+                    if ev.start_time_sec is not None else ev.start_beat + shift))
+                for ev in events]
+
+    def _downbeat_candidates(self, candidates, timing):
+        """Do not trade reliable audio bar evidence for a cheaper spelling."""
+        from mir.meter import meter_from_time_signature
+        from mir.score_interpretation import scaled_time_map
+
+        compatible = []
+        for candidate in candidates:
+            scaled = replace(timing, time_map=scaled_time_map(timing.time_map, candidate.tempo_scale),
+                             tempo_scale=candidate.tempo_scale)
+            downbeats = self._score_downbeats(scaled, meter_from_time_signature(candidate.meter))
+            if len(downbeats) >= 3:
+                compatible.append(candidate)
+        if not compatible:
+            return candidates
+        for candidate in candidates:
+            candidate.extra["downbeat_compatible"] = candidate in compatible
+        return compatible
+
+    def _score_downbeats(self, timing, selected_meter):
+        """Choose compatible measured bar evidence, including the compound DBN.
+
+        Tracker beat counts cannot be compared directly with score quarters
+        after a tempo-scale change. Compare the actual mapped bar intervals.
+        """
+        result = getattr(self.beat_tracker, "last_beat_result", None)
+        candidates = [list(timing.analysis.downbeat_times or [])]
+        if result is not None:
+            candidates.insert(0, list(getattr(result, "downbeat_times", ()) or ()))
+            grouping = [float(t) for t, position in zip(
+                getattr(result, "grouping_beat_times", ()) or (),
+                getattr(result, "grouping_positions", ()) or ()) if position == 1]
+            if selected_meter.denominator == 8 and len(grouping) >= 3:
+                grouping_count = getattr(result, "grouping_beats_per_bar", None)
+                if grouping_count is None:
+                    grouping_count = max(getattr(result, "grouping_positions", ()) or (0,))
+                # Six detected pulses support six eighths, not twelve
+                # eighths at double the tempo just because bar lengths match.
+                candidates = [grouping] if grouping_count == selected_meter.numerator else []
+            else:
+                candidates.append(grouping)
+        bar = selected_meter.measure_quarter_length
+        for times in candidates:
+            if not times:
+                continue
+            beats = [timing.time_map.seconds_to_beats(t) for t in times]
+            if len(beats) == 1:
+                # One bar marker cannot establish a different meter/scale.
+                if getattr(result, "beats_per_bar", None) == bar and timing.tempo_scale == 1:
+                    return times
+                continue
+            if all(abs((b - a) / bar - 1.0) < 0.05 for a, b in zip(beats, beats[1:])):
+                return times
+        return []
 
     def _write_timing_artifact(self, out_dir: Path, job_id: str, timing, decision) -> None:
         candidates = None
         if decision is not None:
             candidates = list(decision.candidate_scores or [])
-        timing.write_json(out_dir / f"{job_id}.tempo.json", meter_candidates=candidates)
+        timing.write_json(out_dir / f"{job_id}.tempo.json", meter_candidates=candidates,
+                          selected_meter=decision.meter if decision is not None else None)
 
     def _build_tempo_map(
         self, normalized, audio_path, onsets: list[float]

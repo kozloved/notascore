@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from bisect import bisect_right
 from math import ceil, floor, isfinite
 
 EPS = 1e-9
@@ -87,8 +88,7 @@ class MusicalTimeMap:
         for pt in points:
             t = float(pt.time_sec)
             bpm = float(pt.bpm)
-            raw_beat = getattr(pt, "beat", None)
-            beat = float(raw_beat) if raw_beat is not None else float(tempo_map.seconds_to_beats(t))
+            beat = float(tempo_map.seconds_to_beats(t))
             exact.append((t, beat, bpm))
         sampled = cls.from_beat_times(times, source="tempo_map")
         if not exact:
@@ -103,9 +103,10 @@ class MusicalTimeMap:
         t = float(time_sec)
         if not isfinite(t):
             raise ValueError("time_sec must be finite")
-        exact = self._exact_tempo_map()
-        if exact is not None:
-            return float(exact.seconds_to_beats(t))
+        if self.exact_points:
+            index = max(0, bisect_right(self.exact_points, t, key=lambda p: p[0]) - 1)
+            second, beat, bpm = self.exact_points[index]
+            return beat + (t - second) * bpm / 60.0
         times = self.beat_times
         if t <= times[0]:
             interval = times[1] - times[0]
@@ -128,9 +129,10 @@ class MusicalTimeMap:
         b = float(beat)
         if not isfinite(b):
             raise ValueError("beat must be finite")
-        exact = self._exact_tempo_map()
-        if exact is not None:
-            return float(exact.beats_to_seconds(b))
+        if self.exact_points:
+            index = max(0, bisect_right(self.exact_points, b, key=lambda p: p[1]) - 1)
+            second, beat, bpm = self.exact_points[index]
+            return second + (b - beat) * 60.0 / bpm
         times = self.beat_times
         if b <= 0:
             interval = times[1] - times[0]
@@ -143,16 +145,14 @@ class MusicalTimeMap:
         frac = b - idx
         return times[idx] + frac * (times[idx + 1] - times[idx])
 
-    def _exact_tempo_map(self):
-        if not self.exact_points:
-            return None
-        from mir.types import TempoMap, TempoPoint
-
-        return TempoMap(
-            points=[
-                TempoPoint(time_sec=t, beat=beat, bpm=bpm)
-                for t, beat, bpm in self.exact_points
-            ]
+    def _knots(self):
+        """All tempo boundaries, including ones between score beats."""
+        if self.exact_points:
+            return self.exact_points
+        return tuple(
+            (second, float(i), 60.0 / (self.beat_times[min(i + 1, len(self.beat_times) - 1)]
+                                     - self.beat_times[min(i, len(self.beat_times) - 2)]))
+            for i, second in enumerate(self.beat_times)
         )
 
     def interval_bpms(self) -> list[tuple[float, float]]:
@@ -166,7 +166,7 @@ class MusicalTimeMap:
         return rows
 
     def for_score(self, first_note_sec: float, *, downbeat_times=(), beats_per_bar=None):
-        """Translate the origin by whole beats, preserving the rubato curve.
+        """Translate to a measured bar origin, preserving the rubato curve.
 
         Only measured downbeats with matching tracker bar units establish bar
         phase. Without that evidence, retain the existing phase and extend
@@ -174,19 +174,29 @@ class MusicalTimeMap:
         """
         first = self.seconds_to_beats(first_note_sec)
         start = min(0, floor(first))
-        if beats_per_bar in (2, 3, 4):
+        if beats_per_bar is not None and isfinite(beats_per_bar) and beats_per_bar > 0:
             indices = [self.seconds_to_beats(t) for t in sanitize_beat_times(downbeat_times)]
-            indices = [round(b) for b in indices if abs(b - round(b)) < 0.05]
             # Inconsistent downbeat evidence must not rotate the bar grid.
-            if indices and all((b - indices[0]) % beats_per_bar == 0 for b in indices):
+            # Half-time can put the original downbeat at a fractional beat.
+            if indices and all(abs((b - indices[0]) / beats_per_bar
+                                   - round((b - indices[0]) / beats_per_bar)) < 0.025
+                               for b in indices):
                 anchor = indices[0]
-                start = anchor - ceil((anchor - first) / beats_per_bar) * beats_per_bar
-        if start == 0:
+                # The detector and AMT use different frame sizes. An attack
+                # at most 30 ms early is not evidence for an extra pickup bar.
+                origin_first = first
+                for downbeat in sanitize_beat_times(downbeat_times):
+                    if 0 <= downbeat - first_note_sec <= 0.03:
+                        origin_first = self.seconds_to_beats(downbeat)
+                        break
+                start = anchor - ceil((anchor - origin_first) / beats_per_bar - EPS) * beats_per_bar
+        if abs(start) < EPS:
             return self
-        end = max(len(self.beat_times), start + 2)
+        count = max(2, ceil(len(self.beat_times) - start))
         return MusicalTimeMap(
-            tuple(self.beats_to_seconds(i) for i in range(start, end)),
+            tuple(self.beats_to_seconds(start + i) for i in range(count)),
             source=self.source,
+            exact_points=tuple((t, beat - start, bpm) for t, beat, bpm in self._knots()),
         )
 
     def with_stride(self, stride: int) -> "MusicalTimeMap":
@@ -195,7 +205,9 @@ class MusicalTimeMap:
         times = self.beat_times[::step]
         if len(times) < 2:
             return self
-        return MusicalTimeMap(times, source=f"{self.source}:stride{step}")
+        return MusicalTimeMap(times, source=f"{self.source}:stride{step}",
+                              exact_points=tuple((t, beat / step, bpm / step)
+                                                 for t, beat, bpm in self._knots()))
 
     def with_subdivisions(self, factor: int) -> "MusicalTimeMap":
         """Insert equal subdivisions between beats (2.0× tempo uses factor=2)."""
@@ -209,7 +221,9 @@ class MusicalTimeMap:
             for k in range(1, n):
                 times.append(a + span * k / n)
         times.append(self.beat_times[-1])
-        return MusicalTimeMap.from_beat_times(times, source=f"{self.source}:x{n}")
+        return MusicalTimeMap(tuple(times), source=f"{self.source}:x{n}",
+                              exact_points=tuple((t, beat * n, bpm * n)
+                                                 for t, beat, bpm in self._knots()))
 
 
 def assert_roundtrip(time_map: MusicalTimeMap, times: list[float], *, tol: float = ROUNDTRIP_TOLERANCE_SEC) -> None:
