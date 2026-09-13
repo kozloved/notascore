@@ -1,6 +1,6 @@
 {
   "name": "hands_rhythm_phase3",
-  "generated_at": "2026-09-13T15:03:33Z",
+  "generated_at": "2026-09-13T15:45:56Z",
   "synthetic": {
     "pedal_quarters": {
       "layout": {
@@ -29,35 +29,35 @@
       "layout": {
         "attacks": 16,
         "hand_switches": 8,
-        "max_voice_id": 1,
-        "distinct_voices": 3
+        "max_voice_id": 2,
+        "distinct_voices": 4
       },
       "plan": {
-        "printed_notes": 17,
-        "ties": 2,
+        "printed_notes": 16,
+        "ties": 0,
         "notes_32nd_or_shorter": 0,
-        "voices_max_per_staff": 2,
+        "voices_max_per_staff": 3,
         "fragment_ties": 0,
-        "tuplets": 9,
+        "tuplets": 8,
         "source_identity_preserved": true
       },
       "written_durations": {
         "bass0": "1",
         "mel0": "1",
-        "mid0": "1/3",
+        "mid0": "2/3",
         "mid20": "2/3",
         "bass1": "1",
         "mel1": "1",
-        "mid1": "1/3",
+        "mid1": "2/3",
         "mid21": "2/3",
         "bass2": "1",
         "mel2": "1",
-        "mid2": "1/3",
+        "mid2": "2/3",
         "mid22": "2/3",
         "bass3": "1",
         "mel3": "1",
-        "mid3": "1/3",
-        "mid23": "2/3"
+        "mid3": "2/3",
+        "mid23": "1/3"
       }
     },
     "near_boundary_releases": {
@@ -135,34 +135,91 @@
       "time_modifications": 4,
       "max_voices_in_measure_staff": 6
     },
-    "after_midi_replay": {
+    "after_aligned_replay": {
+      "status": "ok",
+      "job_id": "hands_rhythm_aligned",
+      "raw_sha256": "aae968993fe7aa03dd21d3ba77e2aa8cc143cd585b6d6b0e257f6d2156cf7cca",
+      "raw_sha_matches_alignment": true,
+      "meter": "3/4",
+      "beat_count": 48,
+      "downbeat_count": 16,
+      "attacks": 100,
+      "layout_authority": "inferred",
       "plan": {
         "source_note_count": 100,
-        "printed_notes": 66,
-        "ties": 51,
-        "notes_32nd_or_shorter": 10,
-        "voices_max_per_staff": 5,
-        "fragment_ties": 10,
-        "tuplets": 8
+        "printed_notes": 61,
+        "ties": 29,
+        "notes_32nd_or_shorter": 5,
+        "voices_max_per_staff": 7,
+        "fragment_ties": 5,
+        "tuplets": 2,
+        "source_identity_preserved": true
       },
       "musicxml": {
-        "pitched_symbols": 143,
-        "tie_starts": 86,
-        "tiny_32nd": 9,
-        "tiny_64th": 4,
-        "tiny_128th": 5,
-        "tiny_total": 18,
-        "time_modifications": 11,
-        "max_voices_in_measure_staff": 4
+        "pitched_symbols": 120,
+        "tie_starts": 40,
+        "tiny_32nd": 5,
+        "tiny_64th": 0,
+        "tiny_128th": 0,
+        "tiny_total": 5,
+        "time_modifications": 2,
+        "max_voices_in_measure_staff": 3
       },
-      "caveat": "MIDI-only replay; beat map may differ from the audio-aligned current-main.musicxml. Private audio/MIDI stay out of git."
+      "voice_distribution": {
+        "voices_by_staff": {
+          "0": [
+            0,
+            1,
+            2
+          ],
+          "1": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "max_voices_in_measure_staff_events": 3,
+        "hotspots_ge_4": []
+      },
+      "xml_path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/.tmp/autumn-walks-review/bp_hands_rhythm_aligned/hands_rhythm_aligned.musicxml",
+      "xml_chars": 89338
     },
     "deltas_vs_current_main": {
-      "pitched_symbols": -12,
-      "tie_starts": -24,
-      "tiny_total": -19,
-      "time_modifications": -9,
-      "max_voices_in_measure_staff": 1
+      "pitched_symbols": -35,
+      "tie_starts": -70,
+      "tiny_total": -32,
+      "time_modifications": -18,
+      "max_voices_in_measure_staff": 0
+    },
+    "comparable": {
+      "same_midi": true,
+      "forced_meter": "3/4",
+      "beat_source": "detected-beats.json",
+      "attacks": 100,
+      "voice_investigation": {
+        "voices_by_staff": {
+          "0": [
+            0,
+            1,
+            2
+          ],
+          "1": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "max_voices_in_measure_staff_events": 3,
+        "hotspots_ge_4": []
+      }
     }
   }
 }

@@ -517,3 +517,40 @@ def test_broken_chord_survives_tempo_and_transposition():
         assert all(e.hand == Hand.RIGHT for e in out if e.pitch >= 70 + transpose)
         assert all(e.hand == Hand.LEFT for e in out if e.pitch <= 48 + transpose)
         assert all(e.hand == Hand.LEFT for e in out if 54 + transpose <= e.pitch <= 66 + transpose)
+
+
+def test_one_hand_rest_decays_independently_while_other_continues():
+    """RH activity must not keep LH anchors/sticky context alive."""
+    sep = HandSeparator()
+    events = []
+    for beat in range(3):
+        events.append(_ev(42, float(beat), dur=0.9, note_id=f"bass{beat}"))
+        events.append(_ev(77, float(beat), dur=0.9, note_id=f"mel{beat}"))
+        events.append(_ev(58, beat + 0.33, dur=0.3, note_id=f"mid{beat}"))
+    # RH continues alone for longer than silence_hard_beats.
+    for beat in range(4, 12):
+        events.append(_ev(76, float(beat), dur=0.8, note_id=f"rh{beat}a"))
+        events.append(_ev(79, beat + 0.5, dur=0.4, note_id=f"rh{beat}b"))
+    # Clear bass returns under a high RH; LH context must have expired so the
+    # bass is not forced onto the continuously active right hand.
+    events.append(_ev(40, 12.0, dur=0.5, note_id="new_bass"))
+    events.append(_ev(84, 12.0, dur=0.5, note_id="new_mel"))
+
+    # Direct state check: after RH-only frames, LH fields are cleared.
+    frames = sep._cluster(events)
+    path, _conf, carries = sep._viterbi(frames)
+    # Find a carry just before beat 12.
+    pre = None
+    for frame, carry in zip(frames, carries):
+        if frame[0].start_beat >= 11.5:
+            break
+        pre = carry
+    assert pre is not None
+    assert pre.lh is None
+    assert pre.lh_bass is None
+    assert pre.rh is not None
+
+    out = sep.separate(events)
+    by = {e.note_id: e for e in out}
+    assert by["new_bass"].hand == Hand.LEFT
+    assert by["new_mel"].hand == Hand.RIGHT

@@ -226,10 +226,11 @@ class HandSeparator:
         # Last resort: still lock-respecting (unlocked default to RH).
         return [merge(tuple(RH for _ in unlocked))]
 
-    def _silence_scale(self, prev: HandReps, frame_beat: float) -> float:
-        if prev.last_beat is None:
-            return 1.0
-        dt = max(0.0, frame_beat - prev.last_beat)
+    def _hand_age_scale(self, activity_beat: Optional[float], frame_beat: float) -> float:
+        """Decay scale for one hand from that hand's last activity (1=fresh, 0=reset)."""
+        if activity_beat is None:
+            return 0.0
+        dt = max(0.0, frame_beat - activity_beat)
         cfg = self.config
         if dt >= cfg.silence_hard_beats:
             return 0.0
@@ -237,35 +238,44 @@ class HandSeparator:
             return 1.0
         return exp(-(dt - cfg.silence_soft_beats) / cfg.silence_decay_tau)
 
+    def _silence_scale(self, prev: HandReps, frame_beat: float) -> float:
+        """Backward-compatible global scale from the more recent hand activity."""
+        scales = [
+            self._hand_age_scale(prev.lh_beat, frame_beat),
+            self._hand_age_scale(prev.rh_beat, frame_beat),
+        ]
+        if prev.last_beat is not None and prev.lh_beat is None and prev.rh_beat is None:
+            scales.append(self._hand_age_scale(prev.last_beat, frame_beat))
+        return max(scales) if scales else 0.0
+
     def _decay_reps(self, prev: HandReps, frame_beat: float) -> HandReps:
-        scale = self._silence_scale(prev, frame_beat)
-        if scale >= 1.0:
-            return prev
-        if scale <= 0.0:
-            return HandReps(last_beat=prev.last_beat)
-        # Soft decay: keep pitches but clear aged anchors after soft silence.
-        keep_bass = (
-            prev.lh_bass
-            if prev.lh_bass_beat is not None
-            and frame_beat - prev.lh_bass_beat < self.config.silence_hard_beats
-            else None
-        )
-        keep_melody = (
-            prev.rh_melody
-            if prev.rh_melody_beat is not None
-            and frame_beat - prev.rh_melody_beat < self.config.silence_hard_beats
-            else None
-        )
+        """Clear each hand's carried state from that hand's own timestamps.
+
+        Continuous activity in one hand must not keep the resting hand's
+        anchors and sticky switch costs alive.
+        """
+        lh_scale = self._hand_age_scale(prev.lh_beat, frame_beat)
+        rh_scale = self._hand_age_scale(prev.rh_beat, frame_beat)
+        bass_scale = self._hand_age_scale(prev.lh_bass_beat, frame_beat)
+        mel_scale = self._hand_age_scale(prev.rh_melody_beat, frame_beat)
+
+        def keep_pitch(pitch, scale):
+            if pitch is None or scale <= 0.0:
+                return None
+            return pitch if scale > 0.35 else None
+
+        keep_bass = prev.lh_bass if bass_scale > 0.2 else None
+        keep_melody = prev.rh_melody if mel_scale > 0.2 else None
         return HandReps(
-            lh=prev.lh if scale > 0.35 else None,
-            rh=prev.rh if scale > 0.35 else None,
-            lh_vel=prev.lh_vel * scale,
-            rh_vel=prev.rh_vel * scale,
-            lh_bass=keep_bass if scale > 0.2 else None,
-            rh_melody=keep_melody if scale > 0.2 else None,
+            lh=keep_pitch(prev.lh, lh_scale),
+            rh=keep_pitch(prev.rh, rh_scale),
+            lh_vel=prev.lh_vel * lh_scale,
+            rh_vel=prev.rh_vel * rh_scale,
+            lh_bass=keep_bass,
+            rh_melody=keep_melody,
             last_beat=prev.last_beat,
-            lh_beat=prev.lh_beat,
-            rh_beat=prev.rh_beat,
+            lh_beat=prev.lh_beat if lh_scale > 0.0 else None,
+            rh_beat=prev.rh_beat if rh_scale > 0.0 else None,
             lh_bass_beat=prev.lh_bass_beat if keep_bass is not None else None,
             rh_melody_beat=prev.rh_melody_beat if keep_melody is not None else None,
         )
@@ -437,11 +447,14 @@ class HandSeparator:
         cfg = self.config
         frame_beat = notes[0].start_beat if notes else 0.0
         prev = self._decay_reps(prev, frame_beat)
-        sticky = self._silence_scale(prev, frame_beat)
         curr = self._centroids(notes, assign)
         cost = 0.0
         prev_pitch = (prev.lh, prev.rh)
         prev_vel = (prev.lh_vel, prev.rh_vel)
+        hand_sticky = (
+            self._hand_age_scale(prev.lh_beat, frame_beat),
+            self._hand_age_scale(prev.rh_beat, frame_beat),
+        )
 
         for hand, cc in ((LH, curr[LH]), (RH, curr[RH])):
             prior = prev_pitch[hand]
@@ -467,14 +480,18 @@ class HandSeparator:
         for note, a in zip(notes, assign):
             my_prev = prev_pitch[a]
             other_prev = prev_pitch[1 - a]
+            # Accompaniment continuity follows this hand's own freshness.
+            line_sticky = hand_sticky[a]
             if my_prev is None and other_prev is not None:
                 stay_jump = abs(note.pitch - other_prev)
-                # Opening a silent hand is expensive if the active hand can still
-                # reach this pitch. True opposite-register entries stay cheap.
-                if stay_jump <= 28:
+                # Keep a monophonic line on the currently active hand while that
+                # hand is fresh. Independent per-hand decay still clears the
+                # resting hand's anchors via line_sticky / _decay_reps.
+                active_sticky = hand_sticky[1 - a]
+                if stay_jump <= 28 and active_sticky > 0.0:
                     cost += (
                         cfg.switch_weight
-                        * sticky
+                        * active_sticky
                         * max(0.0, 1.0 - stay_jump / 28.0)
                     )
             if prev.lh is not None and prev.rh is not None:
@@ -492,7 +509,7 @@ class HandSeparator:
                 natural = LH if d_lh <= d_rh else RH
                 if natural != a:
                     cost += cfg.direction_weight * (abs(d_lh - d_rh) / 8.0)
-            cost += sticky * self._accompaniment_stream_cost(note, a, prev)
+            cost += line_sticky * self._accompaniment_stream_cost(note, a, prev)
 
         nxt = self._update_reps(prev, notes, assign)
         if nxt.lh is not None and nxt.rh is not None and nxt.lh > nxt.rh + 1.0:

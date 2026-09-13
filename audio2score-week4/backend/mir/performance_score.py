@@ -19,6 +19,8 @@ from mir.layout import (
     LayoutResult,
     classify_hand_authority,
     hands_complete,
+    stamp_authority,
+    stamped_authority,
     voices_complete,
 )
 from mir.models import staff_for_hand
@@ -128,50 +130,124 @@ def _written_overlap(raw, onset, next_onset, overlaps):
 
 def _fragment_count(onset: Fraction, duration: Fraction, beat_length=Fraction(1)) -> int:
     """Count engraved pieces after the same barline splitting used by export."""
+    return _engraved_release_stats(
+        onset, duration, measure_length=Fraction(4), beat_length=beat_length
+    )[0]
+
+
+def _engraved_release_stats(
+    onset: Fraction,
+    duration: Fraction,
+    *,
+    measure_length: Fraction,
+    beat_length: Fraction,
+) -> tuple[int, int, int]:
+    """Return (fragments, tie_joins, tiny_pieces) after real barline splitting."""
     from notation_engine.exact_plan import _pieces
 
-    return sum(1 for _ in _pieces(onset, duration, beat_length))
+    if duration <= 0:
+        return 0, 0, 0
+    onset = Fraction(onset)
+    duration = Fraction(duration)
+    measure_length = Fraction(measure_length)
+    beat_length = Fraction(beat_length)
+    end = onset + duration
+    fragments = 0
+    ties = 0
+    tiny = 0
+    pos = onset
+    first_segment = True
+    while pos < end - Fraction(1, 10**9):
+        bar_index = int(pos / measure_length) if measure_length > 0 else 0
+        bar_start = bar_index * measure_length
+        bar_end = bar_start + measure_length
+        seg_end = min(end, bar_end)
+        local_start = pos - bar_start
+        local_dur = seg_end - pos
+        pieces = list(_pieces(local_start, local_dur, beat_length))
+        if not first_segment:
+            ties += 1
+        if pieces:
+            ties += max(0, len(pieces) - 1)
+            fragments += len(pieces)
+            for _offset, length in pieces:
+                if length <= Fraction(1, 32):
+                    tiny += 1
+        first_segment = False
+        pos = seg_end
+    return fragments, ties, tiny
 
 
-def _duration_spelling_cost(raw, onset, duration, family):
-    """Prefer spellings that stay simple after barline splitting."""
-    beat_length = Fraction(1)
-    fragments = _fragment_count(onset, duration, beat_length)
+def _beat_length_for_meter(meter) -> Fraction:
+    denominator = int(getattr(meter, "denominator", 4) or 4)
+    numerator = int(getattr(meter, "numerator", 4) or 4)
+    if denominator == 8 and numerator > 3 and numerator % 3 == 0:
+        return Fraction(3, 2)
+    return Fraction(4, denominator)
+
+
+def _duration_spelling_cost(
+    raw,
+    onset,
+    duration,
+    family,
+    *,
+    measure_length=Fraction(4),
+    beat_length=Fraction(1),
+):
+    """Prefer spellings that stay simple after meter-aware barline splitting."""
+    fragments, ties, tiny_pieces = _engraved_release_stats(
+        Fraction(onset),
+        Fraction(duration),
+        measure_length=Fraction(measure_length),
+        beat_length=Fraction(beat_length),
+    )
     denom = duration.denominator
     numerator = duration.numerator
     while numerator % 2 == 0:
         numerator //= 2
     odd = numerator not in (1, 3)
     err = abs(float(duration) - raw)
-    # Do not invent a long written overrun or truncate a hold just to
-    # avoid a barline tie.
     stretch = max(0.0, float(duration) - raw - 0.12)
     shrink = max(0.0, raw - float(duration) - 0.12)
-    tiny_tail = 0
-    if fragments >= 2 and denom >= 16:
-        tiny_tail = 1
+    tiny_tail = tiny_pieces
     if family != "triplet" and denom >= 32:
         tiny_tail += 1
-    # Isolated fine-grid tails without tuplet evidence.
     if family != "triplet" and denom >= 16 and err < 0.08 and fragments > 1:
         tiny_tail += 2
     mistimed = stretch > 0.25 or shrink > 0.25
-    return (mistimed, fragments, tiny_tail, odd, err, denom, duration)
+    return (mistimed, fragments, ties, tiny_tail, odd, err, denom, duration)
 
 
-def _duration(raw, onset, next_onset, overlaps, family, *, preserve=False):
+def _duration(
+    raw,
+    onset,
+    next_onset,
+    overlaps,
+    family,
+    *,
+    preserve=False,
+    measure_length=Fraction(4),
+    beat_length=Fraction(1),
+):
     unit = Fraction(1, 48) if family == "triplet" else Fraction(1, 16)
     onset = Fraction(onset) if not isinstance(onset, Fraction) else onset
+    measure_length = Fraction(measure_length)
+    beat_length = Fraction(beat_length)
     named = {Fraction(n, d) for d in (1, 2, 4, 8, 16)
              for n in (1, 2, 3, 4, 6, 8, 12, 16)}
     if family == "triplet":
         named.update(Fraction(n, d) for d in (6, 12, 24, 48) for n in (1, 2, 4, 8, 16))
     # Long sustains remain possible and will be split into barline ties.
     named.add(max(unit, round(raw / float(unit)) * unit))
-    # Metrical releases near integer/half/dotted boundaries.
+    # Metrical releases near integer/half/dotted boundaries and bar ends.
     for boundary in (1, 2, 3, 4, 5, 6, 7, 8, Fraction(3, 2), Fraction(1, 2), Fraction(3, 4)):
         if abs(raw - float(boundary)) <= 0.35:
             named.add(Fraction(boundary))
+    bar_pos = onset % measure_length if measure_length > 0 else Fraction(0)
+    to_bar = measure_length - bar_pos
+    if to_bar > 0 and abs(raw - float(to_bar)) <= 0.35:
+        named.add(to_bar)
     if preserve:
         exact = min(named, key=lambda d: abs(float(d) - raw))
         if abs(float(exact) - raw) < 1e-7:
@@ -184,14 +260,21 @@ def _duration(raw, onset, next_onset, overlaps, family, *, preserve=False):
         named = {d for d in named if d <= cap + Fraction(1, 10**9)}
         if cap > 0:
             named.add(cap)
-            # Prefer the same-line attack as a written release when it is a
-            # simple value near the performed decay.
             if abs(float(cap) - raw) <= max(0.95, raw * 0.55):
                 named.add(cap)
     if not named:
         named = {max(unit, round(raw / float(unit)) * unit)}
-    # Score the whole written ending, not only acoustic proximity.
-    return min(named, key=lambda d: _duration_spelling_cost(raw, onset, d, family))
+    return min(
+        named,
+        key=lambda d: _duration_spelling_cost(
+            raw,
+            onset,
+            d,
+            family,
+            measure_length=measure_length,
+            beat_length=beat_length,
+        ),
+    )
 
 
 def _score_voices(events, separator):
@@ -215,41 +298,67 @@ def _score_voices(events, separator):
     return _mark_voices_assigned(restored)
 
 
-def _voice_search_events(events):
-    """Cap pedal-like tails for voice search without mutating performed times.
+def _release_hypothesis(ev, ordered_same_hand):
+    """Bounded same-hand line/release decision for voice search only.
 
-    Repeated same-hand attacks under sustain look overlapping because the
-    acoustic release outlasts the pulse. Cap those tails at the next
-    same-line attack so they stay on one written line. Genuine independent
-    streams keep their performed endings and can still open a second voice.
+    Preserves near-simultaneous / independently sustained repeated pitches and
+    genuine multi-attack holds. Caps only clear pedal/room tails under a
+    continuing line (including same-pitch re-attacks under sustain).
     """
+    raw = float(ev.duration_beats)
+    end = ev.start_beat + raw
+    later = [x for x in ordered_same_hand if x.start_beat > ev.start_beat + 1e-9]
+    if not later:
+        return None, "phrase_end"
+
+    first_gap = float(later[0].start_beat - ev.start_beat)
+    covered = sum(1 for x in later if x.start_beat < end - 0.04)
+    # Held note spanning several later attacks (not a one-pulse pedal tail).
+    if covered >= 2 and first_gap > 0 and raw >= first_gap * 4.0:
+        return None, "multi_attack_hold"
+
+    best = None
+    for nxt in later:
+        gap = float(nxt.start_beat - ev.start_beat)
+        if gap > 2.05:
+            break
+        leap = abs(nxt.pitch - ev.pitch)
+        same_pitch_overlap = nxt.pitch == ev.pitch and nxt.start_beat < end - 0.04
+        if same_pitch_overlap:
+            # Pulse re-attack under pedal is a line continuation.
+            if 0.20 <= gap <= 2.05 and gap * 1.25 < raw < gap * 4.0:
+                return nxt.start_beat, "pedal_tail"
+            # Near-simultaneous or independently sustained repeated pitch.
+            if gap <= 0.12 or raw >= gap * 4.0:
+                return None, "overlapping_repeat"
+        if leap > 9:
+            continue
+        score = leap + 0.05 * gap
+        if best is None or score < best[0]:
+            best = (score, nxt, gap)
+    if best is None:
+        return None, "no_line"
+    _score, nxt, gap = best
+    if 0.20 <= gap <= 2.05 and gap * 1.25 < raw < gap * 4.0:
+        return nxt.start_beat, "pedal_tail"
+    return None, "performed_release"
+
+
+def _voice_search_events(events):
+    """Apply line/release hypotheses for voice search without mutating performed times."""
     by_hand = defaultdict(list)
     for ev in events:
         by_hand[ev.hand].append(ev)
     capped = {}
     for group in by_hand.values():
         ordered = sorted(group, key=lambda e: (e.start_beat, e.pitch, e.note_id))
-        for i, ev in enumerate(ordered):
-            next_onset = None
-            for later in ordered[i + 1:]:
-                if later.start_beat <= ev.start_beat + 1e-9:
-                    continue
-                # Same musical line: nearby pitch continuation, not the
-                # interleaved independent stream an octave away.
-                if abs(later.pitch - ev.pitch) <= 9:
-                    next_onset = later.start_beat
-                    break
-            if next_onset is None:
+        for ev in ordered:
+            release_at, _reason = _release_hypothesis(ev, ordered)
+            if release_at is None:
                 capped[ev.note_id] = ev
-                continue
-            raw = float(ev.duration_beats)
-            gap = float(next_onset - ev.start_beat)
-            # Pedal/room tail under a repeated figure: longer than the pulse
-            # but not a multi-attack held note.
-            if 0.20 <= gap <= 2.05 and gap * 1.25 < raw < gap * 4.0:
-                capped[ev.note_id] = copy_event(ev, duration_beats=gap)
             else:
-                capped[ev.note_id] = ev
+                gap = float(release_at - ev.start_beat)
+                capped[ev.note_id] = copy_event(ev, duration_beats=gap)
     return [capped.get(ev.note_id, ev) for ev in events]
 
 
@@ -359,9 +468,10 @@ def assign_pipeline_layout(events, profile: ScoreProfile, hand_separator, voice_
     elif inferred_hands:
         authority = LayoutAuthority.INFERRED
     else:
-        authority = classify_hand_authority(out)
+        authority = stamped_authority(out) or classify_hand_authority(out)
         if authority is LayoutAuthority.NONE:
             authority = LayoutAuthority.PROVIDER
+    out = stamp_authority(out, authority)
     return LayoutResult(
         events=out,
         authority=authority,
@@ -370,8 +480,26 @@ def assign_pipeline_layout(events, profile: ScoreProfile, hand_separator, voice_
     )
 
 
-def resolve_layout(raw, profile: ScoreProfile):
-    """Keep pipeline/MIDI layout; infer only when the events are unlabeled."""
+def resolve_layout(raw, profile: ScoreProfile) -> LayoutResult:
+    """Keep stamped pipeline layout; infer only when authority is incomplete."""
+    prior = stamped_authority(raw)
+    if (
+        prior is not None
+        and prior is not LayoutAuthority.NONE
+        and (not profile.grand_staff or hands_complete(raw))
+        and voices_complete(raw)
+    ):
+        events = stamp_authority(
+            [copy_event(ev, voice_assigned=True) for ev in raw],
+            prior,
+        )
+        return LayoutResult(
+            events=events,
+            authority=prior,
+            voice_complete=True,
+            hand_complete=True if not profile.grand_staff else hands_complete(events),
+        )
+
     if not profile.grand_staff:
         cleared = [
             copy_event(ev, hand=Hand.UNKNOWN, hand_confidence=0.0, hand_locked=False)
@@ -386,14 +514,14 @@ def resolve_layout(raw, profile: ScoreProfile):
                 )
                 for i in range(len(raw))
             ]
-            result = LayoutResult(events, LayoutAuthority.PROVIDER, True, True)
-            return result.events, result.layout_source
-        events = _score_voices(cleared, VoiceSeparator())
-        result = LayoutResult(events, LayoutAuthority.INFERRED, True, True)
-        return result.events, result.layout_source
+            authority = LayoutAuthority.PROVIDER
+            events = stamp_authority(events, authority)
+            return LayoutResult(events, authority, True, True)
+        events = stamp_authority(_score_voices(cleared, VoiceSeparator()), LayoutAuthority.INFERRED)
+        return LayoutResult(events, LayoutAuthority.INFERRED, True, True)
 
     if hands_complete(raw):
-        authority = classify_hand_authority(raw)
+        authority = prior or classify_hand_authority(raw)
         events = [copy_event(ev) for ev in raw]
         # Hands already supplied by pipeline/MIDI: keep their voice numbers,
         # including an intentional single voice 0. Do not re-separate.
@@ -401,8 +529,8 @@ def resolve_layout(raw, profile: ScoreProfile):
             events = _mark_voices_assigned(events)
         if authority is LayoutAuthority.NONE:
             authority = LayoutAuthority.PROVIDER
-        result = LayoutResult(events, authority, True, True)
-        return result.events, result.layout_source
+        events = stamp_authority(events, authority)
+        return LayoutResult(events, authority, True, True)
 
     if voices_complete(raw):
         hands = HandSeparator().separate(raw)
@@ -410,12 +538,14 @@ def resolve_layout(raw, profile: ScoreProfile):
             copy_event(out, voice=src.voice, voice_assigned=True)
             for src, out in zip(raw, hands)
         ]
-        result = LayoutResult(events, LayoutAuthority.MIXED, True, True)
-        return result.events, result.layout_source
+        events = stamp_authority(events, LayoutAuthority.MIXED)
+        return LayoutResult(events, LayoutAuthority.MIXED, True, True)
 
-    events = _score_voices(HandSeparator().separate(raw), VoiceSeparator())
-    result = LayoutResult(events, LayoutAuthority.INFERRED, True, True)
-    return result.events, result.layout_source
+    events = stamp_authority(
+        _score_voices(HandSeparator().separate(raw), VoiceSeparator()),
+        LayoutAuthority.INFERRED,
+    )
+    return LayoutResult(events, LayoutAuthority.INFERRED, True, True)
 
 
 def quantize_notation(events, meter, *, config, mode=None):
@@ -445,7 +575,11 @@ def quantize_notation(events, meter, *, config, mode=None):
         offset = 0.0
     score_input = [copy_event(ev, start_beat=ev.start_beat + offset) for ev in raw]
     score_input, profile, collapse_warning = collapse_for_solo_notation(score_input)
-    interpreted, layout_source = resolve_layout(score_input, profile)
+    layout = resolve_layout(score_input, profile)
+    interpreted = layout.events
+    layout_source = layout.layout_source
+    measure_length = Fraction(str(meter.measure_quarter_length)).limit_denominator(48)
+    beat_length = _beat_length_for_meter(meter)
     voices = defaultdict(list)
     for ev in interpreted:
         staff = staff_for_hand(ev.hand, ev.pitch) if profile.grand_staff else 0
@@ -473,8 +607,16 @@ def quantize_notation(events, meter, *, config, mode=None):
             raw_next = min(e.start_beat for e in groups[i + 1]) if nxt is not None else None
             for ev in group:
                 overlaps = raw_next is not None and ev.start_beat + ev.duration_beats > raw_next + 0.04
-                duration = _duration(ev.duration_beats, onset, nxt, overlaps, family,
-                                     preserve=ev.source_backend == "midi")
+                duration = _duration(
+                    ev.duration_beats,
+                    onset,
+                    nxt,
+                    overlaps,
+                    family,
+                    preserve=ev.source_backend == "midi",
+                    measure_length=measure_length,
+                    beat_length=beat_length,
+                )
                 exact[ev.note_id] = (onset, duration, family, f"{key[0]}:{key[1]}:{i}")
                 role, phrase = roles[ev.note_id]
                 out.append(copy_event(ev, start_beat=float(onset), duration_beats=float(duration),
@@ -503,6 +645,7 @@ def quantize_notation(events, meter, *, config, mode=None):
             "group_id": group_id, "reason": "bounded_voice_search",
             "score_beat_offset": offset,
             "onset_error_beats": ev.start_beat - offset - source.start_beat,
+            "layout_authority": getattr(source, "layout_authority", "") or layout.authority.value,
         })
     summary = summarize_quantization(raw, out, decisions)
     if collapse_warning:
@@ -511,6 +654,7 @@ def quantize_notation(events, meter, *, config, mode=None):
                    role_method="contextual_line_hypothesis", role_confidence=0.4,
                    timing_representation="rational", source_notes=len(raw),
                    layout_source=layout_source,
+                   layout_authority=layout.authority.value,
                    score_beat_offset=offset,
                    beat_origin_source="detected_downbeat" if downbeats else "file_origin",
                    max_onset_error_beats=max((abs(d["onset_error_beats"]) for d in decisions), default=0),

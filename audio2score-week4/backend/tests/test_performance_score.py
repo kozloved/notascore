@@ -337,3 +337,80 @@ def test_pedal_tails_do_not_force_extra_voice_before_releases():
     ).events
     assert len({e.voice for e in out}) == 1
     assert all(e.duration_beats == 1.8 for e in out)
+
+
+def test_stamped_layout_authority_survives_quantization(monkeypatch):
+    from mir.layout import LayoutAuthority
+    from mir.performance_score import assign_pipeline_layout
+    from mir.score_profile import score_profile
+    from mir.voice_separator import VoiceSeparator
+    from mir.hand_separator import HandSeparator
+
+    raw = [
+        MusicalEvent(48, 0, 1, note_id="lh", velocity=80),
+        MusicalEvent(72, 0, 1, note_id="rh", velocity=80),
+    ]
+    laid = assign_pipeline_layout(
+        raw, score_profile(raw), HandSeparator(), VoiceSeparator()
+    )
+    assert laid.authority is LayoutAuthority.INFERRED
+    assert all(e.layout_authority == "inferred" for e in laid.events)
+
+    def boom(*_a, **_k):
+        raise AssertionError("quantize must not reconstruct layout from labels")
+
+    monkeypatch.setattr("mir.performance_score.HandSeparator.separate", boom)
+    monkeypatch.setattr("mir.performance_score.VoiceSeparator.separate", boom)
+    out, report = quantize(laid.events)
+    assert report.summary["layout_authority"] == "inferred"
+    assert report.summary["layout_source"] == "inferred"
+    assert {e.note_id: e.hand for e in out} == {
+        e.note_id: e.hand for e in laid.events
+    }
+
+
+def test_release_scoring_uses_meter_barlines_not_unit_pulse():
+    from mir.performance_score import _duration, _engraved_release_stats
+
+    # In 3/4, a release that ends just past a barline should prefer a simpler
+    # spelling when the fine-grid match creates an extra tiny tied fragment.
+    onset = Fraction(2, 1)  # beat 2 in a 3-beat bar
+    raw = 1.17
+    chosen = _duration(
+        raw,
+        onset,
+        None,
+        False,
+        "binary",
+        measure_length=Fraction(3),
+        beat_length=Fraction(1),
+    )
+    frags, ties, tiny = _engraved_release_stats(
+        onset, chosen, measure_length=Fraction(3), beat_length=Fraction(1)
+    )
+    assert chosen == Fraction(1)
+    assert frags <= 2
+    assert tiny == 0
+
+
+def test_overlapping_repeated_pitch_is_not_clipped_for_voice_search():
+    from mir.performance_score import _release_hypothesis, _voice_search_events
+
+    held = MusicalEvent(60, 0.0, 4.0, note_id="hold", hand=Hand.RIGHT, velocity=80)
+    repeat = MusicalEvent(60, 1.0, 3.0, note_id="rep", hand=Hand.RIGHT, velocity=80)
+    ordered = [held, repeat]
+    assert _release_hypothesis(held, ordered)[1] == "overlapping_repeat"
+    search = _voice_search_events(ordered)
+    assert {e.note_id: e.duration_beats for e in search} == {
+        "hold": 4.0,
+        "rep": 3.0,
+    }
+
+
+def test_genuine_multi_attack_hold_is_not_clipped_for_voice_search():
+    from mir.performance_score import _release_hypothesis
+
+    hold = MusicalEvent(48, 0.0, 5.0, note_id="hold", hand=Hand.LEFT, velocity=80)
+    a = MusicalEvent(55, 1.0, 0.5, note_id="a", hand=Hand.LEFT, velocity=70)
+    b = MusicalEvent(58, 2.0, 0.5, note_id="b", hand=Hand.LEFT, velocity=70)
+    assert _release_hypothesis(hold, [hold, a, b])[1] == "multi_attack_hold"

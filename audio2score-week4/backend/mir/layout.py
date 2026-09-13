@@ -70,3 +70,26 @@ def classify_hand_authority(events: list[MusicalEvent]) -> LayoutAuthority:
     # Named MIDI / pipeline hands without locks still count as provider when
     # already complete; inferred assignments also land here until marked.
     return LayoutAuthority.PROVIDER
+
+
+def stamped_authority(events: list[MusicalEvent]) -> LayoutAuthority | None:
+    """Return a unanimous stamped authority, if present on every event."""
+    if not events:
+        return None
+    values = {str(getattr(ev, "layout_authority", "") or "") for ev in events}
+    if len(values) != 1:
+        return None
+    raw = next(iter(values))
+    if not raw:
+        return None
+    try:
+        return LayoutAuthority(raw)
+    except ValueError:
+        return None
+
+
+def stamp_authority(events: list[MusicalEvent], authority: LayoutAuthority) -> list[MusicalEvent]:
+    from mir.types import copy_event
+
+    value = authority.value
+    return [copy_event(ev, layout_authority=value) for ev in events]

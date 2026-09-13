@@ -237,6 +237,9 @@ class MusicalEvent:
     cleaning_status: str = "keep"
     hand_locked: bool = False
     voice_assigned: bool = False
+    # Explicit layout authority stamped by assign_pipeline_layout / resolve_layout.
+    # Empty means unset; quantization must not reconstruct this from labels alone.
+    layout_authority: str = ""
     source_track_id: str = ""
     source_program: Optional[int] = None
 

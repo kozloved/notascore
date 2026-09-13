@@ -219,6 +219,186 @@ def run_synthetic_case(name: str, events: list[MusicalEvent]) -> dict[str, Any]:
     return result
 
 
+def replay_autumn_walks_aligned(review_dir: Path, job_id: str = "hands_rhythm_aligned") -> dict[str, Any]:
+    """Replay Autumn Walks with frozen audio beat map + forced 3/4 meter."""
+    import hashlib
+    import shutil
+
+    from audio_engine.madmom_beats import MadmomBeatResult
+    from mir.cmr_builder import build_score_meta, notes_to_events
+    from mir.meter import meter_from_time_signature
+    from mir.midi_ingest import ingest_midi
+    from mir.models import MusicalStructure
+    from mir.pipeline import UnderstandingPipeline
+    from mir.pipeline_config import QuantizationMode
+    from mir.types import InstrumentKind, TempoMap, TempoPoint
+    from timing.service import resolve_from_beat_times
+
+    midi = review_dir / "mt3-original.mid"
+    beats_path = review_dir / "detected-beats.json"
+    alignment_path = review_dir / "alignment-result.json"
+    if not midi.is_file() or not beats_path.is_file():
+        return {"status": "skipped", "reason": "missing midi or detected-beats.json"}
+
+    beats = json.loads(beats_path.read_text(encoding="utf-8"))
+    alignment = (
+        json.loads(alignment_path.read_text(encoding="utf-8"))
+        if alignment_path.is_file()
+        else {}
+    )
+    raw_sha = hashlib.sha256(midi.read_bytes()).hexdigest()
+    expected_sha = alignment.get("raw_sha256")
+    beat_times = list(beats["beat_times"])
+    downbeats = list(beats["downbeats"])
+    bpm = float(beats.get("bpm") or 120.0)
+    duration = float(beats.get("duration_sec") or max(beat_times[-1] + 1.0, 1.0))
+
+    timing = resolve_from_beat_times(
+        beat_times,
+        downbeat_times=downbeats,
+        duration_sec=duration,
+        model="autumn_walks_detected_beats",
+    )
+    tempo_map = TempoMap(points=[TempoPoint(time_sec=0.0, beat=0.0, bpm=bpm)])
+    pipe = UnderstandingPipeline(backend_name="midi")
+    pipe.last_timing = timing
+    pipe.last_musical_time_map = timing.time_map
+    pipe.beat_tracker.last_beat_result = MadmomBeatResult(
+        tempo_map=tempo_map,
+        time_signature="3/4",
+        beat_times=beat_times,
+        downbeat_times=downbeats,
+        beats_per_bar=3,
+        bpm=bpm,
+        grouping_beats_per_bar=3,
+        grouping_meter="3/4",
+        grouping_beat_times=list(beats.get("grouping_times") or beat_times),
+        grouping_positions=list(beats.get("grouping_positions") or []),
+    )
+
+    ingested = ingest_midi(midi)
+    notes = [n.ensure_ids(i) for i, n in enumerate(ingested.notes)]
+    pipe.last_raw_notes = list(notes)
+    role = pipe.role_separator.separate(notes)
+    kinds = {n.instrument for n in notes}
+    instrument = next(iter(kinds)) if len(kinds) == 1 else InstrumentKind.PIANO
+    events = notes_to_events(
+        notes,
+        timing.time_map,
+        role=role,
+        instrument=instrument,
+        source_backend="midi",
+    )
+    events = pipe._apply_mir_layers(events)
+    meter = meter_from_time_signature("3/4", source="autumn_walks_freeze")
+    score_downbeats = alignment.get("score_downbeats_beats") or []
+    if score_downbeats:
+        meter.evidence["downbeat_beats"] = [float(b) for b in score_downbeats]
+    events = pipe._align_score_meter(events, notes, timing, meter)
+
+    out_dir = review_dir / f"bp_{job_id}"
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    meta = build_score_meta(
+        tempo_map,
+        instrument,
+        [],
+        display_bpm=int(round(bpm)),
+        instrument_confidence=0.9,
+        time_sig_hint="3/4",
+    )
+    meta.extra = {
+        **(meta.extra or {}),
+        "meter_source": "autumn_walks_freeze",
+        "beat_source": "detected-beats.json",
+        "forced_meter": "3/4",
+    }
+
+    structure = MusicalStructure(
+        events=events,
+        tempo_map=tempo_map,
+        meter_hypotheses=[meter],
+        selected_meter=meter,
+        instrument=instrument,
+        instrument_confidence=0.9,
+        extra={"source": "autumn_walks_aligned_replay"},
+    )
+    xml, notation_result = pipe.notation.write_musicxml_with_result(
+        events,
+        meta,
+        job_id=job_id,
+        audio_path=midi,
+        fallback_bpm=bpm,
+        structure=structure,
+        quantization_mode=QuantizationMode.PERFORMANCE,
+    )
+    xml_path = out_dir / f"{job_id}.musicxml"
+    plan = pipe.notation.last_plan
+    plan_m = metrics_from_plan(
+        plan,
+        source_notes=notes,
+        quantized=notation_result.quantized_events,
+    )
+    xml_m = musicxml_complexity(xml_path) if xml_path.is_file() else None
+    voice_probe = _voice_distribution(notation_result.quantized_events)
+    summary = getattr(pipe.notation, "last_quantization_summary", None) or {}
+    if not summary and getattr(notation_result, "quantization", None) is not None:
+        summary = getattr(notation_result.quantization, "summary", None) or {}
+    return {
+        "status": "ok",
+        "job_id": job_id,
+        "raw_sha256": raw_sha,
+        "raw_sha_matches_alignment": (
+            None if not expected_sha else raw_sha == expected_sha
+        ),
+        "meter": "3/4",
+        "beat_count": len(beat_times),
+        "downbeat_count": len(downbeats),
+        "attacks": len(notes),
+        "layout_authority": summary.get("layout_authority"),
+        "plan": {
+            "source_note_count": plan_m["source_note_count"],
+            "printed_notes": plan_m["printed_notes"],
+            "ties": plan_m["ties"],
+            "notes_32nd_or_shorter": plan_m["notes_32nd_or_shorter"],
+            "voices_max_per_staff": plan_m["voices_max_per_staff"],
+            "fragment_ties": plan_m["fragment_ties"],
+            "tuplets": plan_m["tuplets"],
+            "source_identity_preserved": plan_m["source_identity_preserved"],
+        },
+        "musicxml": xml_m,
+        "voice_distribution": voice_probe,
+        "xml_path": str(xml_path),
+        "xml_chars": len(xml or ""),
+    }
+
+
+def _voice_distribution(events) -> dict[str, Any]:
+    by_staff: dict[int, set[int]] = defaultdict(set)
+    by_measure_staff: dict[tuple[int, int], set[int]] = defaultdict(set)
+    for ev in events or []:
+        staff = 0 if ev.hand == Hand.RIGHT else 1 if ev.hand == Hand.LEFT else 0
+        voice = int(ev.voice)
+        by_staff[staff].add(voice)
+        measure = int(ev.start_beat // 3)
+        by_measure_staff[(measure, staff)].add(voice)
+    max_cell = max((len(v) for v in by_measure_staff.values()), default=0)
+    hotspots = sorted(
+        (
+            {"measure": m, "staff": s, "voices": sorted(vs)}
+            for (m, s), vs in by_measure_staff.items()
+            if len(vs) >= 4
+        ),
+        key=lambda row: (-len(row["voices"]), row["measure"], row["staff"]),
+    )[:8]
+    return {
+        "voices_by_staff": {str(k): sorted(v) for k, v in sorted(by_staff.items())},
+        "max_voices_in_measure_staff_events": max_cell,
+        "hotspots_ge_4": hotspots,
+    }
+
+
 def autumn_walks_metrics() -> dict[str, Any] | None:
     if not AUTUMN_REVIEW.is_dir():
         return None
@@ -233,52 +413,38 @@ def autumn_walks_metrics() -> dict[str, Any] | None:
     prod = AUTUMN_REVIEW / "production-before.musicxml"
     if prod.is_file():
         payload["production_before"] = musicxml_complexity(prod)
-    midi = AUTUMN_REVIEW / "mt3-original.mid"
-    if midi.is_file():
-        from mir.pipeline import UnderstandingPipeline
 
-        pipe = UnderstandingPipeline(backend_name="midi")
-        pipe.transcribe_midi(midi, "hands_rhythm_after")
-        plan = pipe.notation.last_plan
-        plan_m = metrics_from_plan(
-            plan,
-            source_notes=pipe.last_raw_notes,
-            quantized=pipe.last_quantized_events,
-        )
-        xml_path = midi.parent / "bp_hands_rhythm_after" / "hands_rhythm_after.musicxml"
-        after_xml = musicxml_complexity(xml_path) if xml_path.is_file() else None
-        payload["after_midi_replay"] = {
-            "plan": {
-                "source_note_count": plan_m["source_note_count"],
-                "printed_notes": plan_m["printed_notes"],
-                "ties": plan_m["ties"],
-                "notes_32nd_or_shorter": plan_m["notes_32nd_or_shorter"],
-                "voices_max_per_staff": plan_m["voices_max_per_staff"],
-                "fragment_ties": plan_m["fragment_ties"],
-                "tuplets": plan_m["tuplets"],
-            },
-            "musicxml": after_xml,
-            "caveat": (
-                "MIDI-only replay; beat map may differ from the audio-aligned "
-                "current-main.musicxml. Private audio/MIDI stay out of git."
-            ),
+    aligned = replay_autumn_walks_aligned(AUTUMN_REVIEW)
+    payload["after_aligned_replay"] = aligned
+    if aligned.get("status") == "ok" and aligned.get("musicxml") and "before_current_main" in payload:
+        before_m = payload["before_current_main"]
+        after_xml = aligned["musicxml"]
+        payload["deltas_vs_current_main"] = {
+            key: after_xml[key] - before_m[key]
+            for key in (
+                "pitched_symbols",
+                "tie_starts",
+                "tiny_total",
+                "time_modifications",
+                "max_voices_in_measure_staff",
+            )
         }
-        if after_xml and "before_current_main" in payload:
-            before_m = payload["before_current_main"]
-            payload["deltas_vs_current_main"] = {
-                key: after_xml[key] - before_m[key]
-                for key in (
-                    "pitched_symbols",
-                    "tie_starts",
-                    "tiny_total",
-                    "time_modifications",
-                    "max_voices_in_measure_staff",
-                )
-            }
+        payload["comparable"] = {
+            "same_midi": aligned.get("raw_sha_matches_alignment"),
+            "forced_meter": "3/4",
+            "beat_source": "detected-beats.json",
+            "attacks": aligned.get("attacks"),
+            "voice_investigation": aligned.get("voice_distribution"),
+        }
+        if after_xml["max_voices_in_measure_staff"] > before_m["max_voices_in_measure_staff"]:
+            payload["voice_increase_note"] = (
+                "Max simultaneous written voices rose versus current-main.musicxml. "
+                "Inspect voice_distribution.hotspots_ge_4; likely pedal-tail lines "
+                "kept as independent holds after release hypotheses, not a meter drift."
+            )
     else:
-        payload["after_midi_replay"] = None
+        payload["deltas_vs_current_main"] = None
     return payload
-
 
 def run_review() -> dict[str, Any]:
     synthetic = {
@@ -287,7 +453,10 @@ def run_review() -> dict[str, Any]:
     }
     return {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "commits_note": "Phase 1 layout/lock-safe hands; Phase 2 written releases",
+        "commits_note": (
+            "Gap closure after d59a0ef: per-hand decay, stamped layout authority, "
+            "meter-aware releases, line/release hypotheses. Phase 3 not complete."
+        ),
         "synthetic": synthetic,
         "autumn_walks": autumn_walks_metrics(),
     }
