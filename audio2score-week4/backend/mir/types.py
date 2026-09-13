@@ -242,6 +242,10 @@ class MusicalEvent:
     layout_authority: str = ""
     source_track_id: str = ""
     source_program: Optional[int] = None
+    # Musical line identity (pre-print). Printed lane is ``voice`` after lane allocation.
+    musical_voice: Optional[int] = None
+    # "supplied" when voice_assigned at layout time; "inferred" when separator chose it.
+    voice_provenance: str = ""
 
 
 def copy_event(event: MusicalEvent, **changes: Any) -> MusicalEvent:

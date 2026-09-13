@@ -41,6 +41,8 @@ class ScoreNote:
     role: str
     rhythm_family: str
     group_id: str
+    musical_voice: int | None = None
+    voice_provenance: str = ""
 
 
 @dataclass
@@ -446,8 +448,23 @@ def _stable_lanes(events, exact, grand_staff=True):
     Reuses inactive lanes so peak concurrency—not historical voice IDs—drives
     printed voice count. Prefers each musical line's home lane when free, keeps
     chord mates together, and never merges independent unisons.
+
+    Returned events keep ``musical_voice`` / ``voice_provenance`` and set
+    ``voice`` to the printed lane ID.
     """
-    musical_line = {ev.note_id: ev.voice for ev in events}
+    musical_line = {
+        ev.note_id: (
+            ev.musical_voice if ev.musical_voice is not None else ev.voice
+        )
+        for ev in events
+    }
+    provenance = {
+        ev.note_id: (
+            ev.voice_provenance
+            or ("supplied" if ev.voice_assigned else "inferred")
+        )
+        for ev in events
+    }
     lanes = defaultdict(list)  # staff -> list of event lists (printed lanes)
     home_lane = {}  # (staff, musical_line) -> preferred printed lane
     result = []
@@ -498,7 +515,12 @@ def _stable_lanes(events, exact, grand_staff=True):
         if (staff, line) not in home_lane:
             home_lane[(staff, line)] = selected
         lanes[staff][selected].append(ev)
-        result.append(copy_event(ev, voice=selected))
+        result.append(copy_event(
+            ev,
+            voice=selected,
+            musical_voice=line,
+            voice_provenance=provenance[ev.note_id],
+        ))
     return result
 
 
@@ -756,9 +778,15 @@ def quantize_notation(events, meter, *, config, mode=None):
         onset, duration, family, group_id = exact[ev.note_id]
         target_id, release_reason = release_by_id.get(ev.note_id, (None, None))
         release_at = onset_by_id.get(target_id) if target_id else None
-        notes.append(ScoreNote(ev.note_id, onset, duration, ev.voice,
-                               staff_for_hand(ev.hand, ev.pitch) if profile.grand_staff else 0,
-                               ev.role, family, group_id))
+        notes.append(ScoreNote(
+            ev.note_id, onset, duration, ev.voice,
+            staff_for_hand(ev.hand, ev.pitch) if profile.grand_staff else 0,
+            ev.role, family, group_id,
+            musical_voice=ev.musical_voice,
+            voice_provenance=ev.voice_provenance or (
+                "supplied" if source.voice_assigned else "inferred"
+            ),
+        ))
         decisions.append({
             "note_id": ev.note_id, "raw_start": source.start_beat,
             "source_track_id": source.source_track_id, "source_program": source.source_program,
@@ -767,7 +795,14 @@ def quantize_notation(events, meter, *, config, mode=None):
             "score_duration": str(duration),
             "performed_duration": source.duration_beats,
             "written_duration": float(duration),
-            "voice": ev.voice, "hand": ev.hand.value,
+            "voice": ev.voice,
+            "printed_voice": ev.voice,
+            "musical_voice": ev.musical_voice,
+            "voice_provenance": ev.voice_provenance or (
+                "supplied" if source.voice_assigned else "inferred"
+            ),
+            "voice_assigned": bool(source.voice_assigned),
+            "hand": ev.hand.value,
             "role": ev.role, "role_confidence": 0.4, "rhythm_family": family,
             "phrase_id": ev.phrase_id, "hand_confidence": ev.hand_confidence,
             "voice_confidence": ev.voice_confidence,

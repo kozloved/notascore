@@ -1012,3 +1012,128 @@ def test_voice_metrics_separate_distinct_ids_from_peak_concurrency():
     assert probe["max_peak_concurrency_in_measure_staff"] == 2
     assert probe["max_peak_note_concurrency_in_measure_staff"] >= 3
     assert probe["max_distinct_voice_ids_in_measure_staff"] == 2
+
+
+def test_lane_borrow_then_melody_returns_home():
+    """Inner line borrows a free lane; melody returns to its home when free."""
+    from mir.performance_score import _stable_lanes
+
+    events = [
+        MusicalEvent(76, 0.0, 1.0, note_id="mel0", hand=Hand.RIGHT, voice=0,
+                     voice_assigned=True, velocity=80, source_backend="mt3"),
+        MusicalEvent(64, 0.5, 1.0, note_id="inner", hand=Hand.RIGHT, voice=1,
+                     voice_assigned=True, velocity=70, source_backend="mt3"),
+        # Melody returns after inner has started; home lane 0 still occupied by
+        # mel0 until beat 1, so mel1 cannot reclaim yet — place after mel0 ends.
+        MusicalEvent(79, 1.0, 1.0, note_id="mel1", hand=Hand.RIGHT, voice=0,
+                     voice_assigned=True, velocity=80, source_backend="mt3"),
+        # Inner continues while melody is back on home; must stay independent.
+        MusicalEvent(67, 1.5, 0.5, note_id="inner2", hand=Hand.RIGHT, voice=1,
+                     voice_assigned=True, velocity=70, source_backend="mt3"),
+    ]
+    exact = {
+        "mel0": (Fraction(0), Fraction(1), "binary", "g"),
+        "inner": (Fraction(1, 2), Fraction(1), "binary", "g"),
+        "mel1": (Fraction(1), Fraction(1), "binary", "g"),
+        "inner2": (Fraction(3, 2), Fraction(1, 2), "binary", "g"),
+    }
+    out = _stable_lanes(events, exact)
+    by_id = {e.note_id: e for e in out}
+    assert by_id["mel0"].voice == by_id["mel1"].voice == 0
+    assert by_id["inner"].voice == by_id["inner2"].voice
+    assert by_id["mel0"].voice != by_id["inner"].voice
+    assert by_id["mel0"].musical_voice == 0 and by_id["mel1"].musical_voice == 0
+    assert by_id["inner"].musical_voice == 1 and by_id["inner2"].musical_voice == 1
+    assert all(e.voice_provenance == "supplied" for e in out)
+
+
+def test_simultaneous_returning_lines_keep_independent_homes():
+    from mir.performance_score import _stable_lanes
+
+    events = [
+        MusicalEvent(72, 0.0, 1.0, note_id="a0", hand=Hand.RIGHT, voice=0,
+                     voice_assigned=True, velocity=80, source_backend="mt3"),
+        MusicalEvent(60, 0.0, 1.0, note_id="b0", hand=Hand.RIGHT, voice=1,
+                     voice_assigned=True, velocity=80, source_backend="mt3"),
+        # Temporary third line forces a borrow of capacity, then both return.
+        MusicalEvent(66, 0.5, 0.5, note_id="x", hand=Hand.RIGHT, voice=2,
+                     voice_assigned=True, velocity=70, source_backend="mt3"),
+        MusicalEvent(74, 1.0, 1.0, note_id="a1", hand=Hand.RIGHT, voice=0,
+                     voice_assigned=True, velocity=80, source_backend="mt3"),
+        MusicalEvent(59, 1.0, 1.0, note_id="b1", hand=Hand.RIGHT, voice=1,
+                     voice_assigned=True, velocity=80, source_backend="mt3"),
+    ]
+    exact = {e.note_id: (Fraction(str(e.start_beat)).limit_denominator(8),
+                         Fraction(str(e.duration_beats)).limit_denominator(8),
+                         "binary", "g") for e in events}
+    out = _stable_lanes(events, exact)
+    by_id = {e.note_id: e for e in out}
+    assert by_id["a0"].voice == by_id["a1"].voice
+    assert by_id["b0"].voice == by_id["b1"].voice
+    assert by_id["a0"].voice != by_id["b0"].voice
+    assert by_id["a0"].musical_voice == 0 and by_id["b0"].musical_voice == 1
+    assert by_id["x"].musical_voice == 2
+    # Independent lines are not merged onto one printed lane while overlapping.
+    assert by_id["a0"].voice != by_id["x"].voice or by_id["b0"].voice != by_id["x"].voice
+
+
+def test_lane_reuse_export_roundtrip_preserves_attacks_and_identity(tmp_path):
+    raw = [
+        MusicalEvent(76, 0.0, 1.0, note_id="mel0", hand=Hand.RIGHT, voice=0,
+                     voice_assigned=True, hand_locked=True, velocity=80, source_backend="mt3"),
+        MusicalEvent(64, 0.5, 1.0, note_id="inner", hand=Hand.RIGHT, voice=1,
+                     voice_assigned=True, hand_locked=True, velocity=70, source_backend="mt3"),
+        MusicalEvent(79, 1.0, 1.0, note_id="mel1", hand=Hand.RIGHT, voice=0,
+                     voice_assigned=True, hand_locked=True, velocity=80, source_backend="mt3"),
+    ]
+    before = [(e.note_id, e.start_beat, e.duration_beats, e.pitch, e.voice) for e in raw]
+    out, report = quantize(raw)
+    assert [(e.note_id, e.start_beat, e.duration_beats, e.pitch, e.voice) for e in raw] == before
+    by_dec = {d["note_id"]: d for d in report.decisions}
+    assert by_dec["mel0"]["musical_voice"] == 0
+    assert by_dec["mel1"]["musical_voice"] == 0
+    assert by_dec["inner"]["musical_voice"] == 1
+    assert by_dec["mel0"]["voice_provenance"] == "supplied"
+    assert by_dec["mel0"]["printed_voice"] == by_dec["mel1"]["printed_voice"]
+    assert by_dec["mel0"]["printed_voice"] != by_dec["inner"]["printed_voice"]
+    # Releases / attacks unchanged: three distinct attacks, performed times intact.
+    assert {n.source_id for n in report.notes} == {"mel0", "inner", "mel1"}
+    assert all(d["performed_duration"] == raw_dur
+               for d, raw_dur in (
+                   (by_dec["mel0"], 1.0), (by_dec["inner"], 1.0), (by_dec["mel1"], 1.0)
+               ))
+    notes = {n.source_id: n for n in report.notes}
+    assert notes["mel0"].musical_voice == 0
+    assert notes["inner"].musical_voice == 1
+
+    writer = NotationWriter()
+    xml = writer.write_musicxml(
+        out, ScoreMeta(time_sig_hint="4/4"), "lane_roundtrip", tmp_path / "src.mid"
+    )
+    _assert_exported_attacks(
+        xml,
+        tmp_path / "lane_roundtrip.musicxml",
+        {
+            "mel0": (76, float(notes["mel0"].onset), float(notes["mel0"].duration)),
+            "inner": (64, float(notes["inner"].onset), float(notes["inner"].duration)),
+            "mel1": (79, float(notes["mel1"].onset), float(notes["mel1"].duration)),
+        },
+    )
+
+
+def test_lane_reuse_does_not_change_downbeat_or_release_decisions():
+    raw = [
+        _mt3_left(48, 0.0, 1.8, "a", voice=0),
+        _mt3_left(55, 0.5, 0.25, "inner", voice=0),
+        _mt3_left(48, 0.99, 1.8, "b", voice=1),
+    ]
+    before = [(e.note_id, e.start_beat, e.duration_beats) for e in raw]
+    out, report = quantize(raw)
+    assert [(e.note_id, e.start_beat, e.duration_beats) for e in raw] == before
+    by_dec = {d["note_id"]: d for d in report.decisions}
+    assert by_dec["a"]["release_reason"] == "pedal_tail"
+    assert by_dec["a"]["release_target_id"] == "b"
+    assert by_dec["a"]["score_onset"] == "0"
+    assert by_dec["b"]["score_onset"] == "1"
+    assert by_dec["a"]["score_beat_offset"] == 0.0
+    assert {n.source_id for n in report.notes} == {"a", "inner", "b"}
