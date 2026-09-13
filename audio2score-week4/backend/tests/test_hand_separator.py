@@ -117,6 +117,67 @@ def test_wide_left_hand_accompaniment():
     assert sum(1 for e in sixty if e.hand == Hand.LEFT) >= len(sixty) - 1
 
 
+def test_broken_chord_lh_pattern_stays_left_under_melody():
+    """Bass then mid harmony intervals must not migrate to the melody hand.
+
+    Covers unlabeled waltz/broken-chord textures (no role hints): low bass,
+    repeating mid dyads, high melody — including a melody tone co-onsetting
+    with an inner LH pitch.
+    """
+    events = []
+    # Mirror the failure class: bass + melody on beat 1, mid dyads on 2 and 3.
+    bars = [
+        [(_ev(42, 0.0, dur=1.0), _ev(77, 0.0, dur=1.0)),
+         (_ev(58, 0.33), _ev(61, 0.33)), (_ev(58, 0.66), _ev(61, 0.66))],
+        [(_ev(42, 1.0, dur=1.0), _ev(70, 1.0, dur=1.0), _ev(54, 1.0, dur=0.5)),
+         (_ev(58, 1.33), _ev(61, 1.33)), (_ev(58, 1.66), _ev(61, 1.66))],
+        [(_ev(46, 2.0, dur=1.0), _ev(77, 2.0, dur=1.0)),
+         (_ev(61, 2.33), _ev(65, 2.33)), (_ev(61, 2.66), _ev(65, 2.66))],
+        [(_ev(46, 3.0, dur=1.0), _ev(70, 3.0, dur=0.5), _ev(58, 3.0, dur=0.5)),
+         (_ev(61, 3.33), _ev(65, 3.33)), (_ev(61, 3.66), _ev(65, 3.66))],
+        [(_ev(44, 4.0, dur=1.0), _ev(77, 4.0, dur=1.0)),
+         (_ev(60, 4.33), _ev(63, 4.33)), (_ev(60, 4.66), _ev(63, 4.66))],
+        [(_ev(44, 5.0, dur=1.0), _ev(70, 5.0, dur=1.0), _ev(56, 5.0, dur=0.5)),
+         (_ev(60, 5.33), _ev(63, 5.33)), (_ev(60, 5.66), _ev(63, 5.66))],
+    ]
+    for groups in bars:
+        for group in groups:
+            events.extend(group)
+
+    out = HandSeparator().separate(events)
+    melody = [e for e in out if e.pitch >= 70]
+    bass = [e for e in out if e.pitch <= 48]
+    harmony = [e for e in out if 54 <= e.pitch <= 66]
+    assert melody and bass and harmony
+    assert all(e.hand == Hand.RIGHT for e in melody), [
+        (e.pitch, e.start_beat, e.hand) for e in melody if e.hand != Hand.RIGHT
+    ]
+    assert all(e.hand == Hand.LEFT for e in bass)
+    assert all(e.hand == Hand.LEFT for e in harmony), [
+        (e.pitch, e.start_beat, e.hand) for e in harmony if e.hand != Hand.LEFT
+    ]
+
+
+def test_melody_coonset_with_mid_lh_does_not_join_left_hand():
+    """A melody attack with a mid LH tone must split, not collapse onto LH."""
+    events = [
+        _ev(42, 0.0, dur=1.0),
+        _ev(77, 0.0, dur=1.0),
+        _ev(58, 0.33, dur=0.3),
+        _ev(61, 0.33, dur=0.3),
+        _ev(54, 1.0, dur=0.5),
+        _ev(70, 1.0, dur=1.0),
+        _ev(58, 1.33, dur=0.3),
+        _ev(61, 1.33, dur=0.3),
+    ]
+    out = HandSeparator().separate(events)
+    by = {(round(e.start_beat, 2), e.pitch): e.hand for e in out}
+    assert by[(1.0, 70)] == Hand.RIGHT
+    assert by[(1.0, 54)] == Hand.LEFT
+    assert by[(1.33, 58)] == Hand.LEFT
+    assert by[(1.33, 61)] == Hand.LEFT
+
+
 def test_wide_right_hand_arpeggio():
     arp = [60, 64, 67, 72, 76, 79, 84]
     events = []

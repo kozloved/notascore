@@ -21,12 +21,18 @@ LH, RH = 0, 1
 
 @dataclass
 class HandReps:
-    """Carried Viterbi state: last pitch and velocity of each hand."""
+    """Carried Viterbi state: last pitch/velocity plus register anchors.
+
+    `lh_bass` / `rh_melody` remember the last clearly-bass / clearly-melody
+    pitches so a single mid-register mis-assignment cannot erase the texture.
+    """
 
     lh: Optional[float] = None
     rh: Optional[float] = None
     lh_vel: float = 0.0
     rh_vel: float = 0.0
+    lh_bass: Optional[float] = None
+    rh_melody: Optional[float] = None
 
 
 @dataclass
@@ -57,6 +63,15 @@ class HandSeparatorConfig:
     max_full_enum_notes: int = 7
     lh_comfort_max: int = 67
     rh_comfort_min: int = 52
+    # Simultaneous bass+upper textures and broken-chord LH streams.
+    bass_register_max: int = 52
+    melody_register_min: int = 67
+    same_hand_span_soft: int = 14
+    same_hand_span_weight: float = 0.45
+    bass_melody_same_hand_weight: float = 7.0
+    accomp_stream_weight: float = 4.2
+    accomp_rise_max: int = 24
+    accomp_drop_min: int = 8
 
 
 @dataclass
@@ -244,11 +259,7 @@ class HandSeparator:
             cost += self._incoming_hint_cost(note, a)
 
         cost += cfg.reach_weight * (self._span_penalty(lh) + self._span_penalty(rh))
-
-        if len(notes) == 2 and assign[0] == assign[1]:
-            span = abs(notes[0].pitch - notes[1].pitch)
-            if span >= 19:
-                cost += 5.0
+        cost += self._same_hand_texture_cost(lh) + self._same_hand_texture_cost(rh)
 
         if lh and rh:
             cross = max(0, max(lh) - min(rh))
@@ -276,6 +287,24 @@ class HandSeparator:
             cost += 0.35 * (pitch - cfg.lh_comfort_max)
         if hand == RH and pitch < cfg.rh_comfort_min:
             cost += 0.35 * (cfg.rh_comfort_min - pitch)
+        return cost
+
+    def _same_hand_texture_cost(self, pitches: list[int]) -> float:
+        """One hand owning bass+melody (or a very wide span) is almost never right."""
+        if len(pitches) < 2:
+            return 0.0
+        cfg = self.config
+        lo, hi = min(pitches), max(pitches)
+        span = hi - lo
+        cost = 0.0
+        if span >= cfg.same_hand_span_soft:
+            cost += cfg.same_hand_span_weight * (span - cfg.same_hand_span_soft + 1)
+        if lo <= cfg.bass_register_max and hi >= cfg.melody_register_min:
+            cost += cfg.bass_melody_same_hand_weight
+        # Mid harmony + melody attack in one frame also belongs on two hands.
+        # Keep this below middle C so melody octave doublings (C4+C5) stay intact.
+        elif lo <= 58 and hi >= cfg.melody_register_min and span >= 10:
+            cost += cfg.bass_melody_same_hand_weight * 0.85
         return cost
 
     def _role_cost(self, note: MusicalEvent, hand: int) -> float:
@@ -327,12 +356,21 @@ class HandSeparator:
             prior = prev_pitch[hand]
             if prior is not None and cc is not None:
                 jump = abs(cc - prior)
-                cost += cfg.motion_weight * (jump / 12.0)
-                if jump > cfg.large_jump_semitones:
+                # Bass then mid-interval LH figures reverse direction on purpose;
+                # do not charge full motion for that reset into the RH-LH gap.
+                gap_reset = (
+                    hand == LH
+                    and (prev.rh_melody is not None or prev.rh is not None)
+                    and prior <= cfg.bass_register_max + 4
+                    and prior < cc < (prev.rh_melody if prev.rh_melody is not None else prev.rh)
+                )
+                motion_scale = 0.35 if gap_reset else 1.0
+                cost += cfg.motion_weight * motion_scale * (jump / 12.0)
+                if jump > cfg.large_jump_semitones and not gap_reset:
                     cost += cfg.motion_weight * ((jump - cfg.large_jump_semitones) / 5.0)
                 predicted = prior + prev_vel[hand]
                 reversing = (cc - prior) * prev_vel[hand] < 0 and abs(cc - prior) > 8
-                if not reversing:
+                if not reversing and not gap_reset:
                     cost += cfg.trajectory_weight * (abs(cc - predicted) / 12.0)
 
         for note, a in zip(notes, assign):
@@ -347,11 +385,19 @@ class HandSeparator:
             if prev.lh is not None and prev.rh is not None:
                 pred_lh = prev.lh + prev.lh_vel
                 pred_rh = prev.rh + prev.rh_vel
-                d_lh = abs(note.pitch - pred_lh)
-                d_rh = abs(note.pitch - pred_rh)
+                lo, hi = (prev.lh, prev.rh) if prev.lh <= prev.rh else (prev.rh, prev.lh)
+                # Notes between the hands fill a broken-chord gap; use last
+                # pitches, not velocity extrapolation (bass→mid is a reset).
+                if lo < note.pitch < hi:
+                    d_lh = abs(note.pitch - prev.lh)
+                    d_rh = abs(note.pitch - prev.rh)
+                else:
+                    d_lh = abs(note.pitch - pred_lh)
+                    d_rh = abs(note.pitch - pred_rh)
                 natural = LH if d_lh <= d_rh else RH
                 if natural != a:
                     cost += cfg.direction_weight * (abs(d_lh - d_rh) / 8.0)
+            cost += self._accompaniment_stream_cost(note, a, prev)
 
         nxt = self._update_reps(prev, notes, assign)
         if nxt.lh is not None and nxt.rh is not None and nxt.lh > nxt.rh + 1.0:
@@ -360,6 +406,43 @@ class HandSeparator:
             scale = 1.6 if persistent else 0.45
             cost += cfg.crossing_weight * scale * ((nxt.lh - nxt.rh) / 6.0)
         return cost
+
+    def _accompaniment_stream_cost(
+        self, note: MusicalEvent, hand: int, prev: HandReps
+    ) -> float:
+        """Keep broken-chord / waltz mid intervals on LH once a bass+melody texture exists.
+
+        Uses register anchors so a brief mid RH theft cannot erase the texture.
+        Mid notes under an active melody prefer LH, including repeats after the
+        bass has already moved up into the harmony band.
+        """
+        cfg = self.config
+        bass = prev.lh_bass if prev.lh_bass is not None else prev.lh
+        melody = prev.rh_melody if prev.rh_melody is not None else prev.rh
+        if bass is None or melody is None:
+            return 0.0
+        if melody < cfg.melody_register_min - 2:
+            return 0.0
+        if not (cfg.bass_register_max < note.pitch < cfg.melody_register_min):
+            return 0.0
+        drop = melody - note.pitch
+        if drop < cfg.accomp_drop_min:
+            return 0.0
+        lh_ref = prev.lh if prev.lh is not None else bass
+        # Already in the mid band: stay with LH rather than stealing from melody.
+        if lh_ref > cfg.bass_register_max:
+            if abs(note.pitch - lh_ref) > 12:
+                return 0.0
+            if hand == RH:
+                return cfg.accomp_stream_weight * min(1.35, drop / 10.0)
+            return 0.0
+        rise = note.pitch - bass
+        if rise < 0 or rise > cfg.accomp_rise_max:
+            return 0.0
+        strength = min(1.25, drop / max(rise, 1.0))
+        if hand == RH:
+            return cfg.accomp_stream_weight * strength
+        return 0.0
 
     def _span_penalty(self, pitches: list[int]) -> float:
         if len(pitches) < 2:
@@ -389,6 +472,7 @@ class HandSeparator:
         notes: list[MusicalEvent],
         assign: tuple[int, ...],
     ) -> HandReps:
+        cfg = self.config
         curr_lh, curr_rh = self._centroids(notes, assign)
         lh_vel = prev.lh_vel
         rh_vel = prev.rh_vel
@@ -400,7 +484,27 @@ class HandSeparator:
             rh_vel = curr_rh - prev.rh
         elif curr_rh is None:
             curr_rh = prev.rh
-        return HandReps(lh=curr_lh, rh=curr_rh, lh_vel=lh_vel, rh_vel=rh_vel)
+        lh_bass = prev.lh_bass
+        rh_melody = prev.rh_melody
+        if curr_lh is not None and curr_lh <= cfg.bass_register_max + 4:
+            lh_bass = curr_lh
+        if curr_rh is not None:
+            if curr_rh >= cfg.melody_register_min - 2:
+                rh_melody = curr_rh
+            elif rh_melody is not None:
+                prior_rh = prev.rh if prev.rh is not None else rh_melody
+                # Follow a stepwise descending melody so intentional crossing
+                # can complete; keep the high anchor after a sudden mid jump.
+                if abs(curr_rh - prior_rh) <= 5:
+                    rh_melody = curr_rh
+        return HandReps(
+            lh=curr_lh,
+            rh=curr_rh,
+            lh_vel=lh_vel,
+            rh_vel=rh_vel,
+            lh_bass=lh_bass,
+            rh_melody=rh_melody,
+        )
 
     def _note_factors(
         self,
