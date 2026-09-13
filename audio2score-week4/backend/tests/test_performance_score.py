@@ -418,8 +418,6 @@ def test_genuine_multi_attack_hold_is_not_clipped_for_voice_search():
 
 def test_held_c_with_inner_e_survives_quantize_and_musicxml(tmp_path):
     """End-to-end: assigned MT3 voice-0 pair must keep the independent hold."""
-    from notation_engine.writer import NotationWriter
-
     raw = [
         MusicalEvent(
             60, 0.0, 2.0, note_id="c", hand=Hand.RIGHT, voice=0,
@@ -441,6 +439,7 @@ def test_held_c_with_inner_e_survives_quantize_and_musicxml(tmp_path):
     assert notes["c"].voice != notes["e"].voice
     c_decision = next(d for d in report.decisions if d["note_id"] == "c")
     assert c_decision["release_reason"] == "no_line"
+    assert c_decision["release_target_id"] is None
     assert c_decision["performed_duration"] == 2.0
     assert c_decision["written_duration"] == 2.0
 
@@ -448,8 +447,16 @@ def test_held_c_with_inner_e_survives_quantize_and_musicxml(tmp_path):
     xml = writer.write_musicxml(
         out, ScoreMeta(time_sig_hint="4/4"), "hold_c_e", tmp_path / "src.mid"
     )
-    assert "score-partwise" in xml
-    assert xml.count("<pitch>") >= 2
+    path = tmp_path / "hold_c_e.musicxml"
+    path.write_text(xml)
+    parsed = list(converter.parse(path).flatten().notes)
+    by_midi = {}
+    for note in parsed:
+        midi = int(note.pitch.midi)
+        by_midi.setdefault(midi, []).append(note)
+    assert 60 in by_midi and 64 in by_midi
+    assert sum(float(n.quarterLength) for n in by_midi[60]) == pytest.approx(2.0)
+    assert sum(float(n.quarterLength) for n in by_midi[64]) == pytest.approx(1.0)
 
 
 def test_same_pitch_pulse_still_caps_pedal_tail_for_voice_search():
@@ -457,7 +464,165 @@ def test_same_pitch_pulse_still_caps_pedal_tail_for_voice_search():
 
     a = MusicalEvent(48, 0.0, 1.8, note_id="a", hand=Hand.LEFT, velocity=80)
     b = MusicalEvent(48, 1.0, 1.8, note_id="b", hand=Hand.LEFT, velocity=80)
-    assert _release_hypothesis(a, [a, b]) == (1.0, "pedal_tail")
+    assert _release_hypothesis(a, [a, b]) == ("b", "pedal_tail")
     search = _voice_search_events([a, b])
     assert {e.note_id: e.duration_beats for e in search}["a"] == 1.0
     assert {e.note_id: e.duration_beats for e in search}["b"] == 1.8
+    assert a.duration_beats == 1.8 and b.duration_beats == 1.8
+
+
+def _mt3_left(pitch, start, duration, ident, *, voice=0):
+    return MusicalEvent(
+        pitch,
+        start,
+        duration,
+        note_id=ident,
+        hand=Hand.LEFT,
+        voice=voice,
+        voice_assigned=True,
+        hand_locked=True,
+        velocity=80,
+        source_backend="mt3",
+    )
+
+
+def _assert_exported_attacks(xml: str, path, expected_by_id: dict[str, tuple[int, float, float]]):
+    """Verify each quantized attack appears in MusicXML with pitch, onset, duration."""
+    path.write_text(xml)
+    found = [
+        (int(n.pitch.midi), float(n.offset), float(n.quarterLength))
+        for n in converter.parse(path).flatten().notes
+    ]
+    for note_id, (midi, onset, dur) in expected_by_id.items():
+        run = sorted(
+            ((o, d) for m, o, d in found if m == midi and o + 1e-9 >= onset),
+            key=lambda x: x[0],
+        )
+        summed = 0.0
+        cursor = onset
+        for o, d in run:
+            if abs(o - cursor) > 1e-6:
+                break
+            summed += d
+            cursor += d
+            if abs(summed - dur) < 1e-6:
+                break
+        assert summed == pytest.approx(dur), (note_id, midi, onset, dur, summed, found)
+
+
+def test_pedal_release_targets_resolve_early_jitter_through_export(tmp_path):
+    """Raw 0.99/2.01 onsets must not feed Fraction(float) into duration spelling."""
+    raw = [
+        _mt3_left(48, 0.0, 1.8, "a"),
+        _mt3_left(48, 0.99, 1.8, "b"),
+        _mt3_left(48, 2.01, 1.8, "c"),
+    ]
+    before = [(e.note_id, e.start_beat, e.duration_beats) for e in raw]
+    out, report = quantize(raw)
+    assert [(e.note_id, e.start_beat, e.duration_beats) for e in raw] == before
+    notes = {n.source_id: n for n in report.notes}
+    assert notes["a"].onset == Fraction(0) and notes["a"].duration == Fraction(1)
+    assert notes["b"].onset == Fraction(1) and notes["b"].duration == Fraction(1)
+    assert notes["c"].onset == Fraction(2)
+    by_decision = {d["note_id"]: d for d in report.decisions}
+    assert by_decision["a"]["release_reason"] == "pedal_tail"
+    assert by_decision["a"]["release_target_id"] == "b"
+    assert by_decision["a"]["release_at"] == pytest.approx(1.0)
+    assert by_decision["a"]["performed_duration"] == pytest.approx(1.8)
+    assert by_decision["b"]["release_target_id"] == "c"
+    assert {e.note_id for e in out} == {"a", "b", "c"}
+
+    writer = NotationWriter()
+    xml = writer.write_musicxml(
+        out, ScoreMeta(time_sig_hint="4/4"), "pedal_early", tmp_path / "src.mid"
+    )
+    _assert_exported_attacks(
+        xml,
+        tmp_path / "pedal_early.musicxml",
+        {
+            "a": (48, 0.0, 1.0),
+            "b": (48, 1.0, 1.0),
+            "c": (48, 2.0, float(notes["c"].duration)),
+        },
+    )
+
+
+def test_pedal_release_targets_resolve_late_jitter_through_export(tmp_path):
+    raw = [
+        _mt3_left(48, 0.01, 1.8, "a"),
+        _mt3_left(48, 1.01, 1.8, "b"),
+        _mt3_left(48, 2.01, 1.8, "c"),
+    ]
+    before = [(e.note_id, e.start_beat, e.duration_beats) for e in raw]
+    out, report = quantize(raw)
+    assert [(e.note_id, e.start_beat, e.duration_beats) for e in raw] == before
+    notes = {n.source_id: n for n in report.notes}
+    assert notes["a"].onset == Fraction(0) and notes["a"].duration == Fraction(1)
+    assert notes["b"].onset == Fraction(1) and notes["b"].duration == Fraction(1)
+    assert notes["c"].onset == Fraction(2)
+    assert {d["release_target_id"] for d in report.decisions if d["note_id"] == "a"} == {"b"}
+
+    writer = NotationWriter()
+    xml = writer.write_musicxml(
+        out, ScoreMeta(time_sig_hint="4/4"), "pedal_late", tmp_path / "src.mid"
+    )
+    _assert_exported_attacks(
+        xml,
+        tmp_path / "pedal_late.musicxml",
+        {
+            "a": (48, 0.0, 1.0),
+            "b": (48, 1.0, 1.0),
+            "c": (48, 2.0, float(notes["c"].duration)),
+        },
+    )
+
+
+def test_cross_bar_pedal_release_uses_quantized_target_onset(tmp_path):
+    raw = [
+        _mt3_left(48, 2.99, 1.8, "a"),
+        _mt3_left(48, 4.01, 1.8, "b"),
+    ]
+    before = [(e.note_id, e.start_beat, e.duration_beats) for e in raw]
+    out, report = quantize(raw)
+    assert [(e.note_id, e.start_beat, e.duration_beats) for e in raw] == before
+    notes = {n.source_id: n for n in report.notes}
+    assert notes["a"].onset == Fraction(3)
+    assert notes["b"].onset == Fraction(4)
+    assert notes["a"].duration == Fraction(1)
+    decision = next(d for d in report.decisions if d["note_id"] == "a")
+    assert decision["release_reason"] == "pedal_tail"
+    assert decision["release_target_id"] == "b"
+    assert decision["release_at"] == pytest.approx(4.0)
+
+    writer = NotationWriter()
+    xml = writer.write_musicxml(
+        out, ScoreMeta(time_sig_hint="4/4"), "pedal_crossbar", tmp_path / "src.mid"
+    )
+    _assert_exported_attacks(
+        xml,
+        tmp_path / "pedal_crossbar.musicxml",
+        {
+            "a": (48, 3.0, 1.0),
+            "b": (48, 4.0, float(notes["b"].duration)),
+        },
+    )
+
+
+def test_release_target_in_other_voice_resolves_to_quantized_onset():
+    """Pedal target may live in another written voice after lane allocation."""
+    raw = [
+        _mt3_left(48, 0.0, 1.8, "a", voice=0),
+        _mt3_left(48, 0.99, 1.8, "b", voice=1),
+        # Inner different pitch forces a second lane while a→b remains pedal_tail.
+        _mt3_left(52, 0.99, 0.5, "inner", voice=1),
+    ]
+    before = [(e.note_id, e.start_beat, e.duration_beats) for e in raw]
+    out, report = quantize(raw)
+    assert [(e.note_id, e.start_beat, e.duration_beats) for e in raw] == before
+    notes = {n.source_id: n for n in report.notes}
+    assert notes["a"].duration == Fraction(1)
+    assert notes["b"].onset == Fraction(1)
+    decision = next(d for d in report.decisions if d["note_id"] == "a")
+    assert decision["release_target_id"] == "b"
+    assert decision["release_at"] == pytest.approx(1.0)
+    assert {e.note_id for e in out} == {"a", "b", "inner"}
