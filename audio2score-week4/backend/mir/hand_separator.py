@@ -25,6 +25,7 @@ class HandReps:
 
     `lh_bass` / `rh_melody` remember the last clearly-bass / clearly-melody
     pitches so a single mid-register mis-assignment cannot erase the texture.
+    Beat timestamps enable silence decay; held-key reach is not modeled here.
     """
 
     lh: Optional[float] = None
@@ -33,6 +34,11 @@ class HandReps:
     rh_vel: float = 0.0
     lh_bass: Optional[float] = None
     rh_melody: Optional[float] = None
+    last_beat: Optional[float] = None
+    lh_beat: Optional[float] = None
+    rh_beat: Optional[float] = None
+    lh_bass_beat: Optional[float] = None
+    rh_melody_beat: Optional[float] = None
 
 
 @dataclass
@@ -61,6 +67,7 @@ class HandSeparatorConfig:
     ambiguous_pitch_lo: int = 55
     ambiguous_pitch_hi: int = 67
     max_full_enum_notes: int = 7
+    max_unlocked_enum: int = 8
     lh_comfort_max: int = 67
     rh_comfort_min: int = 52
     # Simultaneous bass+upper textures and broken-chord LH streams.
@@ -72,6 +79,10 @@ class HandSeparatorConfig:
     accomp_stream_weight: float = 4.2
     accomp_rise_max: int = 24
     accomp_drop_min: int = 8
+    # Silence / phrase decay for carried anchors.
+    silence_soft_beats: float = 2.0
+    silence_hard_beats: float = 4.0
+    silence_decay_tau: float = 1.75
 
 
 @dataclass
@@ -162,26 +173,102 @@ class HandSeparator:
         return locked
 
     def _candidates(self, notes: list[MusicalEvent]) -> list[tuple[int, ...]]:
+        """Return hand assignments that always respect explicit locks.
+
+        Dense frames no longer fall back to contiguous pitch splits that can
+        violate interleaved locks. Unlocked notes are enumerated or split on
+        pitch among themselves, then merged with fixed locked bits.
+        """
         n = len(notes)
         if n == 0:
             return [()]
         locked = self._locked_bits(notes)
-        if n <= self.config.max_full_enum_notes:
+        unlocked = [i for i in range(n) if i not in locked]
+
+        def merge(unlocked_assign: tuple[int, ...]) -> tuple[int, ...]:
+            out = [RH] * n
+            for i, bit in locked.items():
+                out[i] = bit
+            for idx, bit in zip(unlocked, unlocked_assign):
+                out[idx] = bit
+            return tuple(out)
+
+        if not unlocked:
+            return [merge(())]
+
+        if len(unlocked) <= self.config.max_unlocked_enum and (
+            n <= self.config.max_full_enum_notes or locked
+        ):
+            raw = [
+                merge(tuple((mask >> k) & 1 for k in range(len(unlocked))))
+                for mask in range(1 << len(unlocked))
+            ]
+        elif n <= self.config.max_full_enum_notes and not locked:
             raw = [tuple((mask >> i) & 1 for i in range(n)) for mask in range(1 << n)]
         else:
-            order = sorted(range(n), key=lambda i: notes[i].pitch)
+            order = sorted(unlocked, key=lambda i: notes[i].pitch)
             raw = []
-            for split in range(n + 1):
-                assign = [RH] * n
-                for k, idx in enumerate(order):
-                    assign[idx] = LH if k < split else RH
-                raw.append(tuple(assign))
+            for split in range(len(order) + 1):
+                bits = [RH] * len(order)
+                for k in range(split):
+                    bits[k] = LH
+                # Map pitch-ordered unlocked bits back to unlocked index order.
+                by_order = {idx: bits[pos] for pos, idx in enumerate(order)}
+                raw.append(merge(tuple(by_order[i] for i in unlocked)))
+
         filtered = [
             cand
             for cand in raw
             if all(cand[i] == bit for i, bit in locked.items())
         ]
-        return filtered or raw[:1]
+        if filtered:
+            return filtered
+        # Last resort: still lock-respecting (unlocked default to RH).
+        return [merge(tuple(RH for _ in unlocked))]
+
+    def _silence_scale(self, prev: HandReps, frame_beat: float) -> float:
+        if prev.last_beat is None:
+            return 1.0
+        dt = max(0.0, frame_beat - prev.last_beat)
+        cfg = self.config
+        if dt >= cfg.silence_hard_beats:
+            return 0.0
+        if dt <= cfg.silence_soft_beats:
+            return 1.0
+        return exp(-(dt - cfg.silence_soft_beats) / cfg.silence_decay_tau)
+
+    def _decay_reps(self, prev: HandReps, frame_beat: float) -> HandReps:
+        scale = self._silence_scale(prev, frame_beat)
+        if scale >= 1.0:
+            return prev
+        if scale <= 0.0:
+            return HandReps(last_beat=prev.last_beat)
+        # Soft decay: keep pitches but clear aged anchors after soft silence.
+        keep_bass = (
+            prev.lh_bass
+            if prev.lh_bass_beat is not None
+            and frame_beat - prev.lh_bass_beat < self.config.silence_hard_beats
+            else None
+        )
+        keep_melody = (
+            prev.rh_melody
+            if prev.rh_melody_beat is not None
+            and frame_beat - prev.rh_melody_beat < self.config.silence_hard_beats
+            else None
+        )
+        return HandReps(
+            lh=prev.lh if scale > 0.35 else None,
+            rh=prev.rh if scale > 0.35 else None,
+            lh_vel=prev.lh_vel * scale,
+            rh_vel=prev.rh_vel * scale,
+            lh_bass=keep_bass if scale > 0.2 else None,
+            rh_melody=keep_melody if scale > 0.2 else None,
+            last_beat=prev.last_beat,
+            lh_beat=prev.lh_beat,
+            rh_beat=prev.rh_beat,
+            lh_bass_beat=prev.lh_bass_beat if keep_bass is not None else None,
+            rh_melody_beat=prev.rh_melody_beat if keep_melody is not None else None,
+        )
 
     def _viterbi(
         self, frames: list[list[MusicalEvent]]
@@ -208,8 +295,9 @@ class HandSeparator:
                 best = float("inf")
                 arg = 0
                 best_rep = HandReps()
+                frame_beat = frame[0].start_beat
                 for i, _pst in enumerate(states[t - 1]):
-                    prev = carry[t - 1][i]
+                    prev = self._decay_reps(carry[t - 1][i], frame_beat)
                     cost = dp[t - 1][i] + emit_t[j] + self._transition(prev, frame, st)
                     if cost < best:
                         best = cost
@@ -347,6 +435,9 @@ class HandSeparator:
         assign: tuple[int, ...],
     ) -> float:
         cfg = self.config
+        frame_beat = notes[0].start_beat if notes else 0.0
+        prev = self._decay_reps(prev, frame_beat)
+        sticky = self._silence_scale(prev, frame_beat)
         curr = self._centroids(notes, assign)
         cost = 0.0
         prev_pitch = (prev.lh, prev.rh)
@@ -381,7 +472,11 @@ class HandSeparator:
                 # Opening a silent hand is expensive if the active hand can still
                 # reach this pitch. True opposite-register entries stay cheap.
                 if stay_jump <= 28:
-                    cost += cfg.switch_weight * max(0.0, 1.0 - stay_jump / 28.0)
+                    cost += (
+                        cfg.switch_weight
+                        * sticky
+                        * max(0.0, 1.0 - stay_jump / 28.0)
+                    )
             if prev.lh is not None and prev.rh is not None:
                 pred_lh = prev.lh + prev.lh_vel
                 pred_rh = prev.rh + prev.rh_vel
@@ -397,7 +492,7 @@ class HandSeparator:
                 natural = LH if d_lh <= d_rh else RH
                 if natural != a:
                     cost += cfg.direction_weight * (abs(d_lh - d_rh) / 8.0)
-            cost += self._accompaniment_stream_cost(note, a, prev)
+            cost += sticky * self._accompaniment_stream_cost(note, a, prev)
 
         nxt = self._update_reps(prev, notes, assign)
         if nxt.lh is not None and nxt.rh is not None and nxt.lh > nxt.rh + 1.0:
@@ -473,30 +568,43 @@ class HandSeparator:
         assign: tuple[int, ...],
     ) -> HandReps:
         cfg = self.config
+        frame_beat = notes[0].start_beat if notes else (prev.last_beat or 0.0)
+        prev = self._decay_reps(prev, frame_beat)
         curr_lh, curr_rh = self._centroids(notes, assign)
         lh_vel = prev.lh_vel
         rh_vel = prev.rh_vel
+        lh_beat = prev.lh_beat
+        rh_beat = prev.rh_beat
         if curr_lh is not None and prev.lh is not None:
             lh_vel = curr_lh - prev.lh
         elif curr_lh is None:
             curr_lh = prev.lh
+        if curr_lh is not None and any(a == LH for a in assign):
+            lh_beat = frame_beat
         if curr_rh is not None and prev.rh is not None:
             rh_vel = curr_rh - prev.rh
         elif curr_rh is None:
             curr_rh = prev.rh
+        if curr_rh is not None and any(a == RH for a in assign):
+            rh_beat = frame_beat
         lh_bass = prev.lh_bass
         rh_melody = prev.rh_melody
-        if curr_lh is not None and curr_lh <= cfg.bass_register_max + 4:
+        lh_bass_beat = prev.lh_bass_beat
+        rh_melody_beat = prev.rh_melody_beat
+        if curr_lh is not None and curr_lh <= cfg.bass_register_max + 4 and any(a == LH for a in assign):
             lh_bass = curr_lh
-        if curr_rh is not None:
+            lh_bass_beat = frame_beat
+        if curr_rh is not None and any(a == RH for a in assign):
             if curr_rh >= cfg.melody_register_min - 2:
                 rh_melody = curr_rh
+                rh_melody_beat = frame_beat
             elif rh_melody is not None:
                 prior_rh = prev.rh if prev.rh is not None else rh_melody
                 # Follow a stepwise descending melody so intentional crossing
                 # can complete; keep the high anchor after a sudden mid jump.
                 if abs(curr_rh - prior_rh) <= 5:
                     rh_melody = curr_rh
+                    rh_melody_beat = frame_beat
         return HandReps(
             lh=curr_lh,
             rh=curr_rh,
@@ -504,6 +612,11 @@ class HandSeparator:
             rh_vel=rh_vel,
             lh_bass=lh_bass,
             rh_melody=rh_melody,
+            last_beat=frame_beat,
+            lh_beat=lh_beat,
+            rh_beat=rh_beat,
+            lh_bass_beat=lh_bass_beat,
+            rh_melody_beat=rh_melody_beat,
         )
 
     def _note_factors(
@@ -512,6 +625,7 @@ class HandSeparator:
         hand: int,
         prev: HandReps,
     ) -> dict:
+        """Cost factors used by the search. Confidence remains an uncalibrated margin."""
         prior = prev.rh if hand == RH else prev.lh
         vel = prev.rh_vel if hand == RH else prev.lh_vel
         motion = 0.0
@@ -521,12 +635,25 @@ class HandSeparator:
             traj = self.config.trajectory_weight * (
                 abs(note.pitch - (prior + vel)) / 12.0
             )
+        lh_pitches = [note.pitch] if hand == LH else []
+        rh_pitches = [note.pitch] if hand == RH else []
+        texture = self._same_hand_texture_cost(lh_pitches or rh_pitches)
+        accomp = self._accompaniment_stream_cost(note, hand, prev)
+        anchor_beat = prev.rh_melody_beat if hand == RH else prev.lh_bass_beat
+        anchor_age = (
+            max(0.0, note.start_beat - anchor_beat) if anchor_beat is not None else None
+        )
         return {
             "register": round(self._register_cost(note.pitch, hand), 3),
             "motion": round(motion, 3),
             "trajectory": round(traj, 3),
             "role": round(self._role_cost(note, hand), 3),
             "incoming_hint": round(self._incoming_hint_cost(note, hand), 3),
+            "texture": round(texture, 3),
+            "accomp_stream": round(accomp, 3),
+            "same_hand_span": 0,
+            "anchor_age_beats": None if anchor_age is None else round(anchor_age, 3),
+            "confidence_uncalibrated": True,
         }
 
     def _apply(
@@ -539,6 +666,7 @@ class HandSeparator:
         decisions: list[HandDecision] = []
         prev = HandReps()
         for frame, assign, frame_conf in zip(frames, path, confidences):
+            prev = self._decay_reps(prev, frame[0].start_beat)
             for i, (note, a) in enumerate(zip(frame, assign)):
                 flipped = list(assign)
                 flipped[i] = 1 - a

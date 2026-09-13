@@ -1089,7 +1089,7 @@ class UnderstandingPipeline:
                 profile,
                 self.hand_separator,
                 self.voice_separator,
-            )
+            ).events
         events = self.hand_separator.separate(events)
         events = self.voice_separator.separate(events)
         events = self.dynamics.extract(events)

@@ -457,3 +457,63 @@ def test_middle_register_accompaniment():
     melody = [e for e in out if e.role == "melody"]
     assert sum(1 for e in accomp if e.hand == Hand.LEFT) >= len(accomp) - 2
     assert all(e.hand == Hand.RIGHT for e in melody)
+
+
+def test_dense_locked_crossing_candidates_never_violate_locks():
+    """Eight locked interleaved hands must not fall back to a pitch-split."""
+    events = [
+        _ev(48 + i, 0.0, hand=Hand.RIGHT if i % 2 == 0 else Hand.LEFT, hand_locked=True)
+        for i in range(8)
+    ]
+    sep = HandSeparator()
+    candidates = sep._candidates(events)
+    locked = sep._locked_bits(events)
+    assert candidates
+    assert all(all(cand[i] == bit for i, bit in locked.items()) for cand in candidates)
+    out = sep.separate(events)
+    for i, e in enumerate(sorted(out, key=lambda ev: ev.pitch)):
+        expected = Hand.RIGHT if i % 2 == 0 else Hand.LEFT
+        assert e.hand == expected
+
+
+def test_long_silence_resets_accompaniment_anchors():
+    """After a long rest, a new mid texture is not forced by the old waltz."""
+    events = []
+    for beat in range(3):
+        events.append(_ev(42, float(beat), dur=0.9))
+        events.append(_ev(77, float(beat), dur=0.9))
+        events.append(_ev(58, beat + 0.33, dur=0.3))
+        events.append(_ev(61, beat + 0.33, dur=0.3))
+    # New phrase after 8 beats of silence: mid dyad alone should not inherit
+    # the previous LH accompaniment stream as an absolute constraint.
+    events.append(_ev(60, 12.0, dur=0.5))
+    events.append(_ev(64, 12.0, dur=0.5))
+    events.append(_ev(72, 12.0, dur=0.5))
+    sep = HandSeparator()
+    out = sep.separate(events)
+    by = {(round(e.start_beat, 2), e.pitch): e for e in out}
+    assert by[(12.0, 72)].hand == Hand.RIGHT
+    assert sep.last_decisions
+    assert "texture" in sep.last_decisions[0].factors
+    assert "accomp_stream" in sep.last_decisions[0].factors
+    assert sep.last_decisions[0].factors.get("confidence_uncalibrated") is True
+
+
+def test_broken_chord_survives_tempo_and_transposition():
+    def build(scale=1.0, transpose=0):
+        events = []
+        for beat in range(4):
+            t = beat * scale
+            events.append(_ev(42 + transpose, t, dur=0.9 * scale))
+            events.append(_ev(77 + transpose, t, dur=0.9 * scale))
+            events.append(_ev(58 + transpose, t + 0.33 * scale, dur=0.3 * scale))
+            events.append(_ev(61 + transpose, t + 0.33 * scale, dur=0.3 * scale))
+            events.append(_ev(58 + transpose, t + 0.66 * scale, dur=0.3 * scale))
+            events.append(_ev(61 + transpose, t + 0.66 * scale, dur=0.3 * scale))
+        return events
+
+    for scale, transpose in ((1.0, 0), (0.5, 0), (1.0, -2), (1.0, 3)):
+        out = HandSeparator().separate(build(scale, transpose))
+        assert all(e.hand == Hand.RIGHT for e in out if e.pitch >= 70 + transpose)
+        assert all(e.hand == Hand.LEFT for e in out if e.pitch <= 48 + transpose)
+        assert all(e.hand == Hand.LEFT for e in out if 54 + transpose <= e.pitch <= 66 + transpose)

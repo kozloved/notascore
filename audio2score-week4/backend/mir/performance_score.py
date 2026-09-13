@@ -14,6 +14,13 @@ from math import isfinite
 from statistics import mean
 
 from mir.hand_separator import HandSeparator
+from mir.layout import (
+    LayoutAuthority,
+    LayoutResult,
+    classify_hand_authority,
+    hands_complete,
+    voices_complete,
+)
 from mir.models import staff_for_hand
 from mir.score_profile import ScoreProfile, collapse_for_solo_notation, score_profile
 from mir.types import Hand, copy_event
@@ -219,20 +226,17 @@ Confidence is deliberately uncalibrated and reported as such.
 
 
 def hands_provided(events) -> bool:
-    """True when every note already has a layout hand (including AMBIGUOUS)."""
-    if not events:
-        return False
-    return all(
-        ev.hand in _ASSIGNED_HANDS
-        or (getattr(ev, "hand_locked", False) and ev.hand in (Hand.LEFT, Hand.RIGHT))
-        for ev in events
-    )
+    """Backward-compatible alias for an already-complete hand layout."""
+    return hands_complete(events)
 
 
 def voices_provided(events) -> bool:
-    """True when upstream split more than the default single voice."""
-    voices = {int(ev.voice) for ev in events}
-    return len(voices) > 1 or any(int(ev.voice) != 0 for ev in events)
+    """Backward-compatible alias; includes an explicit single voice 0."""
+    return voices_complete(events)
+
+
+def _mark_voices_assigned(events):
+    return [copy_event(ev, voice_assigned=True) for ev in events]
 
 
 def _score_voices(events, separator):
@@ -244,23 +248,44 @@ def _score_voices(events, separator):
             overlap_grace_beats=0.10,
             max_voices_per_hand=cap,
         ))
-    return separator.separate(events)
+    return _mark_voices_assigned(separator.separate(events))
 
 
 def assign_pipeline_layout(events, profile: ScoreProfile, hand_separator, voice_separator):
     """Assign hands/voices once on the understanding path.
 
+    Returns a LayoutResult so export can consume authority without re-inferring.
     Piano gets the configured hand separator only when hands are still
-    unlabeled. Voices are inferred after that. Non-piano never receives
-    piano hand labels. The quantizer will not run these separators again
-    when this output already carries a layout.
+    unlabeled. Voices are inferred after that, including the valid single
+    voice-0 case. Non-piano sources never receive piano hand labels.
     """
     out = list(events)
-    if profile.grand_staff and not hands_provided(out):
+    inferred_hands = False
+    if profile.grand_staff and not hands_complete(out):
         out = hand_separator.separate(out)
-    if not voices_provided(out):
+        inferred_hands = True
+    voice_was_complete = voices_complete(out)
+    if not voice_was_complete:
         out = _score_voices(out, voice_separator)
-    return out
+    elif not all(getattr(ev, "voice_assigned", False) for ev in out):
+        out = _mark_voices_assigned(out)
+
+    if not profile.grand_staff:
+        authority = LayoutAuthority.PROVIDER if voice_was_complete else LayoutAuthority.INFERRED
+    elif inferred_hands and voice_was_complete:
+        authority = LayoutAuthority.MIXED
+    elif inferred_hands:
+        authority = LayoutAuthority.INFERRED
+    else:
+        authority = classify_hand_authority(out)
+        if authority is LayoutAuthority.NONE:
+            authority = LayoutAuthority.PROVIDER
+    return LayoutResult(
+        events=out,
+        authority=authority,
+        voice_complete=True,
+        hand_complete=hands_complete(out) if profile.grand_staff else True,
+    )
 
 
 def resolve_layout(raw, profile: ScoreProfile):
@@ -270,14 +295,45 @@ def resolve_layout(raw, profile: ScoreProfile):
             copy_event(ev, hand=Hand.UNKNOWN, hand_confidence=0.0, hand_locked=False)
             for ev in raw
         ]
-        if voices_provided(raw):
-            return cleared, "pipeline"
-        return _score_voices(cleared, VoiceSeparator()), "inferred"
-    if hands_provided(raw):
-        return [copy_event(ev) for ev in raw], "pipeline"
-    if voices_provided(raw):
-        return HandSeparator().separate(raw), "mixed"
-    return _score_voices(HandSeparator().separate(raw), VoiceSeparator()), "inferred"
+        if voices_complete(raw):
+            events = [
+                copy_event(
+                    cleared[i],
+                    voice=raw[i].voice,
+                    voice_assigned=True,
+                )
+                for i in range(len(raw))
+            ]
+            result = LayoutResult(events, LayoutAuthority.PROVIDER, True, True)
+            return result.events, result.layout_source
+        events = _score_voices(cleared, VoiceSeparator())
+        result = LayoutResult(events, LayoutAuthority.INFERRED, True, True)
+        return result.events, result.layout_source
+
+    if hands_complete(raw):
+        authority = classify_hand_authority(raw)
+        events = [copy_event(ev) for ev in raw]
+        # Hands already supplied by pipeline/MIDI: keep their voice numbers,
+        # including an intentional single voice 0. Do not re-separate.
+        if not all(getattr(ev, "voice_assigned", False) for ev in events):
+            events = _mark_voices_assigned(events)
+        if authority is LayoutAuthority.NONE:
+            authority = LayoutAuthority.PROVIDER
+        result = LayoutResult(events, authority, True, True)
+        return result.events, result.layout_source
+
+    if voices_complete(raw):
+        hands = HandSeparator().separate(raw)
+        events = [
+            copy_event(out, voice=src.voice, voice_assigned=True)
+            for src, out in zip(raw, hands)
+        ]
+        result = LayoutResult(events, LayoutAuthority.MIXED, True, True)
+        return result.events, result.layout_source
+
+    events = _score_voices(HandSeparator().separate(raw), VoiceSeparator())
+    result = LayoutResult(events, LayoutAuthority.INFERRED, True, True)
+    return result.events, result.layout_source
 
 
 def quantize_notation(events, meter, *, config, mode=None):

@@ -31,7 +31,7 @@ def simple_phrase():
 
 
 def planned(events):
-    events = assign_pipeline_layout(events, score_profile(events), HandSeparator(), VoiceSeparator())
+    events = assign_pipeline_layout(events, score_profile(events), HandSeparator(), VoiceSeparator()).events
     return NotationPlanner().build(events, meta=ScoreMeta(time_sig_hint="4/4"),
                                    quantization_mode="performance")[0]
 

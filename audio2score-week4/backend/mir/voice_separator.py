@@ -130,6 +130,7 @@ class VoiceSeparator:
                             ev,
                             voice=voice_id,
                             voice_confidence=round(leap_conf, 3),
+                            voice_assigned=True,
                         )
                     )
         return assigned

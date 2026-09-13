@@ -236,6 +236,7 @@ class MusicalEvent:
     role: Optional[str] = None
     cleaning_status: str = "keep"
     hand_locked: bool = False
+    voice_assigned: bool = False
     source_track_id: str = ""
     source_program: Optional[int] = None
 

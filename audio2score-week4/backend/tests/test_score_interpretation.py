@@ -237,7 +237,7 @@ def test_j_two_independent_voices_remain_independent():
     ]
     out = assign_pipeline_layout(
         unlabeled, score_profile(unlabeled), HandSeparator(), VoiceSeparator()
-    )
+    ).events
     rh = [e for e in out if e.hand == Hand.RIGHT]
     assert len({e.voice for e in rh}) == 2
 
