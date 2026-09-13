@@ -487,52 +487,209 @@ def _mt3_left(pitch, start, duration, ident, *, voice=0):
 
 
 def _musicxml_attack_spans(path):
-    """Collapse MusicXML notes into attacks, joining only true tie continuations.
+    """Collapse MusicXML notes into attacks via per part/staff/voice/pitch ties.
 
-    A new attack starts on an untied note or a tie ``start``. Same-pitch
-    reattacks that are not tied must remain separate spans.
+    Joins only contiguous tie chains. Independent unisons (same pitch, different
+    voice) remain separate. Orphan continuations and unfinished chains raise.
     """
-    spans = []
-    open_span = None  # (midi, onset, dur, pieces, tied)
-    for note in converter.parse(path).flatten().notes:
-        midi = int(note.pitch.midi)
-        onset = float(note.offset)
-        dur = float(note.quarterLength)
-        tie_type = note.tie.type if note.tie is not None else None
-        if open_span is not None and tie_type in {"continue", "stop"} and open_span[0] == midi:
-            midi0, onset0, total, pieces, _tied = open_span
-            open_span = (midi0, onset0, total + dur, pieces + 1, True)
-            if tie_type == "stop":
-                spans.append(open_span)
-                open_span = None
-            continue
-        if open_span is not None:
-            spans.append(open_span)
-            open_span = None
-        if tie_type == "start":
-            open_span = (midi, onset, dur, 1, True)
-        else:
-            # Untied note, or orphan stop/continue treated as its own attack.
-            spans.append((midi, onset, dur, 1, tie_type is not None))
-    if open_span is not None:
-        spans.append(open_span)
-    return spans
+    from music21 import converter
+    from notation_engine.integrity import NotationIntegrityError, score_attacks
+
+    try:
+        attacks = score_attacks(converter.parse(path, forceSource=True))
+    except NotationIntegrityError as exc:
+        raise ValueError(str(exc)) from exc
+    return [
+        (a.pitch, a.start, a.end - a.start, a.pieces, a.tied, a.track, a.voice, a.staff)
+        for a in attacks
+    ]
 
 
 def _assert_exported_attacks(xml: str, path, expected_by_id: dict[str, tuple[int, float, float]]):
-    """Verify exact attack inventory: pitch, onset, duration; ties only join pieces."""
+    """Verify exact attack inventory: multiplicity, pitch, onset, written duration."""
     path.write_text(xml)
     spans = _musicxml_attack_spans(path)
     remaining = list(spans)
     for note_id, (midi, onset, dur) in expected_by_id.items():
         match_i = None
-        for i, (m, o, d, _pieces, _tied) in enumerate(remaining):
+        for i, (m, o, d, *_rest) in enumerate(remaining):
             if m == midi and abs(o - onset) < 1e-6 and abs(d - dur) < 1e-6:
                 match_i = i
                 break
         assert match_i is not None, (note_id, (midi, onset, dur), spans)
         remaining.pop(match_i)
     assert remaining == [], f"extra exported attacks: {remaining}; expected {expected_by_id}"
+    assert len(spans) == len(expected_by_id)
+    assert sum(s[2] for s in spans) == pytest.approx(
+        sum(dur for _m, _o, dur in expected_by_id.values())
+    )
+
+
+def _write_fixture_musicxml(path, body: str):
+    path.write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN"'
+        ' "http://www.musicxml.org/dtds/partwise.dtd">'
+        '<score-partwise version="3.1">'
+        "<part-list><score-part id=\"P1\"><part-name>Music</part-name></score-part></part-list>"
+        f"<part id=\"P1\">{body}</part></score-partwise>"
+    )
+    return path
+
+
+def _note_xml(
+    *,
+    step,
+    octave,
+    duration,
+    voice=1,
+    staff=1,
+    tie=None,
+    chord=False,
+    alter=None,
+):
+    alter_xml = f"<alter>{alter}</alter>" if alter is not None else ""
+    tie_xml = ""
+    if tie:
+        tie_xml = f'<tie type="{tie}"/>'
+        notations = f'<notations><tied type="{tie}"/></notations>'
+    else:
+        notations = ""
+    chord_xml = "<chord/>" if chord else ""
+    return (
+        f"<note>{chord_xml}<pitch><step>{step}</step>{alter_xml}"
+        f"<octave>{octave}</octave></pitch>"
+        f"<duration>{duration}</duration><voice>{voice}</voice>"
+        f"<type>quarter</type>{tie_xml}<staff>{staff}</staff>{notations}</note>"
+    )
+
+
+def test_musicxml_attack_spans_tied_c_with_interleaved_e(tmp_path):
+    """Tied C must survive an interleaved E on another voice."""
+    body = (
+        '<measure number="1"><attributes><divisions>1</divisions>'
+        "<time><beats>4</beats><beat-type>4</beat-type></time></attributes>"
+        + _note_xml(step="C", octave=4, duration=4, voice=1, tie="start")
+        + "<backup><duration>3</duration></backup>"
+        + _note_xml(step="E", octave=4, duration=1, voice=2)
+        + "</measure>"
+        '<measure number="2">'
+        + _note_xml(step="C", octave=4, duration=4, voice=1, tie="stop")
+        + "</measure>"
+    )
+    path = _write_fixture_musicxml(tmp_path / "tied_c_e.xml", body)
+    spans = _musicxml_attack_spans(path)
+    assert len(spans) == 2
+    c = next(s for s in spans if s[0] == 60)
+    e = next(s for s in spans if s[0] == 64)
+    assert c[1] == pytest.approx(0.0)
+    assert c[2] == pytest.approx(8.0)
+    assert c[3] == 2 and c[4]
+    assert e[1] == pytest.approx(1.0)
+    assert e[2] == pytest.approx(1.0)
+    assert sum(s[2] for s in spans) == pytest.approx(9.0)
+
+
+def test_musicxml_attack_spans_simultaneous_tied_voices(tmp_path):
+    body = (
+        '<measure number="1"><attributes><divisions>1</divisions>'
+        "<time><beats>4</beats><beat-type>4</beat-type></time></attributes>"
+        + _note_xml(step="C", octave=4, duration=4, voice=1, tie="start")
+        + "<backup><duration>4</duration></backup>"
+        + _note_xml(step="G", octave=4, duration=4, voice=2, tie="start")
+        + "</measure>"
+        '<measure number="2">'
+        + _note_xml(step="C", octave=4, duration=4, voice=1, tie="stop")
+        + "<backup><duration>4</duration></backup>"
+        + _note_xml(step="G", octave=4, duration=4, voice=2, tie="stop")
+        + "</measure>"
+    )
+    path = _write_fixture_musicxml(tmp_path / "sim_ties.xml", body)
+    spans = _musicxml_attack_spans(path)
+    assert len(spans) == 2
+    assert {s[0] for s in spans} == {60, 67}
+    assert all(abs(s[2] - 8.0) < 1e-6 and s[3] == 2 for s in spans)
+    assert {s[6] for s in spans} == {"1", "2"}
+
+
+def test_musicxml_attack_spans_chord_ties(tmp_path):
+    body = (
+        '<measure number="1"><attributes><divisions>1</divisions>'
+        "<time><beats>4</beats><beat-type>4</beat-type></time></attributes>"
+        + _note_xml(step="C", octave=4, duration=4, voice=1, tie="start")
+        + _note_xml(step="E", octave=4, duration=4, voice=1, tie="start", chord=True)
+        + "</measure>"
+        '<measure number="2">'
+        + _note_xml(step="C", octave=4, duration=4, voice=1, tie="stop")
+        + _note_xml(step="E", octave=4, duration=4, voice=1, tie="stop", chord=True)
+        + "</measure>"
+    )
+    path = _write_fixture_musicxml(tmp_path / "chord_ties.xml", body)
+    spans = _musicxml_attack_spans(path)
+    assert len(spans) == 2
+    assert {s[0] for s in spans} == {60, 64}
+    assert all(abs(s[2] - 8.0) < 1e-6 and s[3] == 2 and s[4] for s in spans)
+    assert sum(s[2] for s in spans) == pytest.approx(16.0)
+
+
+def test_musicxml_attack_spans_repeated_same_pitch_attacks(tmp_path):
+    body = (
+        '<measure number="1"><attributes><divisions>1</divisions>'
+        "<time><beats>4</beats><beat-type>4</beat-type></time></attributes>"
+        + _note_xml(step="C", octave=4, duration=1, voice=1)
+        + _note_xml(step="C", octave=4, duration=1, voice=1)
+        + "<backup><duration>2</duration></backup>"
+        + _note_xml(step="C", octave=4, duration=1, voice=2)
+        + "</measure>"
+    )
+    path = _write_fixture_musicxml(tmp_path / "reattacks.xml", body)
+    spans = _musicxml_attack_spans(path)
+    assert len(spans) == 3
+    assert all(s[0] == 60 and abs(s[2] - 1.0) < 1e-6 and s[3] == 1 for s in spans)
+    assert sum(s[2] for s in spans) == pytest.approx(3.0)
+    assert sorted(s[1] for s in spans if s[6] == "1") == pytest.approx([0.0, 1.0])
+    assert any(s[6] == "2" and abs(s[1] - 0.0) < 1e-6 for s in spans)
+
+
+def test_musicxml_attack_spans_rejects_orphan_continue(tmp_path):
+    body = (
+        '<measure number="1"><attributes><divisions>1</divisions>'
+        "<time><beats>4</beats><beat-type>4</beat-type></time></attributes>"
+        + _note_xml(step="C", octave=4, duration=1, voice=1, tie="stop")
+        + "</measure>"
+    )
+    path = _write_fixture_musicxml(tmp_path / "orphan.xml", body)
+    with pytest.raises(ValueError, match="Orphan|non-contiguous"):
+        _musicxml_attack_spans(path)
+
+
+def test_musicxml_attack_spans_rejects_unfinished_chain(tmp_path):
+    body = (
+        '<measure number="1"><attributes><divisions>1</divisions>'
+        "<time><beats>4</beats><beat-type>4</beat-type></time></attributes>"
+        + _note_xml(step="C", octave=4, duration=4, voice=1, tie="start")
+        + "</measure>"
+    )
+    path = _write_fixture_musicxml(tmp_path / "unfinished.xml", body)
+    with pytest.raises(ValueError, match="Unclosed"):
+        _musicxml_attack_spans(path)
+
+
+def test_musicxml_attack_spans_rejects_noncontiguous_continue(tmp_path):
+    body = (
+        '<measure number="1"><attributes><divisions>1</divisions>'
+        "<time><beats>4</beats><beat-type>4</beat-type></time></attributes>"
+        + _note_xml(step="C", octave=4, duration=1, voice=1, tie="start")
+        + '<note><rest/><duration>3</duration><voice>1</voice><staff>1</staff></note>'
+        + "</measure>"
+        '<measure number="2">'
+        + '<note><rest/><duration>1</duration><voice>1</voice><staff>1</staff></note>'
+        + _note_xml(step="C", octave=4, duration=1, voice=1, tie="stop")
+        + "</measure>"
+    )
+    path = _write_fixture_musicxml(tmp_path / "gap.xml", body)
+    with pytest.raises(ValueError, match="Orphan|non-contiguous"):
+        _musicxml_attack_spans(path)
 
 
 def test_pedal_release_targets_resolve_early_jitter_through_export(tmp_path):

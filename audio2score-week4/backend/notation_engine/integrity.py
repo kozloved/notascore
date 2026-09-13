@@ -16,6 +16,9 @@ class ExportedAttack:
     track: int
     voice: str
     velocity: int
+    pieces: int = 1
+    tied: bool = False
+    staff: int = 1
 
 
 def validate_event_identity(source, quantized):
@@ -35,7 +38,7 @@ def validate_event_identity(source, quantized):
 
 
 def musicxml_attacks(path):
-    """Join only contiguous ties in the same part, voice, and pitch."""
+    """Join only contiguous ties in the same part, staff, voice, and pitch."""
     from music21 import converter
 
     score = converter.parse(path, forceSource=True)
@@ -43,6 +46,11 @@ def musicxml_attacks(path):
 
 
 def score_attacks(score):
+    """Collapse notes into attacks with per-(part, staff, voice, pitch) tie chains.
+
+    Chord members are tracked individually so independent unisons and chord ties
+    stay separate. Orphan continuations, timing gaps, and unfinished chains raise.
+    """
     from music21 import stream
 
     result, active = [], {}
@@ -52,28 +60,60 @@ def score_attacks(score):
                 onset = float(element.getOffsetInHierarchy(part))
                 end = onset + float(element.quarterLength)
                 voice = element.activeSite if isinstance(element.activeSite, stream.Voice) else None
+                voice_id = str(voice.id) if voice is not None else "1"
+                staff_raw = getattr(element, "staff", None)
+                try:
+                    staff = int(staff_raw) if staff_raw is not None else 1
+                except (TypeError, ValueError):
+                    staff = 1
                 members = list(element.notes) if element.isChord else [element]
                 for member in members:
-                    key = (part_index, str(voice.id) if voice else "1", member.pitch.midi)
+                    member_staff = getattr(member, "staff", None)
+                    try:
+                        member_staff = (
+                            int(member_staff) if member_staff is not None else staff
+                        )
+                    except (TypeError, ValueError):
+                        member_staff = staff
+                    key = (part_index, member_staff, voice_id, member.pitch.midi)
                     tie = member.tie.type if member.tie else None
                     previous = active.get(key)
                     if tie in ("continue", "stop"):
-                        if previous is None or abs(previous[1] - onset) > 1e-6:
-                            raise NotationIntegrityError(f"Orphan or non-contiguous exported tie: {key}")
-                        start, _, velocity = previous
+                        if previous is None or abs(previous["end"] - onset) > 1e-6:
+                            raise NotationIntegrityError(
+                                f"Orphan or non-contiguous exported tie: {key}"
+                            )
+                        start = previous["start"]
+                        pieces = previous["pieces"] + 1
+                        velocity = previous["velocity"]
                     else:
                         if previous is not None:
                             raise NotationIntegrityError(f"Unclosed exported tie: {key}")
                         start = onset
+                        pieces = 1
                         velocity = member.volume.velocity
                         if velocity is None:
                             velocity = element.volume.velocity or 64
                     if tie in ("start", "continue"):
-                        active[key] = (start, end, int(velocity))
+                        active[key] = {
+                            "start": start,
+                            "end": end,
+                            "velocity": int(velocity),
+                            "pieces": pieces,
+                        }
                     else:
                         active.pop(key, None)
-                        result.append(ExportedAttack(member.pitch.midi, start, end,
-                                                     part_index, key[1], int(velocity)))
+                        result.append(ExportedAttack(
+                            member.pitch.midi,
+                            start,
+                            end,
+                            part_index,
+                            voice_id,
+                            int(velocity),
+                            pieces=pieces,
+                            tied=pieces > 1 or tie is not None,
+                            staff=member_staff,
+                        ))
     if active:
         raise NotationIntegrityError("Unclosed exported ties at end of score")
     return result

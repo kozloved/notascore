@@ -527,19 +527,41 @@ def replay_autumn_walks_aligned(review_dir: Path, job_id: str = "hands_rhythm_al
 def _voice_distribution(events) -> dict[str, Any]:
     by_staff: dict[int, set[int]] = defaultdict(set)
     by_measure_staff: dict[tuple[int, int], set[int]] = defaultdict(set)
+    notes_by_cell: dict[tuple[int, int], list[Any]] = defaultdict(list)
     for ev in events or []:
         staff = 0 if ev.hand == Hand.RIGHT else 1 if ev.hand == Hand.LEFT else 0
         voice = int(ev.voice)
         by_staff[staff].add(voice)
         measure = int(ev.start_beat // 3)
         by_measure_staff[(measure, staff)].add(voice)
+        notes_by_cell[(measure, staff)].append(ev)
     max_cell = max((len(v) for v in by_measure_staff.values()), default=0)
+    hotspots = []
+    for (m, s), vs in by_measure_staff.items():
+        if len(vs) < 4:
+            continue
+        cell_notes = sorted(
+            notes_by_cell[(m, s)],
+            key=lambda e: (e.start_beat, e.pitch, e.note_id or ""),
+        )
+        hotspots.append({
+            "measure": m,
+            "staff": s,
+            "voices": sorted(vs),
+            "source_notes": [
+                {
+                    "note_id": e.note_id,
+                    "pitch": e.pitch,
+                    "start_beat": float(e.start_beat),
+                    "duration_beats": float(e.duration_beats),
+                    "voice": int(e.voice),
+                    "hand": e.hand.value if hasattr(e.hand, "value") else str(e.hand),
+                }
+                for e in cell_notes
+            ],
+        })
     hotspots = sorted(
-        (
-            {"measure": m, "staff": s, "voices": sorted(vs)}
-            for (m, s), vs in by_measure_staff.items()
-            if len(vs) >= 4
-        ),
+        hotspots,
         key=lambda row: (-len(row["voices"]), row["measure"], row["staff"]),
     )[:8]
     return {

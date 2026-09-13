@@ -1,42 +1,51 @@
-# Hands and rhythm review update (release decision → duration)
+# Hands and rhythm review update (after ec1324a)
 
-Built on `a40f1e4`. Fixes the end-to-end gap where `_release_hypothesis` kept an
-independent hold (`no_line`) but `_written_overlap` / `_duration` still truncated
-it via the acoustic ratio heuristic when both MT3 events already had RIGHT/voice-0
-assignments (`voice_assigned=True`).
+Built on `ec1324a` (accepted pedal releases authoritative over same-voice
+neighbors). This follow-up strengthens **export validation** and refreshes Autumn
+Walks metrics/renders. Release-target / duration behavior from `ec1324a` is
+unchanged.
 
-**Visual review is not marked complete** — matched phrase OSMD PNGs were generated
-and inspected; pianist sign-off and annotated holdouts remain outstanding.
+**Visual review is not marked complete** — matched phrase MusicXML was refreshed;
+OSMD PNGs depend on local Playwright Chromium.
 
-## Code fixes
+## A. Validation fixes (not engine changes)
 
-1. **Carry release decision into duration** — `_written_overlap(..., release_reason=)`
-   and `_duration` honor accepted reasons:
-   - `no_line` / `independent_hold` / `overlapping_repeat` / `multi_attack_hold` →
-     keep written overlap (do **not** silently shorten)
-   - `pedal_tail` → still cap for written quarters / voice search
-   - otherwise fall back to the ratio heuristic
-2. **`_release_decisions`** maps `note_id → (release_at, reason)` before quantization;
-   decisions report includes `release_reason` / `release_at`.
-3. **Regression through quantize + MusicXML** —
-   `test_held_c_with_inner_e_survives_quantize_and_musicxml` (written C=2, E=1,
-   distinct voices, export succeeds; performed times unchanged).
-4. **Matched phrase renders** — `write_matched_phrase_renders` extracts mm1–4 /
-   mm5–8 / mm13–16 with forced before-key fifths, same measure windows, and
-   after-phrase `source_ids` from quantized events. Output under
-   `.tmp/autumn-walks-review/phrase_renders_matched/` (local only).
+1. **`score_attacks` / `_musicxml_attack_spans`** — tie chains keyed by
+   `(part, staff, voice, pitch)`; chord members tracked individually; independent
+   unisons retained; timing continuity required; orphan continue/stop, gaps, and
+   unfinished starts raise.
+2. **`_assert_exported_attacks`** — exact attack multiplicity + total written
+   duration (no silent summing of untied same-pitch fragments).
+3. **Fixtures** — tied C with interleaved E; simultaneous tied voices; chord ties;
+   repeated same-pitch reattacks + unison; orphan / unfinished / non-contiguous
+   chains.
+
+## B. Engine observations (not “fixed” by truncating holds)
+
+**Four-voice hotspot (aligned Autumn Walks, measure 4 / staff 0 / RIGHT):**
+
+| note_id | pitch | start | dur | voice |
+| --- | ---: | ---: | ---: | ---: |
+| track:0:note:18 | 80 | 12.00 | 0.375 | 0 |
+| track:0:note:19 | 82 | 12.25 | 0.25 | 1 |
+| track:0:note:20 | 80 | 12.50 | 0.75 | 2 |
+| track:0:note:24 | 77 | 13.08 | 1.0 | 3 |
+| track:0:note:28 | 75 | 14.125 | 0.75 | 2 |
+
+Overlaps are pairwise (18∩19, 20∩24); peak concurrency is **2**, but the measure
+uses **four distinct voice IDs**. That inflates `max_voices_in_measure_staff`
+versus simultaneous sounding voices. Do **not** reduce this by shortening
+legitimate overlapping holds — lane compaction / voice reuse is a separate
+layout concern.
+
+Hotspot rows in metrics now include `source_notes` context for inspection.
 
 ## Tests
 
-- Focused: `test_performance_score` / `test_score_interpretation` /
-  `test_hands_rhythm_metrics` / `test_hand_separator` → **80 passed**
 - Supported backend suite: `pytest -m 'not integration and not pm2s'` →
-  **739 passed, 4 deselected**
+  **752 passed, 4 deselected**
 
 ## Comparable Autumn Walks metrics (MT3 semantics)
-
-Controls: same `mt3-original.mid` SHA, `detected-beats.json`, forced `3/4`,
-`source_backend="mt3"` (preserve duration path off), performance quantization.
 
 | Metric | `current-main.musicxml` | Aligned after | Δ |
 | --- | ---: | ---: | ---: |
@@ -46,40 +55,15 @@ Controls: same `mt3-original.mid` SHA, `detected-beats.json`, forced `3/4`,
 | Time modifications | 20 | 2 | −18 |
 | Max voices / measure·staff | 3 | 4 | +1 |
 | Source attacks | 100 | 100 | 0 |
-| Source identity preserved | — | true | — |
-| `duration_preserve_enabled` | — | false | — |
-| Event backends | — | `["mt3"]` | — |
 
-Voice increase note: max simultaneous written voices rose vs frozen before
-(hotspot measure 4 / staff 0 with voices 0–3). Consistent with keeping independent
-holds instead of truncating them; not meter drift. Pedal-tail quarters still
-simplify on the synthetic fixture.
+Matched phrases: `.tmp/autumn-walks-review/phrase_renders_matched/` with
+`force_fifths=-5`, source-ID manifests (mm1–4 / mm5–8 / mm13–16).
 
-Matched phrase MusicXML complexity (tiny totals): mm1–4 2→2; mm5–8 15→1;
-mm13–16 9→0. All windows force `fifths=-5` in XML.
+## Remaining limitations
 
-## Phrase renders (local only)
-
-Under `.tmp/autumn-walks-review/phrase_renders_matched/` (HTML + SVG + PNG after
-`npx playwright install chromium`):
-
-| Phrase | Inspected | Observation |
-| --- | --- | --- |
-| mm1–4 before/after | yes | Same key fifths in XML (−5); after keeps multi-voice holds without clipping the independent upper line; not glyph-identical to before |
-| mm5–8 before/after | yes | Before denser (tuplets / tiny tails); after cleaner polyphony; OSMD layout still crowded |
-| mm13–16 before/after | yes | Before: dense multi-voice + extreme ledger artifacts; after: simpler held lines under chords, still some extreme ledger placement |
-
-## Remaining visual-review limitations
-
-- Matched extracts share key/meter/measure numbers in MusicXML, but OSMD may still
-  show staff/clef layout differences (e.g. mid-piece excerpts without a full
-  grand-staff attributes block) and tempo marking differences from source files.
-- Extreme ledger lines and stem/tie crowding remain hard to read in OSMD; PNG
-  inspection is not a substitute for a pianist reading a printed page.
-- Phrase matching is by measure window + after `source_ids`, not by guaranteeing
-  identical engraved glyphs to frozen before.
-- Held-key reach vs pedal still unmodeled beyond release hypotheses.
-- Pianist phrase review and annotated holdouts still outstanding.
+- Voice-ID compaction inside a measure (hotspot above) still open.
+- OSMD PNG refresh requires Playwright browsers on the machine.
+- Pianist phrase review still outstanding.
 - Do not claim perfect hands from Autumn Walks alone.
 
 ## Reproduce
@@ -87,10 +71,5 @@ Under `.tmp/autumn-walks-review/phrase_renders_matched/` (HTML + SVG + PNG after
 ```bash
 cd audio2score-week4/backend
 .venv/bin/python -m evaluation.hands_rhythm_metrics --write-baseline
-.venv/bin/python -m pytest tests/test_performance_score.py tests/test_score_interpretation.py \
-  tests/test_hands_rhythm_metrics.py tests/test_hand_separator.py -q
 .venv/bin/python -m pytest -m 'not integration and not pm2s' -q
-# matched phrase OSMD (requires Playwright Chromium):
-# node evaluation/render_osmd.mjs .tmp/autumn-walks-review/phrase_renders_matched/after_mm5-8.musicxml \
-#   .tmp/autumn-walks-review/phrase_renders_matched/after_mm5-8
 ```
