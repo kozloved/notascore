@@ -114,8 +114,24 @@ def _search(groups, max_move, beam_width=24):
     return beam[0][1]
 
 
-def _written_overlap(raw, onset, next_onset, overlaps):
-    """Pedal/room tails overlap the next attack; multi-bar holds do not."""
+def _written_overlap(raw, onset, next_onset, overlaps, *, release_reason=None):
+    """Decide whether the written ending may overlap the next attack.
+
+    An explicit release hypothesis wins over the acoustic ratio heuristic so an
+    independent hold is not silently shortened to the next same-line attack.
+    """
+    if release_reason == "pedal_tail":
+        return False
+    if release_reason in {
+        "no_line",
+        "independent_hold",
+        "overlapping_repeat",
+        "multi_attack_hold",
+    }:
+        # Keep the hold; resolve overlap by lane/voice allocation, not truncation.
+        return True
+    if release_reason in {"performed_release", "phrase_end"}:
+        return bool(overlaps)
     if not overlaps or next_onset is None:
         return overlaps
     gap = float(next_onset - onset)
@@ -126,6 +142,19 @@ def _written_overlap(raw, onset, next_onset, overlaps):
     if 0.20 <= gap <= 2.05 and raw < gap * 4.0:
         return False
     return overlaps
+
+
+def _release_decisions(events):
+    """Map note_id -> (release_at_or_None, reason) for same-hand lines."""
+    by_hand = defaultdict(list)
+    for ev in events:
+        by_hand[ev.hand].append(ev)
+    decisions = {}
+    for group in by_hand.values():
+        ordered = sorted(group, key=lambda e: (e.start_beat, e.pitch, e.note_id))
+        for ev in ordered:
+            decisions[ev.note_id] = _release_hypothesis(ev, ordered)
+    return decisions
 
 
 def _fragment_count(onset: Fraction, duration: Fraction, beat_length=Fraction(1)) -> int:
@@ -229,6 +258,8 @@ def _duration(
     preserve=False,
     measure_length=Fraction(4),
     beat_length=Fraction(1),
+    release_reason=None,
+    release_at=None,
 ):
     unit = Fraction(1, 48) if family == "triplet" else Fraction(1, 16)
     onset = Fraction(onset) if not isinstance(onset, Fraction) else onset
@@ -252,9 +283,25 @@ def _duration(
         exact = min(named, key=lambda d: abs(float(d) - raw))
         if abs(float(exact) - raw) < 1e-7:
             return exact
-    written_overlap = overlaps if preserve else _written_overlap(raw, onset, next_onset, overlaps)
-    if next_onset is not None and not written_overlap:
-        cap = Fraction(next_onset) - onset if not isinstance(next_onset, Fraction) else next_onset - onset
+    # Accepted release hypothesis overrides the acoustic ratio heuristic.
+    effective_next = next_onset
+    if release_reason == "pedal_tail" and release_at is not None:
+        release_onset = Fraction(release_at) if not isinstance(release_at, Fraction) else release_at
+        if effective_next is None or release_onset <= Fraction(effective_next):
+            effective_next = release_onset
+    written_overlap = overlaps if preserve else _written_overlap(
+        raw,
+        onset,
+        effective_next,
+        overlaps,
+        release_reason=release_reason,
+    )
+    if effective_next is not None and not written_overlap:
+        cap = (
+            Fraction(effective_next) - onset
+            if not isinstance(effective_next, Fraction)
+            else effective_next - onset
+        )
         if not isinstance(cap, Fraction):
             cap = Fraction(cap).limit_denominator(48)
         named = {d for d in named if d <= cap + Fraction(1, 10**9)}
@@ -614,6 +661,7 @@ def quantize_notation(events, meter, *, config, mode=None):
         voices[(staff, ev.voice)].append(ev)
 
     roles = _phrase_roles(voices, meter.measure_quarter_length)
+    release_by_id = _release_decisions(interpreted)
     out, exact = [], {}
     for key, voice in voices.items():
         groups = []
@@ -635,6 +683,7 @@ def quantize_notation(events, meter, *, config, mode=None):
             raw_next = min(e.start_beat for e in groups[i + 1]) if nxt is not None else None
             for ev in group:
                 overlaps = raw_next is not None and ev.start_beat + ev.duration_beats > raw_next + 0.04
+                release_at, release_reason = release_by_id.get(ev.note_id, (None, None))
                 duration = _duration(
                     ev.duration_beats,
                     onset,
@@ -644,6 +693,8 @@ def quantize_notation(events, meter, *, config, mode=None):
                     preserve=ev.source_backend == "midi",
                     measure_length=measure_length,
                     beat_length=beat_length,
+                    release_reason=release_reason,
+                    release_at=release_at,
                 )
                 exact[ev.note_id] = (onset, duration, family, f"{key[0]}:{key[1]}:{i}")
                 role, phrase = roles[ev.note_id]
@@ -655,6 +706,7 @@ def quantize_notation(events, meter, *, config, mode=None):
     for ev in out:
         source = raw_by_id[ev.note_id]
         onset, duration, family, group_id = exact[ev.note_id]
+        release_at, release_reason = release_by_id.get(ev.note_id, (None, None))
         notes.append(ScoreNote(ev.note_id, onset, duration, ev.voice,
                                staff_for_hand(ev.hand, ev.pitch) if profile.grand_staff else 0,
                                ev.role, family, group_id))
@@ -674,6 +726,8 @@ def quantize_notation(events, meter, *, config, mode=None):
             "score_beat_offset": offset,
             "onset_error_beats": ev.start_beat - offset - source.start_beat,
             "layout_authority": getattr(source, "layout_authority", "") or layout.authority.value,
+            "release_reason": release_reason,
+            "release_at": None if release_at is None else float(release_at),
         })
     summary = summarize_quantization(raw, out, decisions)
     if collapse_warning:

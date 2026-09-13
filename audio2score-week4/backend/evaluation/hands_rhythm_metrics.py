@@ -44,6 +44,129 @@ def _strip_ns(root: ET.Element) -> None:
             el.tag = el.tag.split("}", 1)[1]
 
 
+def _musicxml_key_fifths(path: Path) -> str | None:
+    root = ET.parse(path).getroot()
+    _strip_ns(root)
+    key = root.find(".//key")
+    if key is None:
+        return None
+    return key.findtext("fifths")
+
+
+def extract_measures_musicxml(
+    src: Path,
+    dest: Path,
+    measure_numbers: set[int],
+    *,
+    force_fifths: str | None = None,
+) -> dict[str, Any]:
+    """Copy selected measures without music21 rewrite (keeps key/pickup intact)."""
+    root = ET.parse(src).getroot()
+    _strip_ns(root)
+    kept = 0
+    for part in root.findall(".//part"):
+        measures = list(part.findall("measure"))
+        for measure in measures:
+            try:
+                num = int(measure.get("number") or 0)
+            except ValueError:
+                num = 0
+            if num not in measure_numbers:
+                part.remove(measure)
+            else:
+                kept += 1
+                if force_fifths is not None:
+                    key = measure.find("attributes/key") or measure.find("key")
+                    if key is not None:
+                        fifths = key.find("fifths")
+                        if fifths is not None:
+                            fifths.text = str(force_fifths)
+    # Ensure first kept measure carries the forced key if attributes were only
+    # on an omitted earlier measure.
+    if force_fifths is not None:
+        for part in root.findall(".//part"):
+            first = part.find("measure")
+            if first is None:
+                continue
+            attrs = first.find("attributes")
+            if attrs is None:
+                attrs = ET.SubElement(first, "attributes")
+                # put attributes first
+                first.remove(attrs)
+                first.insert(0, attrs)
+            key = attrs.find("key")
+            if key is None:
+                key = ET.SubElement(attrs, "key")
+                ET.SubElement(key, "fifths").text = str(force_fifths)
+                ET.SubElement(key, "mode").text = "minor"
+            else:
+                fifths = key.find("fifths")
+                if fifths is None:
+                    ET.SubElement(key, "fifths").text = str(force_fifths)
+                else:
+                    fifths.text = str(force_fifths)
+            break
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    ET.ElementTree(root).write(dest, encoding="utf-8", xml_declaration=True)
+    return {"path": str(dest), "measures_kept": kept, "measure_numbers": sorted(measure_numbers)}
+
+
+def write_matched_phrase_renders(
+    *,
+    before_xml: Path,
+    after_xml: Path,
+    after_notes: list[Any],
+    out_dir: Path,
+    measure_quarter_length: float = 3.0,
+) -> dict[str, Any]:
+    """Build before/after phrase MusicXML matched by source IDs and measure span."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    force_fifths = _musicxml_key_fifths(before_xml)
+    windows = {
+        "mm1-4": (1, 4),
+        "mm5-8": (5, 8),
+        "mm13-16": (13, 16),
+    }
+    phrases = {}
+    for name, (lo, hi) in windows.items():
+        beat_lo = (lo - 1) * measure_quarter_length
+        beat_hi = hi * measure_quarter_length
+        source_ids = []
+        for note in after_notes:
+            onset = float(getattr(note, "onset", getattr(note, "start_beat", 0.0)))
+            sid = getattr(note, "source_id", None) or getattr(note, "note_id", "")
+            if beat_lo <= onset < beat_hi and sid:
+                source_ids.append(sid)
+        source_ids = list(dict.fromkeys(source_ids))
+        measures = set(range(lo, hi + 1))
+        before_path = out_dir / f"before_{name}.musicxml"
+        after_path = out_dir / f"after_{name}.musicxml"
+        before_info = extract_measures_musicxml(
+            before_xml, before_path, measures, force_fifths=force_fifths
+        )
+        after_info = extract_measures_musicxml(
+            after_xml, after_path, measures, force_fifths=force_fifths
+        )
+        phrases[name] = {
+            "measure_range": [lo, hi],
+            "beat_range": [beat_lo, beat_hi],
+            "source_ids": source_ids,
+            "source_id_count": len(source_ids),
+            "before": before_info,
+            "after": after_info,
+            "key_fifths": force_fifths,
+        }
+    manifest = {
+        "force_fifths": force_fifths,
+        "measure_quarter_length": measure_quarter_length,
+        "phrases": phrases,
+    }
+    (out_dir / "phrase_manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
+    return manifest
+
+
 def musicxml_complexity(path: Path) -> dict[str, Any]:
     """Handoff-style MusicXML complexity (pitched symbols, ties, tiny tails).
 
@@ -397,6 +520,7 @@ def replay_autumn_walks_aligned(review_dir: Path, job_id: str = "hands_rhythm_al
         "voice_distribution": voice_probe,
         "xml_path": str(xml_path),
         "xml_chars": len(xml or ""),
+        "quantized_events": list(notation_result.quantized_events or []),
     }
 
 
@@ -441,7 +565,9 @@ def autumn_walks_metrics() -> dict[str, Any] | None:
         payload["production_before"] = musicxml_complexity(prod)
 
     aligned = replay_autumn_walks_aligned(AUTUMN_REVIEW)
-    payload["after_aligned_replay"] = aligned
+    payload["after_aligned_replay"] = {
+        k: v for k, v in aligned.items() if k != "quantized_events"
+    }
     if aligned.get("status") == "ok" and aligned.get("musicxml") and "before_current_main" in payload:
         before_m = payload["before_current_main"]
         after_xml = aligned["musicxml"]
@@ -465,6 +591,17 @@ def autumn_walks_metrics() -> dict[str, Any] | None:
             "attacks": aligned.get("attacks"),
             "voice_investigation": aligned.get("voice_distribution"),
         }
+        after_path = Path(aligned["xml_path"])
+        before_path = AUTUMN_REVIEW / "current-main.musicxml"
+        if before_path.is_file() and after_path.is_file():
+            phrase_dir = AUTUMN_REVIEW / "phrase_renders_matched"
+            payload["matched_phrases"] = write_matched_phrase_renders(
+                before_xml=before_path,
+                after_xml=after_path,
+                after_notes=aligned.get("quantized_events") or [],
+                out_dir=phrase_dir,
+                measure_quarter_length=3.0,
+            )
         if after_xml["max_voices_in_measure_staff"] > before_m["max_voices_in_measure_staff"]:
             payload["voice_increase_note"] = (
                 "Max simultaneous written voices rose versus current-main.musicxml. "
@@ -483,8 +620,8 @@ def run_review() -> dict[str, Any]:
     return {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "commits_note": (
-            "Gap closure after d59a0ef: per-hand decay, stamped layout authority, "
-            "meter-aware releases, line/release hypotheses. Phase 3 not complete."
+            "Release decisions carried into duration selection; Autumn Walks MT3 "
+            "semantics; matched phrase renders by source IDs."
         ),
         "synthetic": synthetic,
         "autumn_walks": autumn_walks_metrics(),

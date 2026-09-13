@@ -416,20 +416,40 @@ def test_genuine_multi_attack_hold_is_not_clipped_for_voice_search():
     assert _release_hypothesis(hold, [hold, a, b])[1] == "multi_attack_hold"
 
 
-def test_held_c_with_inner_e_is_not_pedal_clipped():
-    """Proximity and duration ratio alone must not establish pedal resonance."""
-    from mir.performance_score import _release_hypothesis, _voice_search_events
+def test_held_c_with_inner_e_survives_quantize_and_musicxml(tmp_path):
+    """End-to-end: assigned MT3 voice-0 pair must keep the independent hold."""
+    from notation_engine.writer import NotationWriter
 
-    held_c = MusicalEvent(60, 0.0, 2.0, note_id="c", hand=Hand.RIGHT, velocity=80)
-    inner_e = MusicalEvent(64, 1.0, 1.0, note_id="e", hand=Hand.RIGHT, velocity=70)
-    ordered = [held_c, inner_e]
-    release_at, reason = _release_hypothesis(held_c, ordered)
-    assert release_at is None
-    assert reason in {"no_line", "independent_hold", "performed_release"}
-    search = _voice_search_events(ordered)
-    by_id = {e.note_id: e.duration_beats for e in search}
-    assert by_id["c"] == 2.0
-    assert by_id["e"] == 1.0
+    raw = [
+        MusicalEvent(
+            60, 0.0, 2.0, note_id="c", hand=Hand.RIGHT, voice=0,
+            voice_assigned=True, hand_locked=True, velocity=80, source_backend="mt3",
+        ),
+        MusicalEvent(
+            64, 1.0, 1.0, note_id="e", hand=Hand.RIGHT, voice=0,
+            voice_assigned=True, hand_locked=True, velocity=70, source_backend="mt3",
+        ),
+    ]
+    before = [(e.note_id, e.start_beat, e.duration_beats, e.pitch) for e in raw]
+    out, report = quantize(raw)
+    assert [(e.note_id, e.start_beat, e.duration_beats, e.pitch) for e in raw] == before
+    notes = {n.source_id: n for n in report.notes}
+    assert notes["c"].duration == Fraction(2)
+    assert notes["e"].duration == Fraction(1)
+    assert {n.source_id for n in report.notes} == {"c", "e"}
+    # Overlap is resolved by lanes, not by shortening the hold.
+    assert notes["c"].voice != notes["e"].voice
+    c_decision = next(d for d in report.decisions if d["note_id"] == "c")
+    assert c_decision["release_reason"] == "no_line"
+    assert c_decision["performed_duration"] == 2.0
+    assert c_decision["written_duration"] == 2.0
+
+    writer = NotationWriter()
+    xml = writer.write_musicxml(
+        out, ScoreMeta(time_sig_hint="4/4"), "hold_c_e", tmp_path / "src.mid"
+    )
+    assert "score-partwise" in xml
+    assert xml.count("<pitch>") >= 2
 
 
 def test_same_pitch_pulse_still_caps_pedal_tail_for_voice_search():

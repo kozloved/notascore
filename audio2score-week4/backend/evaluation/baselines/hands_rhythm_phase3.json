@@ -1,6 +1,6 @@
 {
   "name": "hands_rhythm_phase3",
-  "generated_at": "2026-09-13T16:05:08Z",
+  "generated_at": "2026-09-13T17:12:06Z",
   "synthetic": {
     "pedal_quarters": {
       "layout": {
@@ -155,7 +155,7 @@
         "printed_notes": 61,
         "ties": 29,
         "notes_32nd_or_shorter": 5,
-        "voices_max_per_staff": 4,
+        "voices_max_per_staff": 6,
         "fragment_ties": 5,
         "tuplets": 2,
         "source_identity_preserved": true
@@ -168,14 +168,17 @@
         "tiny_128th": 0,
         "tiny_total": 5,
         "time_modifications": 2,
-        "max_voices_in_measure_staff": 3
+        "max_voices_in_measure_staff": 4
       },
       "voice_distribution": {
         "voices_by_staff": {
           "0": [
             0,
             1,
-            2
+            2,
+            3,
+            4,
+            5
           ],
           "1": [
             0,
@@ -184,18 +187,29 @@
             3
           ]
         },
-        "max_voices_in_measure_staff_events": 3,
-        "hotspots_ge_4": []
+        "max_voices_in_measure_staff_events": 4,
+        "hotspots_ge_4": [
+          {
+            "measure": 4,
+            "staff": 0,
+            "voices": [
+              0,
+              1,
+              2,
+              3
+            ]
+          }
+        ]
       },
       "xml_path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/.tmp/autumn-walks-review/bp_hands_rhythm_aligned/hands_rhythm_aligned.musicxml",
-      "xml_chars": 76321
+      "xml_chars": 91737
     },
     "deltas_vs_current_main": {
       "pitched_symbols": -35,
       "tie_starts": -35,
       "tiny_total": -32,
       "time_modifications": -18,
-      "max_voices_in_measure_staff": 0
+      "max_voices_in_measure_staff": 1
     },
     "comparable": {
       "same_midi": true,
@@ -212,7 +226,10 @@
           "0": [
             0,
             1,
-            2
+            2,
+            3,
+            4,
+            5
           ],
           "1": [
             0,
@@ -221,9 +238,202 @@
             3
           ]
         },
-        "max_voices_in_measure_staff_events": 3,
-        "hotspots_ge_4": []
+        "max_voices_in_measure_staff_events": 4,
+        "hotspots_ge_4": [
+          {
+            "measure": 4,
+            "staff": 0,
+            "voices": [
+              0,
+              1,
+              2,
+              3
+            ]
+          }
+        ]
       }
-    }
+    },
+    "matched_phrases": {
+      "force_fifths": "-5",
+      "measure_quarter_length": 3.0,
+      "phrases": {
+        "mm1-4": {
+          "measure_range": [
+            1,
+            4
+          ],
+          "beat_range": [
+            0.0,
+            12.0
+          ],
+          "source_ids": [
+            "track:0:note:0",
+            "track:0:note:8",
+            "track:0:note:9",
+            "track:0:note:1",
+            "track:0:note:2",
+            "track:0:note:3",
+            "track:0:note:4",
+            "track:0:note:5",
+            "track:0:note:6",
+            "track:0:note:7",
+            "track:0:note:10",
+            "track:0:note:11",
+            "track:0:note:12",
+            "track:0:note:17",
+            "track:0:note:13",
+            "track:0:note:14",
+            "track:0:note:15",
+            "track:0:note:16"
+          ],
+          "source_id_count": 18,
+          "before": {
+            "path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/.tmp/autumn-walks-review/phrase_renders_matched/before_mm1-4.musicxml",
+            "measures_kept": 4,
+            "measure_numbers": [
+              1,
+              2,
+              3,
+              4
+            ]
+          },
+          "after": {
+            "path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/.tmp/autumn-walks-review/phrase_renders_matched/after_mm1-4.musicxml",
+            "measures_kept": 4,
+            "measure_numbers": [
+              1,
+              2,
+              3,
+              4
+            ]
+          },
+          "key_fifths": "-5"
+        },
+        "mm5-8": {
+          "measure_range": [
+            5,
+            8
+          ],
+          "beat_range": [
+            12.0,
+            24.0
+          ],
+          "source_ids": [
+            "track:0:note:21",
+            "track:0:note:18",
+            "track:0:note:19",
+            "track:0:note:20",
+            "track:0:note:22",
+            "track:0:note:23",
+            "track:0:note:24",
+            "track:0:note:25",
+            "track:0:note:26",
+            "track:0:note:27",
+            "track:0:note:28",
+            "track:0:note:31",
+            "track:0:note:34",
+            "track:0:note:29",
+            "track:0:note:30",
+            "track:0:note:32",
+            "track:0:note:33",
+            "track:0:note:37",
+            "track:0:note:35",
+            "track:0:note:36",
+            "track:0:note:38",
+            "track:0:note:39",
+            "track:0:note:42",
+            "track:0:note:44",
+            "track:0:note:40",
+            "track:0:note:41",
+            "track:0:note:45",
+            "track:0:note:43"
+          ],
+          "source_id_count": 28,
+          "before": {
+            "path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/.tmp/autumn-walks-review/phrase_renders_matched/before_mm5-8.musicxml",
+            "measures_kept": 4,
+            "measure_numbers": [
+              5,
+              6,
+              7,
+              8
+            ]
+          },
+          "after": {
+            "path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/.tmp/autumn-walks-review/phrase_renders_matched/after_mm5-8.musicxml",
+            "measures_kept": 4,
+            "measure_numbers": [
+              5,
+              6,
+              7,
+              8
+            ]
+          },
+          "key_fifths": "-5"
+        },
+        "mm13-16": {
+          "measure_range": [
+            13,
+            16
+          ],
+          "beat_range": [
+            36.0,
+            48.0
+          ],
+          "source_ids": [
+            "track:0:note:80",
+            "track:0:note:72",
+            "track:0:note:73",
+            "track:0:note:74",
+            "track:0:note:75",
+            "track:0:note:76",
+            "track:0:note:77",
+            "track:0:note:78",
+            "track:0:note:79",
+            "track:0:note:83",
+            "track:0:note:87",
+            "track:0:note:86",
+            "track:0:note:81",
+            "track:0:note:82",
+            "track:0:note:84",
+            "track:0:note:85",
+            "track:0:note:90",
+            "track:0:note:88",
+            "track:0:note:89",
+            "track:0:note:91",
+            "track:0:note:92",
+            "track:0:note:95",
+            "track:0:note:99",
+            "track:0:note:93",
+            "track:0:note:94",
+            "track:0:note:96",
+            "track:0:note:97"
+          ],
+          "source_id_count": 27,
+          "before": {
+            "path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/.tmp/autumn-walks-review/phrase_renders_matched/before_mm13-16.musicxml",
+            "measures_kept": 4,
+            "measure_numbers": [
+              13,
+              14,
+              15,
+              16
+            ]
+          },
+          "after": {
+            "path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/.tmp/autumn-walks-review/phrase_renders_matched/after_mm13-16.musicxml",
+            "measures_kept": 4,
+            "measure_numbers": [
+              13,
+              14,
+              15,
+              16
+            ]
+          },
+          "key_fifths": "-5"
+        }
+      }
+    },
+    "voice_increase_note": "Max simultaneous written voices rose versus current-main.musicxml. Inspect voice_distribution.hotspots_ge_4; likely pedal-tail lines kept as independent holds after release hypotheses, not a meter drift."
   }
 }
