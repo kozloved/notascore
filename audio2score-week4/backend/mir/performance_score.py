@@ -126,37 +126,131 @@ def _written_overlap(raw, onset, next_onset, overlaps):
     return overlaps
 
 
+def _fragment_count(onset: Fraction, duration: Fraction, beat_length=Fraction(1)) -> int:
+    """Count engraved pieces after the same barline splitting used by export."""
+    from notation_engine.exact_plan import _pieces
+
+    return sum(1 for _ in _pieces(onset, duration, beat_length))
+
+
+def _duration_spelling_cost(raw, onset, duration, family):
+    """Prefer spellings that stay simple after barline splitting."""
+    beat_length = Fraction(1)
+    fragments = _fragment_count(onset, duration, beat_length)
+    denom = duration.denominator
+    numerator = duration.numerator
+    while numerator % 2 == 0:
+        numerator //= 2
+    odd = numerator not in (1, 3)
+    err = abs(float(duration) - raw)
+    # Do not invent a long written overrun or truncate a hold just to
+    # avoid a barline tie.
+    stretch = max(0.0, float(duration) - raw - 0.12)
+    shrink = max(0.0, raw - float(duration) - 0.12)
+    tiny_tail = 0
+    if fragments >= 2 and denom >= 16:
+        tiny_tail = 1
+    if family != "triplet" and denom >= 32:
+        tiny_tail += 1
+    # Isolated fine-grid tails without tuplet evidence.
+    if family != "triplet" and denom >= 16 and err < 0.08 and fragments > 1:
+        tiny_tail += 2
+    mistimed = stretch > 0.25 or shrink > 0.25
+    return (mistimed, fragments, tiny_tail, odd, err, denom, duration)
+
+
 def _duration(raw, onset, next_onset, overlaps, family, *, preserve=False):
     unit = Fraction(1, 48) if family == "triplet" else Fraction(1, 16)
+    onset = Fraction(onset) if not isinstance(onset, Fraction) else onset
     named = {Fraction(n, d) for d in (1, 2, 4, 8, 16)
              for n in (1, 2, 3, 4, 6, 8, 12, 16)}
     if family == "triplet":
         named.update(Fraction(n, d) for d in (6, 12, 24, 48) for n in (1, 2, 4, 8, 16))
     # Long sustains remain possible and will be split into barline ties.
     named.add(max(unit, round(raw / float(unit)) * unit))
+    # Metrical releases near integer/half/dotted boundaries.
+    for boundary in (1, 2, 3, 4, 5, 6, 7, 8, Fraction(3, 2), Fraction(1, 2), Fraction(3, 4)):
+        if abs(raw - float(boundary)) <= 0.35:
+            named.add(Fraction(boundary))
     if preserve:
         exact = min(named, key=lambda d: abs(float(d) - raw))
         if abs(float(exact) - raw) < 1e-7:
             return exact
     written_overlap = overlaps if preserve else _written_overlap(raw, onset, next_onset, overlaps)
     if next_onset is not None and not written_overlap:
-        cap = next_onset - onset
-        named = {d for d in named if d <= cap}
+        cap = Fraction(next_onset) - onset if not isinstance(next_onset, Fraction) else next_onset - onset
+        if not isinstance(cap, Fraction):
+            cap = Fraction(cap).limit_denominator(48)
+        named = {d for d in named if d <= cap + Fraction(1, 10**9)}
         if cap > 0:
             named.add(cap)
-    tolerance = min(0.10, raw * 0.20)
-    close = {d for d in named if abs(float(d) - raw) <= tolerance + 1e-9}
-    if close:
-        # Prefer one named value to a chain of tiny tied fragments. For
-        # example, a 0.94-beat release is a quarter, not 15/16 + a tiny rest.
-        def spelling_cost(d):
-            numerator = d.numerator
-            while numerator % 2 == 0:
-                numerator //= 2
-            return (numerator not in (1, 3), d.denominator,
-                    abs(float(d) - raw), d)
-        return min(close, key=spelling_cost)
-    return min(named, key=lambda d: (abs(float(d) - raw), d.denominator, d))
+            # Prefer the same-line attack as a written release when it is a
+            # simple value near the performed decay.
+            if abs(float(cap) - raw) <= max(0.95, raw * 0.55):
+                named.add(cap)
+    if not named:
+        named = {max(unit, round(raw / float(unit)) * unit)}
+    # Score the whole written ending, not only acoustic proximity.
+    return min(named, key=lambda d: _duration_spelling_cost(raw, onset, d, family))
+
+
+def _score_voices(events, separator):
+    if type(separator) is VoiceSeparator:
+        cap = min(2, int(separator.config.max_voices_per_hand or 2))
+        separator = VoiceSeparator(replace(
+            separator.config,
+            prefer_simple_chords=True,
+            # Keep a tight grace; pedal tails are shortened only for the
+            # voice-search copy below so genuine overlaps stay independent.
+            overlap_grace_beats=0.10,
+            max_voices_per_hand=cap,
+        ))
+    search = _voice_search_events(events)
+    voiced = separator.separate(search)
+    by_id = {ev.note_id: ev.voice for ev in voiced}
+    restored = [
+        copy_event(ev, voice=by_id.get(ev.note_id, ev.voice))
+        for ev in events
+    ]
+    return _mark_voices_assigned(restored)
+
+
+def _voice_search_events(events):
+    """Cap pedal-like tails for voice search without mutating performed times.
+
+    Repeated same-hand attacks under sustain look overlapping because the
+    acoustic release outlasts the pulse. Cap those tails at the next
+    same-line attack so they stay on one written line. Genuine independent
+    streams keep their performed endings and can still open a second voice.
+    """
+    by_hand = defaultdict(list)
+    for ev in events:
+        by_hand[ev.hand].append(ev)
+    capped = {}
+    for group in by_hand.values():
+        ordered = sorted(group, key=lambda e: (e.start_beat, e.pitch, e.note_id))
+        for i, ev in enumerate(ordered):
+            next_onset = None
+            for later in ordered[i + 1:]:
+                if later.start_beat <= ev.start_beat + 1e-9:
+                    continue
+                # Same musical line: nearby pitch continuation, not the
+                # interleaved independent stream an octave away.
+                if abs(later.pitch - ev.pitch) <= 9:
+                    next_onset = later.start_beat
+                    break
+            if next_onset is None:
+                capped[ev.note_id] = ev
+                continue
+            raw = float(ev.duration_beats)
+            gap = float(next_onset - ev.start_beat)
+            # Pedal/room tail under a repeated figure: longer than the pulse
+            # but not a multi-attack held note.
+            if 0.20 <= gap <= 2.05 and gap * 1.25 < raw < gap * 4.0:
+                capped[ev.note_id] = copy_event(ev, duration_beats=gap)
+            else:
+                capped[ev.note_id] = ev
+    return [capped.get(ev.note_id, ev) for ev in events]
 
 
 def _stable_lanes(events, exact, grand_staff=True):
@@ -237,18 +331,6 @@ def voices_provided(events) -> bool:
 
 def _mark_voices_assigned(events):
     return [copy_event(ev, voice_assigned=True) for ev in events]
-
-
-def _score_voices(events, separator):
-    if type(separator) is VoiceSeparator:
-        cap = min(2, int(separator.config.max_voices_per_hand or 2))
-        separator = VoiceSeparator(replace(
-            separator.config,
-            prefer_simple_chords=True,
-            overlap_grace_beats=0.10,
-            max_voices_per_hand=cap,
-        ))
-    return _mark_voices_assigned(separator.separate(events))
 
 
 def assign_pipeline_layout(events, profile: ScoreProfile, hand_separator, voice_separator):

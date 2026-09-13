@@ -291,3 +291,49 @@ def test_keeps_pipeline_voices_that_separator_would_chord():
     assert notes["a"].voice != notes["b"].voice
     assert notes["a"].staff == notes["b"].staff
     assert report.summary["layout_source"] == "pipeline"
+
+
+def test_near_boundary_releases_prefer_simple_written_values():
+    from mir.performance_score import _duration, _fragment_count
+
+    cases = {
+        0.94: Fraction(1),
+        1.17: Fraction(1),
+        1.94: Fraction(2),
+        2.21: Fraction(2),
+        2.94: Fraction(3),
+        3.14: Fraction(3),
+        5.28: Fraction(5),
+    }
+    for raw, expected in cases.items():
+        chosen = _duration(raw, Fraction(0), None, False, "binary")
+        assert chosen == expected, (raw, chosen, expected)
+        assert _fragment_count(Fraction(0), chosen) <= 2
+
+
+def test_binary_phrase_rejects_tail_only_tuplets():
+    from mir.performance_score import _duration
+
+    # Near a binary pulse without triplet evidence must stay binary.
+    chosen = _duration(0.94, Fraction(0), None, False, "binary")
+    assert chosen.denominator in (1, 2, 4, 8, 16)
+    assert chosen != Fraction(1, 3)
+    chosen = _duration(1.17, Fraction(0), Fraction(2), False, "binary")
+    assert chosen.denominator in (1, 2, 4, 8, 16)
+
+
+def test_pedal_tails_do_not_force_extra_voice_before_releases():
+    from mir.hand_separator import HandSeparator
+    from mir.performance_score import assign_pipeline_layout
+    from mir.score_profile import score_profile
+    from mir.voice_separator import VoiceSeparator
+
+    raw = [
+        MusicalEvent(48, float(i), 1.8, note_id=f"p{i}", velocity=80)
+        for i in range(4)
+    ]
+    out = assign_pipeline_layout(
+        raw, score_profile(raw), HandSeparator(), VoiceSeparator()
+    ).events
+    assert len({e.voice for e in out}) == 1
+    assert all(e.duration_beats == 1.8 for e in out)
