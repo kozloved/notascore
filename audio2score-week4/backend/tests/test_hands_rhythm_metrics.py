@@ -35,6 +35,29 @@ def test_duration_probe_matches_handoff_table():
     assert _duration(1.17, Fraction(0), None, False, "binary") == 1
 
 
+def test_musicxml_complexity_counts_each_tie_start_once(tmp_path):
+    xml = """<?xml version='1.0'?>
+    <score-partwise>
+      <part id='P1'>
+        <measure number='1'>
+          <note>
+            <pitch><step>C</step><octave>4</octave></pitch>
+            <duration>1</duration>
+            <type>quarter</type>
+            <tie type='start'/>
+            <notations><tied type='start'/></notations>
+          </note>
+        </measure>
+      </part>
+    </score-partwise>
+    """
+    path = tmp_path / "tie.xml"
+    path.write_text(xml, encoding="utf-8")
+    metrics = musicxml_complexity(path)
+    assert metrics["pitched_symbols"] == 1
+    assert metrics["tie_starts"] == 1
+
+
 def test_musicxml_complexity_reads_autumn_fixture_when_present():
     path = (
         Path(__file__).resolve().parents[1]
@@ -47,3 +70,5 @@ def test_musicxml_complexity_reads_autumn_fixture_when_present():
     metrics = musicxml_complexity(path)
     assert metrics["pitched_symbols"] == 155
     assert metrics["tiny_total"] >= 1
+    # Single-count ties (<tie> and <tied> are one musical start).
+    assert metrics["tie_starts"] == 55

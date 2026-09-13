@@ -45,7 +45,11 @@ def _strip_ns(root: ET.Element) -> None:
 
 
 def musicxml_complexity(path: Path) -> dict[str, Any]:
-    """Handoff-style MusicXML complexity (pitched symbols, ties, tiny tails)."""
+    """Handoff-style MusicXML complexity (pitched symbols, ties, tiny tails).
+
+    Each musical tie start is counted once. MusicXML often emits both ``<tie>``
+    and ``<tied>`` for the same start; do not double-count them.
+    """
     root = ET.parse(path).getroot()
     _strip_ns(root)
     pitched = 0
@@ -69,12 +73,15 @@ def musicxml_complexity(path: Path) -> dict[str, Any]:
                 tiny[ntype] += 1
             if note.find("time-modification") is not None:
                 time_mod += 1
-            for tie in note.findall("tie"):
-                if tie.get("type") == "start":
-                    tie_starts += 1
-            for tied in note.findall("./notations/tied"):
-                if tied.get("type") == "start":
-                    tie_starts += 1
+            has_tie_start = any(
+                tie.get("type") == "start" for tie in note.findall("tie")
+            )
+            has_tied_start = any(
+                tied.get("type") == "start"
+                for tied in note.findall("./notations/tied")
+            )
+            if has_tie_start or has_tied_start:
+                tie_starts += 1
     return {
         "pitched_symbols": pitched,
         "tie_starts": tie_starts,
@@ -220,7 +227,12 @@ def run_synthetic_case(name: str, events: list[MusicalEvent]) -> dict[str, Any]:
 
 
 def replay_autumn_walks_aligned(review_dir: Path, job_id: str = "hands_rhythm_aligned") -> dict[str, Any]:
-    """Replay Autumn Walks with frozen audio beat map + forced 3/4 meter."""
+    """Replay Autumn Walks with frozen audio beat map + forced 3/4 meter.
+
+    Uses MT3 source semantics (``source_backend="mt3"``) so written-duration
+    inference matches production polyphonic jobs. The MIDI file is only the
+    frozen MT3 note payload — it must not enable MIDI duration preservation.
+    """
     import hashlib
     import shutil
 
@@ -260,7 +272,8 @@ def replay_autumn_walks_aligned(review_dir: Path, job_id: str = "hands_rhythm_al
         model="autumn_walks_detected_beats",
     )
     tempo_map = TempoMap(points=[TempoPoint(time_sec=0.0, beat=0.0, bpm=bpm)])
-    pipe = UnderstandingPipeline(backend_name="midi")
+    # Pipeline backend name is informational; note/event semantics are MT3.
+    pipe = UnderstandingPipeline(backend_name="mt3")
     pipe.last_timing = timing
     pipe.last_musical_time_map = timing.time_map
     pipe.beat_tracker.last_beat_result = MadmomBeatResult(
@@ -276,8 +289,15 @@ def replay_autumn_walks_aligned(review_dir: Path, job_id: str = "hands_rhythm_al
         grouping_positions=list(beats.get("grouping_positions") or []),
     )
 
-    ingested = ingest_midi(midi)
-    notes = [n.ensure_ids(i) for i, n in enumerate(ingested.notes)]
+    ingested = ingest_midi(midi, source_backend="mt3")
+    notes = []
+    for i, n in enumerate(ingested.notes):
+        note = n.ensure_ids(i)
+        if getattr(note, "source_backend", "unknown") in ("", "unknown", "midi"):
+            from dataclasses import replace as dc_replace
+
+            note = dc_replace(note, source_backend="mt3")
+        notes.append(note)
     pipe.last_raw_notes = list(notes)
     role = pipe.role_separator.separate(notes)
     kinds = {n.instrument for n in notes}
@@ -287,7 +307,7 @@ def replay_autumn_walks_aligned(review_dir: Path, job_id: str = "hands_rhythm_al
         timing.time_map,
         role=role,
         instrument=instrument,
-        source_backend="midi",
+        source_backend="mt3",
     )
     events = pipe._apply_mir_layers(events)
     meter = meter_from_time_signature("3/4", source="autumn_walks_freeze")
@@ -313,6 +333,8 @@ def replay_autumn_walks_aligned(review_dir: Path, job_id: str = "hands_rhythm_al
         "meter_source": "autumn_walks_freeze",
         "beat_source": "detected-beats.json",
         "forced_meter": "3/4",
+        "source_semantics": "mt3",
+        "frozen_midi_payload": True,
     }
 
     structure = MusicalStructure(
@@ -322,7 +344,7 @@ def replay_autumn_walks_aligned(review_dir: Path, job_id: str = "hands_rhythm_al
         selected_meter=meter,
         instrument=instrument,
         instrument_confidence=0.9,
-        extra={"source": "autumn_walks_aligned_replay"},
+        extra={"source": "autumn_walks_aligned_replay", "source_semantics": "mt3"},
     )
     xml, notation_result = pipe.notation.write_musicxml_with_result(
         events,
@@ -345,6 +367,7 @@ def replay_autumn_walks_aligned(review_dir: Path, job_id: str = "hands_rhythm_al
     summary = getattr(pipe.notation, "last_quantization_summary", None) or {}
     if not summary and getattr(notation_result, "quantization", None) is not None:
         summary = getattr(notation_result.quantization, "summary", None) or {}
+    backends = sorted({ev.source_backend for ev in events})
     return {
         "status": "ok",
         "job_id": job_id,
@@ -353,6 +376,9 @@ def replay_autumn_walks_aligned(review_dir: Path, job_id: str = "hands_rhythm_al
             None if not expected_sha else raw_sha == expected_sha
         ),
         "meter": "3/4",
+        "source_semantics": "mt3",
+        "event_source_backends": backends,
+        "duration_preserve_enabled": False,
         "beat_count": len(beat_times),
         "downbeat_count": len(downbeats),
         "attacks": len(notes),
@@ -433,6 +459,9 @@ def autumn_walks_metrics() -> dict[str, Any] | None:
             "same_midi": aligned.get("raw_sha_matches_alignment"),
             "forced_meter": "3/4",
             "beat_source": "detected-beats.json",
+            "source_semantics": aligned.get("source_semantics"),
+            "duration_preserve_enabled": aligned.get("duration_preserve_enabled"),
+            "event_source_backends": aligned.get("event_source_backends"),
             "attacks": aligned.get("attacks"),
             "voice_investigation": aligned.get("voice_distribution"),
         }

@@ -1,71 +1,71 @@
-# Hands and rhythm Phase 3 review (2026-09-13)
+# Hands and rhythm review update (after d122849)
 
-Phase 3 plan deliverables are complete: frozen metrics harness, synthetic corpus,
-comparable Autumn Walks before/after (identical MIDI + audio beat map + 3/4), and
-recorded deltas. This does **not** claim perfect hand separation from one song.
+Fixes remaining release-inference / validation gaps on top of `d122849`. **Visual
+review is not marked complete** — OSMD phrase PNGs were inspected where available;
+`before_mm5-8` failed to snapshot, and frozen-before vs MT3-after excerpts are not
+measure-identical (key/pickup differences), so pianist sign-off is still required.
 
-Gap closures required for an honest comparable review (landed with this Phase 3
-completion commit):
+## Code fixes
 
-1. **Per-hand silence decay** — each hand’s anchors/sticky costs use its own activity timestamps.
-2. **Stamped layout authority** — quantization keeps `LayoutResult`; no label-only rebuild.
-3. **Meter-aware release scoring** — barline fragments, ties, and tiny pieces use real meter.
-4. **Line/release hypotheses** — pedal tails capped for voice search only; holds/repeats preserved.
+1. **Independent hold vs pedal** — `_pulsed_line_evidence` required before different-pitch
+   shortening. Regression: two-beat held C + inner E at beat 1 must not clip (`no_line`).
+   Same-pitch pulsed pedal tails still cap for voice search only.
+2. **Autumn Walks MT3 semantics** — replay stamps `source_backend="mt3"` on frozen MIDI
+   payload notes/events so `preserve=` duration path stays off (matches production MT3).
+3. **Tie metrics** — `musicxml_complexity` counts each note’s musical tie start once
+   (`<tie>` and `<tied>` no longer double-count).
 
-## Harness
+## Tests
 
-```bash
-cd audio2score-week4/backend
-.venv/bin/python -m evaluation.hands_rhythm_metrics --write-baseline
-```
+- Focused hands/performance/metrics/downbeat/interpretation: passed
+- Supported backend suite: `pytest -m 'not integration and not pm2s'` → **738 passed, 4 deselected**
 
-- Script: `evaluation/hands_rhythm_metrics.py` (`replay_autumn_walks_aligned`)
-- Baseline: `evaluation/baselines/hands_rhythm_phase3.json`
-- Private fixtures stay under `.tmp/autumn-walks-review/` (not committed)
+## Comparable Autumn Walks metrics (recounted ties)
 
-## Synthetic corpus (git-safe)
-
-| Case | Checks |
-| --- | --- |
-| `pedal_quarters` | One voice; written quarters; raw durations unchanged |
-| `broken_chord_waltz` | Bass/mid under melody preserved |
-| `near_boundary_releases` | 0.94→1, 1.17→1, 1.94→2, 2.21→2 |
-| `independent_rh_voices` | Two overlapping RH lines stay distinct |
-
-## Autumn Walks — comparable before/after
-
-Controls: same `mt3-original.mid` (SHA matches alignment), `detected-beats.json`, forced `3/4`.
+Controls: same `mt3-original.mid` SHA, `detected-beats.json`, forced `3/4`, **MT3**
+source semantics, performance quantization.
 
 | Metric | `current-main.musicxml` | Aligned after | Δ |
 | --- | ---: | ---: | ---: |
 | Pitched symbols | 155 | 120 | −35 |
-| Tie starts | 110 | 40 | −70 |
+| Tie starts (once each) | 55 | 20 | −35 |
 | Tiny (32nd+) | 37 | 5 | −32 |
 | Time modifications | 20 | 2 | −18 |
 | Max voices / measure·staff | 3 | 3 | 0 |
 | Source attacks | 100 | 100 | 0 |
 | Source identity preserved | — | true | — |
+| `duration_preserve_enabled` | — | false | — |
+| Event backends | — | `["mt3"]` | — |
 
-### Voice-count note
+## Phrase renders (local only)
 
-An earlier MIDI-only replay without the frozen beat map chose 6/8 and reported max
-voices 4. Comparable 3/4 replay keeps max voices at **3**. Local after score:
-`.tmp/autumn-walks-review/bp_hands_rhythm_aligned/hands_rhythm_aligned.musicxml`
+Under `.tmp/autumn-walks-review/phrase_renders/`:
 
-## Regressions
+| Phrase | Inspected | Observation |
+| --- | --- | --- |
+| mm1–4 before/after | yes (OSMD PNG) | Sustained upper-line ties remain; after is cleaner but not glyph-identical to before |
+| mm5–8 after | yes | Long bass holds without 128th tails; fewer fragments than music21 before analysis |
+| mm5–8 before | **PNG missing** (OSMD wait timeout) | Not visually compared |
+| mm13–16 before/after | yes | Before: dense multi-voice bass + tiny tails; after: sustained melody ties + simpler held bass under chords |
 
-- `test_one_hand_rest_decays_independently_while_other_continues`
-- `test_stamped_layout_authority_survives_quantization`
-- `test_release_scoring_uses_meter_barlines_not_unit_pulse`
-- `test_overlapping_repeated_pitch_is_not_clipped_for_voice_search`
-- `test_genuine_multi_attack_hold_is_not_clipped_for_voice_search`
+Music21 phrase stats (supporting the renders): mm13–16 tinies 7→0; mm5–8 tinies 14→2;
+tied element counts drop in each window.
 
-Focused hands/performance/downbeat/metrics suite: **passed**.
+## Remaining limitations
 
-## Remaining limitations (future work, not Phase 3 blockers)
+- Held-key reach vs pedal still unmodeled beyond release hypotheses.
+- Line evidence for pedal is pulsed-context only; richer voice+release joint search open.
+- Visual review incomplete (`before_mm5-8` snapshot failed; before/after key/pickup differ).
+- Pianist phrase review and annotated holdouts still outstanding.
+- Do not claim perfect hands from Autumn Walks alone.
 
-- Held-key reach vs pedal resonance still unmodeled.
-- Line/release search is bounded, not a full joint optimizer.
-- Autumn Walks is one unlabeled development excerpt; pianist phrase review and
-  annotated multi-song holdout gates are still desirable before broad claims.
-- Plan-level `voices_max_per_staff` counts lanes over the piece, not simultaneous XML voices.
+## Reproduce
+
+```bash
+cd audio2score-week4/backend
+.venv/bin/python -m evaluation.hands_rhythm_metrics --write-baseline
+.venv/bin/python -m pytest -m 'not integration and not pm2s' -q
+# optional phrase OSMD:
+# node evaluation/render_osmd.mjs .tmp/autumn-walks-review/phrase_renders/after_mm13-16.musicxml \
+#   .tmp/autumn-walks-review/phrase_renders/after_mm13-16
+```

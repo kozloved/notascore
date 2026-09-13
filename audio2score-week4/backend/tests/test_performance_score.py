@@ -414,3 +414,30 @@ def test_genuine_multi_attack_hold_is_not_clipped_for_voice_search():
     a = MusicalEvent(55, 1.0, 0.5, note_id="a", hand=Hand.LEFT, velocity=70)
     b = MusicalEvent(58, 2.0, 0.5, note_id="b", hand=Hand.LEFT, velocity=70)
     assert _release_hypothesis(hold, [hold, a, b])[1] == "multi_attack_hold"
+
+
+def test_held_c_with_inner_e_is_not_pedal_clipped():
+    """Proximity and duration ratio alone must not establish pedal resonance."""
+    from mir.performance_score import _release_hypothesis, _voice_search_events
+
+    held_c = MusicalEvent(60, 0.0, 2.0, note_id="c", hand=Hand.RIGHT, velocity=80)
+    inner_e = MusicalEvent(64, 1.0, 1.0, note_id="e", hand=Hand.RIGHT, velocity=70)
+    ordered = [held_c, inner_e]
+    release_at, reason = _release_hypothesis(held_c, ordered)
+    assert release_at is None
+    assert reason in {"no_line", "independent_hold", "performed_release"}
+    search = _voice_search_events(ordered)
+    by_id = {e.note_id: e.duration_beats for e in search}
+    assert by_id["c"] == 2.0
+    assert by_id["e"] == 1.0
+
+
+def test_same_pitch_pulse_still_caps_pedal_tail_for_voice_search():
+    from mir.performance_score import _release_hypothesis, _voice_search_events
+
+    a = MusicalEvent(48, 0.0, 1.8, note_id="a", hand=Hand.LEFT, velocity=80)
+    b = MusicalEvent(48, 1.0, 1.8, note_id="b", hand=Hand.LEFT, velocity=80)
+    assert _release_hypothesis(a, [a, b]) == (1.0, "pedal_tail")
+    search = _voice_search_events([a, b])
+    assert {e.note_id: e.duration_beats for e in search}["a"] == 1.0
+    assert {e.note_id: e.duration_beats for e in search}["b"] == 1.8

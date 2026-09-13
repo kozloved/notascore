@@ -298,12 +298,30 @@ def _score_voices(events, separator):
     return _mark_voices_assigned(restored)
 
 
+def _pulsed_line_evidence(ev, nxt, ordered_same_hand) -> bool:
+    """True when shortening is supported by line context, not proximity alone.
+
+    Same-pitch pulse re-attacks count. Different pitches need a prior attack at
+    roughly the same spacing and pitch as ``ev`` (an established pulsed line).
+    """
+    gap = float(nxt.start_beat - ev.start_beat)
+    if nxt.pitch == ev.pitch:
+        return True
+    for prev in ordered_same_hand:
+        if prev.start_beat >= ev.start_beat - 1e-9:
+            break
+        prev_gap = float(ev.start_beat - prev.start_beat)
+        if abs(prev_gap - gap) <= 0.12 and abs(prev.pitch - ev.pitch) <= 2:
+            return True
+    return False
+
+
 def _release_hypothesis(ev, ordered_same_hand):
     """Bounded same-hand line/release decision for voice search only.
 
-    Preserves near-simultaneous / independently sustained repeated pitches and
-    genuine multi-attack holds. Caps only clear pedal/room tails under a
-    continuing line (including same-pitch re-attacks under sustain).
+    Preserves independent holds, near-simultaneous / overlapping unisons, and
+    multi-attack sustains. Caps only when line/context evidence supports a
+    pedal-like continuation — proximity and duration ratio alone are not enough.
     """
     raw = float(ev.duration_beats)
     end = ev.start_beat + raw
@@ -323,15 +341,25 @@ def _release_hypothesis(ev, ordered_same_hand):
         if gap > 2.05:
             break
         leap = abs(nxt.pitch - ev.pitch)
-        same_pitch_overlap = nxt.pitch == ev.pitch and nxt.start_beat < end - 0.04
-        if same_pitch_overlap:
+        under_sustain = nxt.start_beat < end - 0.04
+        if nxt.pitch == ev.pitch and under_sustain:
             # Pulse re-attack under pedal is a line continuation.
-            if 0.20 <= gap <= 2.05 and gap * 1.25 < raw < gap * 4.0:
+            if (
+                0.20 <= gap <= 2.05
+                and gap * 1.25 < raw < gap * 4.0
+                and _pulsed_line_evidence(ev, nxt, ordered_same_hand)
+            ):
                 return nxt.start_beat, "pedal_tail"
             # Near-simultaneous or independently sustained repeated pitch.
             if gap <= 0.12 or raw >= gap * 4.0:
                 return None, "overlapping_repeat"
         if leap > 9:
+            continue
+        # Different pitch sounding under a sustain is an independent hold
+        # unless a pulsed line at this pitch is already established.
+        if under_sustain and leap > 0 and not _pulsed_line_evidence(ev, nxt, ordered_same_hand):
+            continue
+        if not _pulsed_line_evidence(ev, nxt, ordered_same_hand):
             continue
         score = leap + 0.05 * gap
         if best is None or score < best[0]:

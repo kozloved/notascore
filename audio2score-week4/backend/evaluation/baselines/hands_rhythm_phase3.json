@@ -1,6 +1,6 @@
 {
   "name": "hands_rhythm_phase3",
-  "generated_at": "2026-09-13T15:45:56Z",
+  "generated_at": "2026-09-13T16:05:08Z",
   "synthetic": {
     "pedal_quarters": {
       "layout": {
@@ -116,7 +116,7 @@
     "path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/.tmp/autumn-walks-review",
     "before_current_main": {
       "pitched_symbols": 155,
-      "tie_starts": 110,
+      "tie_starts": 55,
       "tiny_32nd": 29,
       "tiny_64th": 1,
       "tiny_128th": 7,
@@ -127,7 +127,7 @@
     "before_note": "Frozen MusicXML from the handoff replay on current main (155 pitched / 100 attacks baseline cited in the handoff).",
     "production_before": {
       "pitched_symbols": 153,
-      "tie_starts": 106,
+      "tie_starts": 53,
       "tiny_32nd": 17,
       "tiny_64th": 4,
       "tiny_128th": 0,
@@ -141,6 +141,11 @@
       "raw_sha256": "aae968993fe7aa03dd21d3ba77e2aa8cc143cd585b6d6b0e257f6d2156cf7cca",
       "raw_sha_matches_alignment": true,
       "meter": "3/4",
+      "source_semantics": "mt3",
+      "event_source_backends": [
+        "mt3"
+      ],
+      "duration_preserve_enabled": false,
       "beat_count": 48,
       "downbeat_count": 16,
       "attacks": 100,
@@ -150,14 +155,14 @@
         "printed_notes": 61,
         "ties": 29,
         "notes_32nd_or_shorter": 5,
-        "voices_max_per_staff": 7,
+        "voices_max_per_staff": 4,
         "fragment_ties": 5,
         "tuplets": 2,
         "source_identity_preserved": true
       },
       "musicxml": {
         "pitched_symbols": 120,
-        "tie_starts": 40,
+        "tie_starts": 20,
         "tiny_32nd": 5,
         "tiny_64th": 0,
         "tiny_128th": 0,
@@ -176,21 +181,18 @@
             0,
             1,
             2,
-            3,
-            4,
-            5,
-            6
+            3
           ]
         },
         "max_voices_in_measure_staff_events": 3,
         "hotspots_ge_4": []
       },
       "xml_path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/.tmp/autumn-walks-review/bp_hands_rhythm_aligned/hands_rhythm_aligned.musicxml",
-      "xml_chars": 89338
+      "xml_chars": 76321
     },
     "deltas_vs_current_main": {
       "pitched_symbols": -35,
-      "tie_starts": -70,
+      "tie_starts": -35,
       "tiny_total": -32,
       "time_modifications": -18,
       "max_voices_in_measure_staff": 0
@@ -199,6 +201,11 @@
       "same_midi": true,
       "forced_meter": "3/4",
       "beat_source": "detected-beats.json",
+      "source_semantics": "mt3",
+      "duration_preserve_enabled": false,
+      "event_source_backends": [
+        "mt3"
+      ],
       "attacks": 100,
       "voice_investigation": {
         "voices_by_staff": {
@@ -211,10 +218,7 @@
             0,
             1,
             2,
-            3,
-            4,
-            5,
-            6
+            3
           ]
         },
         "max_voices_in_measure_staff_events": 3,
