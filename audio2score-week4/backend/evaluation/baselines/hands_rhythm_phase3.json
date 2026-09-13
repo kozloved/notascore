@@ -1,0 +1,168 @@
+{
+  "name": "hands_rhythm_phase3",
+  "generated_at": "2026-09-13T15:03:33Z",
+  "synthetic": {
+    "pedal_quarters": {
+      "layout": {
+        "attacks": 4,
+        "hand_switches": 0,
+        "max_voice_id": 0,
+        "distinct_voices": 1
+      },
+      "plan": {
+        "printed_notes": 5,
+        "ties": 2,
+        "notes_32nd_or_shorter": 0,
+        "voices_max_per_staff": 1,
+        "fragment_ties": 0,
+        "tuplets": 0,
+        "source_identity_preserved": true
+      },
+      "written_durations": {
+        "pedal0": "1",
+        "pedal1": "1",
+        "pedal2": "1",
+        "pedal3": "2"
+      }
+    },
+    "broken_chord_waltz": {
+      "layout": {
+        "attacks": 16,
+        "hand_switches": 8,
+        "max_voice_id": 1,
+        "distinct_voices": 3
+      },
+      "plan": {
+        "printed_notes": 17,
+        "ties": 2,
+        "notes_32nd_or_shorter": 0,
+        "voices_max_per_staff": 2,
+        "fragment_ties": 0,
+        "tuplets": 9,
+        "source_identity_preserved": true
+      },
+      "written_durations": {
+        "bass0": "1",
+        "mel0": "1",
+        "mid0": "1/3",
+        "mid20": "2/3",
+        "bass1": "1",
+        "mel1": "1",
+        "mid1": "1/3",
+        "mid21": "2/3",
+        "bass2": "1",
+        "mel2": "1",
+        "mid2": "1/3",
+        "mid22": "2/3",
+        "bass3": "1",
+        "mel3": "1",
+        "mid3": "1/3",
+        "mid23": "2/3"
+      }
+    },
+    "near_boundary_releases": {
+      "layout": {
+        "attacks": 4,
+        "hand_switches": 1,
+        "max_voice_id": 0,
+        "distinct_voices": 2
+      },
+      "plan": {
+        "printed_notes": 4,
+        "ties": 0,
+        "notes_32nd_or_shorter": 0,
+        "voices_max_per_staff": 1,
+        "fragment_ties": 0,
+        "tuplets": 0,
+        "source_identity_preserved": true
+      },
+      "written_durations": {
+        "b0.94": "1",
+        "b1.17": "1",
+        "b1.94": "2",
+        "b2.21": "2"
+      }
+    },
+    "independent_rh_voices": {
+      "layout": {
+        "attacks": 8,
+        "hand_switches": 0,
+        "max_voice_id": 1,
+        "distinct_voices": 2
+      },
+      "plan": {
+        "printed_notes": 9,
+        "ties": 2,
+        "notes_32nd_or_shorter": 0,
+        "voices_max_per_staff": 2,
+        "fragment_ties": 0,
+        "tuplets": 0,
+        "source_identity_preserved": true
+      },
+      "written_durations": {
+        "m0": "1",
+        "i0": "1",
+        "m1": "1",
+        "i1": "1",
+        "m2": "1",
+        "i2": "1",
+        "m3": "1",
+        "i3": "1"
+      }
+    }
+  },
+  "autumn_walks_optional": {
+    "present": true,
+    "path": "/Users/kozlovivan/DevHub/notascore/audio2score-week4/backend/.tmp/autumn-walks-review",
+    "before_current_main": {
+      "pitched_symbols": 155,
+      "tie_starts": 110,
+      "tiny_32nd": 29,
+      "tiny_64th": 1,
+      "tiny_128th": 7,
+      "tiny_total": 37,
+      "time_modifications": 20,
+      "max_voices_in_measure_staff": 3
+    },
+    "before_note": "Frozen MusicXML from the handoff replay on current main (155 pitched / 100 attacks baseline cited in the handoff).",
+    "production_before": {
+      "pitched_symbols": 153,
+      "tie_starts": 106,
+      "tiny_32nd": 17,
+      "tiny_64th": 4,
+      "tiny_128th": 0,
+      "tiny_total": 21,
+      "time_modifications": 4,
+      "max_voices_in_measure_staff": 6
+    },
+    "after_midi_replay": {
+      "plan": {
+        "source_note_count": 100,
+        "printed_notes": 66,
+        "ties": 51,
+        "notes_32nd_or_shorter": 10,
+        "voices_max_per_staff": 5,
+        "fragment_ties": 10,
+        "tuplets": 8
+      },
+      "musicxml": {
+        "pitched_symbols": 143,
+        "tie_starts": 86,
+        "tiny_32nd": 9,
+        "tiny_64th": 4,
+        "tiny_128th": 5,
+        "tiny_total": 18,
+        "time_modifications": 11,
+        "max_voices_in_measure_staff": 4
+      },
+      "caveat": "MIDI-only replay; beat map may differ from the audio-aligned current-main.musicxml. Private audio/MIDI stay out of git."
+    },
+    "deltas_vs_current_main": {
+      "pitched_symbols": -12,
+      "tie_starts": -24,
+      "tiny_total": -19,
+      "time_modifications": -9,
+      "max_voices_in_measure_staff": 1
+    }
+  }
+}
