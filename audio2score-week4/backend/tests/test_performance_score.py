@@ -486,28 +486,53 @@ def _mt3_left(pitch, start, duration, ident, *, voice=0):
     )
 
 
+def _musicxml_attack_spans(path):
+    """Collapse MusicXML notes into attacks, joining only true tie continuations.
+
+    A new attack starts on an untied note or a tie ``start``. Same-pitch
+    reattacks that are not tied must remain separate spans.
+    """
+    spans = []
+    open_span = None  # (midi, onset, dur, pieces, tied)
+    for note in converter.parse(path).flatten().notes:
+        midi = int(note.pitch.midi)
+        onset = float(note.offset)
+        dur = float(note.quarterLength)
+        tie_type = note.tie.type if note.tie is not None else None
+        if open_span is not None and tie_type in {"continue", "stop"} and open_span[0] == midi:
+            midi0, onset0, total, pieces, _tied = open_span
+            open_span = (midi0, onset0, total + dur, pieces + 1, True)
+            if tie_type == "stop":
+                spans.append(open_span)
+                open_span = None
+            continue
+        if open_span is not None:
+            spans.append(open_span)
+            open_span = None
+        if tie_type == "start":
+            open_span = (midi, onset, dur, 1, True)
+        else:
+            # Untied note, or orphan stop/continue treated as its own attack.
+            spans.append((midi, onset, dur, 1, tie_type is not None))
+    if open_span is not None:
+        spans.append(open_span)
+    return spans
+
+
 def _assert_exported_attacks(xml: str, path, expected_by_id: dict[str, tuple[int, float, float]]):
-    """Verify each quantized attack appears in MusicXML with pitch, onset, duration."""
+    """Verify exact attack inventory: pitch, onset, duration; ties only join pieces."""
     path.write_text(xml)
-    found = [
-        (int(n.pitch.midi), float(n.offset), float(n.quarterLength))
-        for n in converter.parse(path).flatten().notes
-    ]
+    spans = _musicxml_attack_spans(path)
+    remaining = list(spans)
     for note_id, (midi, onset, dur) in expected_by_id.items():
-        run = sorted(
-            ((o, d) for m, o, d in found if m == midi and o + 1e-9 >= onset),
-            key=lambda x: x[0],
-        )
-        summed = 0.0
-        cursor = onset
-        for o, d in run:
-            if abs(o - cursor) > 1e-6:
+        match_i = None
+        for i, (m, o, d, _pieces, _tied) in enumerate(remaining):
+            if m == midi and abs(o - onset) < 1e-6 and abs(d - dur) < 1e-6:
+                match_i = i
                 break
-            summed += d
-            cursor += d
-            if abs(summed - dur) < 1e-6:
-                break
-        assert summed == pytest.approx(dur), (note_id, midi, onset, dur, summed, found)
+        assert match_i is not None, (note_id, (midi, onset, dur), spans)
+        remaining.pop(match_i)
+    assert remaining == [], f"extra exported attacks: {remaining}; expected {expected_by_id}"
 
 
 def test_pedal_release_targets_resolve_early_jitter_through_export(tmp_path):
@@ -626,3 +651,88 @@ def test_release_target_in_other_voice_resolves_to_quantized_onset():
     assert decision["release_target_id"] == "b"
     assert decision["release_at"] == pytest.approx(1.0)
     assert {e.note_id for e in out} == {"a", "b", "inner"}
+
+
+def test_accepted_release_ignores_earlier_same_voice_neighbor(tmp_path):
+    """Pedal A→B must not truncate to an inner same-voice attack before B."""
+    raw = [
+        _mt3_left(48, 0.0, 1.8, "a", voice=0),
+        _mt3_left(55, 0.5, 0.25, "inner", voice=0),
+        _mt3_left(48, 0.99, 1.8, "b", voice=1),
+    ]
+    before = [(e.note_id, e.start_beat, e.duration_beats, e.pitch) for e in raw]
+    out, report = quantize(raw)
+    assert [(e.note_id, e.start_beat, e.duration_beats, e.pitch) for e in raw] == before
+    notes = {n.source_id: n for n in report.notes}
+    assert notes["a"].onset == Fraction(0)
+    assert notes["a"].duration == Fraction(1)
+    assert notes["inner"].onset == Fraction(1, 2)
+    assert notes["inner"].duration == Fraction(1, 4)
+    assert notes["b"].onset == Fraction(1)
+    decision = next(d for d in report.decisions if d["note_id"] == "a")
+    assert decision["release_reason"] == "pedal_tail"
+    assert decision["release_target_id"] == "b"
+    assert decision["release_at"] == pytest.approx(1.0)
+    assert decision["written_duration"] == pytest.approx(1.0)
+    assert decision["performed_duration"] == pytest.approx(1.8)
+    # Inner overlap is a separate written lane, not a release cutoff.
+    assert notes["a"].voice != notes["inner"].voice
+    assert {e.note_id for e in out} == {"a", "inner", "b"}
+
+    writer = NotationWriter()
+    xml = writer.write_musicxml(
+        out, ScoreMeta(time_sig_hint="4/4"), "release_vs_inner", tmp_path / "src.mid"
+    )
+    path = tmp_path / "release_vs_inner.musicxml"
+    _assert_exported_attacks(
+        xml,
+        path,
+        {
+            "a": (48, 0.0, 1.0),
+            "inner": (55, 0.5, 0.25),
+            "b": (48, 1.0, float(notes["b"].duration)),
+        },
+    )
+    # a and b are distinct reattacks (not one tied sustain through beat 1).
+    spans = _musicxml_attack_spans(path)
+    pitch48 = [s for s in spans if s[0] == 48]
+    assert len(pitch48) >= 2
+    assert abs(pitch48[0][1] - 0.0) < 1e-6 and abs(pitch48[0][2] - 1.0) < 1e-6
+    assert abs(pitch48[1][1] - 1.0) < 1e-6
+
+
+def test_cross_bar_written_release_exports_necessary_ties(tmp_path):
+    """Accepted pedal release spanning a barline exports tied pieces, not one float."""
+    raw = [
+        _mt3_left(48, 3.01, 2.8, "hold", voice=0),
+        _mt3_left(48, 5.01, 1.8, "next", voice=1),
+    ]
+    before = [(e.note_id, e.start_beat, e.duration_beats) for e in raw]
+    out, report = quantize(raw)
+    assert [(e.note_id, e.start_beat, e.duration_beats) for e in raw] == before
+    notes = {n.source_id: n for n in report.notes}
+    assert notes["hold"].onset == Fraction(3)
+    assert notes["next"].onset == Fraction(5)
+    decision = next(d for d in report.decisions if d["note_id"] == "hold")
+    assert decision["release_reason"] == "pedal_tail"
+    assert decision["release_target_id"] == "next"
+    assert notes["hold"].duration == Fraction(2)
+    assert {e.note_id for e in out} == {"hold", "next"}
+
+    writer = NotationWriter()
+    xml = writer.write_musicxml(
+        out, ScoreMeta(time_sig_hint="4/4"), "release_crossbar_ties", tmp_path / "src.mid"
+    )
+    path = tmp_path / "release_crossbar_ties.musicxml"
+    _assert_exported_attacks(
+        xml,
+        path,
+        {
+            "hold": (48, 3.0, 2.0),
+            "next": (48, 5.0, float(notes["next"].duration)),
+        },
+    )
+    spans = _musicxml_attack_spans(path)
+    hold_span = next(s for s in spans if s[0] == 48 and abs(s[1] - 3.0) < 1e-6)
+    assert hold_span[3] > 1 and hold_span[4], "barline crossing must export ties"
+    assert "<tie" in xml.lower()

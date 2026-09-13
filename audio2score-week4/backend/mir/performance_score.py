@@ -283,12 +283,17 @@ def _duration(
         exact = min(named, key=lambda d: abs(float(d) - raw))
         if abs(float(exact) - raw) < 1e-7:
             return exact
-    # Accepted release hypothesis overrides the acoustic ratio heuristic.
-    # release_at must already be a quantized Fraction onset (never a raw float).
-    effective_next = next_onset if isinstance(next_onset, Fraction) or next_onset is None else Fraction(next_onset)
+    # Accepted line/release targets are authoritative over earlier same-voice
+    # neighbors and over spelling heuristics that would shrink further. Inner
+    # attacks under a pedal line are resolved by lanes, not by an unrelated cutoff.
     if release_reason == "pedal_tail" and isinstance(release_at, Fraction):
-        if effective_next is None or release_at <= effective_next:
-            effective_next = release_at
+        cap = release_at - onset
+        if cap > 0:
+            return cap
+    if isinstance(next_onset, Fraction) or next_onset is None:
+        effective_next = next_onset
+    else:
+        effective_next = Fraction(next_onset)
     written_overlap = overlaps if preserve else _written_overlap(
         raw,
         onset,
