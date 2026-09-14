@@ -168,6 +168,7 @@ class UnderstandingPipeline:
         self.last_interpretation_choice: dict | None = None
         self.last_transcription_result: TranscriptionResult | None = None
         self.last_filter_report: list | None = None
+        self.last_filtered_notes: list | None = None
         self.job: PipelineJob | None = None
 
     def transcribe(self, audio_path: str | Path, job_id: str) -> str:
@@ -272,29 +273,35 @@ class UnderstandingPipeline:
             self.cleaner = MIDICleaner.for_source(
                 actual_backend, mode=self.config.validation_mode
             )
-        working_notes = list(transcription.notes if transcription.notes else notes)
-        notes = [n.ensure_ids(i) for i, n in enumerate(working_notes)]
-        notes = [
+        original_source = list(
+            transcription.original_notes or transcription.notes or notes or []
+        )
+        original = [
+            n.ensure_ids(i)
+            for i, n in enumerate(original_source)
+        ]
+        original = [
             n
             if n.source_backend and n.source_backend != "unknown"
             else replace_source(n, actual_backend)
-            for n in notes
+            for n in original
         ]
-        mix_set = ImmutableNoteSet.from_notes(notes, source="full_mix")
-        notes = mix_set.copy_notes()
+        original_set = ImmutableNoteSet.from_notes(original, source="full_mix")
+        original = original_set.copy_notes()
+        self.last_raw_notes = original_set.copy_notes()
         self.job = PipelineJob(
             job_id=job_id,
-            notes=mix_set,
-            mix_notes=mix_set,
-            transcription=mix_set,
+            notes=original_set,
+            mix_notes=original_set,
+            transcription=original_set,
         )
-        raw_count = len(notes)
+        raw_count = len(original)
         transcription = TranscriptionResult(
-            notes=mix_set.copy_notes(),
+            notes=list(original),
             backend=actual_backend,
             requested_backend=requested_backend,
             actual_backend=actual_backend,
-            original_notes=list(transcription.original_notes or mix_set.copy_notes()),
+            original_notes=list(original),
             audio_path=str(transcribe_path),
             provider_midi_bytes=transcription.provider_midi_bytes,
             provider_raw_sha256=transcription.provider_raw_sha256,
@@ -308,7 +315,6 @@ class UnderstandingPipeline:
             extra=dict(transcription.extra or {}),
         )
         self.last_transcription_result = transcription
-        self.last_raw_notes = mix_set.copy_notes()
         use_provider_bytes = (
             transcription.provider_midi_bytes is not None
             and transcription.performance is not None
@@ -322,7 +328,7 @@ class UnderstandingPipeline:
         raw_path = job_raw_midi_path(audio_path, job_id)
         raw_path.parent.mkdir(parents=True, exist_ok=True)
         # Immutable raw.mid is the provider payload (or reconstructed Solo MIDI).
-        # Write + independent SHA happen before cleaner, validation, or rewrite.
+        # Write + independent SHA happen before filtering, cleaner, or rewrite.
         if source_bytes is not None:
             if self.last_performance_snapshot is None:
                 raise ValueError("MIDI backend returned bytes without source provenance")
@@ -333,9 +339,9 @@ class UnderstandingPipeline:
                 provider_sha = sha256_hex(bytes(source_bytes))
         else:
             self.last_performance_snapshot = PerformanceSnapshot.from_notes(
-                notes, actual_backend
+                original, actual_backend
             )
-            write_job_stage_midi(raw_path, notes, bpm=120.0, split_hands=False)
+            write_job_stage_midi(raw_path, original, bpm=120.0, split_hands=False)
             provider_sha = None
         self.last_raw_identity = record_saved_raw(
             raw_path, provider_raw_sha256=provider_sha
@@ -345,8 +351,25 @@ class UnderstandingPipeline:
         self.last_performance_snapshot.write_json(out_dir / f"{job_id}.performance.json")
         self._write_transcription_diagnostics(out_dir, job_id, transcription)
 
-        if not notes:
+        if not original:
             raise TranscriptionError("No notes detected")
+
+        from mir.confidence_gate import apply_optional_filter
+
+        notes, filter_report = apply_optional_filter(original)
+        self.last_filter_report = filter_report
+        self.last_filtered_notes = list(notes)
+        if filter_report.enabled:
+            (out_dir / f"{job_id}.filter.json").write_text(
+                json.dumps(filter_report.to_dict(), indent=2) + "\n",
+                encoding="utf-8",
+            )
+            print(
+                f"[Filter] criterion={filter_report.criterion} "
+                f"removed={len(filter_report.removals)} "
+                f"kept={filter_report.kept_count}/{filter_report.input_count} "
+                f"(job={job_id})"
+            )
 
         notes, clean_decisions = self.cleaner.clean_with_report(notes)
         validated_set = ImmutableNoteSet.from_notes(notes, source="full_mix_validated")
@@ -754,11 +777,6 @@ class UnderstandingPipeline:
             notes_fut = pool.submit(capture_transcription, backend, transcribe_path)
             cpu_fut = pool.submit(self._prefetch_cpu, normalized)
             transcription = notes_fut.result()
-            from mir.confidence_gate import drop_low_confidence_notes
-
-            # Filtering is applied to a derived list. original_notes stay intact.
-            filtered = drop_low_confidence_notes(transcription.notes)
-            transcription.notes = filtered
             prediction, segments = cpu_fut.result()
         print(
             f"[Pipeline] overlap_wall_seconds={time.perf_counter() - started:.2f} "
@@ -992,6 +1010,16 @@ class UnderstandingPipeline:
             "events_changed"
         )
         extra["backend"] = self.last_debug.source_backend
+        extra["filter"] = (
+            self.last_filter_report.to_dict()
+            if getattr(self.last_filter_report, "to_dict", None)
+            else None
+        )
+        extra["filtered_note_count"] = (
+            len(self.last_filtered_notes)
+            if self.last_filtered_notes is not None
+            else None
+        )
         extra["pickup"] = dict(self.last_pickup or {})
         extra["interpretation_choice"] = dict(self.last_interpretation_choice or {})
         extra["candidate_scores"] = list(self.last_candidate_scores or [])

@@ -84,6 +84,12 @@ def _evidence(backend: str, note: NoteEvent, *, source: str = "") -> NoteEvidenc
         onset_sec=_onset(note),
         offset_sec=_offset(note),
         confidence=float(note.confidence),
+        score_kind=str(getattr(note, "confidence_source", "") or "unknown"),
+        model_score=(
+            None
+            if getattr(note, "model_score", None) is None
+            else float(note.model_score)
+        ),
         stem_id=stem if stem != FULL_MIX_SOURCE else "",
         pitch=int(note.pitch),
         velocity=int(note.velocity),
@@ -171,7 +177,9 @@ def reconcile_transcriptions(
             fused_inst == InstrumentKind.UNKNOWN.value or s_inst == fused_inst
         ):
             fused_inst = s_inst
-            inst_conf = max(float(g.confidence), specialist_conf)
+            # Instrument identity may come from the stem, but mix and stem
+            # scores are not comparable calibrated probabilities.
+            inst_conf = float(s.confidence)
         canonical = replace(
             chosen,
             note_id=g.note_id or s.note_id,
@@ -183,7 +191,9 @@ def reconcile_transcriptions(
             original_end_time=g.original_end_time,
             source_backend=f"{g_backend}+{s_backend}",
             instrument=_as_instrument(fused_inst, g.instrument),
-            confidence=max(float(g.confidence), specialist_conf),
+            confidence=float(g.confidence),
+            confidence_source=getattr(g, "confidence_source", None) or "unknown",
+            model_score=getattr(g, "model_score", None),
         )
         fused.append(
             FusedNote(
@@ -225,7 +235,11 @@ def reconcile_transcriptions(
                 _evidence(s_backend, s, source=s_stem or s_inst)
             )
             continue
-        if float(s.confidence) < max(ghost_confidence, stem_only_min_confidence):
+        spec_score = getattr(s, "model_score", None)
+        if spec_score is None:
+            spec_score = float(s.confidence)
+        # Uncalibrated specialist score, not a calibrated probability.
+        if float(spec_score) < max(ghost_confidence, stem_only_min_confidence):
             dropped_ghosts.append(s)
             continue
         unmatched_specialist.append(s)
@@ -293,6 +307,7 @@ def reconcile_transcriptions(
             "keep_global_timing": not specialist_may_replace_timing,
             "stem_only_min_confidence": stem_only_min_confidence,
             "ghost_confidence": ghost_confidence,
+            "specialist_scores_are_uncalibrated": True,
             "baseline": {
                 "source": FULL_MIX_SOURCE,
                 "note_count": len(global_notes),
