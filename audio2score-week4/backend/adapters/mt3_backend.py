@@ -39,11 +39,11 @@ DEFAULT_TIMEOUT_SECONDS = 600
 _RUN_HTTP_TIMEOUT_SECONDS = 30
 _STATUS_HTTP_TIMEOUT_SECONDS = 15
 _POLL_INTERVAL_SECONDS = 2.0
+_POLL_TRANSIENT_MAX = 8
 _JOB_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _RUNPOD_FAIL_STATUSES = frozenset(
     {"FAILED", "CANCELLED", "CANCELED", "TIMED_OUT"}
 )
-_LAST_PROVIDER_TIMING: dict = {}
 
 _POLYPHONIC_UNCONFIGURED = (
     "Polyphonic mode (MT3) is not configured. "
@@ -168,10 +168,14 @@ def mt3_status() -> dict:
     }
 
 
-def _transcription_error(message: str):
+def _transcription_error(message: str, *, code: str | None = None):
     from transcription import TranscriptionError
 
-    return TranscriptionError(message)
+    return TranscriptionError(message, code=code)
+
+
+def _uncertain_submission(message: str):
+    return _transcription_error(message, code="provider_submission_uncertain")
 
 
 def _looks_like_midi(data: bytes) -> bool:
@@ -319,21 +323,28 @@ def _is_timeout_error(exc: BaseException) -> bool:
     return "timed out" in str(exc).lower() or "timeout" in str(reason).lower()
 
 
-def _runpod_http_error(code: int, detail: str) -> Exception:
+def _runpod_http_error(code: int, detail: str, *, kind: str = "submit") -> Exception:
     if code in (401, 403):
         message = "RunPod authentication failed."
+        error_code = "runpod_auth"
     elif code == 404:
         message = "RunPod endpoint not found."
+        error_code = "runpod_not_found"
     elif code == 429:
         message = "RunPod rate limit reached."
+        error_code = "runpod_status_transient" if kind == "status" else "runpod_rate_limit"
     elif code >= 500:
         message = "RunPod transcription service failed."
+        error_code = "runpod_status_transient" if kind == "status" else "provider_submission_uncertain"
     else:
         message = "RunPod transcription service failed."
+        error_code = "runpod_failed"
     extra = _safe_error_detail(detail)
     if extra:
         message = f"{message} {extra}"
-    return _transcription_error(message)
+    if kind == "submit" and error_code == "provider_submission_uncertain":
+        return _uncertain_submission(message)
+    return _transcription_error(message, code=error_code)
 
 
 def _parse_runpod_body(body: bytes) -> bytes:
@@ -401,7 +412,11 @@ def _runpod_headers(api_key: str, content_type: bool = False) -> dict[str, str]:
 
 
 def _runpod_open_json(
-    request: urllib.request.Request, timeout: int, wait_seconds: int
+    request: urllib.request.Request,
+    timeout: int,
+    wait_seconds: int,
+    *,
+    kind: str = "submit",
 ) -> dict:
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -412,18 +427,31 @@ def _runpod_open_json(
             detail = exc.read().decode("utf-8", errors="replace")
         except Exception:
             detail = str(exc.reason or exc)
-        raise _runpod_http_error(int(exc.code), detail) from exc
+        raise _runpod_http_error(int(exc.code), detail, kind=kind) from exc
     except urllib.error.URLError as exc:
+        if kind == "submit":
+            raise _uncertain_submission(
+                "RunPod submission outcome is uncertain. The provider may have "
+                f"created a job, but the response was lost ({_safe_error_detail(str(exc.reason or exc))})."
+            ) from exc
         if _is_timeout_error(exc):
             raise _transcription_error(
-                f"RunPod transcription timed out after {wait_seconds} seconds."
+                f"RunPod transcription timed out after {wait_seconds} seconds.",
+                code="runpod_status_transient",
             ) from exc
         raise _transcription_error(
-            f"RunPod transcription service failed. {_safe_error_detail(str(exc.reason or exc))}"
+            f"RunPod transcription service failed. {_safe_error_detail(str(exc.reason or exc))}",
+            code="runpod_status_transient",
         ) from exc
     except TimeoutError as exc:
+        if kind == "submit":
+            raise _uncertain_submission(
+                "RunPod submission outcome is uncertain. The provider may have "
+                "created a job, but the POST timed out."
+            ) from exc
         raise _transcription_error(
-            f"RunPod transcription timed out after {wait_seconds} seconds."
+            f"RunPod transcription timed out after {wait_seconds} seconds.",
+            code="runpod_status_transient",
         ) from exc
 
     try:
@@ -464,20 +492,64 @@ def _runpod_payload_ready(payload: dict) -> bool:
     return has_midi or isinstance(output, dict)
 
 
+def _is_transient_status_error(exc: BaseException) -> bool:
+    code = getattr(exc, "code", None)
+    if code in {"runpod_status_transient", "runpod_rate_limit"}:
+        return True
+    if code in {"runpod_auth", "runpod_not_found", "provider_submission_uncertain"}:
+        return False
+    text = str(exc).lower()
+    return "timed out" in text or "rate limit" in text
+
+
+def _timing_from_payload(payload: dict, *, provider_job_id: str | None, resumed: bool) -> dict:
+    return {
+        "queue_ms": payload.get("delayTime"),
+        "execution_ms": payload.get("executionTime"),
+        "cold_start_observable": payload.get("delayTime") is not None,
+        "provider_job_id": provider_job_id,
+        "resumed": resumed,
+    }
+
+
 def _poll_runpod_job(
     url: str, job_id: str, api_key: str, wait_seconds: int, deadline: float
 ) -> dict:
     status_url = runpod_status_url(url, job_id)
     last_status = ""
+    transient_failures = 0
     while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise _transcription_error(
+                f"RunPod transcription timed out after {wait_seconds} seconds."
+            )
+        request_timeout = max(1, min(_STATUS_HTTP_TIMEOUT_SECONDS, int(remaining)))
         request = urllib.request.Request(
             status_url,
             headers=_runpod_headers(api_key),
             method="GET",
         )
-        payload = _runpod_open_json(
-            request, _STATUS_HTTP_TIMEOUT_SECONDS, wait_seconds
-        )
+        try:
+            payload = _runpod_open_json(
+                request, request_timeout, wait_seconds, kind="status"
+            )
+            transient_failures = 0
+        except Exception as exc:
+            if not _is_transient_status_error(exc):
+                raise
+            transient_failures += 1
+            remaining = deadline - time.monotonic()
+            if transient_failures >= _POLL_TRANSIENT_MAX or remaining <= 0:
+                raise
+            backoff = min(2 ** transient_failures, 16.0)
+            print(
+                f"[MT3] runpod job={job_id} status_request_retry="
+                f"{transient_failures} backoff={backoff}s",
+                flush=True,
+            )
+            time.sleep(min(backoff, remaining))
+            continue
         status = str(payload.get("status") or "").upper()
         delay = payload.get("delayTime")
         if status != last_status:
@@ -500,59 +572,105 @@ def _poll_runpod_job(
 
 
 def _post_runpod_audio(
-    url: str, audio_path: Path, api_key: str, timeout: int
-) -> bytes:
+    url: str,
+    audio_path: Path,
+    api_key: str,
+    timeout: int,
+    *,
+    config_sha256: str | None = None,
+) -> tuple[bytes, dict]:
     if not api_key:
         raise _transcription_error("RunPod authentication failed.")
+
+    from adapters.provider_jobs import (
+        lookup_resumable_provider_job,
+        persist_provider_job,
+    )
+    from mir.raw_identity import sha256_hex
 
     wait_seconds = max(1, int(timeout))
     deadline = time.monotonic() + wait_seconds
     endpoint = runpod_async_url(url)
     filename = audio_path.name
     audio_bytes = audio_path.read_bytes()
-    body = json.dumps(
-        {
-            "input": {
-                "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
-                "filename": filename,
-            }
-        }
-    ).encode("utf-8")
-    print("[MT3] provider=runpod")
-    print(f"[MT3] endpoint={endpoint}")
-    print(f"[MT3] filename={filename}")
-    print("[MT3] request started")
-    request = urllib.request.Request(
-        endpoint,
-        data=body,
-        headers=_runpod_headers(api_key, content_type=True),
-        method="POST",
-    )
-    submit_timeout = min(wait_seconds, _RUN_HTTP_TIMEOUT_SECONDS)
-    payload = _runpod_open_json(request, submit_timeout, wait_seconds)
+    input_sha256 = sha256_hex(audio_bytes)
+    fingerprint = config_sha256 or ""
+    resumed = False
+    provider_job_id = None
 
-    if not _runpod_payload_ready(payload):
-        status = str(payload.get("status") or "").upper()
-        if status in _RUNPOD_FAIL_STATUSES:
-            extra = _safe_error_detail(str(payload.get("error") or status))
-            raise _transcription_error(
-                f"RunPod transcription service failed.{(' ' + extra) if extra else ''}"
+    existing = lookup_resumable_provider_job(
+        input_sha256=input_sha256, config_sha256=fingerprint
+    )
+    if existing is not None:
+        provider_job_id = existing.provider_job_id
+        resumed = True
+        print("[MT3] provider=runpod")
+        print(f"[MT3] endpoint={endpoint}")
+        print(f"[MT3] filename={filename}")
+        print(f"[MT3] resuming runpod job={provider_job_id}", flush=True)
+        payload = _poll_runpod_job(url, provider_job_id, api_key, wait_seconds, deadline)
+    else:
+        body = json.dumps(
+            {
+                "input": {
+                    "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+                    "filename": filename,
+                }
+            }
+        ).encode("utf-8")
+        print("[MT3] provider=runpod")
+        print(f"[MT3] endpoint={endpoint}")
+        print(f"[MT3] filename={filename}")
+        print("[MT3] request started")
+        request = urllib.request.Request(
+            endpoint,
+            data=body,
+            headers=_runpod_headers(api_key, content_type=True),
+            method="POST",
+        )
+        remaining = deadline - time.monotonic()
+        submit_timeout = max(1, min(int(remaining), _RUN_HTTP_TIMEOUT_SECONDS))
+        payload = _runpod_open_json(
+            request, submit_timeout, wait_seconds, kind="submit"
+        )
+
+        if not _runpod_payload_ready(payload):
+            status = str(payload.get("status") or "").upper()
+            if status in _RUNPOD_FAIL_STATUSES:
+                extra = _safe_error_detail(str(payload.get("error") or status))
+                raise _transcription_error(
+                    f"RunPod transcription service failed.{(' ' + extra) if extra else ''}"
+                )
+            provider_job_id = _runpod_job_id(payload)
+            persist_provider_job(
+                provider_job_id=provider_job_id,
+                input_sha256=input_sha256,
+                config_sha256=fingerprint,
             )
-        job_id = _runpod_job_id(payload)
-        print(f"[MT3] runpod job={job_id} queued", flush=True)
-        payload = _poll_runpod_job(url, job_id, api_key, wait_seconds, deadline)
+            print(f"[MT3] runpod job={provider_job_id} queued", flush=True)
+            payload = _poll_runpod_job(
+                url, provider_job_id, api_key, wait_seconds, deadline
+            )
+        else:
+            try:
+                provider_job_id = _runpod_job_id(payload)
+            except Exception:
+                provider_job_id = None
+            if provider_job_id:
+                persist_provider_job(
+                    provider_job_id=provider_job_id,
+                    input_sha256=input_sha256,
+                    config_sha256=fingerprint,
+                )
 
     print("[MT3] response received")
     midi_bytes = _parse_runpod_body(json.dumps(payload).encode("utf-8"))
     print(f"[MT3] midi_bytes={len(midi_bytes)}")
     print("[MT3] complete")
-    global _LAST_PROVIDER_TIMING
-    _LAST_PROVIDER_TIMING = {
-        "queue_ms": payload.get("delayTime"),
-        "execution_ms": payload.get("executionTime"),
-        "cold_start_observable": payload.get("delayTime") is not None,
-    }
-    return midi_bytes
+    timing = _timing_from_payload(
+        payload, provider_job_id=provider_job_id, resumed=resumed
+    )
+    return midi_bytes, timing
 
 
 def _post_multipart_audio(
@@ -612,10 +730,19 @@ def _post_multipart_audio(
     return midi_bytes
 
 
-def _post_audio(url: str, audio_path: Path, api_key: str, timeout: int) -> bytes:
+def _post_audio(
+    url: str,
+    audio_path: Path,
+    api_key: str,
+    timeout: int,
+    *,
+    config_sha256: str | None = None,
+) -> tuple[bytes, dict]:
     if is_runpod_endpoint(url):
-        return _post_runpod_audio(url, audio_path, api_key, timeout)
-    return _post_multipart_audio(url, audio_path, api_key, timeout)
+        return _post_runpod_audio(
+            url, audio_path, api_key, timeout, config_sha256=config_sha256
+        )
+    return _post_multipart_audio(url, audio_path, api_key, timeout), {}
 
 
 def _run_command(audio_path: Path, command: str, timeout: int) -> bytes:
@@ -715,13 +842,22 @@ class MT3Backend:
         self.last_settings = None
         audio_path = Path(audio_path)
         settings = mt3_settings()
+        endpoint_root = (
+            runpod_endpoint_root(settings["endpoint"])
+            if settings["provider"] == "runpod"
+            else settings["endpoint"]
+        )
         self.last_settings = {
             "model": settings["model"],
             "provider": settings["provider"],
             "timeout": settings["timeout"],
             "toolkit": settings["toolkit"],
             "toolkit_version": settings["toolkit_version"],
+            "endpoint_root": endpoint_root,
         }
+        from adapters.provider_jobs import config_fingerprint
+
+        fingerprint = config_fingerprint(self.last_settings)
         endpoint = settings["endpoint"]
         command = settings["command"]
         timeout = max(1, int(settings["timeout"]))
@@ -732,6 +868,8 @@ class MT3Backend:
                 "wall_ms": (time.perf_counter() - started) * 1000.0,
                 **dict(extra_timing or {}),
             }
+            if self.last_provider_job_id and "provider_job_id" not in timing:
+                timing["provider_job_id"] = self.last_provider_job_id
             self.last_timing = timing
             self.last_result = TranscriptionResult(
                 notes=list(notes),
@@ -757,11 +895,16 @@ class MT3Backend:
                     else endpoint
                 )
                 print(f"[MT3] endpoint={shown} timeout={timeout}s")
-                midi_bytes = _post_audio(
-                    endpoint, audio_path, settings["api_key"], timeout
+                midi_bytes, timing = _post_audio(
+                    endpoint,
+                    audio_path,
+                    settings["api_key"],
+                    timeout,
+                    config_sha256=fingerprint,
                 )
+                self.last_provider_job_id = timing.get("provider_job_id")
                 notes = self._decode(midi_bytes)
-                return _finish(notes, _LAST_PROVIDER_TIMING)
+                return _finish(notes, timing)
 
             if command:
                 print(f"[MT3] command timeout={timeout}s")
