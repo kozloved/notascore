@@ -672,13 +672,18 @@ class MT3Backend:
         self.last_provider_raw_sha256 = None
         self.last_performance = None
         self.last_timing = None
+        self.last_result = None
+        self.last_provider_job_id = None
+        self.last_settings = None
 
     def _decode(self, data):
         # Hash and retain the exact provider payload before parse / validation.
-        # Do not reconstruct MIDI just to compute this SHA.
+        # Do not reconstruct MIDI just to compute this SHA. These last_* fields
+        # are diagnostics; interpretation must use TranscriptionResult.
         payload = bytes(data)
         self.last_midi_bytes = payload
         self.last_provider_raw_sha256 = sha256_hex(payload)
+        self.last_performance = None
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "mt3.mid"
             path.write_bytes(payload)
@@ -686,42 +691,93 @@ class MT3Backend:
         self.last_performance = ingested.performance
         return ingested.notes
 
+    def transcribe_result(self, audio_path: str | Path):
+        from mir.models import TranscriptionResult
+
+        notes = self.transcribe_notes(audio_path)
+        result = getattr(self, "last_result", None)
+        if isinstance(result, TranscriptionResult):
+            return result
+        from mir.transcription_contract import result_from_backend_state
+
+        return result_from_backend_state(self, notes, audio_path)
+
     def transcribe_notes(self, audio_path: str | Path) -> list[NoteEvent]:
+        from mir.models import TranscriptionResult
+        from mir.midi_ingest import NoPitchedNotesError
+
         self.last_midi_bytes = None
         self.last_provider_raw_sha256 = None
         self.last_performance = None
         self.last_timing = None
+        self.last_result = None
+        self.last_provider_job_id = None
+        self.last_settings = None
         audio_path = Path(audio_path)
         settings = mt3_settings()
+        self.last_settings = {
+            "model": settings["model"],
+            "provider": settings["provider"],
+            "timeout": settings["timeout"],
+            "toolkit": settings["toolkit"],
+            "toolkit_version": settings["toolkit_version"],
+        }
         endpoint = settings["endpoint"]
         command = settings["command"]
         timeout = max(1, int(settings["timeout"]))
         started = time.perf_counter()
 
-        if endpoint:
-            shown = (
-                runpod_async_url(endpoint)
-                if settings["provider"] == "runpod"
-                else endpoint
-            )
-            print(f"[MT3] endpoint={shown} timeout={timeout}s")
-            midi_bytes = _post_audio(
-                endpoint, audio_path, settings["api_key"], timeout
-            )
-            notes = self._decode(midi_bytes)
-            self.last_timing = {
+        def _finish(notes, extra_timing=None):
+            timing = {
                 "wall_ms": (time.perf_counter() - started) * 1000.0,
-                **dict(_LAST_PROVIDER_TIMING),
+                **dict(extra_timing or {}),
             }
+            self.last_timing = timing
+            self.last_result = TranscriptionResult(
+                notes=list(notes),
+                backend=self.name,
+                requested_backend=self.name,
+                actual_backend=self.name,
+                original_notes=list(notes),
+                audio_path=str(audio_path),
+                provider_midi_bytes=self.last_midi_bytes,
+                provider_raw_sha256=self.last_provider_raw_sha256,
+                performance=self.last_performance,
+                provider_job_id=self.last_provider_job_id,
+                timings=dict(timing),
+                settings=dict(self.last_settings or {}),
+            )
             return notes
 
-        if command:
-            print(f"[MT3] command timeout={timeout}s")
-            midi_bytes = _run_command(audio_path, command, timeout)
-            notes = self._decode(midi_bytes)
-            self.last_timing = {
-                "wall_ms": (time.perf_counter() - started) * 1000.0,
-            }
-            return notes
+        try:
+            if endpoint:
+                shown = (
+                    runpod_async_url(endpoint)
+                    if settings["provider"] == "runpod"
+                    else endpoint
+                )
+                print(f"[MT3] endpoint={shown} timeout={timeout}s")
+                midi_bytes = _post_audio(
+                    endpoint, audio_path, settings["api_key"], timeout
+                )
+                notes = self._decode(midi_bytes)
+                return _finish(notes, _LAST_PROVIDER_TIMING)
 
-        raise _transcription_error(_POLYPHONIC_UNCONFIGURED)
+            if command:
+                print(f"[MT3] command timeout={timeout}s")
+                midi_bytes = _run_command(audio_path, command, timeout)
+                notes = self._decode(midi_bytes)
+                return _finish(notes)
+
+            raise _transcription_error(_POLYPHONIC_UNCONFIGURED)
+        except NoPitchedNotesError as exc:
+            if exc.midi_bytes is None:
+                exc.midi_bytes = self.last_midi_bytes
+            if exc.provider_raw_sha256 is None:
+                exc.provider_raw_sha256 = self.last_provider_raw_sha256
+            if exc.performance is None:
+                exc.performance = self.last_performance
+            # last_midi_bytes remain for diagnostics on the exception. They
+            # must not be consumed as a successful result after fallback.
+            self.last_result = None
+            raise

@@ -302,24 +302,49 @@ def test_mt3_failure_is_not_replaced_by_stem_basic_pitch(tmp_path, monkeypatch):
 
 
 def test_empty_mt3_falls_back_to_basic_pitch_in_polyphonic(tmp_path, monkeypatch):
+    """Mock still works when it raises the typed no-pitched-notes outcome.
+
+    Leftover provider bytes without a performance snapshot are covered by
+    test_transcription_fallback.py, which mocks HTTP transport instead.
+    """
+    from mir.midi_ingest import NoPitchedNotesError
+
     _live_env(monkeypatch)
     counters = _Counters()
-    _install_mocks(
-        monkeypatch,
-        tmp_path,
-        counters,
-        mt3_error="No pitched notes found in MIDI file",
-    )
+    _install_mocks(monkeypatch, tmp_path, counters)
+    empty_midi = pretty_midi.PrettyMIDI(initial_tempo=120)
+    empty_midi.instruments.append(pretty_midi.Instrument(program=0, name="Empty"))
+    import tempfile
+    from pathlib import Path as _Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        seed = _Path(tmp) / "empty.mid"
+        empty_midi.write(str(seed))
+        empty = seed.read_bytes()
+
+    def fake_mt3(self, path):
+        counters.mt3 += 1
+        self.last_midi_bytes = empty
+        self.last_provider_raw_sha256 = hashlib.sha256(empty).hexdigest()
+        self.last_performance = None
+        raise NoPitchedNotesError(
+            "No pitched notes found in MIDI file",
+            midi_bytes=empty,
+            reason="empty",
+        )
+
+    monkeypatch.setattr("adapters.mt3_backend.MT3Backend.transcribe_notes", fake_mt3)
     audio = _wav(tmp_path / "song.wav")
     result = PipelineOrchestrator().run(audio, "emptymt3", mode="polyphonic")
     assert "score-partwise" in result.musicxml.lower()
     assert counters.mt3 == 1
-    # full-mix Basic Pitch fallback + piano/bass stem BP
     assert counters.bp >= 1
     assert any("falling back to Basic Pitch" in w for w in result.warnings)
     transcribe = result.stage(StageName.TRANSCRIBE_GLOBAL)
     assert transcribe.ok
-    assert transcribe.extra.get("fallback_from") == "mt3" or transcribe.model == "basic_pitch"
+    assert transcribe.actual_backend == "basic_pitch"
+    raw = job_raw_midi_path(audio, "emptymt3").read_bytes()
+    assert raw != empty
 
 
 def test_live_does_not_flatten_fused_ensemble_into_score(tmp_path, monkeypatch):

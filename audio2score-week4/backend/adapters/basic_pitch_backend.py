@@ -71,8 +71,31 @@ def _velocity_from_amplitude(amplitude: float) -> int:
 class BasicPitchBackend:
     name = "basic_pitch"
 
+    def __init__(self):
+        self.last_result = None
+        self.last_settings = None
+        self.last_timing = None
+        self.last_midi_bytes = None
+        self.last_provider_raw_sha256 = None
+        self.last_performance = None
+        self.last_provider_job_id = None
+
+    def transcribe_result(self, audio_path: str | Path):
+        notes = self.transcribe_notes(audio_path)
+        from mir.models import TranscriptionResult
+
+        result = getattr(self, "last_result", None)
+        if isinstance(result, TranscriptionResult):
+            return result
+        from mir.transcription_contract import result_from_backend_state
+
+        return result_from_backend_state(self, notes, audio_path)
+
     def transcribe_notes(self, audio_path: str | Path) -> list[NoteEvent]:
+        from mir.models import TranscriptionResult
+
         settings = basic_pitch_settings()
+        self.last_settings = dict(settings)
         print(
             "[BasicPitch] "
             f"onset={settings['onset_threshold']:.2f} "
@@ -93,8 +116,8 @@ class BasicPitchBackend:
             melodia_trick=settings["melodia_trick"],
         )
 
+        notes: list[NoteEvent] = []
         if note_events:
-            notes: list[NoteEvent] = []
             for i, item in enumerate(note_events):
                 start_time, end_time, pitch, amplitude = (
                     item[0],
@@ -104,6 +127,7 @@ class BasicPitchBackend:
                 )
                 amp = 0.5 if amplitude is None else float(amplitude)
                 vel = _velocity_from_amplitude(amp)
+                # Amplitude is a model score, not calibrated confidence.
                 confidence = amp if 0.0 <= amp <= 1.0 else vel / 127.0
                 notes.append(
                     NoteEvent(
@@ -116,28 +140,38 @@ class BasicPitchBackend:
                         source_backend=self.name,
                         original_start_time=float(start_time),
                         original_end_time=float(end_time),
+                        model_score=float(amp),
+                        confidence_source="amplitude",
                     )
                 )
-            return notes
+        elif midi_data is not None:
+            for inst in midi_data.instruments:
+                for note in inst.notes:
+                    vel = getattr(note, "velocity", 64) or 64
+                    vel = max(1, min(127, int(vel)))
+                    notes.append(
+                        NoteEvent(
+                            pitch=int(note.pitch),
+                            start_time=float(note.start),
+                            end_time=float(note.end),
+                            velocity=vel,
+                            confidence=vel / 127.0,
+                            note_id=f"n{len(notes):04d}",
+                            source_backend=self.name,
+                            original_start_time=float(note.start),
+                            original_end_time=float(note.end),
+                            model_score=None,
+                            confidence_source="velocity",
+                        )
+                    )
 
-        notes = []
-        if midi_data is None:
-            return notes
-        for inst in midi_data.instruments:
-            for note in inst.notes:
-                vel = getattr(note, "velocity", 64) or 64
-                vel = max(1, min(127, int(vel)))
-                notes.append(
-                    NoteEvent(
-                        pitch=int(note.pitch),
-                        start_time=float(note.start),
-                        end_time=float(note.end),
-                        velocity=vel,
-                        confidence=vel / 127.0,
-                        note_id=f"n{len(notes):04d}",
-                        source_backend=self.name,
-                        original_start_time=float(note.start),
-                        original_end_time=float(note.end),
-                    )
-                )
+        self.last_result = TranscriptionResult(
+            notes=list(notes),
+            backend=self.name,
+            requested_backend=self.name,
+            actual_backend=self.name,
+            original_notes=list(notes),
+            audio_path=str(audio_path),
+            settings=dict(settings),
+        )
         return notes

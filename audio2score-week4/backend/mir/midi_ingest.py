@@ -38,6 +38,31 @@ def is_midi_upload(filename: str, content_type: str | None = None) -> bool:
     return ctype in MIDI_CONTENT_TYPES and suffix == ""
 
 
+class NoPitchedNotesError(ValueError):
+    """MIDI parsed, but no pitched (non-drum) notes were present.
+
+    Distinct from malformed MIDI or transport failures. Callers that fall back
+    to another AMT backend should match this type, not exception text.
+    """
+
+    def __init__(
+        self,
+        message: str = "No pitched notes found in MIDI file",
+        *,
+        midi_bytes: bytes | None = None,
+        performance: PerformanceSnapshot | None = None,
+        provider_raw_sha256: str | None = None,
+        reason: str = "empty",
+        source_path: str = "",
+    ):
+        super().__init__(message)
+        self.midi_bytes = midi_bytes
+        self.performance = performance
+        self.provider_raw_sha256 = provider_raw_sha256
+        self.reason = reason
+        self.source_path = source_path
+
+
 @dataclass
 class IngestedMidi:
     notes: list[NoteEvent]
@@ -137,7 +162,16 @@ def ingest_midi(path: str | Path, *, source_backend="midi") -> IngestedMidi:
                 pedal.append((float(cc.time), max(0, min(127, int(cc.value)))))
 
     if not notes:
-        raise ValueError("No pitched notes found in MIDI file")
+        drum_count = sum(1 for n in performance.notes if n.is_drum)
+        reason = "drum_only" if drum_count else "empty"
+        raise NoPitchedNotesError(
+            "No pitched notes found in MIDI file",
+            midi_bytes=data,
+            performance=performance,
+            provider_raw_sha256=performance.midi_sha256,
+            reason=reason,
+            source_path=str(midi_path),
+        )
 
     notes.sort(key=lambda n: (n.start_time, n.pitch))
     pedal.sort(key=lambda p: p[0])

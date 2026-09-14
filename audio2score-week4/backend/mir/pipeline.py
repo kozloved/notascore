@@ -166,6 +166,8 @@ class UnderstandingPipeline:
         self.last_complexity_warnings: list[str] | None = None
         self.last_hand_summary: dict | None = None
         self.last_interpretation_choice: dict | None = None
+        self.last_transcription_result: TranscriptionResult | None = None
+        self.last_filter_report: list | None = None
         self.job: PipelineJob | None = None
 
     def transcribe(self, audio_path: str | Path, job_id: str) -> str:
@@ -174,10 +176,16 @@ class UnderstandingPipeline:
             return self.transcribe_midi(audio_path, job_id)
 
         prepared = self.prepare_audio(audio_path, job_id)
-        notes, prediction, segments = self._transcribe_with_cpu_overlap(
+        transcription, prediction, segments = self._transcribe_with_cpu_overlap(
             prepared.backend, prepared.transcribe_path, prepared.normalized
         )
-        return self.complete_audio(prepared, notes, prediction, segments)
+        return self.complete_audio(
+            prepared,
+            transcription.notes,
+            prediction,
+            segments,
+            transcription=transcription,
+        )
 
     def prepare_audio(self, audio_path: str | Path, job_id: str) -> PreparedAudio:
         """Normalize once and bind the transcription backend. Does not beat-track or AMT."""
@@ -223,6 +231,7 @@ class UnderstandingPipeline:
         segments,
         *,
         interpret_notes=None,
+        transcription: TranscriptionResult | None = None,
     ) -> str:
         """Interpretation/export from an already-transcribed full-mix result.
 
@@ -232,6 +241,9 @@ class UnderstandingPipeline:
         `notes` is the full-mix baseline (raw.mid / validated.mid). When
         federation supplies `interpret_notes`, those are scored instead; the
         mix set remains the reviewable baseline.
+
+        Authoritative transcription identity comes from `transcription`, not
+        from mutable adapter last_* fields.
         """
         audio_path = prepared.audio_path
         job_id = prepared.job_id
@@ -239,14 +251,33 @@ class UnderstandingPipeline:
         normalized = prepared.normalized
         backend = prepared.backend
         out_dir = prepared.out_dir
-        notes = [
-            n.ensure_ids(i)
-            for i, n in enumerate(notes)
-        ]
+        from mir.transcription_contract import result_from_backend_state
+
+        if transcription is None:
+            transcription = result_from_backend_state(
+                backend, list(notes or []), transcribe_path
+            )
+        self.last_transcription_result = transcription
+        actual_backend = transcription.actual_backend or getattr(backend, "name", "unknown")
+        requested_backend = transcription.requested_backend or getattr(
+            backend, "name", actual_backend
+        )
+        if actual_backend and actual_backend != (self.backend_name or ""):
+            self.backend_name = actual_backend
+            self.config = load_pipeline_config(
+                backend=actual_backend,
+                mode=self.mode,
+                validation_mode=self._validation_override,
+            )
+            self.cleaner = MIDICleaner.for_source(
+                actual_backend, mode=self.config.validation_mode
+            )
+        working_notes = list(transcription.notes if transcription.notes else notes)
+        notes = [n.ensure_ids(i) for i, n in enumerate(working_notes)]
         notes = [
             n
             if n.source_backend and n.source_backend != "unknown"
-            else replace_source(n, backend.name)
+            else replace_source(n, actual_backend)
             for n in notes
         ]
         mix_set = ImmutableNoteSet.from_notes(notes, source="full_mix")
@@ -260,13 +291,34 @@ class UnderstandingPipeline:
         raw_count = len(notes)
         transcription = TranscriptionResult(
             notes=mix_set.copy_notes(),
-            backend=backend.name,
+            backend=actual_backend,
+            requested_backend=requested_backend,
+            actual_backend=actual_backend,
+            original_notes=list(transcription.original_notes or mix_set.copy_notes()),
             audio_path=str(transcribe_path),
+            provider_midi_bytes=transcription.provider_midi_bytes,
+            provider_raw_sha256=transcription.provider_raw_sha256,
+            performance=transcription.performance,
+            provider_job_id=transcription.provider_job_id,
+            timings=dict(transcription.timings or {}),
+            fallback_reason=transcription.fallback_reason,
+            warnings=list(transcription.warnings or []),
+            unsuccessful=list(transcription.unsuccessful or []),
+            settings=dict(transcription.settings or {}),
+            extra=dict(transcription.extra or {}),
         )
+        self.last_transcription_result = transcription
         self.last_raw_notes = mix_set.copy_notes()
-        source_bytes = getattr(backend, "last_midi_bytes", None)
-        provider_sha = getattr(backend, "last_provider_raw_sha256", None)
-        self.last_performance_snapshot = getattr(backend, "last_performance", None)
+        use_provider_bytes = (
+            transcription.provider_midi_bytes is not None
+            and transcription.performance is not None
+            and not transcription.used_fallback
+        )
+        source_bytes = transcription.provider_midi_bytes if use_provider_bytes else None
+        provider_sha = transcription.provider_raw_sha256 if use_provider_bytes else None
+        self.last_performance_snapshot = (
+            transcription.performance if use_provider_bytes else None
+        )
         raw_path = job_raw_midi_path(audio_path, job_id)
         raw_path.parent.mkdir(parents=True, exist_ok=True)
         # Immutable raw.mid is the provider payload (or reconstructed Solo MIDI).
@@ -280,7 +332,9 @@ class UnderstandingPipeline:
 
                 provider_sha = sha256_hex(bytes(source_bytes))
         else:
-            self.last_performance_snapshot = PerformanceSnapshot.from_notes(notes, backend.name)
+            self.last_performance_snapshot = PerformanceSnapshot.from_notes(
+                notes, actual_backend
+            )
             write_job_stage_midi(raw_path, notes, bpm=120.0, split_hands=False)
             provider_sha = None
         self.last_raw_identity = record_saved_raw(
@@ -289,6 +343,7 @@ class UnderstandingPipeline:
         if source_bytes is not None:
             self.last_performance_snapshot.verify_midi(source_bytes)
         self.last_performance_snapshot.write_json(out_dir / f"{job_id}.performance.json")
+        self._write_transcription_diagnostics(out_dir, job_id, transcription)
 
         if not notes:
             raise TranscriptionError("No notes detected")
@@ -318,7 +373,7 @@ class UnderstandingPipeline:
             working = [
                 n
                 if n.source_backend and n.source_backend != "unknown"
-                else replace_source(n, backend.name)
+                else replace_source(n, actual_backend)
                 for n in working
             ]
             working_set = ImmutableNoteSet.from_notes(working, source="reconciled")
@@ -330,7 +385,7 @@ class UnderstandingPipeline:
 
         pedal_events: list[tuple[float, int]] = []
         pedal_obs: list[PedalObservation] = []
-        run_piano = piano_analysis_enabled(backend.name) and _should_analyze_piano(
+        run_piano = piano_analysis_enabled(actual_backend) and _should_analyze_piano(
             prediction.instrument
         )
         if run_piano:
@@ -409,7 +464,7 @@ class UnderstandingPipeline:
                     source="beat_refine",
                 )
             ],
-            source_backend=backend.name,
+            source_backend=actual_backend,
             source_path=str(audio_path),
         )
 
@@ -421,7 +476,7 @@ class UnderstandingPipeline:
             timing.time_map,
             role=role,
             instrument=prediction.instrument,
-            source_backend=backend.name,
+            source_backend=actual_backend,
         )
         events = self._apply_mir_layers(events)
 
@@ -561,7 +616,7 @@ class UnderstandingPipeline:
         self._write_debug(
             job_id=job_id,
             out_dir=out_dir,
-            backend_name=backend.name,
+            backend_name=actual_backend,
             raw_count=raw_count,
             notes=notes,
             clean_decisions=clean_decisions,
@@ -579,7 +634,7 @@ class UnderstandingPipeline:
                 mapper,
                 role=next_role,
                 instrument=prediction.instrument,
-                source_backend=backend.name,
+                source_backend=actual_backend,
             )
             return self._apply_mir_layers(rebuilt)
 
@@ -692,20 +747,24 @@ class UnderstandingPipeline:
 
     def _transcribe_with_cpu_overlap(self, backend, transcribe_path, normalized):
         """Run remote/local transcription in parallel with CPU prep."""
+        from mir.transcription_contract import capture_transcription
+
         started = time.perf_counter()
         with ThreadPoolExecutor(max_workers=2) as pool:
-            notes_fut = pool.submit(backend.transcribe_notes, transcribe_path)
+            notes_fut = pool.submit(capture_transcription, backend, transcribe_path)
             cpu_fut = pool.submit(self._prefetch_cpu, normalized)
-            notes = notes_fut.result()
+            transcription = notes_fut.result()
             from mir.confidence_gate import drop_low_confidence_notes
 
-            notes = drop_low_confidence_notes(notes)
+            # Filtering is applied to a derived list. original_notes stay intact.
+            filtered = drop_low_confidence_notes(transcription.notes)
+            transcription.notes = filtered
             prediction, segments = cpu_fut.result()
         print(
             f"[Pipeline] overlap_wall_seconds={time.perf_counter() - started:.2f} "
-            f"backend={backend.name}"
+            f"backend={transcription.actual_backend or backend.name}"
         )
-        return notes, prediction, segments
+        return transcription, prediction, segments
 
     def transcribe_midi(self, midi_path: str | Path, job_id: str) -> str:
         """CMR entry for an uploaded MIDI file (no Basic Pitch)."""
@@ -1095,6 +1154,23 @@ class UnderstandingPipeline:
         events = self.dynamics.extract(events)
         events = self.articulation.detect(events)
         return self.phrase_detector.assign(events)
+
+    def _write_transcription_diagnostics(
+        self, out_dir: Path, job_id: str, transcription: TranscriptionResult
+    ) -> None:
+        """Persist unsuccessful provider MIDI separately from successful raw.mid."""
+        payload = transcription.diagnostic_payload()
+        (out_dir / f"{job_id}.transcription.json").write_text(
+            json.dumps(payload, indent=2, default=str) + "\n",
+            encoding="utf-8",
+        )
+        for row in transcription.unsuccessful or []:
+            midi = row.get("provider_midi_bytes")
+            backend = str(row.get("backend") or "mt3")
+            if not midi:
+                continue
+            path = out_dir / f"{job_id}.unsuccessful.{backend}.mid"
+            path.write_bytes(bytes(midi))
 
     def _write_debug(
         self,

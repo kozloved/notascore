@@ -52,12 +52,83 @@ class TempoObservation:
 
 @dataclass
 class TranscriptionResult:
-    """Adapter output: acoustic notes plus provenance. Not a score."""
+    """Adapter output: acoustic notes plus provenance. Not a score.
+
+    `backend` is the actual engine that produced `notes`. Requested vs actual
+    identity, original notes, provider MIDI, and unsuccessful attempts are
+    first-class so interpretation never has to read mutable adapter `last_*`
+    fields. Filtering and notation must copy notes rather than mutate this.
+    """
 
     notes: list[NoteEvent]
     backend: str
     audio_path: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
+    requested_backend: str = ""
+    actual_backend: str = ""
+    original_notes: list[NoteEvent] = field(default_factory=list)
+    provider_midi_bytes: bytes | None = None
+    provider_raw_sha256: str | None = None
+    performance: Any = None
+    provider_job_id: str | None = None
+    timings: dict[str, Any] = field(default_factory=dict)
+    fallback_reason: str | None = None
+    warnings: list[str] = field(default_factory=list)
+    unsuccessful: list[dict[str, Any]] = field(default_factory=list)
+    settings: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.actual_backend:
+            self.actual_backend = self.backend
+        if not self.requested_backend:
+            self.requested_backend = self.backend
+        if not self.original_notes:
+            self.original_notes = list(self.notes)
+
+    @property
+    def used_fallback(self) -> bool:
+        if self.fallback_reason:
+            return True
+        return bool(
+            self.requested_backend
+            and self.actual_backend
+            and self.requested_backend != self.actual_backend
+        )
+
+    def diagnostic_payload(self) -> dict[str, Any]:
+        """JSON-safe identity; never include raw MIDI bytes or secrets."""
+        unsuccessful = []
+        for row in self.unsuccessful or []:
+            if not isinstance(row, dict):
+                continue
+            item = {
+                key: value
+                for key, value in row.items()
+                if key not in {"provider_midi_bytes", "performance"}
+            }
+            performance = row.get("performance")
+            if performance is not None:
+                item["performance_midi_sha256"] = getattr(
+                    performance, "midi_sha256", None
+                )
+                item["performance_note_count"] = len(
+                    getattr(performance, "notes", ()) or ()
+                )
+            unsuccessful.append(item)
+        return {
+            "requested_backend": self.requested_backend,
+            "actual_backend": self.actual_backend,
+            "backend": self.backend,
+            "note_count": len(self.notes),
+            "original_note_count": len(self.original_notes),
+            "provider_raw_sha256": self.provider_raw_sha256,
+            "provider_job_id": self.provider_job_id,
+            "timings": dict(self.timings or {}),
+            "fallback_reason": self.fallback_reason,
+            "warnings": list(self.warnings or []),
+            "settings": dict(self.settings or {}),
+            "unsuccessful": unsuccessful,
+        }
 
 
 @dataclass
