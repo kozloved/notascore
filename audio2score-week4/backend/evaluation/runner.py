@@ -15,6 +15,7 @@ Usage (from audio2score-week4/backend):
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,8 +29,8 @@ from evaluation.corpus import check_split_leakage, discover_cases, PACKAGE_DIR
 from evaluation.defaults import SPLITS
 from evaluation.execute import evaluate_case
 from evaluation.fixture import prepare_fixture
+from evaluation.gate import gate_decision
 from evaluation.report import build_report, write_reports
-from mir.pipeline import UnderstandingPipeline
 
 REPO_ROOT = BACKEND_ROOT.parents[1]
 RESULTS_ROOT = PACKAGE_DIR / "results"
@@ -104,6 +105,37 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=("safe", "strict_safe", "conservative", "legacy_aggressive", "legacy"),
         help="Override TRANSCRIPTION_VALIDATION_MODE for this run (A/B)",
     )
+    parser.add_argument(
+        "--execution-path",
+        choices=("isolated", "production"),
+        default="production",
+        help=(
+            "isolated = UnderstandingPipeline per case (stage tests). "
+            "production = engine.job_runner.run_job (application entry point)."
+        ),
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("solo", "polyphonic", "fast", "quality"),
+        default="solo",
+        help="Requested transcription mode (solo/Basic Pitch or polyphonic/MT3)",
+    )
+    parser.add_argument(
+        "--pipeline-mode",
+        choices=("legacy", "shadow", "live"),
+        default=None,
+        help="NEXTGEN_PIPELINE_MODE for production-path runs",
+    )
+    parser.add_argument(
+        "--gate",
+        action="store_true",
+        help="Fail the process on regressions, errors, missing cases, or all-skipped",
+    )
+    parser.add_argument(
+        "--allow-all-skipped",
+        action="store_true",
+        help="Do not fail when every case is skipped (default: fail)",
+    )
     return parser.parse_args(argv)
 
 
@@ -146,16 +178,23 @@ def main(argv: list[str] | None = None) -> int:
     for warning in leakage:
         print(f"[evaluation] WARNING: {warning}")
 
-    pipeline = UnderstandingPipeline(
-        mode="fast",
-        validation_mode=args.validation_mode,
-    )
     rows = []
-    print(f"[evaluation] run_id={run_id} cases={len(cases)} split={split_label}")
+    print(
+        f"[evaluation] run_id={run_id} cases={len(cases)} split={split_label} "
+        f"path={args.execution_path} mode={args.mode}"
+    )
     for case in cases:
         print(f"  {case.split}/{case.case_id} ...", flush=True)
         case_out = run_dir / case.case_id
-        row = evaluate_case(case, case_out_dir=case_out, pipeline=pipeline)
+        row = evaluate_case(
+            case,
+            case_out_dir=case_out,
+            pipeline=None,
+            execution_path=args.execution_path,
+            mode=args.mode,
+            pipeline_mode_name=args.pipeline_mode,
+            validation_mode=args.validation_mode,
+        )
         extra = row.skip_reason or row.error or ""
         f1 = (row.notes or {}).get("onset_pitch_f1")
         f1_s = f"F1={f1:.3f}" if isinstance(f1, float) else ""
@@ -164,7 +203,11 @@ def main(argv: list[str] | None = None) -> int:
 
     baseline_comparison = None
     if args.compare_baseline:
-        baseline = load_baseline(args.compare_baseline, root=args.baselines_dir)
+        try:
+            baseline = load_baseline(args.compare_baseline, root=args.baselines_dir)
+        except FileNotFoundError as exc:
+            print(f"[evaluation] baseline unreadable: {exc}")
+            return 1
         baseline_comparison = compare_to_baseline(rows, baseline)
         print(
             "[evaluation] baseline comparison:",
@@ -173,6 +216,12 @@ def main(argv: list[str] | None = None) -> int:
             (baseline_comparison.get("aggregate") or {}).get("delta"),
         )
 
+    from modes import parse_transcription_mode
+
+    try:
+        canonical_mode = parse_transcription_mode(args.mode)
+    except ValueError:
+        canonical_mode = args.mode
     report = build_report(
         cases=rows,
         repo=REPO_ROOT,
@@ -180,6 +229,14 @@ def main(argv: list[str] | None = None) -> int:
         run_id=run_id,
         leakage_warnings=leakage,
         baseline_comparison=baseline_comparison,
+        pipeline_config={
+            "execution_path": args.execution_path,
+            "requested_mode": args.mode,
+            "canonical_mode": canonical_mode,
+            "requested_pipeline_mode": args.pipeline_mode,
+            "validation_mode": args.validation_mode,
+            "independent_pipeline_per_case": True,
+        },
     )
     paths = write_reports(report, run_dir)
     for label, path in paths.items():
@@ -189,11 +246,24 @@ def main(argv: list[str] | None = None) -> int:
         bpath = save_baseline(report, args.save_baseline, root=args.baselines_dir)
         print(f"Saved baseline: {bpath}")
 
+    enforce_baseline = bool(args.compare_baseline) or args.gate
+    allow_all_skipped = bool(args.allow_all_skipped) and not args.gate
+    decision = gate_decision(
+        report,
+        baseline_comparison,
+        fail_on_regression=enforce_baseline,
+        allow_all_skipped=allow_all_skipped,
+    )
+    (run_dir / "gate.json").write_text(
+        json.dumps(decision, indent=2) + "\n",
+        encoding="utf-8",
+    )
     print(
         f"evaluation: ran {report['ran']}/{report['case_count']}, "
         f"skipped {report['skipped']}, errors {report['errors']}"
     )
-    return 0 if report["errors"] == 0 else 1
+    print(f"evaluation gate: {'pass' if decision['passed'] else 'fail'} {decision['reasons']}")
+    return int(decision["exit_code"])
 
 
 if __name__ == "__main__":

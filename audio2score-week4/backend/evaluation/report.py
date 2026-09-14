@@ -95,6 +95,27 @@ def build_report(
         },
         "leakage_warnings": leakage_warnings or [],
         "baseline_comparison": baseline_comparison,
+        "failures": {
+            "errors": [
+                {
+                    "id": c.get("id"),
+                    "split": c.get("split"),
+                    "error": c.get("error"),
+                }
+                for c in errors
+            ],
+            "skipped": [
+                {
+                    "id": c.get("id"),
+                    "split": c.get("split"),
+                    "reason": c.get("skip_reason"),
+                    "missing_infrastructure": (c.get("execution") or {}).get(
+                        "missing_infrastructure"
+                    ),
+                }
+                for c in skipped
+            ],
+        },
         "cases": cases,
     }
 
@@ -135,6 +156,15 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- pipeline: `{report.get('pipeline_configuration')}`",
         f"- ran: {report.get('ran')}, skipped: {report.get('skipped')}, "
         f"errors: {report.get('errors')}",
+        "",
+        "## Outcome groups",
+        "",
+        f"- original transcription vs performed-note reference: see per-case `original_vs_reference`",
+        f"- validation/filtering deltas: see per-case `validation_delta`",
+        f"- meter / downbeat / notation: see per-case `meter` and `notation`",
+        f"- raw/export preservation: see per-case `preservation` and `hashes`",
+        f"- execution errors: {report.get('errors')}",
+        f"- skipped cases: {report.get('skipped')}",
         "",
         "## Aggregate metrics",
         "",
@@ -219,6 +249,23 @@ def render_markdown(report: dict[str, Any]) -> str:
             )
         if not comparison.get("regressions"):
             lines.append("- none")
+
+    failures = report.get("failures") or {}
+    lines += ["", "## Execution failures and skipped cases", ""]
+    error_rows = failures.get("errors") or []
+    skip_rows = failures.get("skipped") or []
+    if error_rows:
+        for row in error_rows:
+            lines.append(f"- error `{row.get('id')}`: {row.get('error')}")
+    else:
+        lines.append("- errors: none")
+    if skip_rows:
+        for row in skip_rows:
+            extra = row.get("missing_infrastructure")
+            suffix = f" (missing {extra})" if extra else ""
+            lines.append(f"- skipped `{row.get('id')}`: {row.get('reason')}{suffix}")
+    else:
+        lines.append("- skipped: none")
 
     lines += ["", "## Per-case stage diagnostics", ""]
     for row in report.get("cases") or []:
