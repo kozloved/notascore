@@ -15,7 +15,7 @@ This document records what was implemented, what was already true on current mai
 | 3 | `45b3011` | Evaluate through `engine.job_runner.run_job` by default; fail the process on regressions, missing required cases, execution errors, and all-skipped runs. |
 | 4 | `0043238` | Named Basic Pitch comparison profiles; production defaults unchanged; Classical DSP marked non-operational. |
 | 5 | `fe39711` | Persist RunPod provider job IDs and resume them on worker recovery; per-job timings; uncertain submission is distinct from “no job”. |
-| 6 | (this commit) | Paired-corpus schema, composition leakage, ten-slot inventory, and this report. |
+| 6 | `abe17b6` | Paired-corpus schema, composition leakage, ten-slot inventory, and this report. |
 
 Hard invariants kept:
 
