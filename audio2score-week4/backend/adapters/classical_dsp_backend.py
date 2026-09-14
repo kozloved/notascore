@@ -1,27 +1,33 @@
-"""Classical DSP transcription stack."""
+"""Classical DSP transcription stack.
+
+This adapter is not operational. Production transcription uses Basic Pitch
+(solo) or remote YourMT3 (polyphonic). The DSP objects remain for inspection
+only and must not be selected as a live backend.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from audio_engine.normalizer import AudioNormalizer
-from audio_engine.onset_detector import OnsetDetector
-from audio_engine.pitch_extractor import PitchExtractor
-from audio_engine.polyphonic_decoder import PolyphonicDecoder
 from mir.types import NoteEvent
+
+
+class ClassicalDspUnavailable(RuntimeError):
+    pass
 
 
 class ClassicalDspBackend:
     name = "classical_dsp"
+    operational = False
 
     def __init__(self):
-        self.normalizer = AudioNormalizer()
-        self.onset_detector = OnsetDetector()
-        self.pitch_extractor = PitchExtractor()
-        self.decoder = PolyphonicDecoder()
+        self.normalizer = None
+        self.onset_detector = None
+        self.pitch_extractor = None
+        self.decoder = None
 
     def transcribe_notes(self, audio_path: str | Path) -> list[NoteEvent]:
-        audio = self.normalizer.normalize(audio_path)
-        onsets = self.onset_detector.detect(audio)
-        matrix = self.pitch_extractor.extract(audio)
-        return self.decoder.decode(matrix, onsets)
+        raise ClassicalDspUnavailable(
+            "Classical DSP adapter is not operational and is not a production "
+            f"transcription backend (path={audio_path})."
+        )

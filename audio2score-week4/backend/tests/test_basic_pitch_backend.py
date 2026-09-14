@@ -23,16 +23,21 @@ def test_basic_pitch_settings_defaults(monkeypatch):
         "BASIC_PITCH_MAX_FREQ_HZ",
         "BASIC_PITCH_MELODIA_TRICK",
         "BASIC_PITCH_MULTIPLE_PITCH_BENDS",
+        "BASIC_PITCH_PROFILE",
+        "BASIC_PITCH_STEM_PROFILES",
     ):
         monkeypatch.delenv(key, raising=False)
 
     settings = basic_pitch_settings()
     assert settings["onset_threshold"] == DEFAULT_ONSET_THRESHOLD
     assert settings["frame_threshold"] == DEFAULT_FRAME_THRESHOLD
+    assert settings["minimum_note_length"] == 127.70
     assert settings["minimum_frequency"] == 27.5
     assert settings["maximum_frequency"] == 2093.0
     assert settings["melodia_trick"] is True
     assert settings["multiple_pitch_bends"] is False
+    assert settings["profile"] == "production"
+    assert settings["env_overrides"] == {}
 
 
 def test_basic_pitch_settings_from_env(monkeypatch):
@@ -41,6 +46,8 @@ def test_basic_pitch_settings_from_env(monkeypatch):
     settings = basic_pitch_settings()
     assert settings["onset_threshold"] == 0.7
     assert settings["melodia_trick"] is False
+    assert settings["env_overrides"]["BASIC_PITCH_ONSET_THRESHOLD"] == 0.7
+    assert settings["profile"] == "production"
 
 
 @patch("adapters.basic_pitch_backend.predict")
