@@ -62,16 +62,18 @@ def process_job(job_id: str):
             return
 
         from engine.job_runner import run_job
+        from adapters.provider_jobs import bind_app_job
 
         if not heartbeat.alive or not _progress(job_id, attempt_id, 35):
             return
 
-        musicxml_text = run_job(
-            audio_local_path,
-            job_id,
-            mode=job.get("mode") or "solo",
-            filename=job.get("filename") or str(audio_local_path),
-        )
+        with bind_app_job(job_id, attempt_id):
+            musicxml_text = run_job(
+                audio_local_path,
+                job_id,
+                mode=job.get("mode") or "solo",
+                filename=job.get("filename") or str(audio_local_path),
+            )
 
         if not heartbeat.alive or not _progress(job_id, attempt_id, 75):
             return

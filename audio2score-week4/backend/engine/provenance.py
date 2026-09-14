@@ -76,22 +76,31 @@ def _mt3_public_meta() -> dict[str, str]:
 
 def transcription_section(pipeline) -> dict[str, Any]:
     identity = dict(getattr(pipeline, "last_raw_identity", None) or {})
+    result = getattr(pipeline, "last_transcription_result", None)
     backend = (
-        getattr(pipeline, "backend_name", None)
+        getattr(result, "actual_backend", None)
+        or getattr(pipeline, "backend_name", None)
         or getattr(getattr(pipeline, "last_raw_performance", None), "source_backend", None)
         or ""
     )
+    requested = getattr(result, "requested_backend", None) or backend
     section: dict[str, Any] = {
         "backend": backend,
+        "requested_backend": requested,
+        "actual_backend": backend,
         "provider_raw_sha256": identity.get("provider_raw_sha256"),
         "saved_raw_sha256": identity.get("saved_raw_sha256"),
         "raw_identity_match": identity.get("raw_identity_match"),
+        "fallback_reason": getattr(result, "fallback_reason", None),
+        "provider_job_id": getattr(result, "provider_job_id", None),
     }
     if backend == "mt3":
         section.update(_mt3_public_meta())
     elif backend == "basic_pitch":
         section["provider"] = "local"
         section["model"] = "basic_pitch"
+        if getattr(result, "used_fallback", False):
+            section["fallback_from"] = requested
     return section
 
 

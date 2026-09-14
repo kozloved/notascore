@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import pretty_midi
+import pytest
 
-from mir.midi_ingest import hand_from_track_name, ingest_midi, is_midi_path
+from mir.midi_ingest import NoPitchedNotesError, hand_from_track_name, ingest_midi, is_midi_path
 from mir.pipeline import UnderstandingPipeline
 from mir.types import Hand
 from transcription import BasicPitchEngine, FallbackEngine, get_engine
@@ -76,6 +77,34 @@ def test_understanding_pipeline_ingests_midi(tmp_path):
     raw = pretty_midi.PrettyMIDI(str(tmp_path / "bp_midi-ingest" / "midi-ingest.raw.mid"))
     pitches = sorted(n.pitch for inst in raw.instruments for n in inst.notes)
     assert pitches == [48, 72, 76]
+
+
+def test_ingest_empty_midi_raises_typed_no_pitched_notes(tmp_path):
+    midi = pretty_midi.PrettyMIDI(initial_tempo=120)
+    midi.instruments.append(pretty_midi.Instrument(program=0, name="Empty"))
+    path = tmp_path / "empty.mid"
+    midi.write(str(path))
+    data = path.read_bytes()
+    with pytest.raises(NoPitchedNotesError) as exc:
+        ingest_midi(path)
+    assert exc.value.reason == "empty"
+    assert exc.value.midi_bytes == data
+    assert exc.value.performance is not None
+    assert isinstance(exc.value, ValueError)
+
+
+def test_ingest_drum_only_midi_raises_typed_no_pitched_notes(tmp_path):
+    midi = pretty_midi.PrettyMIDI(initial_tempo=120)
+    drums = pretty_midi.Instrument(program=0, is_drum=True, name="Drums")
+    drums.notes.append(pretty_midi.Note(velocity=100, pitch=36, start=0.0, end=0.2))
+    midi.instruments.append(drums)
+    path = tmp_path / "drums.mid"
+    midi.write(str(path))
+    with pytest.raises(NoPitchedNotesError) as exc:
+        ingest_midi(path)
+    assert exc.value.reason == "drum_only"
+    assert exc.value.performance is not None
+    assert any(n.is_drum for n in exc.value.performance.notes)
 
 
 def test_fallback_engine_does_not_use_legacy_for_midi(tmp_path, monkeypatch):

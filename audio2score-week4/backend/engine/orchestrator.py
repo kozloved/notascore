@@ -24,9 +24,16 @@ from engine.flags import (
 from engine.ir import InterpretedNote, InterpretedPerformance
 from engine.provenance import live_provenance_fields
 from engine.stages import StageName, StageResult
-from mir.midi_ingest import ingest_midi, is_midi_path
+from mir.midi_ingest import ingest_midi, is_midi_path, NoPitchedNotesError
 from mir.pipeline import UnderstandingPipeline
 from mir.score_profile import score_profile
+from mir.transcription_contract import (
+    apply_basic_pitch_fallback,
+    capture_transcription,
+    json_safe_unsuccessful,
+    unsuccessful_from_exception,
+    unsuccessful_from_result,
+)
 from mir.raw_midi import (
     job_fused_midi_path,
     job_raw_midi_path,
@@ -136,7 +143,7 @@ class PipelineOrchestrator:
         sep_timer = StageTimer(StageName.SEPARATE)
 
         def run_amt():
-            return backend.transcribe_notes(prepared.transcribe_path)
+            return _transcribe_mix(backend, prepared.transcribe_path, poly=poly)
 
         def run_cpu():
             return pipeline._prefetch_cpu(prepared.normalized)
@@ -154,67 +161,56 @@ class PipelineOrchestrator:
             sep_fut = pool.submit(run_sep) if want_sep else None
             amt_recorded = False
             amt_actual = getattr(backend, "name", "")
+            transcription = None
             try:
-                notes = amt_fut.result()
+                transcription = amt_fut.result()
+                notes = list(transcription.notes)
+                amt_actual = transcription.actual_backend or getattr(backend, "name", "")
+                warnings.extend(transcription.warnings or [])
             except Exception as exc:
-                empty_mt3 = poly and "No pitched notes found" in str(exc)
-                if empty_mt3:
-                    warnings.append(
-                        "MT3 returned no pitched notes; falling back to Basic Pitch "
-                        "for this polyphonic job"
+                stages.append(
+                    amt_timer.result(
+                        ok=False,
+                        model=getattr(backend, "name", ""),
+                        requested_backend=getattr(backend, "name", ""),
+                        actual_backend="",
+                        error=str(exc),
                     )
-                    from adapters.basic_pitch_backend import BasicPitchBackend
-
-                    notes = BasicPitchBackend().transcribe_notes(prepared.transcribe_path)
-                    amt_actual = "basic_pitch"
-                    stages.append(
-                        amt_timer.result(
-                            ok=True,
-                            model="basic_pitch",
-                            backend="basic_pitch",
-                            requested_backend=getattr(backend, "name", ""),
-                            actual_backend="basic_pitch",
-                            extra={
-                                "notes": len(notes),
-                                "fallback_from": getattr(backend, "name", "mt3"),
-                                "fallback_reason": str(exc),
-                            },
-                        )
-                    )
-                    amt_recorded = True
-                else:
-                    stages.append(
-                        amt_timer.result(
-                            ok=False,
-                            model=getattr(backend, "name", ""),
-                            requested_backend=getattr(backend, "name", ""),
-                            actual_backend="",
-                            error=str(exc),
-                        )
-                    )
-                    if poly:
-                        stages.append(
-                            StageResult(
-                                StageName.TRANSCRIBE_STEMS,
-                                ok=True,
-                                skipped=True,
-                                skip_reason=(
-                                    "full-mix transcription failed; stem Basic Pitch "
-                                    "is not a silent substitute in Polyphonic mode"
-                                ),
-                                duration_ms=0.0,
-                            )
-                        )
-                    raise
-            if poly and not notes:
-                warnings.append(
-                    "MT3 returned an empty note list; falling back to Basic Pitch "
-                    "for this polyphonic job"
                 )
-                from adapters.basic_pitch_backend import BasicPitchBackend
-
-                notes = BasicPitchBackend().transcribe_notes(prepared.transcribe_path)
-                amt_actual = "basic_pitch"
+                if poly:
+                    stages.append(
+                        StageResult(
+                            StageName.TRANSCRIBE_STEMS,
+                            ok=True,
+                            skipped=True,
+                            skip_reason=(
+                                "full-mix transcription failed; stem Basic Pitch "
+                                "is not a silent substitute in Polyphonic mode"
+                            ),
+                            duration_ms=0.0,
+                        )
+                    )
+                raise
+            if transcription.used_fallback:
+                stages.append(
+                    amt_timer.result(
+                        ok=True,
+                        model="basic_pitch",
+                        backend="basic_pitch",
+                        requested_backend=transcription.requested_backend,
+                        actual_backend="basic_pitch",
+                        extra={
+                            "notes": len(notes),
+                            "fallback_from": transcription.requested_backend,
+                            "fallback_reason": transcription.fallback_reason,
+                            "unsuccessful": [
+                                json_safe_unsuccessful(row)
+                                for row in (transcription.unsuccessful or [])
+                            ],
+                        },
+                    )
+                )
+                amt_recorded = True
             prediction, segments = cpu_fut.result()
             stages.append(
                 cpu_timer.result(
@@ -227,13 +223,14 @@ class PipelineOrchestrator:
                 )
             )
             if not amt_recorded:
-                mt3_meta = dict(getattr(backend, "last_timing", None) or {})
+                mt3_meta = dict(transcription.timings or {})
                 stages.append(
                     amt_timer.result(
                         ok=True,
                         model=amt_actual,
                         backend=amt_actual,
-                        requested_backend=getattr(backend, "name", ""),
+                        requested_backend=transcription.requested_backend
+                        or getattr(backend, "name", ""),
                         actual_backend=amt_actual,
                         extra={
                             "notes": len(notes),
@@ -241,9 +238,10 @@ class PipelineOrchestrator:
                             "execution_ms": mt3_meta.get("execution_ms"),
                             "wall_ms": mt3_meta.get("wall_ms"),
                             "warmup": False,
+                            "provider_job_id": transcription.provider_job_id,
                             "fallback_from": (
-                                getattr(backend, "name", "")
-                                if amt_actual != getattr(backend, "name", "")
+                                transcription.requested_backend
+                                if transcription.used_fallback
                                 else None
                             ),
                         },
@@ -299,6 +297,7 @@ class PipelineOrchestrator:
                         stem_rows,
                         stages,
                         warnings,
+                        mix_backend=amt_actual,
                     )
                     interpret_notes = list(fusion.notes) if fusion is not None else None
                     if interpret_notes is not None:
@@ -322,10 +321,16 @@ class PipelineOrchestrator:
                         prediction,
                         segments,
                         interpret_notes=interpret_notes,
+                        transcription=transcription,
                     )
                 else:
                     interpret_fut = later.submit(
-                        pipeline.complete_audio, prepared, notes, prediction, segments
+                        pipeline.complete_audio,
+                        prepared,
+                        notes,
+                        prediction,
+                        segments,
+                        transcription=transcription,
                     )
                     stem_rows = self._transcribe_stems(
                         later,
@@ -343,6 +348,7 @@ class PipelineOrchestrator:
                         stem_rows,
                         stages,
                         warnings,
+                        mix_backend=amt_actual,
                     )
                 export_ms = float(getattr(pipeline, "last_export_ms", 0.0) or 0.0)
 
@@ -673,6 +679,7 @@ class PipelineOrchestrator:
         stem_rows,
         stages: list[StageResult],
         warnings: list[str],
+        mix_backend: str | None = None,
     ) -> ReconciliationResult | None:
         timer = StageTimer(StageName.RECONCILE)
         if not fusion_enabled():
@@ -690,7 +697,9 @@ class PipelineOrchestrator:
                 warnings.append(f"stem {row.stem_id} transcription failed: {row.error}")
                 continue
             specialist.extend(row.notes)
-        mix_backend = getattr(getattr(pipeline, "config", None), "backend", "mt3") or "mt3"
+        mix_backend = mix_backend or (
+            getattr(getattr(pipeline, "config", None), "backend", "mt3") or "mt3"
+        )
         fused = reconcile_transcriptions(
             list(mix_notes),
             specialist,
@@ -936,6 +945,48 @@ class PipelineOrchestrator:
             time_map=time_map,
             fusion=fusion,
         )
+
+
+def _transcribe_mix(backend, audio_path, *, poly: bool):
+    """Own the mix transcription result. Empty/drum-only MT3 may fall back once."""
+    from adapters.basic_pitch_backend import BasicPitchBackend
+    from transcription import TranscriptionError
+
+    requested = getattr(backend, "name", "") or "mt3"
+    try:
+        result = capture_transcription(backend, audio_path)
+    except NoPitchedNotesError as exc:
+        if not poly:
+            raise
+        bp = capture_transcription(BasicPitchBackend(), audio_path)
+        if not bp.notes:
+            raise TranscriptionError(
+                "Basic Pitch fallback produced no pitched notes after empty MT3 MIDI",
+                code="mt3_empty_fallback_failed",
+            ) from exc
+        reason = f"no_pitched_notes:{exc.reason}"
+        return apply_basic_pitch_fallback(
+            bp,
+            requested_backend=requested,
+            unsuccessful=unsuccessful_from_exception(exc, backend=requested),
+            reason=reason,
+        )
+    if poly and not result.notes:
+        bp = capture_transcription(BasicPitchBackend(), audio_path)
+        if not bp.notes:
+            raise TranscriptionError(
+                "Basic Pitch fallback produced no pitched notes after empty MT3 MIDI",
+                code="mt3_empty_fallback_failed",
+            )
+        return apply_basic_pitch_fallback(
+            bp,
+            requested_backend=requested,
+            unsuccessful=unsuccessful_from_result(result),
+            reason="empty_note_list",
+        )
+    if not result.requested_backend:
+        result.requested_backend = requested
+    return result
 
 
 def _skipped_sep() -> SeparationResult:

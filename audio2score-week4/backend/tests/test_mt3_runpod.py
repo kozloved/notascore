@@ -21,6 +21,11 @@ from adapters.mt3_backend import (
     runpod_async_url,
     runpod_status_url,
 )
+from adapters.provider_jobs import (
+    InMemoryProviderJobStore,
+    bind_app_job,
+    use_provider_job_store,
+)
 from transcription import TranscriptionError
 
 
@@ -438,14 +443,18 @@ def test_runpod_timeout(tmp_path, monkeypatch):
     monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/g40wir5ey71e3/runsync")
     monkeypatch.setenv("MT3_API_KEY", "rp-secret")
     monkeypatch.setenv("MT3_TIMEOUT_SECONDS", "12")
+    calls = {"n": 0}
 
     def fake_urlopen(request, timeout=None):
+        calls["n"] += 1
         assert timeout == 30
         raise URLError(TimeoutError("timed out"))
 
     monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
-    with pytest.raises(TranscriptionError, match="timed out after 600 seconds"):
+    with pytest.raises(TranscriptionError, match="uncertain") as exc:
         MT3Backend().transcribe_notes(audio)
+    assert exc.value.code == "provider_submission_uncertain"
+    assert calls["n"] == 1
 
 
 def test_runpod_missing_api_key(tmp_path, monkeypatch):
@@ -501,6 +510,120 @@ def test_command_path_still_works(tmp_path, monkeypatch):
     notes = MT3Backend().transcribe_notes(audio)
     assert notes[0].pitch == 60
     assert mt3_status()["provider"] == "command"
+
+
+def test_runpod_recovery_resumes_without_second_submit(tmp_path, monkeypatch):
+    audio = tmp_path / "recording.wav"
+    audio.write_bytes(b"RIFF-AUDIO")
+    midi_bytes = _one_note_midi_bytes(64)
+    monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/g40wir5ey71e3")
+    monkeypatch.setenv("MT3_API_KEY", "rp-secret")
+    monkeypatch.delenv("MT3_TRANSCRIBE_COMMAND", raising=False)
+    monkeypatch.setattr("adapters.mt3_backend.time.sleep", lambda _seconds: None)
+    store = InMemoryProviderJobStore()
+    calls: list[str] = []
+
+    def fake_urlopen(request, timeout=None):
+        calls.append(f"{request.get_method()} {request.full_url}")
+        if request.full_url.endswith("/run"):
+            return _FakeResponse(
+                json.dumps({"id": "job-resume", "status": "IN_QUEUE"}).encode()
+            )
+        if request.full_url.endswith("/status/job-resume"):
+            return _FakeResponse(
+                json.dumps(
+                    {
+                        "id": "job-resume",
+                        "status": "COMPLETED",
+                        "delayTime": 1200,
+                        "executionTime": 800,
+                        "output": {
+                            "midi_base64": base64.b64encode(midi_bytes).decode()
+                        },
+                    }
+                ).encode()
+            )
+        raise AssertionError(request.full_url)
+
+    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
+    with use_provider_job_store(store), bind_app_job("app-1", "attempt-a"):
+        first = MT3Backend().transcribe_notes(audio)
+        second_backend = MT3Backend()
+        second = second_backend.transcribe_notes(audio)
+    assert [n.pitch for n in first] == [64]
+    assert [n.pitch for n in second] == [64]
+    assert sum(1 for item in calls if item.endswith("/run")) == 1
+    assert all(not item.endswith("/run") or item.startswith("POST") for item in calls)
+    assert store.persist_calls == 1
+    assert second_backend.last_provider_job_id == "job-resume"
+    assert second_backend.last_timing["resumed"] is True
+    assert second_backend.last_timing["provider_job_id"] == "job-resume"
+    assert second_backend.last_result.timings["queue_ms"] == 1200
+
+
+def test_runpod_transient_poll_errors_do_not_resubmit(tmp_path, monkeypatch):
+    audio = tmp_path / "recording.wav"
+    audio.write_bytes(b"RIFF-AUDIO")
+    midi_bytes = _one_note_midi_bytes(61)
+    monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/g40wir5ey71e3")
+    monkeypatch.setenv("MT3_API_KEY", "rp-secret")
+    monkeypatch.setattr("adapters.mt3_backend.time.sleep", lambda _seconds: None)
+    calls: list[str] = []
+    status_attempts = {"n": 0}
+
+    def fake_urlopen(request, timeout=None):
+        calls.append(request.full_url)
+        if request.full_url.endswith("/run"):
+            return _FakeResponse(
+                json.dumps({"id": "job-flaky", "status": "IN_QUEUE"}).encode()
+            )
+        status_attempts["n"] += 1
+        if status_attempts["n"] < 3:
+            raise URLError(TimeoutError("timed out"))
+        return _FakeResponse(
+            json.dumps(
+                {
+                    "id": "job-flaky",
+                    "status": "COMPLETED",
+                    "output": {"midi_base64": base64.b64encode(midi_bytes).decode()},
+                }
+            ).encode()
+        )
+
+    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
+    notes = MT3Backend().transcribe_notes(audio)
+    assert notes[0].pitch == 61
+    assert sum(1 for url in calls if url.endswith("/run")) == 1
+    assert status_attempts["n"] == 3
+
+
+def test_runpod_terminal_provider_failure(tmp_path, monkeypatch):
+    audio = tmp_path / "recording.wav"
+    audio.write_bytes(b"RIFF")
+    monkeypatch.setenv("MT3_ENDPOINT", "https://api.runpod.ai/v2/g40wir5ey71e3")
+    monkeypatch.setenv("MT3_API_KEY", "rp-secret")
+    monkeypatch.setattr("adapters.mt3_backend.time.sleep", lambda _seconds: None)
+
+    def fake_urlopen(request, timeout=None):
+        if request.full_url.endswith("/run"):
+            return _FakeResponse(
+                json.dumps({"id": "job-dead", "status": "IN_QUEUE"}).encode()
+            )
+        return _FakeResponse(
+            json.dumps(
+                {"id": "job-dead", "status": "FAILED", "error": "worker crash"}
+            ).encode()
+        )
+
+    monkeypatch.setattr("adapters.mt3_backend.urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(TranscriptionError, match="worker crash"):
+        MT3Backend().transcribe_notes(audio)
+
+
+def test_last_provider_timing_is_per_job_not_global():
+    import adapters.mt3_backend as mt3
+
+    assert not hasattr(mt3, "_LAST_PROVIDER_TIMING")
 
 
 @pytest.mark.integration

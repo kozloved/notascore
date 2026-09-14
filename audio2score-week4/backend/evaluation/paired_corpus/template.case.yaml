@@ -1,0 +1,34 @@
+id: example_composition_take
+title: Example paired case (do not commit copyrighted audio)
+composition_id: example-work
+performance_id: example-work-take-1
+instrument: piano
+audio: input.wav
+reference:
+  kind: performed
+  midi: reference.mid
+  notes: Performed-note MIDI in seconds. Not a quantized score export.
+score:
+  musicxml: score.musicxml
+  notes: Written notation. Repeats stay as written. Do not align audio to this unexpanded form.
+alignment:
+  repeats: []
+  cuts: []
+  ornaments: []
+  expressive_timing: true
+expected:
+  meter: "4/4"
+  tempo_bpm: 120
+challenges:
+  - ornaments
+  - repeated_attacks
+tags:
+  - piano
+  - paired
+provenance:
+  source: "self-performed / licensed — fill in"
+  permitted_use: "evaluation only — fill in"
+  license: "fill in before adding audio"
+notes: >
+  Compare original transcription notes to the performed-note reference.
+  Score MusicXML is a separate notation view.

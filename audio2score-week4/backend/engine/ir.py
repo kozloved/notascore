@@ -12,6 +12,8 @@ class NoteEvidence:
     onset_sec: float
     offset_sec: float
     confidence: float = 1.0
+    score_kind: str = "unknown"
+    model_score: float | None = None
     stem_id: str = ""
     model_version: str = ""
     pitch: int | None = None

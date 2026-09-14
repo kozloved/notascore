@@ -102,6 +102,7 @@ class PerformanceSnapshot:
             source_track_id=n.track_id, source_program=n.program,
             instrument=InstrumentKind(n.instrument),
             hand_locked=n.hand_hint in ("left", "right"),
+            confidence_source="default",
         ) for n in self.notes if not n.is_drum]
 
     def write_json(self, path):
@@ -136,6 +137,8 @@ def snapshot_midi(midi, data: bytes, *, backend="midi"):
         tracks.append(SourceTrack(track, int(inst.program), inst.name, bool(inst.is_drum),
                                   tuple((float(c.time), int(c.number), int(c.value)) for c in inst.control_changes),
                                   tuple((float(b.time), int(b.pitch)) for b in inst.pitch_bends)))
+        # SourceNote.confidence=1.0 is a MIDI default, not calibrated acoustic
+        # confidence. NoteEvent.confidence_source is "default" via to_notes().
         for ni, note in enumerate(inst.notes):
             notes.append(SourceNote(f"{track}:note:{ni}", int(note.pitch), float(note.start), float(note.end),
                                     int(note.velocity), 1.0, track, int(inst.program), bool(inst.is_drum),

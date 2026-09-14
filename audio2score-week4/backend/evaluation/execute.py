@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -42,6 +44,10 @@ class CaseResult:
     artifacts: dict[str, Any] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
     preservation: dict[str, Any] = field(default_factory=dict)
+    execution: dict[str, Any] = field(default_factory=dict)
+    original_vs_reference: dict[str, Any] = field(default_factory=dict)
+    validation_delta: dict[str, Any] = field(default_factory=dict)
+    hashes: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -62,6 +68,10 @@ class CaseResult:
             "artifacts": self.artifacts,
             "tags": self.tags,
             "preservation": self.preservation,
+            "execution": self.execution,
+            "original_vs_reference": self.original_vs_reference,
+            "validation_delta": self.validation_delta,
+            "hashes": self.hashes,
             "onset_pitch_f1": (self.notes or {}).get("onset_pitch_f1"),
         }
 
@@ -81,8 +91,17 @@ def evaluate_case(
     *,
     case_out_dir: Path,
     pipeline: UnderstandingPipeline | None = None,
+    execution_path: str = "isolated",
+    mode: str = "solo",
+    pipeline_mode_name: str | None = None,
+    validation_mode: str | None = None,
 ) -> CaseResult:
-    """Run production Fast pipeline and compute evaluation metrics."""
+    """Run one case.
+
+    `isolated` uses UnderstandingPipeline directly (stage tests).
+    `production` uses engine.job_runner.run_job, the application entry point.
+    A shared `pipeline` instance is only reused when the caller passes one.
+    """
     result = CaseResult(
         case_id=case.case_id,
         split=case.split,
@@ -90,6 +109,23 @@ def evaluate_case(
         title=case.title,
         tags=list(case.tags),
     )
+    path = (execution_path or "isolated").strip().lower()
+    if path not in {"isolated", "production"}:
+        path = "isolated"
+    requested_mode = mode or "solo"
+    from modes import POLYPHONIC, parse_transcription_mode
+
+    try:
+        canonical_mode = parse_transcription_mode(requested_mode)
+    except ValueError:
+        canonical_mode = requested_mode
+    result.execution = {
+        "path": path,
+        "requested_mode": requested_mode,
+        "canonical_mode": canonical_mode,
+        "requested_pipeline_mode": pipeline_mode_name,
+        "validation_mode": validation_mode,
+    }
 
     if case.missing_audio():
         result.skip_reason = "missing input audio"
@@ -97,6 +133,24 @@ def evaluate_case(
     if case.missing_reference():
         result.skip_reason = "missing reference MIDI"
         return result
+
+    needs_mt3 = False
+    try:
+        from modes import is_polyphonic
+
+        needs_mt3 = is_polyphonic(requested_mode)
+    except ValueError:
+        needs_mt3 = requested_mode in {"polyphonic", "quality", "mt3"}
+    if needs_mt3 and pipeline is None:
+        from adapters.mt3_backend import mt3_available
+
+        if not mt3_available():
+            result.skip_reason = (
+                "live MT3 infrastructure is not configured "
+                "(set MT3_ENDPOINT or MT3_TRANSCRIBE_COMMAND)"
+            )
+            result.execution["missing_infrastructure"] = "mt3"
+            return result
 
     out = Path(case_out_dir)
     if out.exists():
@@ -117,15 +171,51 @@ def evaluate_case(
     shutil.copy2(case.reference_midi, ref_copy)
     result.reference = ref.to_dict()
 
-    pipe = pipeline or UnderstandingPipeline(mode="fast")
+    started = time.perf_counter()
+    pipe: UnderstandingPipeline | None = None
     xml = ""
+    previous_pipeline_mode = os.environ.get("NEXTGEN_PIPELINE_MODE")
+    actual_pipeline_mode = pipeline_mode_name or previous_pipeline_mode
     try:
-        xml = pipe.transcribe(audio_copy, case.case_id)
+        if path == "production":
+            if pipeline_mode_name:
+                os.environ["NEXTGEN_PIPELINE_MODE"] = pipeline_mode_name
+            from engine.flags import pipeline_mode
+            from engine.job_runner import run_job
+
+            actual_pipeline_mode = pipeline_mode()
+            xml = run_job(
+                audio_copy,
+                case.case_id,
+                mode=canonical_mode,
+                filename=audio_copy.name,
+            )
+        else:
+            if pipeline is not None:
+                pipe = pipeline
+            elif canonical_mode == POLYPHONIC:
+                pipe = UnderstandingPipeline(
+                    backend_name="mt3",
+                    mode=POLYPHONIC,
+                    validation_mode=validation_mode,
+                )
+            else:
+                pipe = UnderstandingPipeline(
+                    mode=canonical_mode,
+                    validation_mode=validation_mode,
+                )
+            xml = pipe.transcribe(audio_copy, case.case_id)
     except Exception as exc:
         result.status = "error"
         result.error = f"{type(exc).__name__}: {exc}"
+        result.execution["wall_ms"] = (time.perf_counter() - started) * 1000.0
+        result.execution["actual_pipeline_mode"] = actual_pipeline_mode
+        _restore_pipeline_mode(previous_pipeline_mode, pipeline_mode_name)
         _write_case_files(out, result, diagnostics_text=result.error or "")
         return result
+    _restore_pipeline_mode(previous_pipeline_mode, pipeline_mode_name)
+    result.execution["wall_ms"] = (time.perf_counter() - started) * 1000.0
+    result.execution["actual_pipeline_mode"] = actual_pipeline_mode
 
     job_dir = audio_copy.parent / f"bp_{case.case_id}"
     raw_midi = job_dir / f"{case.case_id}.raw.mid"
@@ -143,17 +233,32 @@ def evaluate_case(
         (out / "output.musicxml").write_text(xml, encoding="utf-8")
         musicxml_ok = True
 
-    writer = pipe.notation
-    plan = writer.last_plan
-    debug = pipe.last_debug
-    structure = pipe.last_structure
-    decision = pipe.last_meter_decision
+    writer = getattr(pipe, "notation", None) if pipe is not None else None
+    plan = getattr(writer, "last_plan", None) if writer is not None else None
+    debug = getattr(pipe, "last_debug", None) if pipe is not None else None
+    structure = getattr(pipe, "last_structure", None) if pipe is not None else None
+    decision = getattr(pipe, "last_meter_decision", None) if pipe is not None else None
+    debug_payload = {}
+    if debug_json.exists():
+        try:
+            debug_payload = json.loads(debug_json.read_text(encoding="utf-8"))
+        except Exception:
+            debug_payload = {}
+    trans_payload = {}
+    trans_json = job_dir / f"{case.case_id}.transcription.json"
+    if trans_json.exists():
+        try:
+            trans_payload = json.loads(trans_json.read_text(encoding="utf-8"))
+        except Exception:
+            trans_payload = {}
 
     predicted_meter = None
     if plan is not None:
         predicted_meter = plan.time_signature
     elif debug is not None:
         predicted_meter = debug.selected_meter
+    elif debug_payload:
+        predicted_meter = debug_payload.get("selected_meter")
 
     expected_meter = _resolve_expected_meter(case, ref)
     result.meter = meter_metrics(
@@ -172,6 +277,8 @@ def evaluate_case(
         predicted_tempo = float(debug.selected_tempo_bpm)
     elif structure is not None and structure.tempo_map is not None:
         predicted_tempo = float(structure.tempo_map.bpm_at(0.0))
+    elif debug_payload.get("selected_tempo_bpm") is not None:
+        predicted_tempo = float(debug_payload["selected_tempo_bpm"])
     result.tempo = tempo_metrics(
         predicted_bpm=predicted_tempo,
         reference_bpm=_resolve_expected_tempo(case, ref),
@@ -181,11 +288,24 @@ def evaluate_case(
     result.hands = hand_metrics(events, ref.notes)
     result.notation = notation_metrics(plan)
 
-    quantized_events = list(pipe.last_quantized_events or [])
+    quantized_events = list(getattr(pipe, "last_quantized_events", None) or [])
 
     # Final note metrics: prefer structured events (seconds), else pipeline raw.mid
     from evaluation.stages import events_to_notes
     from benchmark.note_extract import notes_from_midi
+    from mir.raw_identity import hash_file, sha256_hex
+
+    raw_notes = getattr(pipe, "last_raw_notes", None)
+    cleaned_notes = getattr(pipe, "last_cleaned_notes", None)
+    post_piano_notes = getattr(pipe, "last_post_piano_notes", None)
+    validated_notes = getattr(pipe, "last_validated_notes", None)
+    if raw_notes is None and raw_midi.exists():
+        raw_notes = notes_from_midi(raw_midi)
+    if cleaned_notes is None and validated_midi.exists():
+        cleaned_notes = notes_from_midi(validated_midi)
+        validated_notes = list(cleaned_notes)
+    if post_piano_notes is None:
+        post_piano_notes = list(cleaned_notes or [])
 
     if events and structure is not None:
         final_notes = events_to_notes(
@@ -198,42 +318,60 @@ def evaluate_case(
     else:
         final_notes = []
     result.notes = compare_stage_notes(final_notes, ref.notes)
+    result.original_vs_reference = compare_stage_notes(raw_notes or [], ref.notes)
+    result.validation_delta = {
+        "filter": (
+            getattr(pipe, "last_filter_report", None).to_dict()
+            if getattr(getattr(pipe, "last_filter_report", None), "to_dict", None)
+            else (debug_payload.get("extra") or {}).get("filter")
+        ),
+        "raw_note_count": len(raw_notes or []),
+        "filtered_note_count": (
+            len(getattr(pipe, "last_filtered_notes", None) or [])
+            if getattr(pipe, "last_filtered_notes", None) is not None
+            else None
+        ),
+        "validated_note_count": len(validated_notes or []),
+    }
+
+    extra_debug = {}
+    if debug is not None:
+        extra_debug = dict(debug.extra or {})
+    elif isinstance(debug_payload.get("extra"), dict):
+        extra_debug = dict(debug_payload.get("extra") or {})
 
     diagnostics = capture_transcription_stages(
         out_dir=out,
         reference_notes=ref.notes,
-        raw_notes=pipe.last_raw_notes,
-        cleaned_notes=pipe.last_cleaned_notes,
-        post_piano_notes=pipe.last_post_piano_notes,
+        raw_notes=raw_notes,
+        cleaned_notes=cleaned_notes,
+        post_piano_notes=post_piano_notes,
         structured_events=events,
         tempo_map=structure.tempo_map if structure is not None else None,
         tempo_bpm=predicted_tempo or ref.tempo_bpm or 120.0,
-        clean_decisions=pipe.last_clean_decisions,
+        clean_decisions=getattr(pipe, "last_clean_decisions", None),
         quantized_events=quantized_events or None,
         pipeline_info={
-            "raw_note_count": (
-                len(pipe.last_raw_notes) if pipe.last_raw_notes is not None else None
-            ),
+            "raw_note_count": len(raw_notes) if raw_notes is not None else None,
             "cleaned_note_count": (
-                len(pipe.last_cleaned_notes)
-                if pipe.last_cleaned_notes is not None
-                else None
+                len(cleaned_notes) if cleaned_notes is not None else None
             ),
             "post_piano_note_count": (
-                len(pipe.last_post_piano_notes)
-                if pipe.last_post_piano_notes is not None
-                else None
+                len(post_piano_notes) if post_piano_notes is not None else None
             ),
             "structured_note_count": len(events),
             "quantized_note_count": len(quantized_events),
             "validated_note_count": (
-                len(pipe.last_validated_notes)
-                if getattr(pipe, "last_validated_notes", None) is not None
-                else None
+                len(validated_notes) if validated_notes is not None else None
             ),
-            "stage_source": "pipeline_snapshots",
-            "validation_mode": getattr(getattr(pipe, "config", None), "validation_mode", None)
-            and pipe.config.validation_mode.value,
+            "stage_source": (
+                "pipeline_snapshots" if pipe is not None else "production_artifacts"
+            ),
+            "validation_mode": (
+                pipe.config.validation_mode.value
+                if pipe is not None and getattr(pipe, "config", None) is not None
+                else extra_debug.get("validation_mode")
+            ),
             "gemini_enabled": bool(getattr(pipe, "last_gemini_enabled", False)),
             "gemini_applied": int(getattr(pipe, "last_gemini_applied", 0)),
         },
@@ -241,58 +379,70 @@ def evaluate_case(
     result.stages = diagnostics.to_dict()
 
     result.preservation = stage_preservation_bundle(
-        raw_notes=pipe.last_raw_notes,
-        validated_notes=getattr(pipe, "last_validated_notes", None),
+        raw_notes=raw_notes,
+        validated_notes=validated_notes,
         structured_events=events,
         quantized_events=quantized_events,
         tempo_map=structure.tempo_map if structure is not None else None,
         fallback_bpm=predicted_tempo or 120.0,
     )
+    trans_result = getattr(pipe, "last_transcription_result", None)
+    actual_backend = (
+        getattr(trans_result, "actual_backend", None)
+        or extra_debug.get("backend")
+        or trans_payload.get("actual_backend")
+        or (debug.source_backend if debug is not None else None)
+    )
+    requested_backend = (
+        getattr(trans_result, "requested_backend", None)
+        or trans_payload.get("requested_backend")
+        or actual_backend
+    )
     result.pipeline = {
-        "raw_note_count": (
-            len(pipe.last_raw_notes) if pipe.last_raw_notes is not None else None
-        ),
-        "cleaned_note_count": (
-            len(pipe.last_cleaned_notes) if pipe.last_cleaned_notes is not None else None
-        ),
+        "raw_note_count": len(raw_notes) if raw_notes is not None else None,
+        "cleaned_note_count": len(cleaned_notes) if cleaned_notes is not None else None,
         "post_piano_note_count": (
-            len(pipe.last_post_piano_notes)
-            if pipe.last_post_piano_notes is not None
-            else None
+            len(post_piano_notes) if post_piano_notes is not None else None
         ),
         "structured_note_count": len(events),
         "quantized_note_count": len(quantized_events),
         "validated_note_count": (
-            len(pipe.last_validated_notes)
-            if getattr(pipe, "last_validated_notes", None) is not None
-            else None
+            len(validated_notes) if validated_notes is not None else None
         ),
-        "notation_plan_success": plan is not None and not writer.last_fallback_used,
-        "fallback_used": bool(writer.last_fallback_used),
-        "fallback_reason": writer.last_fallback_error,
-        "notation_path": (
-            (debug.extra or {}).get("notation_path") if debug else None
+        "notation_plan_success": plan is not None and not bool(
+            getattr(writer, "last_fallback_used", False)
         ),
+        "fallback_used": bool(
+            getattr(writer, "last_fallback_used", False)
+            or getattr(trans_result, "used_fallback", False)
+            or trans_payload.get("fallback_reason")
+        ),
+        "fallback_reason": (
+            getattr(writer, "last_fallback_error", None)
+            or getattr(trans_result, "fallback_reason", None)
+            or trans_payload.get("fallback_reason")
+        ),
+        "notation_path": extra_debug.get("notation_path"),
         "cleaner_suppressions": len(
             [
                 d
-                for d in (pipe.last_clean_decisions or [])
+                for d in (getattr(pipe, "last_clean_decisions", None) or [])
                 if getattr(getattr(d, "action", None), "value", d) == "suppress"
                 or getattr(d, "action", None) == "suppress"
             ]
         ),
         "musicxml_success": musicxml_ok and bool(xml),
-        "source_backend": debug.source_backend if debug else None,
+        "source_backend": actual_backend,
+        "requested_backend": requested_backend,
+        "actual_backend": actual_backend,
         "validation_mode": (
             pipe.config.validation_mode.value
-            if getattr(pipe, "config", None) is not None
-            else None
+            if pipe is not None and getattr(pipe, "config", None) is not None
+            else extra_debug.get("validation_mode")
         ),
         "gemini_enabled": bool(getattr(pipe, "last_gemini_enabled", False)),
         "gemini_applied": int(getattr(pipe, "last_gemini_applied", 0)),
-        "quantized_events_changed": (
-            (debug.extra or {}).get("quantized_events_changed") if debug else None
-        ),
+        "quantized_events_changed": extra_debug.get("quantized_events_changed"),
         "raw_event_preservation_rate": (
             (result.preservation.get("raw_vs_validated") or {}).get(
                 "raw_event_preservation_rate"
@@ -300,6 +450,10 @@ def evaluate_case(
             if result.preservation
             else None
         ),
+        "transcription_fallback_reason": trans_payload.get("fallback_reason")
+        or getattr(trans_result, "fallback_reason", None),
+        "settings": dict(getattr(trans_result, "settings", None) or trans_payload.get("settings") or {}),
+        "timings": dict(getattr(trans_result, "timings", None) or trans_payload.get("timings") or {}),
     }
 
     alias = {
@@ -348,9 +502,38 @@ def evaluate_case(
         "pipeline_debug_json": str(debug_json) if debug_json.exists() else None,
         "results_dir": str(out),
     }
+    result.hashes = {
+        "input_audio_sha256": hash_file(audio_copy) if audio_copy.exists() else None,
+        "reference_midi_sha256": hash_file(ref_copy) if ref_copy.exists() else None,
+        "raw_midi_sha256": hash_file(raw_midi) if raw_midi.exists() else None,
+        "validated_midi_sha256": hash_file(validated_midi) if validated_midi.exists() else None,
+        "output_musicxml_sha256": (
+            sha256_hex((out / "output.musicxml").read_bytes())
+            if (out / "output.musicxml").exists()
+            else None
+        ),
+    }
+    result.execution.update(
+        {
+            "actual_mode": canonical_mode,
+            "actual_pipeline_mode": result.execution.get("actual_pipeline_mode"),
+            "actual_backend": actual_backend,
+            "requested_backend": requested_backend,
+            "independent_instance": pipeline is None,
+        }
+    )
     result.status = "ran"
     _write_case_files(out, result, diagnostics_text=diagnostics.conclusion)
     return result
+
+
+def _restore_pipeline_mode(previous: str | None, requested: str | None) -> None:
+    if not requested:
+        return
+    if previous is None:
+        os.environ.pop("NEXTGEN_PIPELINE_MODE", None)
+    else:
+        os.environ["NEXTGEN_PIPELINE_MODE"] = previous
 
 
 def _write_case_files(

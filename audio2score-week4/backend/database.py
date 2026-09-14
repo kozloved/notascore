@@ -59,6 +59,9 @@ class Job(Base):
     published_attempt = Column(String, nullable=True)
     lease_expires_at = Column(String, nullable=True)
     retry_count = Column(Integer, default=0)
+    provider_job_id = Column(String, nullable=True)
+    provider_input_sha256 = Column(String, nullable=True)
+    provider_config_sha256 = Column(String, nullable=True)
 
 
 OWNERSHIP_COLUMNS = {
@@ -84,6 +87,12 @@ LEASE_COLUMNS = {
     "retry_count": "INTEGER DEFAULT 0",
 }
 
+PROVIDER_JOB_COLUMNS = {
+    "provider_job_id": "VARCHAR",
+    "provider_input_sha256": "VARCHAR",
+    "provider_config_sha256": "VARCHAR",
+}
+
 
 def init_db():
     Base.metadata.create_all(bind=engine)
@@ -92,6 +101,7 @@ def init_db():
     _ensure_score_edit_columns()
     _ensure_attempt_columns()
     _ensure_lease_columns()
+    _ensure_provider_job_columns()
 
 
 def _ensure_job_mode_column():
@@ -159,6 +169,17 @@ def _ensure_lease_columns():
     columns = {col["name"] for col in inspector.get_columns("jobs")}
     with engine.begin() as conn:
         for name, sql_type in LEASE_COLUMNS.items():
+            if name not in columns:
+                conn.execute(text(f"ALTER TABLE jobs ADD COLUMN {name} {sql_type}"))
+
+
+def _ensure_provider_job_columns():
+    inspector = inspect(engine)
+    if "jobs" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("jobs")}
+    with engine.begin() as conn:
+        for name, sql_type in PROVIDER_JOB_COLUMNS.items():
             if name not in columns:
                 conn.execute(text(f"ALTER TABLE jobs ADD COLUMN {name} {sql_type}"))
 
@@ -270,6 +291,9 @@ ALLOWED_UPDATE_FIELDS = {
     "published_attempt",
     "lease_expires_at",
     "retry_count",
+    "provider_job_id",
+    "provider_input_sha256",
+    "provider_config_sha256",
 }
 
 

@@ -88,6 +88,12 @@ class NoteEvent:
     source_track_id: str = ""
     source_program: Optional[int] = None
     instrument: InstrumentKind = InstrumentKind.UNKNOWN
+    # model_score: backend amplitude/frame score. Not a calibrated probability.
+    # confidence_source: amplitude | velocity | default | calibrated | unknown
+    # `confidence` remains for compatibility. MT3 MIDI default 1.0 is
+    # confidence_source="default" and is not proof of acoustic correctness.
+    model_score: Optional[float] = None
+    confidence_source: str = "unknown"
 
     @property
     def duration(self) -> float:
