@@ -55,11 +55,17 @@ def performance_key(case: CaseSpec) -> str | None:
     return None
 
 
-def check_split_leakage(cases: list[CaseSpec]) -> list[str]:
-    """Return warning strings when the same performance spans development and holdout."""
+def composition_key(case: CaseSpec) -> str | None:
+    """All performances of one composition must stay in a single split."""
+    if case.composition_id:
+        return f"composition:{case.composition_id}"
+    return None
+
+
+def _leakage_warnings(cases: list[CaseSpec], key_fn, *, kind: str) -> list[str]:
     by_key: dict[str, list[CaseSpec]] = {}
     for case in cases:
-        key = performance_key(case)
+        key = key_fn(case)
         if not key:
             continue
         by_key.setdefault(key, []).append(case)
@@ -69,7 +75,14 @@ def check_split_leakage(cases: list[CaseSpec]) -> list[str]:
         if "development" in splits and "holdout" in splits:
             ids = ", ".join(sorted(c.case_id for c in group))
             warnings.append(
-                f"Paired-render leakage: performance {key} appears in both "
+                f"Paired-render leakage: {kind} {key} appears in both "
                 f"development and holdout (cases: {ids})"
             )
     return warnings
+
+
+def check_split_leakage(cases: list[CaseSpec]) -> list[str]:
+    """Return warning strings when the same performance or composition spans splits."""
+    return _leakage_warnings(cases, performance_key, kind="performance") + _leakage_warnings(
+        cases, composition_key, kind="composition"
+    )
