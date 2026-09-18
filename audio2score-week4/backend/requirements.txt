@@ -2,6 +2,7 @@
 setuptools<81
 
 fastapi
+httpx
 uvicorn
 python-multipart
 python-dotenv

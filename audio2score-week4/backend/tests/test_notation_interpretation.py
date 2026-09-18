@@ -344,7 +344,6 @@ def test_eighth_grid_does_not_collapse_sixteenth_attacks():
 
 
 def test_notation_settings_api_does_not_resubmit_transcription(tmp_path):
-    pytest.importorskip("httpx")
     import uuid
 
     import database as db

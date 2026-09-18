@@ -188,7 +188,6 @@ def test_rebuild_roundtrip_changes_pitch_not_chord_mates(tmp_path):
 
 
 def test_get_edits_extracts_original(jwt_secret, tmp_path):
-    pytest.importorskip("httpx")
     xml_path = tmp_path / "clip.musicxml"
     _write_fixture_xml(xml_path)
     job = _insert_job(user_id="user-a", result_storage_key=str(xml_path))
@@ -204,7 +203,6 @@ def test_get_edits_extracts_original(jwt_secret, tmp_path):
 
 
 def test_put_edits_persists_and_serves_edited_exports(jwt_secret, tmp_path):
-    pytest.importorskip("httpx")
     xml_path = tmp_path / "clip.musicxml"
     original = _write_fixture_xml(xml_path)
     job = _insert_job(user_id="user-a", result_storage_key=str(xml_path))
@@ -268,7 +266,6 @@ def test_put_edits_persists_and_serves_edited_exports(jwt_secret, tmp_path):
 
 
 def test_reset_restores_original_files(jwt_secret, tmp_path):
-    pytest.importorskip("httpx")
     xml_path = tmp_path / "clip.musicxml"
     original = _write_fixture_xml(xml_path)
     job = _insert_job(user_id="user-a", result_storage_key=str(xml_path))
@@ -303,7 +300,6 @@ def test_reset_restores_original_files(jwt_secret, tmp_path):
 
 
 def test_unowned_score_can_be_edited_by_uuid(jwt_secret, tmp_path):
-    pytest.importorskip("httpx")
     xml_path = tmp_path / "open.musicxml"
     _write_fixture_xml(xml_path)
     job = _insert_job(result_storage_key=str(xml_path))

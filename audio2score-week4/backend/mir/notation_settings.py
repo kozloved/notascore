@@ -503,6 +503,49 @@ def parse_notation_settings(value: NotationSettings | dict | None = None) -> Not
     return NotationSettings.from_dict(value)
 
 
+CLEARABLE_SETTINGS_FIELDS = {"pickup_beats", "first_downbeat_beat", "meter", "measure_overrides"}
+PATCHABLE_SETTINGS_FIELDS = {
+    "display_grid",
+    "triplet_policy",
+    "interpretation",
+    "syncopation",
+    "overlap_handling",
+    "max_dots",
+    "algorithm_version",
+    "meter",
+    "pickup_beats",
+    "first_downbeat_beat",
+    "measure_overrides",
+}
+
+
+def merge_notation_settings(
+    current: NotationSettings | dict | None,
+    patch: dict[str, Any] | None,
+    *,
+    fields_set: Iterable[str] | None = None,
+) -> NotationSettings:
+    """Apply a partial settings patch.
+
+    Omitted fields keep the current value. Explicit null clears a supported
+    override. Explicit values replace the current value.
+    """
+    base = parse_notation_settings(current).to_dict()
+    incoming = dict(patch or {})
+    present = set(fields_set) if fields_set is not None else set(incoming.keys())
+    for name in PATCHABLE_SETTINGS_FIELDS:
+        if name not in present:
+            continue
+        value = incoming.get(name)
+        if value is None:
+            if name not in CLEARABLE_SETTINGS_FIELDS:
+                raise NotationSettingsError(f"{name} cannot be cleared.")
+            base[name] = [] if name == "measure_overrides" else None
+        else:
+            base[name] = value
+    return NotationSettings.from_dict(base)
+
+
 def notation_settings_from_meta(meta) -> NotationSettings:
     extra = getattr(meta, "extra", None) or {}
     if isinstance(extra, dict) and extra.get("notation_settings") is not None:

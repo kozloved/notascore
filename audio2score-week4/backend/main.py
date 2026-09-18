@@ -275,6 +275,63 @@ def _overlay_derived_files(job: dict) -> dict[str, str | bytes]:
     return extras
 
 
+def _baseline_identity_sidecars(
+    extras: dict[str, str | bytes],
+    *,
+    kind: str,
+) -> dict[str, str]:
+    """Label copied interpretation sidecars as baseline input, not this score."""
+    updated: dict[str, str] = {}
+    baseline = None
+    settings_raw = extras.get("notation_settings")
+    if isinstance(settings_raw, str) and settings_raw.strip():
+        try:
+            stored = json.loads(settings_raw)
+        except Exception:
+            stored = None
+        if isinstance(stored, dict):
+            baseline = (
+                stored.get("output_identity")
+                or stored.get("interpretation_context_digest")
+                or stored.get("input_identity")
+            )
+            stored["identity_role"] = "baseline_input"
+            stored["describes_published_score"] = False
+            stored["baseline_output_identity"] = baseline
+            updated["notation_settings"] = json.dumps(stored, indent=2)
+    context_raw = extras.get("interpretation")
+    if isinstance(context_raw, str) and context_raw.strip():
+        try:
+            context = json.loads(context_raw)
+        except Exception:
+            context = None
+        if isinstance(context, dict):
+            baseline = context.get("identity_digest") or baseline
+    manifest_raw = extras.get("manifest")
+    try:
+        manifest = json.loads(manifest_raw) if isinstance(manifest_raw, str) and manifest_raw.strip() else {}
+    except Exception:
+        manifest = {}
+    if not isinstance(manifest, dict):
+        manifest = {}
+    manifest.update(
+        {
+            "scope": "published_revision",
+            "kind": kind,
+            "output_artifacts": ["json", "musicxml", "midi", "corrections"],
+            "baseline_interpretation_artifacts": [
+                "notation_settings",
+                "interpretation",
+                "decisions",
+            ],
+            "describes_published_score": False,
+            "baseline_output_identity": baseline,
+        }
+    )
+    updated["manifest"] = json.dumps(manifest, indent=2)
+    return updated
+
+
 def _write_revision_bundle(
     job: dict,
     files: dict[str, str | bytes],
@@ -354,21 +411,27 @@ def _overlay_corrections(job: dict) -> tuple[list[dict] | None, str | None]:
     Returns (operations, error_message). error_message is set when the overlay
     exists but the correction bundle cannot be read.
     """
+    ops, _uncorrected, error = _overlay_correction_sidecar(job)
+    return ops, error
+
+
+def _overlay_correction_sidecar(job: dict) -> tuple[list[dict] | None, dict, str | None]:
     if not job.get("edited_result_storage_key"):
-        return [], None
+        return [], {}, None
     raw = _read_edited_sidecar(job, f"{job['id']}.corrections.json", text=True)
     if raw is None:
-        return None, "Saved note corrections are missing from this revision."
+        return None, {}, "Saved note corrections are missing from this revision."
     try:
         payload = json.loads(raw)
     except Exception:
-        return None, "Saved note corrections could not be read."
-    from mir.notation_regen import NotationEditConflict, normalize_corrections
+        return None, {}, "Saved note corrections could not be read."
+    from mir.notation_regen import NotationEditConflict, parse_corrections_sidecar
 
     try:
-        return normalize_corrections(payload), None
+        ops, uncorrected = parse_corrections_sidecar(payload)
+        return ops, uncorrected, None
     except NotationEditConflict as exc:
-        return None, str(exc)
+        return None, {}, str(exc)
 
 
 def _performance_snapshot(job: dict):
@@ -403,6 +466,33 @@ def _edits_response(job: dict, model: dict, *, has_edits: bool | None = None) ->
         "provenance": model.get("provenance"),
         "notes": model["notes"],
     }
+
+
+def _editor_notes_changed(submitted: dict, displayed: dict) -> bool:
+    """True when the editor model changed timing or identity vs the current view."""
+    current = {
+        str(row.get("source_note_id") or row.get("id") or ""): row
+        for row in (displayed or {}).get("notes") or []
+        if row.get("source_note_id") or row.get("id")
+    }
+    incoming = {
+        str(row.get("source_note_id") or row.get("id") or ""): row
+        for row in (submitted or {}).get("notes") or []
+        if row.get("source_note_id") or row.get("id")
+    }
+    if set(current) != set(incoming):
+        return True
+    for sid, row in incoming.items():
+        other = current[sid]
+        for field in ("pitch", "track", "voice", "velocity"):
+            if row.get(field) is None and other.get(field) is None:
+                continue
+            if int(row.get(field) or 0) != int(other.get(field) or 0):
+                return True
+        for field in ("start", "duration"):
+            if abs(float(row.get(field) or 0) - float(other.get(field) or 0)) > 1e-6:
+                return True
+    return False
 
 
 def _read_result_sidecar(job: dict, filename: str, *, text: bool = False):
@@ -1347,26 +1437,54 @@ def score_edits_put(
     if body.revision != current_revision:
         raise _conflict("stale_revision", STALE_REVISION)
     try:
+        from mir.notation_regen import (
+            NotationEditConflict,
+            baseline_uncorrected,
+            extract_corrections,
+        )
+
         model = parse_edits_payload(body.model_dump())
         xml_text, midi_bytes = build_musicxml_and_midi(model)
         json_text = dumps_edits(model)
         snapshot = _performance_snapshot(job)
-        if snapshot is None:
-            raise EditError("Original performance identity is missing for these corrections.")
-        from mir.notation_regen import extract_corrections, NotationEditConflict
-
-        baseline = _load_edit_model(job)
-        ops = extract_corrections(model, snapshot=snapshot, baseline=baseline)
+        displayed = _load_edit_model(job)
+        existing_ops: list[dict] = []
+        stored_uncorrected: dict = {}
+        if job.get("edited_result_storage_key"):
+            existing_ops, stored_uncorrected, corr_error = _overlay_correction_sidecar(job)
+            if corr_error:
+                raise _conflict("edit_conflict", corr_error)
+            existing_ops = existing_ops or []
+        uncorrected = baseline_uncorrected(
+            displayed=displayed,
+            existing_ops=existing_ops,
+            snapshot=snapshot,
+            stored=stored_uncorrected,
+        )
+        ops = extract_corrections(
+            model,
+            snapshot=snapshot,
+            displayed=displayed,
+            uncorrected=uncorrected,
+            existing=existing_ops,
+        )
         extras = _overlay_derived_files(job)
         extras.update(
             {
                 "json": json_text,
                 "musicxml": xml_text,
                 "midi": midi_bytes,
-                "corrections": json.dumps({"operations": ops}, indent=2),
+                "corrections": json.dumps(
+                    {"operations": ops, "uncorrected": uncorrected},
+                    indent=2,
+                ),
             }
         )
+        extras.update(_baseline_identity_sidecars(extras, kind="note_edits"))
         edited_key = _write_revision_bundle(job, extras, require_complete=False)
+        note_changed = _editor_notes_changed(model, displayed)
+    except HTTPException:
+        raise
     except NotationEditConflict as exc:
         raise HTTPException(status_code=409, detail={"code": "edit_conflict", "message": str(exc)}) from exc
     except EditError as exc:
@@ -1401,7 +1519,7 @@ def score_edits_put(
     except Exception:
         pass
     job = dict(job, edit_revision=next_revision, edited_result_storage_key=edited_key)
-    return _edits_response(job, model, has_edits=bool(ops))
+    return _edits_response(job, model, has_edits=bool(ops) or note_changed)
 
 
 @app.post("/scores/{score_id}/edits/reset")
@@ -1575,7 +1693,9 @@ def _recompute_notation_revision(
         "tempo_bpm": 120,
         "time_signature": "4/4",
     }
-    context_digest = result.context.identity_digest() if result.context else None
+    context_digest = result.output_identity or (
+        result.context.identity_digest() if result.context else None
+    )
     settings_json = json_mod.dumps(
         {
             "notation_settings": result.settings.to_dict(),
@@ -1585,14 +1705,31 @@ def _recompute_notation_revision(
             "fallback": result.fallback,
             "policy_exceptions": result.policy_exceptions,
             "interpretation_context_digest": context_digest,
+            "input_identity": result.input_identity,
+            "output_identity": result.output_identity,
+            "identity_role": "regenerated_output",
+            "describes_published_score": True,
             "corrections_digest": result.edits_digest,
         },
         indent=2,
     )
-    if result.context is not None and result.context.to_dict().get("identity_digest") != context_digest:
+    if (
+        result.context is not None
+        and result.output_identity
+        and result.output_identity != result.context.identity_digest()
+    ):
         raise _conflict(
             "missing_context",
-            "Interpretation identity does not match the stored context.",
+            "Output interpretation identity does not match the stored context.",
+        )
+    if result.cache_key != result.settings.cache_key(
+        result.midi_sha256,
+        context_digest=result.input_identity,
+        edits_digest=result.edits_digest,
+    ):
+        raise _conflict(
+            "missing_context",
+            "Notation cache identity does not match the input interpretation.",
         )
     decisions_json = json_mod.dumps(
         {"quantization_decisions": result.decisions, "quantization_summary": result.summary},
@@ -1604,7 +1741,10 @@ def _recompute_notation_revision(
         if result.context
         else None
     )
-    corrections_json = json_mod.dumps({"operations": list(corrections or [])}, indent=2)
+    corrections_json = json_mod.dumps(
+        {"operations": list(corrections or []), "uncorrected": result.uncorrected or {}},
+        indent=2,
+    )
     manifest_json = json_mod.dumps(
         {
             "scope": "published_revision",
@@ -1612,6 +1752,10 @@ def _recompute_notation_revision(
             "job_id": job_id,
             "has_note_corrections": bool(corrections),
             "interpretation_context_digest": context_digest,
+            "input_identity": result.input_identity,
+            "output_identity": result.output_identity,
+            "identity_role": "regenerated_output",
+            "describes_published_score": True,
             "corrections_digest": result.edits_digest,
             "original_result_labeled": True,
         },
@@ -1728,7 +1872,7 @@ def job_notation_settings_post(
     """Recompute derived notation. Does not resubmit audio transcription."""
     from mir.notation_settings import (
         NotationSettingsError,
-        parse_notation_settings,
+        merge_notation_settings,
         settings_for_reset,
     )
 
@@ -1741,14 +1885,20 @@ def job_notation_settings_post(
     corrections, corr_error = _overlay_corrections(job)
     if corr_error:
         raise _conflict("edit_conflict", corr_error)
-    dumped = body.model_dump()
+    fields_set = set(getattr(body, "model_fields_set", None) or getattr(body, "__fields_set__", set()))
+    if hasattr(body, "model_dump"):
+        dumped = body.model_dump(exclude_unset=True)
+    else:
+        dumped = body.dict(exclude_unset=True)
     explicit_pickup = (not body.reset) and (
-        dumped.get("pickup_beats") is not None or dumped.get("first_downbeat_beat") is not None
+        "pickup_beats" in fields_set or "first_downbeat_beat" in fields_set
     )
     try:
-        settings = settings_for_reset() if body.reset else parse_notation_settings(
-            {k: v for k, v in dumped.items() if k not in {"reset", "revision"} and v is not None}
-        )
+        if body.reset:
+            settings = settings_for_reset()
+        else:
+            current = _notation_settings_payload(job)["notation_settings"]
+            settings = merge_notation_settings(current, dumped, fields_set=fields_set)
         payload = _recompute_notation_revision(
             job,
             settings,

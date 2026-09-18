@@ -5,6 +5,7 @@ from mir.notation_settings import (
     Interpretation,
     NotationSettings,
     NotationSettingsError,
+    merge_notation_settings,
     parse_notation_settings,
 )
 import pytest
@@ -82,3 +83,34 @@ def test_pickup_and_downbeat_must_agree():
         {"meter": "4/4", "pickup_beats": 1.0, "first_downbeat_beat": 5.0}
     )
     assert settings.pickup_beats == 1.0
+
+
+def test_partial_settings_preserve_clear_and_replace():
+    current = NotationSettings.from_dict(
+        {
+            "interpretation": "literal",
+            "meter": "4/4",
+            "pickup_beats": 1.0,
+            "display_grid": "eighth",
+        }
+    )
+    preserved = merge_notation_settings(
+        current, {"display_grid": "sixteenth"}, fields_set={"display_grid"}
+    )
+    assert preserved.display_grid == DisplayGrid.SIXTEENTH
+    assert preserved.interpretation == Interpretation.LITERAL
+    assert preserved.meter == "4/4"
+    assert preserved.pickup_beats == 1.0
+    cleared = merge_notation_settings(
+        preserved, {"pickup_beats": None}, fields_set={"pickup_beats"}
+    )
+    assert cleared.pickup_beats is None
+    assert cleared.meter == "4/4"
+    replaced = merge_notation_settings(
+        cleared, {"meter": "6/8"}, fields_set={"meter"}
+    )
+    assert replaced.meter == "6/8"
+    with pytest.raises(NotationSettingsError, match="cannot be cleared"):
+        merge_notation_settings(
+            replaced, {"interpretation": None}, fields_set={"interpretation"}
+        )
