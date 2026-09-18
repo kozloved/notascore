@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from contextlib import asynccontextmanager
 from pathlib import Path
 from pydantic import BaseModel, Field
+import json
 import os
 import uuid
 
@@ -408,6 +409,22 @@ class ScoreResetIn(BaseModel):
     revision: int | None = Field(default=None, ge=0)
 
 
+class NotationSettingsIn(BaseModel):
+    display_grid: str | None = None
+    triplet_policy: str | None = None
+    interpretation: str | None = None
+    syncopation: str | None = None
+    overlap_handling: str | None = None
+    max_dots: int | None = Field(default=None, ge=0, le=3)
+    algorithm_version: str | None = None
+    meter: str | None = None
+    pickup_beats: float | None = Field(default=None, ge=0, le=16)
+    first_downbeat_beat: float | None = Field(default=None, ge=0, le=10000)
+    measure_overrides: list[dict] | None = None
+    reset: bool = False
+    revision: int | None = Field(default=None, ge=0)
+
+
 @app.get("/health")
 def health():
     from adapters.basic_pitch_backend import basic_pitch_settings
@@ -415,7 +432,11 @@ def health():
     from audio_engine.beat_tracker import beat_status
     from engine.flags import nextgen_status
     from intelligence.config import gemini_status
-    from mir.pipeline_config import inspect_hand_separator_env, load_pipeline_config
+    from mir.pipeline_config import (
+        inspect_hand_separator_env,
+        inspect_quantization_env,
+        load_pipeline_config,
+    )
     from mir.pm2s_hands import pm2s_status
 
     bp = basic_pitch_settings()
@@ -423,6 +444,7 @@ def health():
     gemini = gemini_status()
     poly_available = bool(mt3["available"])
     hands = inspect_hand_separator_env()
+    quant = inspect_quantization_env()
     try:
         cfg = load_pipeline_config()
         cfg_error = None
@@ -433,10 +455,13 @@ def health():
         cfg = PipelineConfig()
         cfg_error = str(exc)
     pipeline_config = {
-        "valid": bool(hands["valid"] and cfg_error is None),
-        "error": hands["error"] or cfg_error,
-        "warning": hands["warning"],
+        "valid": bool(hands["valid"] and quant["valid"] and cfg_error is None),
+        "error": hands["error"] or quant["error"] or cfg_error,
+        "warning": hands["warning"] or quant["warning"],
         "effective_hand_separator": hands["effective_hand_separator"],
+        "requested_quantization_mode": quant["requested_quantization_mode"],
+        "effective_quantization_mode": quant["effective_quantization_mode"],
+        "quantization_mode_fallback": quant["quantization_mode_fallback"],
     }
     return {
         "status": "ok",
@@ -452,6 +477,10 @@ def health():
         "pipeline_fallback": os.getenv("TRANSCRIPTION_PIPELINE_FALLBACK", "1"),
         "validation_mode": cfg.validation_mode.value,
         "quantization_mode": cfg.quantization_mode.value,
+        "requested_quantization_mode": (cfg.extra or {}).get(
+            "requested_quantization_mode", cfg.quantization_mode.value
+        ),
+        "quantization_mode_fallback": (cfg.extra or {}).get("quantization_mode_fallback"),
         "hand_separator": cfg.hand_separator.value,
         "pipeline_config": pipeline_config,
         "enable_gemini": cfg.enable_gemini,
@@ -769,6 +798,7 @@ def job_result(
         "manifest": (f"{job_id}.manifest.json", "application/json"),
         "provenance": (f"{job_id}.provenance.json", "application/json"),
         "tempo": (f"{job_id}.tempo.json", "application/json"),
+        "notation_settings": (f"{job_id}.notation_settings.json", "application/json"),
     }
 
     if fmt not in ("musicxml", "midi", "midi_score") and fmt not in extra_formats:
@@ -776,7 +806,8 @@ def job_result(
             status_code=400,
             detail=(
                 "Unsupported format. Use 'musicxml', 'midi', 'midi_score', "
-                "'fused_midi', 'fused_json', 'manifest', 'provenance', or 'tempo'."
+                "'fused_midi', 'fused_json', 'manifest', 'provenance', "
+                "'tempo', or 'notation_settings'."
             ),
         )
 
@@ -1190,6 +1221,198 @@ def score_edits_reset(
         pass
     restored_job = dict(job, edited_result_storage_key=None, edit_revision=expected_revision + 1)
     return _edits_response(restored_job, model, has_edits=False)
+
+
+def _notation_settings_payload(job: dict) -> dict:
+    from mir.notation_settings import default_notation_settings
+
+    settings = default_notation_settings()
+    storage_backend = storage_service.get_storage()
+    raw = None
+    if job.get("result_storage_key"):
+        raw = _load_result_artifact_bytes(
+            storage_backend,
+            job["id"],
+            job["result_storage_key"],
+            f"{job['id']}.notation_settings.json",
+        )
+    if raw:
+        try:
+            stored = json.loads(raw.decode("utf-8"))
+            from mir.notation_settings import parse_notation_settings
+
+            settings = parse_notation_settings(stored.get("notation_settings") or stored)
+            return {
+                "notation_settings": settings.to_dict(),
+                "algorithm_version": settings.algorithm_version,
+                "notation_cache_key": stored.get("notation_cache_key") or settings.cache_key(),
+                "midi_sha256": stored.get("midi_sha256"),
+            }
+        except Exception:
+            pass
+    return {
+        "notation_settings": settings.to_dict(),
+        "algorithm_version": settings.algorithm_version,
+        "notation_cache_key": settings.cache_key(),
+        "midi_sha256": None,
+    }
+
+
+@app.get("/jobs/{job_id}/notation-settings")
+def job_notation_settings_get(
+    job_id: str,
+    authorization: str | None = Header(default=None),
+):
+    job = _visible_job(job_id, authorization)
+    if job.get("status") != "completed":
+        raise HTTPException(status_code=409, detail="Job is not completed yet")
+    return _notation_settings_payload(job)
+
+
+@app.post("/jobs/{job_id}/notation-settings")
+def job_notation_settings_post(
+    job_id: str,
+    body: NotationSettingsIn,
+    authorization: str | None = Header(default=None),
+):
+    """Recompute derived notation. Does not resubmit audio transcription."""
+    import json as json_mod
+
+    from mir.notation_settings import (
+        NotationSettingsError,
+        parse_notation_settings,
+        settings_for_reset,
+    )
+    from mir.notation_regen import recompute_notation
+    from mir.performance import PerformanceSnapshot
+
+    job = _editor_job(job_id, authorization)
+    if job.get("status") != "completed":
+        raise HTTPException(status_code=409, detail="Job is not completed yet")
+    current_revision = int(job.get("edit_revision") or 0)
+    if body.revision is not None and int(body.revision) != current_revision:
+        raise HTTPException(
+            status_code=409,
+            detail="This score was updated elsewhere. Reload and try again.",
+        )
+    storage_backend = storage_service.get_storage()
+    result_key = job.get("result_storage_key")
+    raw_midi = _load_result_artifact_bytes(
+        storage_backend, job_id, result_key, f"{job_id}.raw.mid"
+    )
+    if not raw_midi:
+        raise HTTPException(
+            status_code=409,
+            detail="Original performance MIDI is not available for reinterpretation.",
+        )
+    snap_bytes = _load_result_artifact_bytes(
+        storage_backend, job_id, result_key, f"{job_id}.performance.json"
+    )
+    debug_bytes = _load_result_artifact_bytes(
+        storage_backend, job_id, result_key, f"{job_id}.debug.json"
+    )
+    performance = None
+    if snap_bytes:
+        import tempfile
+        from pathlib import Path as _Path
+
+        with tempfile.NamedTemporaryFile(suffix=".json") as handle:
+            handle.write(snap_bytes)
+            handle.flush()
+            performance = PerformanceSnapshot.read_json(_Path(handle.name))
+    prior = None
+    if debug_bytes:
+        try:
+            debug = json_mod.loads(debug_bytes.decode("utf-8"))
+            extra = debug.get("extra") or debug
+            rows = extra.get("quantization_decisions")
+            if isinstance(rows, list):
+                prior = rows
+        except Exception:
+            prior = None
+    try:
+        settings = settings_for_reset() if body.reset else parse_notation_settings(
+            {k: v for k, v in body.model_dump().items() if k not in {"reset", "revision"} and v is not None}
+        )
+        result = recompute_notation(
+            midi_bytes=raw_midi,
+            settings=settings,
+            performance=performance,
+            prior_decisions=prior,
+        )
+    except NotationSettingsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Could not recompute notation from the original performance.",
+        ) from exc
+
+    stored_result_key = result_key
+    settings_json = json_mod.dumps(
+        {
+            "notation_settings": result.settings.to_dict(),
+            "algorithm_version": result.settings.algorithm_version,
+            "notation_cache_key": result.cache_key,
+            "midi_sha256": result.midi_sha256,
+        },
+        indent=2,
+    )
+    try:
+        if getattr(storage_backend, "backend", "") == "local" and result_key:
+            xml_path = Path(result_key)
+            xml_path.write_text(result.musicxml, encoding="utf-8")
+            (xml_path.parent / f"{job_id}.notation_settings.json").write_text(
+                settings_json + "\n", encoding="utf-8"
+            )
+        else:
+            stored_result_key = storage_backend.save_text(
+                result_key,
+                result.musicxml,
+                content_type="application/vnd.recordare.musicxml+xml",
+            )
+            sidecar = storage_backend.result_sidecar_key(
+                stored_result_key, f"{job_id}.notation_settings.json"
+            )
+            storage_backend.save_text(
+                sidecar,
+                settings_json,
+                content_type="application/json",
+            )
+    except Exception:
+        pass
+    previous_key = job.get("edited_result_storage_key")
+    published = db.cas_update_job(
+        job_id,
+        expected={"edit_revision": current_revision},
+        edited_result_storage_key=None,
+        edit_revision=current_revision + 1,
+    )
+    if not published:
+        raise HTTPException(
+            status_code=409,
+            detail="This score was updated elsewhere. Reload and try again.",
+        )
+    try:
+        from lifecycle import schedule_edit_bundle_gc, sweep_artifact_gc
+
+        schedule_edit_bundle_gc(job_id, previous_key)
+        sweep_artifact_gc(storage_backend)
+    except Exception:
+        pass
+    return {
+        "job_id": job_id,
+        "transcribed": False,
+        "edit_revision": current_revision + 1,
+        "has_edits": False,
+        "notation_settings": result.settings.to_dict(),
+        "algorithm_version": result.settings.algorithm_version,
+        "notation_cache_key": result.cache_key,
+        "midi_sha256": result.midi_sha256,
+        "source_note_count": result.source_note_count,
+    }
 
 
 @app.patch("/scores/{score_id}")

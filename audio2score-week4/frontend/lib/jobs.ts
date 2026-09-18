@@ -154,6 +154,55 @@ export async function resetScoreEdits(
   return (await response.json()) as ScoreEditsPayload;
 }
 
+export type NotationSettings = {
+  display_grid: "auto" | "eighth" | "sixteenth" | "thirty-second";
+  triplet_policy: "auto" | "enabled" | "disabled";
+  interpretation: "literal" | "readable";
+  syncopation: "preserve" | "show_meter";
+  overlap_handling: "preserve" | "contextual";
+  max_dots: number;
+  algorithm_version: string;
+  meter: string | null;
+  pickup_beats: number | null;
+  first_downbeat_beat: number | null;
+  measure_overrides: Record<string, unknown>[];
+};
+
+export type NotationSettingsPayload = {
+  notation_settings: NotationSettings;
+  algorithm_version: string;
+  notation_cache_key: string;
+  midi_sha256?: string | null;
+  transcribed?: boolean;
+  edit_revision?: number;
+};
+
+export async function getNotationSettings(id: string): Promise<NotationSettingsPayload> {
+  const response = await apiFetch(`${API_URL}/jobs/${id}/notation-settings`);
+  if (!response.ok) {
+    throw new Error(await readError(response, "Could not load notation settings"));
+  }
+  return (await response.json()) as NotationSettingsPayload;
+}
+
+export async function saveNotationSettings(
+  id: string,
+  body: Partial<NotationSettings> & { reset?: boolean; revision?: number }
+): Promise<NotationSettingsPayload> {
+  const response = await apiFetch(`${API_URL}/jobs/${id}/notation-settings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new ApiRequestError(
+      await readError(response, "Could not update notation"),
+      response.status
+    );
+  }
+  return (await response.json()) as NotationSettingsPayload;
+}
+
 export async function attachAccountScores(): Promise<void> {
   const pending = consumePendingClaim();
   if (pending?.token) {
