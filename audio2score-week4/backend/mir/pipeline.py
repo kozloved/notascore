@@ -1104,28 +1104,6 @@ class UnderstandingPipeline:
             json.dumps(metrics, indent=2) + "\n",
             encoding="utf-8",
         )
-        (out_dir / f"{job_id}.notation_settings.json").write_text(
-            json.dumps(
-                {
-                    "notation_settings": self.notation_settings.to_dict(),
-                    "algorithm_version": self.notation_settings.algorithm_version,
-                    "notation_cache_key": self.notation_settings.cache_key(
-                        getattr(self.last_performance_snapshot, "midi_sha256", None)
-                    ),
-                    "quantization_mode": self.config.quantization_mode.value,
-                    "requested_quantization_mode": (self.config.extra or {}).get(
-                        "requested_quantization_mode",
-                        self.config.quantization_mode.value,
-                    ),
-                    "quantization_mode_fallback": (self.config.extra or {}).get(
-                        "quantization_mode_fallback"
-                    ),
-                },
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
         if payload.get("fallback_used"):
             print(
                 "[Notation] debug: fallback to legacy build_score "
@@ -1154,6 +1132,7 @@ class UnderstandingPipeline:
         elif self.last_musical_time_map is not None:
             time_map = self.last_musical_time_map
         if time_map is None:
+            self._write_notation_settings_sidecar(job_id, out_dir, context_digest=None)
             return
         if not isinstance(time_map, MusicalTimeMap):
             duration = max(
@@ -1267,6 +1246,38 @@ class UnderstandingPipeline:
             source_backend=getattr(snapshot, "source_backend", "") or "",
         )
         context.write_json(out_dir / f"{job_id}.interpretation_context.json")
+        self._write_notation_settings_sidecar(
+            job_id, out_dir, context_digest=context.identity_digest()
+        )
+
+    def _write_notation_settings_sidecar(
+        self, job_id: str, out_dir: Path, *, context_digest: str | None
+    ) -> None:
+        midi_sha = getattr(self.last_performance_snapshot, "midi_sha256", None)
+        (out_dir / f"{job_id}.notation_settings.json").write_text(
+            json.dumps(
+                {
+                    "notation_settings": self.notation_settings.to_dict(),
+                    "algorithm_version": self.notation_settings.algorithm_version,
+                    "notation_cache_key": self.notation_settings.cache_key(
+                        midi_sha, context_digest=context_digest
+                    ),
+                    "midi_sha256": midi_sha,
+                    "interpretation_context_digest": context_digest,
+                    "quantization_mode": self.config.quantization_mode.value,
+                    "requested_quantization_mode": (self.config.extra or {}).get(
+                        "requested_quantization_mode",
+                        self.config.quantization_mode.value,
+                    ),
+                    "quantization_mode_fallback": (self.config.extra or {}).get(
+                        "quantization_mode_fallback"
+                    ),
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
 
     def _publish_job(
         self,
