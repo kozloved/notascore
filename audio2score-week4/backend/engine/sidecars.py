@@ -22,6 +22,7 @@ CORE_SIDECARS = (
     ("manifest.json", "application/json"),
     ("debug.json", "application/json"),
     ("interpretation.json", "application/json"),
+    ("interpretation_context.json", "application/json"),
     ("notation_settings.json", "application/json"),
 )
 
@@ -57,6 +58,7 @@ def extra_result_files(out_dir: str | Path, job_id: str) -> list[Path]:
         f"{job_id}.performance.json",
         f"{job_id}.debug.json",
         f"{job_id}.interpretation.json",
+        f"{job_id}.interpretation_context.json",
         f"{job_id}.notation_settings.json",
         f"{job_id}_norm.wav",
     )

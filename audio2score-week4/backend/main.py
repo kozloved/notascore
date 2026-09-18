@@ -34,7 +34,7 @@ from score_edits import (
     parse_edits_payload,
     time_map_from_tempo_payload,
 )
-from publishing import edit_bundle_keys
+from publishing import edit_bundle_keys, validate_revision_bundle
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 RESULTS_DIR = Path(os.getenv("RESULTS_DIR", "results"))
@@ -245,26 +245,96 @@ def _read_edited_sidecar(job: dict, filename: str, *, text: bool = False):
 
 
 def _write_edited_sidecars(job: dict, json_text: str, musicxml_text: str, midi_bytes: bytes) -> str:
+    extras = _overlay_derived_files(job)
+    extras.update(
+        {
+            "json": json_text,
+            "musicxml": musicxml_text,
+            "midi": midi_bytes,
+        }
+    )
+    return _write_revision_bundle(job, extras, require_complete=False)
+
+
+def _overlay_derived_files(job: dict) -> dict[str, str | bytes]:
+    """Copy notation sidecars from the currently published overlay, if any."""
+    extras: dict[str, str | bytes] = {}
+    mapping = {
+        "notation_settings": f"{job['id']}.notation_settings.json",
+        "decisions": f"{job['id']}.notation_decisions.json",
+        "interpretation": f"{job['id']}.interpretation_context.json",
+    }
+    for logical, filename in mapping.items():
+        payload = _read_edited_sidecar(job, filename, text=True)
+        if payload:
+            extras[logical] = payload
+    return extras
+
+
+def _write_revision_bundle(
+    job: dict,
+    files: dict[str, str | bytes],
+    *,
+    require_complete: bool = True,
+) -> str:
+    """Write an unpublished edit bundle. Never touches the published pointer."""
+    if require_complete:
+        validate_revision_bundle(files)
     storage_backend = storage_service.get_storage()
     job_id = job["id"]
     bundle_id = uuid.uuid4().hex
     keys = edit_bundle_keys(job_id, bundle_id)
-    if storage_backend.backend == "local":
-        parent = Path(job["result_storage_key"]).parent / f"{job_id}.edits" / bundle_id
-        parent.mkdir(parents=True, exist_ok=True)
-        (parent / Path(keys["json"]).name).write_text(json_text, encoding="utf-8")
-        xml_path = parent / Path(keys["musicxml"]).name
-        xml_path.write_text(musicxml_text, encoding="utf-8")
-        (parent / Path(keys["midi"]).name).write_bytes(midi_bytes)
-        return str(xml_path)
-    storage_backend.save_text(keys["json"], json_text, content_type="application/json")
-    storage_backend.save_text(
-        keys["musicxml"],
-        musicxml_text,
-        content_type="application/vnd.recordare.musicxml+xml",
-    )
-    storage_backend.save_bytes(keys["midi"], midi_bytes, content_type="audio/midi")
-    return keys["musicxml"]
+    content_types = {
+        "json": "application/json",
+        "musicxml": "application/vnd.recordare.musicxml+xml",
+        "midi": "audio/midi",
+        "notation_settings": "application/json",
+        "decisions": "application/json",
+        "interpretation": "application/json",
+        "manifest": "application/json",
+    }
+    written: list[str] = []
+    try:
+        if storage_backend.backend == "local":
+            parent = Path(job["result_storage_key"]).parent / f"{job_id}.edits" / bundle_id
+            parent.mkdir(parents=True, exist_ok=True)
+            xml_path = None
+            for logical, payload in files.items():
+                if logical not in keys or payload is None:
+                    continue
+                dest = parent / Path(keys[logical]).name
+                if isinstance(payload, bytes):
+                    dest.write_bytes(payload)
+                else:
+                    dest.write_text(payload if str(payload).endswith("\n") else str(payload) + "\n", encoding="utf-8")
+                written.append(str(dest))
+                if logical == "musicxml":
+                    xml_path = dest
+            if xml_path is None:
+                raise ValueError("incomplete revision bundle: missing musicxml")
+            return str(xml_path)
+        musicxml_key = None
+        for logical, payload in files.items():
+            if logical not in keys or payload is None:
+                continue
+            ctype = content_types.get(logical, "application/octet-stream")
+            if isinstance(payload, bytes):
+                storage_backend.save_bytes(keys[logical], payload, content_type=ctype)
+            else:
+                storage_backend.save_text(keys[logical], payload, content_type=ctype)
+            written.append(keys[logical])
+            if logical == "musicxml":
+                musicxml_key = keys[logical]
+        if musicxml_key is None:
+            raise ValueError("incomplete revision bundle: missing musicxml")
+        return musicxml_key
+    except Exception:
+        try:
+            if hasattr(storage_backend, "gc_edit_bundle") and written:
+                storage_backend.gc_edit_bundle(written[0], job_id)
+        except Exception:
+            pass
+        raise
 
 
 def _edits_response(job: dict, model: dict, *, has_edits: bool | None = None) -> dict:
@@ -848,9 +918,13 @@ def job_result(
 
     if fmt in extra_formats:
         filename, media_type = extra_formats[fmt]
-        payload = _load_result_artifact_bytes(
-            storage_backend, job_id, result_storage_key, filename
-        )
+        payload = None
+        if fmt == "notation_settings" and edited_key:
+            payload = _read_edited_sidecar(job, filename, text=False)
+        if not payload:
+            payload = _load_result_artifact_bytes(
+                storage_backend, job_id, result_storage_key, filename
+            )
         if not payload:
             raise HTTPException(status_code=404, detail=f"{filename} is not available")
         return Response(
@@ -1227,18 +1301,20 @@ def _notation_settings_payload(job: dict) -> dict:
     from mir.notation_settings import default_notation_settings
 
     settings = default_notation_settings()
-    storage_backend = storage_service.get_storage()
-    raw = None
-    if job.get("result_storage_key"):
-        raw = _load_result_artifact_bytes(
+    stored = None
+    raw = _read_edited_sidecar(job, f"{job['id']}.notation_settings.json", text=True)
+    if not raw and job.get("result_storage_key"):
+        storage_backend = storage_service.get_storage()
+        blob = _load_result_artifact_bytes(
             storage_backend,
             job["id"],
             job["result_storage_key"],
             f"{job['id']}.notation_settings.json",
         )
+        raw = blob.decode("utf-8") if blob else None
     if raw:
         try:
-            stored = json.loads(raw.decode("utf-8"))
+            stored = json.loads(raw)
             from mir.notation_settings import parse_notation_settings
 
             settings = parse_notation_settings(stored.get("notation_settings") or stored)
@@ -1247,6 +1323,8 @@ def _notation_settings_payload(job: dict) -> dict:
                 "algorithm_version": settings.algorithm_version,
                 "notation_cache_key": stored.get("notation_cache_key") or settings.cache_key(),
                 "midi_sha256": stored.get("midi_sha256"),
+                "fallback": stored.get("fallback"),
+                "policy_exceptions": stored.get("policy_exceptions") or [],
             }
         except Exception:
             pass
@@ -1255,6 +1333,8 @@ def _notation_settings_payload(job: dict) -> dict:
         "algorithm_version": settings.algorithm_version,
         "notation_cache_key": settings.cache_key(),
         "midi_sha256": None,
+        "fallback": None,
+        "policy_exceptions": [],
     }
 
 
@@ -1278,13 +1358,19 @@ def job_notation_settings_post(
     """Recompute derived notation. Does not resubmit audio transcription."""
     import json as json_mod
 
+    from mir.interpretation_context import (
+        FALLBACK_MISSING,
+        InterpretationContextError,
+        load_context_payload,
+    )
     from mir.notation_settings import (
         NotationSettingsError,
         parse_notation_settings,
         settings_for_reset,
     )
-    from mir.notation_regen import recompute_notation
+    from mir.notation_regen import NotationEditConflict, recompute_notation
     from mir.performance import PerformanceSnapshot
+    from score_edits import dumps_edits, loads_edits
 
     job = _editor_job(job_id, authorization)
     if job.get("status") != "completed":
@@ -1311,6 +1397,14 @@ def job_notation_settings_post(
     debug_bytes = _load_result_artifact_bytes(
         storage_backend, job_id, result_key, f"{job_id}.debug.json"
     )
+    context_bytes = _read_edited_sidecar(
+        job, f"{job_id}.interpretation_context.json", text=False
+    ) or _load_result_artifact_bytes(
+        storage_backend, job_id, result_key, f"{job_id}.interpretation_context.json"
+    )
+    tempo_bytes = _load_result_artifact_bytes(
+        storage_backend, job_id, result_key, f"{job_id}.tempo.json"
+    )
     performance = None
     if snap_bytes:
         import tempfile
@@ -1330,6 +1424,37 @@ def job_notation_settings_post(
                 prior = rows
         except Exception:
             prior = None
+    tempo_payload = None
+    if tempo_bytes:
+        try:
+            tempo_payload = json_mod.loads(tempo_bytes.decode("utf-8"))
+        except Exception:
+            tempo_payload = None
+    try:
+        context, context_status = load_context_payload(
+            context_bytes,
+            tempo_payload=tempo_payload,
+            midi_sha256=getattr(performance, "midi_sha256", None),
+            source_backend=getattr(performance, "source_backend", "") or "",
+            layout_decisions=tuple(prior) if isinstance(prior, list) else (),
+        )
+    except InterpretationContextError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if context is None and context_status == FALLBACK_MISSING:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This score is missing production interpretation context. "
+                "Refusing to silently re-estimate tempo from raw MIDI."
+            ),
+        )
+    existing_edits = None
+    edits_raw = _read_edited_sidecar(job, f"{job_id}.edits.json", text=True)
+    if edits_raw:
+        try:
+            existing_edits = loads_edits(edits_raw)
+        except Exception:
+            existing_edits = None
     try:
         settings = settings_for_reset() if body.reset else parse_notation_settings(
             {k: v for k, v in body.model_dump().items() if k not in {"reset", "revision"} and v is not None}
@@ -1339,9 +1464,16 @@ def job_notation_settings_post(
             settings=settings,
             performance=performance,
             prior_decisions=prior,
+            context=context,
+            edits=existing_edits,
+            fallback=context_status,
         )
+    except NotationEditConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except NotationSettingsError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except InterpretationContextError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -1350,47 +1482,59 @@ def job_notation_settings_post(
             detail="Could not recompute notation from the original performance.",
         ) from exc
 
-    stored_result_key = result_key
+    editor_model = result.editor_model
+    if editor_model is None:
+        editor_model = existing_edits or {"notes": [], "tempo_bpm": 120, "time_signature": "4/4"}
     settings_json = json_mod.dumps(
         {
             "notation_settings": result.settings.to_dict(),
             "algorithm_version": result.settings.algorithm_version,
             "notation_cache_key": result.cache_key,
             "midi_sha256": result.midi_sha256,
+            "fallback": result.fallback,
+            "policy_exceptions": result.policy_exceptions,
+            "interpretation_context_digest": (
+                result.context.identity_digest() if result.context else None
+            ),
         },
         indent=2,
     )
+    decisions_json = json_mod.dumps(
+        {"quantization_decisions": result.decisions, "quantization_summary": result.summary},
+        indent=2,
+        default=str,
+    )
+    context_json = json_mod.dumps(result.context.to_dict(), indent=2) if result.context else None
+    bundle_files = {
+        "json": dumps_edits(editor_model),
+        "musicxml": result.musicxml,
+        "midi": result.score_midi,
+        "notation_settings": settings_json,
+        "decisions": decisions_json,
+    }
+    if context_json:
+        bundle_files["interpretation"] = context_json
     try:
-        if getattr(storage_backend, "backend", "") == "local" and result_key:
-            xml_path = Path(result_key)
-            xml_path.write_text(result.musicxml, encoding="utf-8")
-            (xml_path.parent / f"{job_id}.notation_settings.json").write_text(
-                settings_json + "\n", encoding="utf-8"
-            )
-        else:
-            stored_result_key = storage_backend.save_text(
-                result_key,
-                result.musicxml,
-                content_type="application/vnd.recordare.musicxml+xml",
-            )
-            sidecar = storage_backend.result_sidecar_key(
-                stored_result_key, f"{job_id}.notation_settings.json"
-            )
-            storage_backend.save_text(
-                sidecar,
-                settings_json,
-                content_type="application/json",
-            )
-    except Exception:
-        pass
+        edited_key = _write_revision_bundle(job, bundle_files, require_complete=True)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Could not store the regenerated score.",
+        ) from exc
+
     previous_key = job.get("edited_result_storage_key")
     published = db.cas_update_job(
         job_id,
         expected={"edit_revision": current_revision},
-        edited_result_storage_key=None,
+        edited_result_storage_key=edited_key,
         edit_revision=current_revision + 1,
     )
     if not published:
+        try:
+            if hasattr(storage_backend, "gc_edit_bundle"):
+                storage_backend.gc_edit_bundle(edited_key, job_id)
+        except Exception:
+            pass
         raise HTTPException(
             status_code=409,
             detail="This score was updated elsewhere. Reload and try again.",
@@ -1398,20 +1542,25 @@ def job_notation_settings_post(
     try:
         from lifecycle import schedule_edit_bundle_gc, sweep_artifact_gc
 
-        schedule_edit_bundle_gc(job_id, previous_key)
+        schedule_edit_bundle_gc(job_id, previous_key, keep_key=edited_key)
         sweep_artifact_gc(storage_backend)
     except Exception:
         pass
+    has_note_edits = bool(existing_edits) and not body.reset
+    if body.reset:
+        has_note_edits = bool(existing_edits)
     return {
         "job_id": job_id,
         "transcribed": False,
         "edit_revision": current_revision + 1,
-        "has_edits": False,
+        "has_edits": has_note_edits,
         "notation_settings": result.settings.to_dict(),
         "algorithm_version": result.settings.algorithm_version,
         "notation_cache_key": result.cache_key,
         "midi_sha256": result.midi_sha256,
         "source_note_count": result.source_note_count,
+        "fallback": result.fallback,
+        "policy_exceptions": result.policy_exceptions,
     }
 
 

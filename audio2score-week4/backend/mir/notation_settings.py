@@ -380,11 +380,19 @@ class NotationSettings:
         """Stable subset used for notation cache identity."""
         return self.to_dict()
 
-    def cache_key(self, midi_sha256: str | None = None) -> str:
+    def cache_key(
+        self,
+        midi_sha256: str | None = None,
+        *,
+        context_digest: str | None = None,
+        edits_digest: str | None = None,
+    ) -> str:
         blob = json.dumps(
             {
                 "midi_sha256": midi_sha256 or "",
                 "settings": self.identity_payload(),
+                "interpretation_context": context_digest or "",
+                "edits": edits_digest or "",
             },
             sort_keys=True,
             separators=(",", ":"),

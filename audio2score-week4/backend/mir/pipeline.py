@@ -344,12 +344,20 @@ class UnderstandingPipeline:
                 original, actual_backend
             )
             write_job_stage_midi(raw_path, original, bpm=120.0, split_hands=False)
+            saved_raw = raw_path.read_bytes()
+            self.last_performance_snapshot = (
+                self.last_performance_snapshot.with_midi_identity(saved_raw)
+            )
             provider_sha = None
         self.last_raw_identity = record_saved_raw(
             raw_path, provider_raw_sha256=provider_sha
         )
-        if source_bytes is not None:
-            self.last_performance_snapshot.verify_midi(source_bytes)
+        saved_raw = raw_path.read_bytes()
+        if self.last_performance_snapshot.midi_sha256 is None:
+            self.last_performance_snapshot = (
+                self.last_performance_snapshot.with_midi_identity(saved_raw)
+            )
+        self.last_performance_snapshot.verify_midi(saved_raw)
         self.last_performance_snapshot.write_json(out_dir / f"{job_id}.performance.json")
         self._write_transcription_diagnostics(out_dir, job_id, transcription)
 
@@ -1097,6 +1105,112 @@ class UnderstandingPipeline:
                 f"({payload.get('notation_fallback_error')})"
             )
         self.last_debug.write_json(out_dir / f"{job_id}.debug.json")
+        self._write_interpretation_context(job_id, out_dir)
+
+    def _write_interpretation_context(self, job_id: str, out_dir: Path) -> None:
+        """Persist the seconds-to-score-beats map used to build this score."""
+        from mir.interpretation_context import InterpretationContext
+        from timing.tempo_map import MusicalTimeMap
+
+        def _ctx_float(value):
+            if value is None or value == "":
+                return None
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        timing = self.last_timing
+        time_map = None
+        if timing is not None:
+            time_map = timing.time_map
+        elif self.last_musical_time_map is not None:
+            time_map = self.last_musical_time_map
+        if time_map is None:
+            return
+        if not isinstance(time_map, MusicalTimeMap):
+            duration = max(
+                (float(getattr(n, "end_time", 0.0) or 0.0) for n in (self.last_raw_notes or [])),
+                default=4.0,
+            )
+            time_map = MusicalTimeMap.from_tempo_map(time_map, duration_sec=max(duration, 1.0))
+        snapshot = self.last_performance_snapshot
+        snapshot_ids = [n.note_id for n in snapshot.notes] if snapshot is not None else []
+        accepted = [
+            ev.note_id for ev in (self.last_quantized_events or []) if getattr(ev, "note_id", None)
+        ]
+        if not accepted:
+            accepted = [
+                n.note_id for n in (self.last_validated_notes or self.last_raw_notes or [])
+                if getattr(n, "note_id", None)
+            ]
+        excluded = [ident for ident in snapshot_ids if ident not in set(accepted)]
+        pickup = dict(self.last_pickup or {})
+        choice = dict(self.last_interpretation_choice or {})
+        meter = None
+        if self.last_meter_decision is not None:
+            meter = self.last_meter_decision.meter
+        key_name = "C"
+        plan = getattr(self.notation, "last_plan", None)
+        if plan is not None and getattr(plan, "key_signature", None):
+            key_name = str(plan.key_signature)
+        instrument = "piano"
+        if getattr(self, "last_structure", None) is not None:
+            inst = getattr(self.last_structure, "instrument", None)
+            if inst is not None:
+                instrument = getattr(inst, "value", str(inst))
+        printed = []
+        playback = []
+        if timing is not None:
+            printed = [
+                {"beat": m.beat, "bpm": m.bpm, "mark": m.mark, "reason": m.reason}
+                for m in (timing.printed or [])
+            ]
+            playback = [
+                {"beat": beat, "bpm": bpm} for beat, bpm in timing.time_map.interval_bpms()
+            ]
+        pedal = []
+        extra = (getattr(getattr(self, "last_structure", None), "extra", None) or {})
+        for row in extra.get("pedal_events") or []:
+            if isinstance(row, (list, tuple)) and len(row) >= 2:
+                pedal.append((float(row[0]), int(row[1])))
+        decisions = list(getattr(self.notation, "last_quantization_decisions", None) or [])
+        downbeats = []
+        if timing is not None:
+            for t in getattr(timing.analysis, "downbeat_times", ()) or ():
+                try:
+                    downbeats.append(float(time_map.seconds_to_beats(float(t))))
+                except Exception:
+                    continue
+        display_bpm = choice.get("score_bpm")
+        if display_bpm is None and timing is not None:
+            display_bpm = timing.quality.median_bpm
+        context = InterpretationContext(
+            time_map=time_map,
+            selected_meter=str(meter or "4/4"),
+            key_name=key_name,
+            instrument=instrument,
+            display_bpm=float(display_bpm or 120.0),
+            tempo_scale=float(choice.get("tempo_scale") or getattr(timing, "tempo_scale", 1.0) or 1.0),
+            pickup_beats=_ctx_float(pickup.get("pickup_beats") or pickup.get("beats")),
+            first_downbeat_beat=_ctx_float(pickup.get("first_downbeat_beat")),
+            downbeat_beats=tuple(downbeats),
+            score_beat_offset=float(
+                (getattr(self.notation, "last_quantization_summary", None) or {}).get(
+                    "score_beat_offset", 0.0
+                )
+                or 0.0
+            ),
+            accepted_source_note_ids=tuple(accepted),
+            excluded_source_note_ids=tuple(excluded),
+            layout_decisions=tuple(decisions),
+            printed_tempo=tuple(printed),
+            playback_tempo=tuple(playback),
+            pedal_events=tuple(pedal),
+            midi_sha256=getattr(snapshot, "midi_sha256", None),
+            source_backend=getattr(snapshot, "source_backend", "") or "",
+        )
+        context.write_json(out_dir / f"{job_id}.interpretation_context.json")
 
     def _publish_job(
         self,

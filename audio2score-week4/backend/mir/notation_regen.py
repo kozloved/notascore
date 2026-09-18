@@ -2,7 +2,8 @@
 
 Original MIDI bytes and the performance snapshot stay untouched. Only the
 derived score artifacts are rewritten. Cache identity includes the MIDI
-checksum, algorithm version, and notation settings.
+checksum, algorithm version, notation settings, interpretation context,
+and applied edit identity.
 """
 
 from __future__ import annotations
@@ -11,9 +12,16 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from mir.cmr_builder import build_score_meta, notes_to_events
-from mir.midi_ingest import ingest_midi
+from mir.interpretation_context import (
+    FALLBACK_MIDI_INGEST,
+    FALLBACK_MISSING,
+    InterpretationContext,
+    InterpretationContextError,
+    load_context_payload,
+)
 from mir.notation_settings import (
     NotationSettings,
     parse_notation_settings,
@@ -21,8 +29,22 @@ from mir.notation_settings import (
 )
 from mir.performance import PerformanceSnapshot
 from mir.pipeline_config import QuantizationMode
-from mir.types import InstrumentKind, ScoreMeta
+from mir.types import InstrumentKind, ScoreMeta, copy_event
 from notation_engine.writer import NotationWriter
+
+
+class NotationEditConflict(ValueError):
+    """A saved correction cannot be reapplied to the regenerated score."""
+
+    def __init__(self, missing_ids: list[str], message: str | None = None):
+        self.missing_ids = list(missing_ids)
+        super().__init__(
+            message
+            or (
+                "Notation settings were not applied because these edits cannot "
+                f"be reattached: {', '.join(self.missing_ids)}."
+            )
+        )
 
 
 @dataclass
@@ -35,10 +57,16 @@ class NotationRegenResult:
     transcribed: bool = False
     decisions: list[dict] = field(default_factory=list)
     summary: dict = field(default_factory=dict)
+    score_midi: bytes = b""
+    context: InterpretationContext | None = None
+    fallback: str | None = None
+    policy_exceptions: list[dict] = field(default_factory=list)
+    editor_model: dict | None = None
+    edits_digest: str | None = None
 
 
 def _layout_from_decisions(events, decisions):
-    from mir.types import Hand, copy_event
+    from mir.types import Hand, copy_event as _copy
 
     by_id = {row.get("note_id"): row for row in decisions or [] if row.get("note_id")}
     if not by_id:
@@ -56,7 +84,7 @@ def _layout_from_decisions(events, decisions):
             hand = ev.hand
         musical = row.get("musical_voice")
         out.append(
-            copy_event(
+            _copy(
                 ev,
                 hand=hand,
                 voice=int(row.get("printed_voice", row.get("voice", ev.voice)) or 0),
@@ -68,6 +96,180 @@ def _layout_from_decisions(events, decisions):
     return out
 
 
+def _edits_digest(edits: dict | None) -> str | None:
+    if not edits:
+        return None
+    notes = []
+    for row in edits.get("notes") or []:
+        notes.append(
+            {
+                "source_note_id": row.get("source_note_id") or row.get("id"),
+                "pitch": row.get("pitch"),
+                "track": row.get("track"),
+                "voice": row.get("voice"),
+            }
+        )
+    blob = json.dumps({"notes": notes}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def apply_note_edits(events, edits: dict | None, snapshot: PerformanceSnapshot):
+    """Reattach pitch/staff/voice corrections by stable source IDs.
+
+    Timing and duration stay with the regenerated interpretation. A missing
+    source ID for a real correction preserves the current score via conflict.
+    """
+    if not edits or not edits.get("notes"):
+        return list(events)
+    from mir.types import Hand
+
+    original = {n.note_id: n for n in snapshot.notes}
+    present = {ev.note_id for ev in events}
+    missing: list[str] = []
+    by_source = {}
+    for row in edits["notes"]:
+        sid = row.get("source_note_id") or row.get("id")
+        if sid:
+            by_source[str(sid)] = row
+    for sid, row in by_source.items():
+        if sid in present:
+            continue
+        orig = original.get(sid)
+        if orig is None:
+            continue
+        if _is_user_correction(row, orig):
+            missing.append(sid)
+    if missing:
+        raise NotationEditConflict(missing)
+    out = []
+    for ev in events:
+        row = by_source.get(ev.note_id)
+        if not row:
+            out.append(ev)
+            continue
+        orig = original.get(ev.note_id)
+        changes: dict[str, Any] = {}
+        if orig is not None and int(row.get("pitch", orig.pitch)) != int(orig.pitch):
+            changes["pitch"] = int(row["pitch"])
+        elif orig is None and row.get("pitch") is not None and int(row["pitch"]) != int(ev.pitch):
+            changes["pitch"] = int(row["pitch"])
+        track = row.get("track")
+        if track is not None:
+            hand = Hand.LEFT if int(track) == 1 else Hand.RIGHT if int(track) == 0 else ev.hand
+            if hand != ev.hand:
+                changes["hand"] = hand
+                changes["hand_locked"] = True
+        if row.get("voice") is not None and int(row["voice"]) != int(ev.voice):
+            changes["voice"] = int(row["voice"])
+            changes["voice_assigned"] = True
+            changes["voice_provenance"] = "user_edit"
+        out.append(copy_event(ev, **changes) if changes else ev)
+    return out
+
+
+def _is_user_correction(row: dict, orig) -> bool:
+    if int(row.get("pitch", orig.pitch)) != int(orig.pitch):
+        return True
+    if row.get("voice") not in (None, 0) and int(row.get("voice") or 0) != 0:
+        return True
+    hand = str(getattr(orig, "hand_hint", "") or "")
+    expected_track = 1 if hand == "left" else 0
+    if row.get("track") is not None and int(row["track"]) != expected_track:
+        return True
+    return False
+
+
+def editor_model_from_events(
+    events,
+    *,
+    tempo_bpm: float,
+    time_signature: str,
+    printed_marks=None,
+    time_map=None,
+) -> dict:
+    from score_edits import (
+        ID_RE,
+        MAX_DURATION,
+        PITCH_MAX,
+        PITCH_MIN,
+        PROVENANCE_PERFORMANCE,
+        assign_overlap_voices,
+        curve_from_time_map,
+        validate_notes,
+        validate_tempo,
+        validate_time_signature,
+    )
+
+    notes = []
+    for index, ev in enumerate(events):
+        note_id = str(ev.note_id or f"n-{index:04d}")
+        track = 1 if getattr(ev.hand, "value", "") == "left" else 0
+        notes.append(
+            {
+                "id": note_id if ID_RE.match(note_id) else f"n-{index:04d}",
+                "source_note_id": ev.note_id if ID_RE.match(str(ev.note_id or "")) else None,
+                "pitch": max(PITCH_MIN, min(PITCH_MAX, int(ev.pitch))),
+                "start": max(0.0, float(ev.start_beat)),
+                "duration": min(MAX_DURATION, max(1e-6, float(ev.duration_beats))),
+                "velocity": max(1, min(127, int(ev.velocity or 64))),
+                "track": track,
+                "voice": int(getattr(ev, "voice", 0) or 0),
+                "start_sec": getattr(ev, "start_time_sec", None),
+                "end_sec": getattr(ev, "end_time_sec", None),
+            }
+        )
+    notes = assign_overlap_voices(notes) if all(int(n.get("voice") or 0) == 0 for n in notes) else notes
+    printed = []
+    for mark in printed_marks or []:
+        if isinstance(mark, dict):
+            printed.append(
+                {
+                    "beat": float(mark.get("beat", 0)),
+                    "bpm": mark.get("bpm"),
+                    "mark": str(mark.get("mark") or "metronome"),
+                    "reason": str(mark.get("reason") or ""),
+                }
+            )
+    tempo = validate_tempo(tempo_bpm)
+    curve = (
+        curve_from_time_map(time_map, fallback_bpm=tempo)
+        if time_map is not None
+        else [{"beat": 0.0, "bpm": tempo}]
+    )
+    return {
+        "tempo_bpm": tempo,
+        "time_signature": validate_time_signature(time_signature, strict=False),
+        "tempo_curve": curve,
+        "printed_tempo_marks": printed,
+        "provenance": PROVENANCE_PERFORMANCE,
+        "notes": validate_notes(notes),
+    }
+
+
+def _select_notes(performance: PerformanceSnapshot, context: InterpretationContext | None):
+    notes = list(performance.to_notes())
+    if context is None or not context.accepted_source_note_ids:
+        return notes
+    accepted = set(context.accepted_source_note_ids)
+    selected = [n for n in notes if n.note_id in accepted]
+    return selected or notes
+
+
+def _bind_snapshot(performance: PerformanceSnapshot | None, midi_bytes: bytes) -> PerformanceSnapshot:
+    if performance is None:
+        import io
+        import pretty_midi
+
+        midi = pretty_midi.PrettyMIDI(io.BytesIO(midi_bytes))
+        from mir.performance import snapshot_midi
+
+        return snapshot_midi(midi, midi_bytes, backend="midi")
+    if performance.midi_sha256 is None:
+        performance = performance.with_midi_identity(midi_bytes)
+    performance.verify_midi(midi_bytes)
+    return performance
+
+
 def recompute_notation(
     *,
     midi_bytes: bytes,
@@ -77,83 +279,188 @@ def recompute_notation(
     prior_decisions: list[dict] | None = None,
     tempo_map=None,
     display_bpm: int | None = None,
+    context: InterpretationContext | None = None,
+    edits: dict | None = None,
+    fallback: str | None = None,
 ) -> NotationRegenResult:
-    """Build a new score from frozen performance MIDI.
+    """Build a new score from frozen performance MIDI and production context.
 
     Never calls an audio transcriber. Raises if the MIDI checksum does not
-    match a provided performance snapshot.
+    match a provided performance snapshot. A display-grid change reuses the
+    supplied seconds-to-score-beats map instead of re-ingesting MIDI tempo.
     """
     settings = parse_notation_settings(settings)
-    if settings.meter and meter and settings.meter != meter:
-        raise ValueError(
-            f"Contradictory meter: settings {settings.meter} vs request {meter}."
-        )
+    performance = _bind_snapshot(performance, midi_bytes)
+    digest = hashlib.sha256(midi_bytes).hexdigest()
+
+    used_fallback = fallback or (context.fallback if context is not None else None)
+    mapper = None
     meter_hint = settings.meter or meter
-    if performance is None:
-        import io
-        import pretty_midi
-
-        midi = pretty_midi.PrettyMIDI(io.BytesIO(midi_bytes))
-        from mir.performance import snapshot_midi
-
-        performance = snapshot_midi(midi, midi_bytes, backend="midi")
+    key_hint = None
+    instrument = InstrumentKind.PIANO
+    pedal_events = []
+    printed = []
+    playback = []
+    if context is not None:
+        mapper = context.time_map
+        meter_hint = settings.meter or context.selected_meter or meter_hint
+        key_hint = context.key_name
+        try:
+            instrument = InstrumentKind(context.instrument)
+        except ValueError:
+            instrument = InstrumentKind.PIANO
+        pedal_events = list(context.pedal_events)
+        printed = list(context.printed_tempo)
+        playback = list(context.playback_tempo)
+        if context.pickup_beats is not None and settings.pickup_beats is None:
+            settings = settings.replace(pickup_beats=context.pickup_beats)
+        if context.first_downbeat_beat is not None and settings.first_downbeat_beat is None:
+            settings = settings.replace(first_downbeat_beat=context.first_downbeat_beat)
+        if not meter_hint:
+            meter_hint = context.selected_meter
+        if context.midi_sha256 and context.midi_sha256 != digest:
+            raise ValueError("Interpretation context MIDI checksum mismatch")
+    elif tempo_map is not None:
+        mapper = tempo_map
+        used_fallback = used_fallback or FALLBACK_MIDI_INGEST
+    elif used_fallback == FALLBACK_MISSING:
+        raise InterpretationContextError(
+            "Missing production interpretation context; refusing silent "
+            "MIDI-tempo reinterpretation."
+        )
     else:
-        performance.verify_midi(midi_bytes)
+        mapper = _ingest_mapper(midi_bytes)
+        used_fallback = used_fallback or FALLBACK_MIDI_INGEST
 
-    ingested = None
-    import tempfile
+    if mapper is None:
+        raise InterpretationContextError(
+            "Missing production interpretation context; refusing silent "
+            "MIDI-tempo reinterpretation."
+        )
 
-    with tempfile.NamedTemporaryFile(suffix=".mid") as handle:
-        handle.write(midi_bytes)
-        handle.flush()
-        ingested = ingest_midi(Path(handle.name))
-
-    notes = list(performance.to_notes())
+    notes = _select_notes(performance, context)
     if not notes:
-        notes = [n.ensure_ids(i) for i, n in enumerate(ingested.notes)]
+        raise ValueError("No accepted source notes remain for notation regeneration.")
     source_ids = [n.note_id for n in notes]
-    mapper = tempo_map or ingested.tempo_map
-    backend = performance.source_backend or "midi"
+    backend = performance.source_backend or (context.source_backend if context else "midi")
     events = notes_to_events(notes, mapper, source_backend=backend)
-    events = _layout_from_decisions(events, prior_decisions)
-    instrument = notes[0].instrument if notes else InstrumentKind.PIANO
+    layout_rows = prior_decisions or (list(context.layout_decisions) if context else None)
+    events = _layout_from_decisions(events, layout_rows)
+    events = apply_note_edits(events, edits, performance)
+    if notes:
+        try:
+            instrument = notes[0].instrument if notes[0].instrument != InstrumentKind.UNKNOWN else instrument
+        except Exception:
+            pass
+    display = display_bpm
+    if display is None and context is not None:
+        display = context.display_bpm
+    if display is None:
+        bpm_at = getattr(mapper, "bpm_at", None)
+        display = bpm_at(0) if callable(bpm_at) else 120
+    from mir.interpretation_context import tempo_map_from_musical
+    from timing.tempo_map import MusicalTimeMap
+
+    if context is not None:
+        score_tempo = context.tempo_map()
+    elif isinstance(mapper, MusicalTimeMap):
+        score_tempo = tempo_map_from_musical(mapper)
+    else:
+        score_tempo = mapper
     meta = build_score_meta(
-        mapper,
+        score_tempo,
         instrument,
         [],
-        display_bpm=display_bpm or round(mapper.bpm_at(0)),
+        display_bpm=max(1, int(round(float(display)))),
         instrument_confidence=0.9,
-        time_sig_hint=meter_hint or ingested.time_sig_hint,
+        time_sig_hint=meter_hint,
+        key_hint=key_hint,
     )
     meta.extra = {
         **(meta.extra or {}),
         "notation_settings": settings.to_dict(),
-        "pedal_events": list(ingested.pedal_events or []),
+        "pedal_events": pedal_events,
         "preserve_midi_tempo": True,
+        "printed_tempo": printed,
+        "playback_tempo": playback,
+        "interpretation_context": context.to_dict() if context is not None else None,
+        "display_bpm_exact": float(display),
     }
     writer = NotationWriter()
     score = writer.write_from_events_direct(
         events, meta, quantization_mode=QuantizationMode.PERFORMANCE
     )
     import tempfile as _tf
+
     with _tf.TemporaryDirectory() as tmp:
         path = Path(tmp) / "score.musicxml"
+        midi_path = Path(tmp) / "score.mid"
         writer._export_musicxml(score, path)
         xml = path.read_text(encoding="utf-8")
-    digest = hashlib.sha256(midi_bytes).hexdigest()
+        playback_score = writer._score_for_playback(score, meta)
+        playback_score.write("midi", fp=str(midi_path))
+        score_midi = midi_path.read_bytes()
     if [n.note_id for n in notes] != source_ids:
         raise ValueError("Notation regen mutated source note IDs")
     performance.verify_midi(midi_bytes)
+    decisions = list(writer.last_quantization_decisions or [])
+    summary = dict(writer.last_quantization_summary or {})
+    policy_exceptions = list(summary.get("policy_exceptions") or [])
+    quantized = list(writer.last_quantized_events or events)
+    editor_model = editor_model_from_events(
+        quantized,
+        tempo_bpm=float(display or 120),
+        time_signature=str(meter_hint or "4/4"),
+        printed_marks=printed,
+        time_map=mapper if hasattr(mapper, "interval_bpms") else (
+            context.time_map if context is not None else None
+        ),
+    )
+    edits_digest = _edits_digest(edits or editor_model)
+    context_digest = context.identity_digest() if context is not None else None
+    cache = settings.cache_key(
+        digest, context_digest=context_digest, edits_digest=edits_digest
+    )
+    next_context = context
+    if context is not None:
+        accepted = tuple(n.note_id for n in notes)
+        next_context = InterpretationContext.from_dict(
+            {
+                **context.to_dict(),
+                "accepted_source_note_ids": list(accepted),
+                "layout_decisions": decisions,
+                "midi_sha256": digest,
+                "fallback": used_fallback,
+            }
+        )
     return NotationRegenResult(
         musicxml=xml,
         settings=settings,
-        cache_key=settings.cache_key(digest),
+        cache_key=cache,
         midi_sha256=digest,
         source_note_count=len(notes),
         transcribed=False,
-        decisions=list(writer.last_quantization_decisions or []),
-        summary=dict(writer.last_quantization_summary or {}),
+        decisions=decisions,
+        summary=summary,
+        score_midi=score_midi,
+        context=next_context,
+        fallback=used_fallback,
+        policy_exceptions=policy_exceptions,
+        editor_model=editor_model,
+        edits_digest=edits_digest,
     )
+
+
+def _ingest_mapper(midi_bytes: bytes):
+    import tempfile
+
+    from mir.midi_ingest import ingest_midi
+
+    with tempfile.NamedTemporaryFile(suffix=".mid") as handle:
+        handle.write(midi_bytes)
+        handle.flush()
+        ingested = ingest_midi(Path(handle.name))
+    return ingested.tempo_map
 
 
 def recompute_job_dir(out_dir: Path, job_id: str, settings: NotationSettings | dict | None = None) -> NotationRegenResult:
@@ -162,6 +469,8 @@ def recompute_job_dir(out_dir: Path, job_id: str, settings: NotationSettings | d
     raw_path = out_dir / f"{job_id}.raw.mid"
     snap_path = out_dir / f"{job_id}.performance.json"
     debug_path = out_dir / f"{job_id}.debug.json"
+    context_path = out_dir / f"{job_id}.interpretation_context.json"
+    tempo_path = out_dir / f"{job_id}.tempo.json"
     if not raw_path.exists():
         raise FileNotFoundError(f"Missing raw MIDI for job {job_id}")
     midi_bytes = raw_path.read_bytes()
@@ -173,16 +482,38 @@ def recompute_job_dir(out_dir: Path, job_id: str, settings: NotationSettings | d
         prior = extra.get("quantization_decisions") or extra.get("quantization_summary")
         if isinstance(prior, dict):
             prior = None
+    tempo_payload = None
+    if tempo_path.exists():
+        tempo_payload = json.loads(tempo_path.read_text(encoding="utf-8"))
+    context_raw = context_path.read_bytes() if context_path.exists() else None
+    context, status = load_context_payload(
+        context_raw,
+        tempo_payload=tempo_payload,
+        midi_sha256=getattr(performance, "midi_sha256", None),
+        source_backend=getattr(performance, "source_backend", "") or "",
+        layout_decisions=tuple(prior) if isinstance(prior, list) else (),
+    )
+    if context is None and status == FALLBACK_MISSING:
+        raise InterpretationContextError(
+            "Missing production interpretation context; refusing silent "
+            "MIDI-tempo reinterpretation."
+        )
     result = recompute_notation(
         midi_bytes=midi_bytes,
         settings=settings,
         performance=performance,
         prior_decisions=prior if isinstance(prior, list) else None,
+        context=context,
+        fallback=status,
     )
     after = raw_path.read_bytes()
     if hashlib.sha256(after).hexdigest() != result.midi_sha256:
         raise ValueError("Notation regen changed original MIDI bytes")
     (out_dir / f"{job_id}.musicxml").write_text(result.musicxml, encoding="utf-8")
+    if result.score_midi:
+        (out_dir / f"{job_id}.score.mid").write_bytes(result.score_midi)
+    if result.context is not None:
+        result.context.write_json(out_dir / f"{job_id}.interpretation_context.json")
     (out_dir / f"{job_id}.notation_settings.json").write_text(
         json.dumps(
             {
@@ -190,6 +521,10 @@ def recompute_job_dir(out_dir: Path, job_id: str, settings: NotationSettings | d
                 "algorithm_version": result.settings.algorithm_version,
                 "notation_cache_key": result.cache_key,
                 "midi_sha256": result.midi_sha256,
+                "interpretation_context_digest": (
+                    result.context.identity_digest() if result.context else None
+                ),
+                "fallback": result.fallback,
             },
             indent=2,
         )

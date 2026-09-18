@@ -225,6 +225,30 @@ class MusicalTimeMap:
                               exact_points=tuple((t, beat * n, bpm * n)
                                                  for t, beat, bpm in self._knots()))
 
+    def to_dict(self) -> dict:
+        return {
+            "beat_times": list(self.beat_times),
+            "confidence": list(self.confidence),
+            "source": self.source,
+            "exact_points": [list(point) for point in self.exact_points],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "MusicalTimeMap":
+        if not isinstance(data, dict) or not data.get("beat_times"):
+            raise ValueError("MusicalTimeMap payload needs beat_times")
+        exact = tuple(
+            (float(row[0]), float(row[1]), float(row[2]))
+            for row in (data.get("exact_points") or ())
+            if isinstance(row, (list, tuple)) and len(row) >= 3
+        )
+        return cls(
+            tuple(float(t) for t in data["beat_times"]),
+            tuple(float(c) for c in (data.get("confidence") or ())),
+            source=str(data.get("source") or "explicit_beats"),
+            exact_points=exact,
+        )
+
 
 def assert_roundtrip(time_map: MusicalTimeMap, times: list[float], *, tol: float = ROUNDTRIP_TOLERANCE_SEC) -> None:
     for t in times:

@@ -42,13 +42,34 @@ def convert(source: Path, output: Path, meter=None, settings=None):
     score.write("midi", fp=str(midi_path))
     ingested.performance.verify_midi(source.read_bytes())
     ingested.performance.write_json(snapshot_path)
+    from mir.interpretation_context import InterpretationContext
+    from timing.tempo_map import MusicalTimeMap
+
+    duration = max((n.end_time for n in ingested.notes), default=4.0)
+    time_map = MusicalTimeMap.from_tempo_map(ingested.tempo_map, duration_sec=max(duration, 1.0))
+    accepted = tuple(n.note_id for n in ingested.notes if n.note_id)
+    context = InterpretationContext(
+        time_map=time_map,
+        selected_meter=str(settings.meter or meter or ingested.time_sig_hint or "4/4"),
+        display_bpm=float(ingested.tempo_map.bpm_at(0)),
+        accepted_source_note_ids=accepted,
+        layout_decisions=tuple(writer.last_quantization_decisions or ()),
+        pedal_events=tuple((float(t), int(v)) for t, v in (ingested.pedal_events or [])),
+        midi_sha256=ingested.performance.midi_sha256,
+        source_backend=ingested.performance.source_backend or "midi",
+    )
+    context.write_json(output.with_suffix(".interpretation_context.json"))
+    context_digest = context.identity_digest()
     settings_path.write_text(
         json.dumps(
             {
                 "notation_settings": settings.to_dict(),
                 "algorithm_version": settings.algorithm_version,
                 "midi_sha256": ingested.performance.midi_sha256,
-                "notation_cache_key": settings.cache_key(ingested.performance.midi_sha256),
+                "notation_cache_key": settings.cache_key(
+                    ingested.performance.midi_sha256, context_digest=context_digest
+                ),
+                "interpretation_context_digest": context_digest,
             },
             indent=2,
         )

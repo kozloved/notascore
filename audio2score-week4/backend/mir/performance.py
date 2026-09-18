@@ -5,7 +5,7 @@ separately. This JSON model is an analysis view, not a lossless MIDI serializer.
 Track IDs identify PrettyMIDI instrument streams (not original SMF chunk indices).
 """
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import hashlib
 import json
 from math import isfinite
@@ -93,6 +93,20 @@ class PerformanceSnapshot:
             instrument=n.instrument.value, hand_hint=n.hand.value,
         ) for i, n in enumerate(notes)))
 
+    def with_midi_identity(self, data: bytes) -> "PerformanceSnapshot":
+        """Bind this snapshot to the actual saved raw MIDI bytes.
+
+        Source note IDs are unchanged. Call this after writing reconstructed
+        MIDI (Basic Pitch) or when migrating a legacy snapshot that was saved
+        without midi_sha256. Does not re-parse MIDI.
+        """
+        digest = hashlib.sha256(data).hexdigest()
+        if self.midi_sha256 is not None and self.midi_sha256 != digest:
+            raise ValueError("Original MIDI checksum mismatch")
+        if self.midi_sha256 == digest:
+            return self
+        return replace(self, midi_sha256=digest)
+
     def to_notes(self):
         return [NoteEvent(
             n.pitch, n.start_sec, n.end_sec, n.velocity, n.confidence,
@@ -122,7 +136,12 @@ class PerformanceSnapshot:
         return cls(**data)
 
     def verify_midi(self, data: bytes):
-        if self.midi_sha256 is None or hashlib.sha256(data).hexdigest() != self.midi_sha256:
+        if self.midi_sha256 is None:
+            raise ValueError(
+                "Legacy performance snapshot is missing MIDI identity; "
+                "bind it with with_midi_identity() before verify_midi()"
+            )
+        if hashlib.sha256(data).hexdigest() != self.midi_sha256:
             raise ValueError("Original MIDI checksum mismatch")
 
 
