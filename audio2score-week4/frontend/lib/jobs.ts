@@ -6,17 +6,73 @@ import { listStoredScores } from "./session-jobs";
 
 export class ApiRequestError extends Error {
   status: number;
+  code?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = "ApiRequestError";
     this.status = status;
+    this.code = code;
   }
 }
 
+const STALE_REVISION = "This score was updated elsewhere. Reload and try again.";
+
+type ParsedDetail = { message: string; code?: string };
+
+function parseDetail(body: unknown, fallback: string): ParsedDetail {
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  if (typeof detail === "string" && detail.trim()) {
+    return { message: detail };
+  }
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((row) =>
+        row && typeof row === "object" && "msg" in row
+          ? String((row as { msg: unknown }).msg)
+          : ""
+      )
+      .filter(Boolean);
+    return { message: parts.join("; ") || fallback };
+  }
+  if (detail && typeof detail === "object") {
+    const row = detail as { message?: unknown; code?: unknown; detail?: unknown };
+    const message =
+      (typeof row.message === "string" && row.message) ||
+      (typeof row.detail === "string" && row.detail) ||
+      fallback;
+    const code = typeof row.code === "string" ? row.code : undefined;
+    return { message, code };
+  }
+  return { message: fallback };
+}
+
+async function readErrorDetail(response: Response, fallback: string): Promise<ParsedDetail> {
+  const body = await response.json().catch(() => ({}));
+  return parseDetail(body, fallback);
+}
+
 async function readError(response: Response, fallback: string): Promise<string> {
-  await response.json().catch(() => ({}));
-  return fallback;
+  return (await readErrorDetail(response, fallback)).message;
+}
+
+export function conflictMessage(err: unknown, stale = STALE_REVISION): string {
+  if (!(err instanceof ApiRequestError)) {
+    return err instanceof Error ? err.message : "Could not update notation.";
+  }
+  if (err.status !== 409) {
+    return err.message;
+  }
+  if (err.code === "stale_revision") {
+    return stale;
+  }
+  if (err.code === "missing_context") {
+    return err.message || "This score is missing saved interpretation context.";
+  }
+  if (err.code === "edit_conflict" || err.code === "invalid_selection") {
+    return err.message || "These changes could not be applied to the published score.";
+  }
+  return err.message || stale;
 }
 
 export async function getJob(id: string): Promise<Job> {
@@ -128,10 +184,8 @@ export async function saveScoreEdits(
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    throw new ApiRequestError(
-      await readError(response, "Changes couldn't be saved."),
-      response.status
-    );
+    const parsed = await readErrorDetail(response, "Changes couldn't be saved.");
+    throw new ApiRequestError(parsed.message, response.status, parsed.code);
   }
   return (await response.json()) as ScoreEditsPayload;
 }
@@ -146,10 +200,8 @@ export async function resetScoreEdits(
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!response.ok) {
-    throw new ApiRequestError(
-      await readError(response, "Could not reset changes"),
-      response.status
-    );
+    const parsed = await readErrorDetail(response, "Could not reset changes");
+    throw new ApiRequestError(parsed.message, response.status, parsed.code);
   }
   return (await response.json()) as ScoreEditsPayload;
 }
@@ -168,6 +220,13 @@ export type NotationSettings = {
   measure_overrides: Record<string, unknown>[];
 };
 
+export type PolicyException = {
+  kind?: string;
+  policy?: string;
+  user_message?: string;
+  reason?: string;
+};
+
 export type NotationSettingsPayload = {
   notation_settings: NotationSettings;
   algorithm_version: string;
@@ -175,6 +234,9 @@ export type NotationSettingsPayload = {
   midi_sha256?: string | null;
   transcribed?: boolean;
   edit_revision?: number;
+  has_edits?: boolean;
+  fallback?: string | null;
+  policy_exceptions?: PolicyException[];
 };
 
 export async function getNotationSettings(id: string): Promise<NotationSettingsPayload> {
@@ -195,10 +257,8 @@ export async function saveNotationSettings(
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    throw new ApiRequestError(
-      await readError(response, "Could not update notation"),
-      response.status
-    );
+    const parsed = await readErrorDetail(response, "Could not update notation");
+    throw new ApiRequestError(parsed.message, response.status, parsed.code);
   }
   return (await response.json()) as NotationSettingsPayload;
 }
