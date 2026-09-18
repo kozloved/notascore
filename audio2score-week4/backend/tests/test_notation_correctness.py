@@ -246,6 +246,21 @@ def test_malformed_and_missing_correction_sidecars_leave_pointer(isolated_db, mo
     assert "missing" in exc.value.detail["message"].lower()
     assert _pointer(job_id) == (rev, key)
     (bundle / f"{job_id}.corrections.json").write_text(
+        json.dumps({"operations": ["invalid", {"pitch": 70}]}),
+        encoding="utf-8",
+    )
+    stored_corrections = (bundle / f"{job_id}.corrections.json").read_text(encoding="utf-8")
+    with pytest.raises(HTTPException) as exc:
+        app_main.job_notation_settings_post(
+            job_id,
+            app_main.NotationSettingsIn(interpretation="literal", revision=1),
+            authorization=None,
+        )
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "edit_conflict"
+    assert _pointer(job_id) == (rev, key)
+    assert (bundle / f"{job_id}.corrections.json").read_text(encoding="utf-8") == stored_corrections
+    (bundle / f"{job_id}.corrections.json").write_text(
         json.dumps({"operations": [{"source_note_id": "ghost", "pitch": 80}]}),
         encoding="utf-8",
     )
