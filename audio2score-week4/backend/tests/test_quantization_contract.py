@@ -113,6 +113,6 @@ def test_quantize_notation_rejects_experimental_mode():
             config=type("C", (), {"max_onset_move": 0.18})(),
             mode="off",
         )
-    out, _decisions, report = MeasureQuantizer().quantize_production(events, meter)
-    assert len(out) == 1
-    assert report.summary["engine"] == "performance"
+    result = MeasureQuantizer().quantize_production(events, meter)
+    assert len(result.events) == 1
+    assert result.report.summary["engine"] == "performance"

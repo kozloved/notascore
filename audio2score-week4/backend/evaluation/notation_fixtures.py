@@ -15,9 +15,11 @@ def _write(path: Path, notes, *, tempo=120, meter=(4, 4), pedal=None, tempos=Non
             pretty_midi.TimeSignature(meter[0], meter[1], 0.0)
         )
     if tempos:
-        # pretty_midi initial tempo is the first; extra changes via tick mapper.
+        midi._tick_scales = []
         for time_sec, bpm in tempos:
-            midi._tick_scales.append((midi.time_to_tick(time_sec), 60.0 / bpm))
+            seconds_per_tick = 60.0 / (float(bpm) * midi.resolution)
+            midi._tick_scales.append((midi.time_to_tick(time_sec), seconds_per_tick))
+        midi._update_tick_to_time(0)
     piano = pretty_midi.Instrument(0, name="Piano")
     for pitch, start, end, velocity in notes:
         piano.notes.append(
@@ -77,12 +79,12 @@ def fixture_34(path: Path) -> str:
 
 
 def fixture_68(path: Path) -> str:
-    # Compound two-beat grouping: dotted quarters.
+    # 90 BPM: quarter = 2/3s, dotted quarter (compound beat) = 1.0s.
     notes = [
-        (60, 0.0, 0.75, 78),
-        (64, 0.75, 1.5, 78),
-        (67, 1.5, 2.25, 80),
-        (72, 2.25, 3.0, 82),
+        (60, 0.0, 1.0, 78),
+        (64, 1.0, 2.0, 78),
+        (67, 2.0, 3.0, 80),
+        (72, 3.0, 4.0, 82),
     ]
     return _write(path, notes, meter=(6, 8), tempo=90)
 
@@ -110,16 +112,15 @@ def fixture_unison_and_crossing(path: Path) -> str:
     notes = [
         (48, 0.0, 2.0, 70),
         (60, 0.0, 0.5, 80),
-        (60, 0.0, 0.5, 78),  # independent unison (same pitch/time, PrettyMIDI may merge)
         (64, 0.5, 1.0, 82),
         (43, 1.0, 1.5, 74),
         (76, 1.0, 1.5, 86),
         (55, 1.5, 2.0, 80),
         (79, 1.5, 2.0, 84),
     ]
-    # Distinct unison: same pitch, overlapping independent attacks.
+    # Independent overlapping unisons at the same pitch, distinct attacks.
     notes.append((67, 0.25, 1.1, 77))
-    notes.append((67, 0.35, 1.2, 81))
+    notes.append((67, 0.5, 1.25, 81))
     return _write(path, notes)
 
 

@@ -464,7 +464,7 @@ def test_same_pitch_pulse_still_caps_pedal_tail_for_voice_search():
 
     a = MusicalEvent(48, 0.0, 1.8, note_id="a", hand=Hand.LEFT, velocity=80)
     b = MusicalEvent(48, 1.0, 1.8, note_id="b", hand=Hand.LEFT, velocity=80)
-    assert _release_hypothesis(a, [a, b]) == ("b", "pedal_tail")
+    assert _release_hypothesis(a, [a, b]) == ("b", "pedal_tail", "hypothesis")
     search = _voice_search_events([a, b])
     assert {e.note_id: e.duration_beats for e in search}["a"] == 1.0
     assert {e.note_id: e.duration_beats for e in search}["b"] == 1.8
