@@ -24,11 +24,90 @@ from mir.layout import (
     voices_complete,
 )
 from mir.models import staff_for_hand
+from mir.notation_settings import (
+    DisplayGrid,
+    Interpretation,
+    NotationSettings,
+    OverlapHandling,
+    TripletPolicy,
+    parse_notation_settings,
+)
+from mir.pipeline_config import require_production_quantization_mode
 from mir.score_profile import ScoreProfile, collapse_for_solo_notation, score_profile
 from mir.types import Hand, copy_event
 from mir.voice_separator import VoiceSeparator
 
 _ASSIGNED_HANDS = {Hand.LEFT, Hand.RIGHT, Hand.AMBIGUOUS}
+
+_GRID_BINARY_DENOMS = {
+    DisplayGrid.EIGHTH: 2,
+    DisplayGrid.SIXTEENTH: 4,
+    DisplayGrid.THIRTY_SECOND: 8,
+}
+
+_ONSET_EXACT = (
+    (1, "binary"), (2, "binary"), (4, "binary"),
+    (8, "binary"), (16, "binary"),
+    (3, "triplet"), (6, "triplet"),
+    (12, "triplet"), (24, "triplet"), (48, "triplet"),
+)
+_ONSET_SEARCH = (
+    (1, "binary", 0.0), (2, "binary", 0.008),
+    (4, "binary", 0.016), (8, "binary", 0.035),
+    (3, "triplet", 0.035), (6, "triplet", 0.05),
+    (16, "binary", 0.08),
+    (12, "triplet", 0.09), (24, "triplet", 0.12), (48, "triplet", 0.16),
+)
+
+
+def _settings(settings) -> NotationSettings:
+    return parse_notation_settings(settings)
+
+
+def _local_bpm(event, tempo_map) -> float:
+    if tempo_map is not None:
+        moment = getattr(event, "start_time_sec", None)
+        if moment is None:
+            moment = getattr(event, "end_time_sec", None)
+        if moment is not None:
+            return float(tempo_map.bpm_at(moment) or 120.0)
+        bpm = getattr(tempo_map, "bpm_at", None)
+        if callable(bpm):
+            return float(tempo_map.bpm_at(0.0) or 120.0)
+        return 120.0
+    start_sec = getattr(event, "start_time_sec", None)
+    start_beat = float(getattr(event, "start_beat", 0.0) or 0.0)
+    if start_sec is not None and start_beat > 1e-9:
+        return 60.0 * float(start_sec) / start_beat
+    return 120.0
+
+
+def beats_to_ms(beats, bpm) -> float:
+    return float(beats) * (60000.0 / max(float(bpm), 1e-6))
+
+
+def pedal_spans(pedal_events) -> tuple[tuple[float, float], ...]:
+    spans = []
+    down_at = None
+    for item in sorted(pedal_events or (), key=lambda row: float(row[0])):
+        time_sec = float(item[0])
+        value = int(item[1])
+        on = value >= 64
+        if on and down_at is None:
+            down_at = time_sec
+        elif not on and down_at is not None:
+            spans.append((down_at, time_sec))
+            down_at = None
+    if down_at is not None:
+        spans.append((down_at, float("inf")))
+    return tuple(spans)
+
+
+def pedal_down_at(spans, time_sec) -> bool:
+    if time_sec is None or not spans:
+        return False
+    moment = float(time_sec)
+    return any(start <= moment < end for start, end in spans)
 
 
 @dataclass(frozen=True)
@@ -52,52 +131,116 @@ class PerformanceReport:
     decisions: list[dict]
 
 
-def _onset_candidates(raw, max_move):
+def _onset_vocab(settings: NotationSettings, *, allow_finer=False):
+    exact = list(_ONSET_EXACT)
+    search = list(_ONSET_SEARCH)
+    if settings.uses_current_vocabulary() or allow_finer:
+        return exact, search
+    max_binary = _GRID_BINARY_DENOMS.get(settings.display_grid)
+    if max_binary is not None:
+        exact = [
+            (denom, family) for denom, family in exact
+            if family != "binary" or denom <= max_binary
+        ]
+        search = [
+            row for row in search
+            if row[1] != "binary" or row[0] <= max_binary
+        ]
+    if settings.triplet_policy == TripletPolicy.DISABLED:
+        exact = [(denom, family) for denom, family in exact if family != "triplet"]
+        search = [row for row in search if row[1] != "triplet"]
+    elif settings.triplet_policy == TripletPolicy.ENABLED:
+        search = [
+            (denom, family, cost * (0.85 if family == "triplet" else 1.0))
+            for denom, family, cost in search
+        ]
+    if not exact:
+        exact = list(_ONSET_EXACT)
+    if not search:
+        search = list(_ONSET_SEARCH)
+    return exact, search
+
+
+def _onset_candidates(raw, max_move, settings=None):
+    settings = _settings(settings)
     # An already representable attack is stronger evidence than a preference
     # for a simpler rhythm. In particular, preserve 64ths and offbeat triplets.
-    for denominator, family in ((1, "binary"), (2, "binary"), (4, "binary"),
-                                (8, "binary"), (16, "binary"),
-                                (3, "triplet"), (6, "triplet"),
-                                (12, "triplet"), (24, "triplet"), (48, "triplet")):
+    exact_vocab, search_vocab = _onset_vocab(settings)
+    for denominator, family in exact_vocab:
         exact = Fraction(round(raw * denominator), denominator)
         if abs(float(exact) - raw) <= min(1e-7, max_move):
             return [(exact, family, 0.0)]
+    # Exact values outside the selected grid still win: they are distinct attacks.
+    if not settings.uses_current_vocabulary():
+        for denominator, family in _ONSET_EXACT:
+            exact = Fraction(round(raw * denominator), denominator)
+            if abs(float(exact) - raw) <= min(1e-7, max_move):
+                return [(exact, family, 0.0)]
     candidates = {}
-    for denominator, family, complexity in (
-        (1, "binary", 0.0), (2, "binary", 0.008),
-        (4, "binary", 0.016), (8, "binary", 0.035),
-        (3, "triplet", 0.035), (6, "triplet", 0.05),
-        (16, "binary", 0.08),
-        (12, "triplet", 0.09), (24, "triplet", 0.12), (48, "triplet", 0.16),
-    ):
-        center = round(raw * denominator)
-        for tick in range(center - 1, center + 2):
-            onset = Fraction(tick, denominator)
-            error = abs(float(onset) - raw)
-            if onset < 0 or error > max_move:
-                continue
-            # Performance jitter is not evidence for a 32nd/64th or a tuplet.
-            # Keep the full vocabulary for genuinely distinct fast attacks;
-            # prefer simpler values inside a small, bounded timing tolerance.
-            tolerance = 0.065 if family == "binary" and denominator <= 4 else 0.0
-            cost = max(0.0, error - tolerance) * 3 + complexity
-            key = (onset, family)
-            if key not in candidates or cost < candidates[key]:
-                candidates[key] = cost
+    literal = settings.interpretation == Interpretation.LITERAL
+
+    def _collect(vocab):
+        for denominator, family, complexity in vocab:
+            center = round(raw * denominator)
+            for tick in range(center - 1, center + 2):
+                onset = Fraction(tick, denominator)
+                error = abs(float(onset) - raw)
+                if onset < 0 or error > max_move:
+                    continue
+                # Performance jitter is not evidence for a 32nd/64th or a tuplet.
+                # Keep the full vocabulary for genuinely distinct fast attacks;
+                # prefer simpler values inside a small, bounded timing tolerance.
+                tolerance = 0.0 if literal else (
+                    0.065 if family == "binary" and denominator <= 4 else 0.0
+                )
+                cost = max(0.0, error - tolerance) * 3 + complexity
+                key = (onset, family)
+                if key not in candidates or cost < candidates[key]:
+                    candidates[key] = cost
+
+    _collect(search_vocab)
+    if not candidates:
+        _collect(_ONSET_SEARCH)
     if not candidates:
         raise ValueError(f"No readable onset within timing bound at {raw}")
     return [(onset, family, cost) for (onset, family), cost in candidates.items()]
 
 
-def _search(groups, max_move, beam_width=24):
+def _search(groups, max_move, beam_width=24, settings=None):
     # State includes the previous interval so recurring figures favor the same
     # interpretation. Strict ordering is a constraint, never a repair pass.
+    settings = _settings(settings)
+    path = _search_beam(groups, max_move, beam_width, settings)
+    if not settings.uses_improved_readable() or len(path) < 3:
+        return path
+    families = [family for onset, family in path if onset.denominator != 1]
+    if not families:
+        return path
+    dominant = max(set(families), key=families.count)
+    if families.count(dominant) < max(2, (len(families) + 1) // 2):
+        return path
+    preferred = _settings(settings.to_dict())
+    if dominant == "triplet" and preferred.triplet_policy == TripletPolicy.AUTO:
+        preferred = preferred.replace(triplet_policy=TripletPolicy.ENABLED)
+    elif dominant == "binary" and preferred.triplet_policy == TripletPolicy.AUTO:
+        preferred = preferred.replace(triplet_policy=TripletPolicy.DISABLED)
+    try:
+        alt = _search_beam(groups, max_move, beam_width, preferred)
+    except ValueError:
+        return path
+    # Keep the unified spelling only when attack order and the bound still hold.
+    if len(alt) != len(path):
+        return path
+    return alt
+
+
+def _search_beam(groups, max_move, beam_width, settings):
     beam = [(0.0, (), None)]
     for group in groups:
         raw = mean(e.start_beat for e in group)
         next_beam = []
         for cost, path, last_interval in beam:
-            for onset, family, local_cost in _onset_candidates(raw, max_move):
+            for onset, family, local_cost in _onset_candidates(raw, max_move, settings):
                 if any(abs(float(onset) - ev.start_beat) > max_move for ev in group):
                     continue
                 if path and onset <= path[-1][0]:
@@ -116,12 +259,15 @@ def _search(groups, max_move, beam_width=24):
     return beam[0][1]
 
 
-def _written_overlap(raw, onset, next_onset, overlaps, *, release_reason=None):
+def _written_overlap(raw, onset, next_onset, overlaps, *, release_reason=None, settings=None):
     """Decide whether the written ending may overlap the next attack.
 
     An explicit release hypothesis wins over the acoustic ratio heuristic so an
     independent hold is not silently shortened to the next same-line attack.
     """
+    settings = _settings(settings)
+    if settings.overlap_handling == OverlapHandling.PRESERVE:
+        return bool(overlaps)
     if release_reason == "pedal_tail":
         return False
     if release_reason in {
@@ -146,8 +292,8 @@ def _written_overlap(raw, onset, next_onset, overlaps, *, release_reason=None):
     return overlaps
 
 
-def _release_decisions(events):
-    """Map note_id -> (release_target_id_or_None, reason) for same-hand lines."""
+def _release_decisions(events, *, settings=None, pedal=None):
+    """Map note_id -> (release_target_id_or_None, reason, pedal_source)."""
     by_hand = defaultdict(list)
     for ev in events:
         by_hand[ev.hand].append(ev)
@@ -155,7 +301,9 @@ def _release_decisions(events):
     for group in by_hand.values():
         ordered = sorted(group, key=lambda e: (e.start_beat, e.pitch, e.note_id))
         for ev in ordered:
-            decisions[ev.note_id] = _release_hypothesis(ev, ordered)
+            decisions[ev.note_id] = _release_hypothesis(
+                ev, ordered, settings=settings, pedal=pedal
+            )
     return decisions
 
 
@@ -250,6 +398,22 @@ def _duration_spelling_cost(
     return (mistimed, fragments, ties, tiny_tail, odd, err, denom, duration)
 
 
+def _dot_count(value: Fraction) -> int:
+    q = Fraction(value)
+    n, d = q.numerator, q.denominator
+    while d % 2 == 0:
+        d //= 2
+    if d != 1:
+        return 0
+    while n % 2 == 0:
+        n //= 2
+    if n <= 1:
+        return 0
+    if (n + 1) & n == 0:
+        return (n + 1).bit_length() - 2
+    return 0
+
+
 def _duration(
     raw,
     onset,
@@ -262,7 +426,11 @@ def _duration(
     beat_length=Fraction(1),
     release_reason=None,
     release_at=None,
+    settings=None,
 ):
+    settings = _settings(settings)
+    if settings.preserve_performed_durations():
+        preserve = True
     unit = Fraction(1, 48) if family == "triplet" else Fraction(1, 16)
     onset = Fraction(onset) if not isinstance(onset, Fraction) else onset
     measure_length = Fraction(measure_length)
@@ -281,6 +449,9 @@ def _duration(
     to_bar = measure_length - bar_pos
     if to_bar > 0 and abs(raw - float(to_bar)) <= 0.35:
         named.add(to_bar)
+    dotted_ok = {d for d in named if _dot_count(d) <= int(settings.max_dots)}
+    if dotted_ok:
+        named = dotted_ok
     if preserve:
         exact = min(named, key=lambda d: abs(float(d) - raw))
         if abs(float(exact) - raw) < 1e-7:
@@ -302,6 +473,7 @@ def _duration(
         effective_next,
         overlaps,
         release_reason=release_reason,
+        settings=settings,
     )
     if effective_next is not None and not written_overlap:
         cap = effective_next - onset
@@ -364,27 +536,30 @@ def _pulsed_line_evidence(ev, nxt, ordered_same_hand) -> bool:
     return False
 
 
-def _release_hypothesis(ev, ordered_same_hand):
+def _release_hypothesis(ev, ordered_same_hand, *, settings=None, pedal=None):
     """Bounded same-hand line/release decision for voice search only.
 
-    Returns (release_target_note_id_or_None, reason). Target IDs are resolved to
-    quantized onsets later; performed start/duration times are never mutated here.
+    Returns (release_target_note_id_or_None, reason, pedal_source).
+    Target IDs are resolved to quantized onsets later; performed start/duration
+    times are never mutated here.
 
     Preserves independent holds, near-simultaneous / overlapping unisons, and
     multi-attack sustains. Caps only when line/context evidence supports a
     pedal-like continuation — proximity and duration ratio alone are not enough.
+    Inferred pedal tails are labelled ``hypothesis``. Actual CC64 is ``cc64``.
     """
+    settings = _settings(settings)
     raw = float(ev.duration_beats)
     end = ev.start_beat + raw
     later = [x for x in ordered_same_hand if x.start_beat > ev.start_beat + 1e-9]
     if not later:
-        return None, "phrase_end"
+        return None, "phrase_end", None
 
     first_gap = float(later[0].start_beat - ev.start_beat)
     covered = sum(1 for x in later if x.start_beat < end - 0.04)
     # Held note spanning several later attacks (not a one-pulse pedal tail).
     if covered >= 2 and first_gap > 0 and raw >= first_gap * 4.0:
-        return None, "multi_attack_hold"
+        return None, "multi_attack_hold", None
 
     best = None
     for nxt in later:
@@ -393,6 +568,7 @@ def _release_hypothesis(ev, ordered_same_hand):
             break
         leap = abs(nxt.pitch - ev.pitch)
         under_sustain = nxt.start_beat < end - 0.04
+        nxt_pedal = pedal_down_at(pedal, getattr(nxt, "start_time_sec", None))
         if nxt.pitch == ev.pitch and under_sustain:
             # Pulse re-attack under pedal is a line continuation.
             if (
@@ -400,10 +576,11 @@ def _release_hypothesis(ev, ordered_same_hand):
                 and gap * 1.25 < raw < gap * 4.0
                 and _pulsed_line_evidence(ev, nxt, ordered_same_hand)
             ):
-                return nxt.note_id, "pedal_tail"
+                source = "cc64" if nxt_pedal else "hypothesis"
+                return nxt.note_id, "pedal_tail", source
             # Near-simultaneous or independently sustained repeated pitch.
             if gap <= 0.12 or raw >= gap * 4.0:
-                return None, "overlapping_repeat"
+                return None, "overlapping_repeat", None
         if leap > 9:
             continue
         # Different pitch sounding under a sustain is an independent hold
@@ -411,16 +588,24 @@ def _release_hypothesis(ev, ordered_same_hand):
         if under_sustain and leap > 0 and not _pulsed_line_evidence(ev, nxt, ordered_same_hand):
             continue
         if not _pulsed_line_evidence(ev, nxt, ordered_same_hand):
-            continue
+            # Opt-in readable: actual pedal may still mark a pulsed continuation.
+            if not (
+                settings.uses_improved_readable()
+                and nxt_pedal
+                and 0.20 <= gap <= 2.05
+                and gap * 1.25 < raw < gap * 4.0
+            ):
+                continue
         score = leap + 0.05 * gap
         if best is None or score < best[0]:
-            best = (score, nxt, gap)
+            best = (score, nxt, gap, nxt_pedal)
     if best is None:
-        return None, "no_line"
-    _score, nxt, gap = best
+        return None, "no_line", None
+    _score, nxt, gap, nxt_pedal = best
     if 0.20 <= gap <= 2.05 and gap * 1.25 < raw < gap * 4.0:
-        return nxt.note_id, "pedal_tail"
-    return None, "performed_release"
+        source = "cc64" if nxt_pedal else "hypothesis"
+        return nxt.note_id, "pedal_tail", source
+    return None, "performed_release", None
 
 
 def _voice_search_events(events):
@@ -433,7 +618,7 @@ def _voice_search_events(events):
     for group in by_hand.values():
         ordered = sorted(group, key=lambda e: (e.start_beat, e.pitch, e.note_id))
         for ev in ordered:
-            target_id, _reason = _release_hypothesis(ev, ordered)
+            target_id, _reason, _source = _release_hypothesis(ev, ordered)
             if target_id is None or target_id not in by_id:
                 capped[ev.note_id] = ev
             else:
@@ -683,8 +868,22 @@ def resolve_layout(raw, profile: ScoreProfile) -> LayoutResult:
     return LayoutResult(events, LayoutAuthority.INFERRED, True, True)
 
 
-def quantize_notation(events, meter, *, config, mode=None):
+def quantize_notation(
+    events,
+    meter,
+    *,
+    config,
+    mode=None,
+    settings=None,
+    tempo_map=None,
+    pedal_events=None,
+):
     from mir.quantizer import summarize_quantization
+
+    if mode is not None:
+        require_production_quantization_mode(mode)
+    settings = _settings(settings)
+    spans = pedal_spans(pedal_events)
 
     ids = [e.note_id for e in events if e.note_id]
     if len(ids) != len(set(ids)):
@@ -705,6 +904,10 @@ def quantize_notation(events, meter, *, config, mode=None):
     # Downbeat phase belongs to score coordinates, never to the source MIDI.
     downbeats = [float(beat) for beat in meter.evidence.get("downbeat_beats", [])
                  if isfinite(float(beat)) and float(beat) >= 0]
+    if settings.first_downbeat_beat is not None:
+        downbeats = [float(settings.first_downbeat_beat)]
+    elif settings.pickup_beats:
+        downbeats = [float(settings.pickup_beats)]
     offset = (-min(downbeats)) % meter.measure_quarter_length if downbeats else 0.0
     if abs(offset - meter.measure_quarter_length) < 1e-7:
         offset = 0.0
@@ -721,7 +924,7 @@ def quantize_notation(events, meter, *, config, mode=None):
         voices[(staff, ev.voice)].append(ev)
 
     roles = _phrase_roles(voices, meter.measure_quarter_length)
-    release_by_id = _release_decisions(interpreted)
+    release_by_id = _release_decisions(interpreted, settings=settings, pedal=spans)
     # Phase 1: accept quantized onsets for every attack (all voices), then
     # resolve release targets to those onsets before duration spelling.
     onset_jobs = []
@@ -735,7 +938,7 @@ def quantize_notation(events, meter, *, config, mode=None):
                 groups[-1].append(ev)
             else:
                 groups.append([ev])
-        path = _search(groups, config.max_onset_move)
+        path = _search(groups, config.max_onset_move, settings=settings)
         for i, (group, (onset, family)) in enumerate(zip(groups, path)):
             nxt = path[i + 1][0] if i + 1 < len(path) else None
             neighbors = ([nxt - onset] if nxt is not None else [])
@@ -750,9 +953,13 @@ def quantize_notation(events, meter, *, config, mode=None):
 
     out, exact = [], {}
     for key, group, onset, family, nxt, raw_next, group_index in onset_jobs:
+        bar_number = int(onset / measure_length) + 1 if measure_length > 0 else 1
+        local_settings = settings.resolved_for_measure(bar_number)
         for ev in group:
             overlaps = raw_next is not None and ev.start_beat + ev.duration_beats > raw_next + 0.04
-            target_id, release_reason = release_by_id.get(ev.note_id, (None, None))
+            target_id, release_reason, pedal_source = release_by_id.get(
+                ev.note_id, (None, None, None)
+            )
             release_at = onset_by_id.get(target_id) if target_id else None
             duration = _duration(
                 ev.duration_beats,
@@ -765,6 +972,7 @@ def quantize_notation(events, meter, *, config, mode=None):
                 beat_length=beat_length,
                 release_reason=release_reason,
                 release_at=release_at,
+                settings=local_settings,
             )
             exact[ev.note_id] = (onset, duration, family, f"{key[0]}:{key[1]}:{group_index}")
             role, phrase = roles[ev.note_id]
@@ -776,8 +984,12 @@ def quantize_notation(events, meter, *, config, mode=None):
     for ev in out:
         source = raw_by_id[ev.note_id]
         onset, duration, family, group_id = exact[ev.note_id]
-        target_id, release_reason = release_by_id.get(ev.note_id, (None, None))
+        target_id, release_reason, pedal_source = release_by_id.get(
+            ev.note_id, (None, None, None)
+        )
         release_at = onset_by_id.get(target_id) if target_id else None
+        error_beats = ev.start_beat - offset - source.start_beat
+        bpm = _local_bpm(source, tempo_map)
         notes.append(ScoreNote(
             ev.note_id, onset, duration, ev.voice,
             staff_for_hand(ev.hand, ev.pitch) if profile.grand_staff else 0,
@@ -808,11 +1020,17 @@ def quantize_notation(events, meter, *, config, mode=None):
             "voice_confidence": ev.voice_confidence,
             "group_id": group_id, "reason": "bounded_voice_search",
             "score_beat_offset": offset,
-            "onset_error_beats": ev.start_beat - offset - source.start_beat,
+            "onset_error_beats": error_beats,
+            "onset_error_ms": beats_to_ms(error_beats, bpm),
+            "local_tempo_bpm": bpm,
+            "max_onset_move_beats": float(config.max_onset_move),
+            "max_onset_move_ms": beats_to_ms(config.max_onset_move, bpm),
             "layout_authority": getattr(source, "layout_authority", "") or layout.authority.value,
             "release_reason": release_reason,
             "release_target_id": target_id,
             "release_at": None if release_at is None else float(release_at),
+            "pedal_source": pedal_source,
+            "source_ids": [ev.note_id],
         })
     summary = summarize_quantization(raw, out, decisions)
     if collapse_warning:
@@ -825,5 +1043,9 @@ def quantize_notation(events, meter, *, config, mode=None):
                    score_beat_offset=offset,
                    beat_origin_source="detected_downbeat" if downbeats else "file_origin",
                    max_onset_error_beats=max((abs(d["onset_error_beats"]) for d in decisions), default=0),
+                   max_onset_error_ms=max((abs(d["onset_error_ms"]) for d in decisions), default=0),
+                   notation_settings=settings.to_dict(),
+                   notation_cache_key=settings.cache_key(),
+                   algorithm_version=settings.algorithm_version,
                    score_profile=profile.to_dict())
     return out, decisions, PerformanceReport(summary, tuple(notes), decisions)

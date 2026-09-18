@@ -645,7 +645,9 @@ class NotationWriter:
             rest = self._rest_for_length(ql)
             if rest is not None:
                 self._apply_planned_rhythm(rest, el)
-            if rest is not None and getattr(el, "hidden", False):
+            if rest is not None and (
+                getattr(el, "hidden", False) or getattr(el, "kind", "musical") == "structural"
+            ):
                 rest.hideObjectOnPrint = True
                 try:
                     rest.style.hideObjectOnPrint = True
