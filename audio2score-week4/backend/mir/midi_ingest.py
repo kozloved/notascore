@@ -69,6 +69,7 @@ class IngestedMidi:
     tempo_map: TempoMap
     pedal_events: list[tuple[float, int]]
     time_sig_hint: str | None = None
+    key_hint: str | None = None
     source_path: str = ""
     performance: PerformanceSnapshot | None = None
 
@@ -140,6 +141,25 @@ def _time_sig_hint(midi) -> str | None:
     return None
 
 
+def _key_hint(midi) -> str | None:
+    changes = getattr(midi, "key_signature_changes", None) or []
+    if not changes:
+        return None
+    key_number = getattr(changes[0], "key_number", None)
+    if key_number is None:
+        return None
+    try:
+        import pretty_midi
+
+        name = pretty_midi.key_number_to_key_name(int(key_number))
+    except Exception:
+        return None
+    if not name:
+        return None
+    token = str(name).split()[0]
+    return token or None
+
+
 def ingest_midi(path: str | Path, *, source_backend="midi") -> IngestedMidi:
     import pretty_midi
 
@@ -181,6 +201,7 @@ def ingest_midi(path: str | Path, *, source_backend="midi") -> IngestedMidi:
         tempo_map=tempo_map_from_pretty_midi(midi),
         pedal_events=pedal,
         time_sig_hint=_time_sig_hint(midi),
+        key_hint=_key_hint(midi),
         source_path=str(midi_path),
         performance=performance,
     )

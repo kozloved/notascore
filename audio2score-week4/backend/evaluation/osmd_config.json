@@ -12,7 +12,8 @@
     "drawingParameters": "compact",
     "newSystemFromXML": false,
     "newPageFromXML": false,
-    "alignRests": 2
+    "alignRests": 2,
+    "drawMeasureNumbersOnlyAtSystemStart": true
   },
   "engravingRules": {
     "RenderComposer": false,
@@ -29,7 +30,10 @@
     "PageBottomMargin": 8,
     "StaffDistance": 4.5,
     "BetweenStaffDistance": 3,
-    "MinimumDistanceBetweenSystems": 4
+    "MinimumDistanceBetweenSystems": 4,
+    "MeasureNumberLabelOffset": 1.5,
+    "MeasureNumberLabelXOffset": 0.4,
+    "RenderMeasureNumbersOnlyAtSystemStart": true
   },
   "zoom": 0.75
 }

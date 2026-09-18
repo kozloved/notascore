@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { track } from "../lib/analytics";
-import { ApiRequestError, getScoreEdits, resetScoreEdits, saveScoreEdits } from "../lib/jobs";
+import { ApiRequestError, conflictMessage, getScoreEdits, resetScoreEdits, saveScoreEdits } from "../lib/jobs";
 import {
   addNote,
   changeDuration,
@@ -117,7 +117,12 @@ export function useScoreEditor(scoreId: string | null) {
       if (err instanceof ApiRequestError && err.status === 409) {
         dirtyRef.current = true;
         setStatus("conflict");
-        setError("This score was updated elsewhere. Reload to keep editing, or retry to reapply.");
+        setError(
+          conflictMessage(
+            err,
+            "This score was updated elsewhere. Reload to keep editing, or retry to reapply."
+          )
+        );
         track("edit_save_failed");
         return;
       }
@@ -299,7 +304,9 @@ export function useScoreEditor(scoreId: string | null) {
       if (err instanceof ApiRequestError && err.status === 409) {
         dirtyRef.current = true;
         setStatus("conflict");
-        setError("This score was updated elsewhere. Reload before resetting.");
+        setError(
+          conflictMessage(err, "This score was updated elsewhere. Reload before resetting.")
+        );
         track("edit_save_failed");
         return;
       }

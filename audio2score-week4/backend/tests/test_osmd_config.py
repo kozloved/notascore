@@ -29,5 +29,9 @@ def test_osmd_config_matches_sheet_result():
     rules = cfg["engravingRules"]
     assert rules["PageLeftMargin"] == 8
     assert rules["MetronomeMarksDrawn"] is True
+    assert rules["MeasureNumberLabelOffset"] == 1.5
+    assert "MeasureNumberLabelOffset = 1.5" in jsx
+    assert rules["RenderMeasureNumbersOnlyAtSystemStart"] is True
+    assert "drawMeasureNumbersOnlyAtSystemStart: true" in jsx
     assert "osmd.zoom = 0.75" in jsx
     assert (BACKEND / "evaluation" / "render_osmd.mjs").is_file()

@@ -56,7 +56,51 @@ def _crosses_beat(cursor, remaining, beat_length) -> bool:
     return int(start) != int(end - Fraction(1, 10**12))
 
 
-def _pieces(start, duration, beat_length=Fraction(1), settings=None):
+_CONVENTIONAL_DURATIONS = {
+    Fraction(1), Fraction(2), Fraction(3), Fraction(4),
+    Fraction(1, 2), Fraction(3, 2), Fraction(6), Fraction(8),
+}
+
+
+def _on_pulse(cursor, unit) -> bool:
+    unit = Fraction(unit)
+    if unit <= 0:
+        return False
+    return Fraction(cursor) % unit == 0
+
+
+def _keep_conventional(cursor, remaining, beat_length) -> bool:
+    """Whole/half notes and compound dotted beats stay intact on the beat."""
+    remaining = Fraction(remaining)
+    beat_length = Fraction(beat_length)
+    if remaining == beat_length and _on_pulse(cursor, beat_length):
+        return True
+    if remaining in _CONVENTIONAL_DURATIONS and _on_pulse(cursor, beat_length):
+        return True
+    return False
+
+
+def _metrical_cap(cursor, remaining, beat_length, measure_length=None):
+    """Split ambiguous syncopations at the next higher metrical boundary."""
+    units = []
+    if measure_length:
+        mql = Fraction(measure_length)
+        units.append(mql)
+        if mql > beat_length:
+            units.append(mql / 2)
+    units.append(Fraction(beat_length))
+    for unit in units:
+        if unit <= 0:
+            continue
+        pos = Fraction(cursor) / Fraction(unit)
+        if pos.denominator != 1:
+            cap = (int(pos) + 1) * unit - Fraction(cursor)
+            if 0 < cap < remaining:
+                return cap
+    return remaining
+
+
+def _pieces(start, duration, beat_length=Fraction(1), settings=None, measure_length=None):
     settings = parse_notation_settings(settings)
     values = _spellable_values(settings)
     cursor, remaining = start, duration
@@ -66,6 +110,7 @@ def _pieces(start, duration, beat_length=Fraction(1), settings=None):
         keep_syncopation = (
             settings.syncopation == SyncopationPolicy.PRESERVE
             or not _crosses_beat(cursor, remaining, beat_length)
+            or _keep_conventional(cursor, remaining, beat_length)
         )
         if remaining in values and keep_syncopation:
             yield cursor, remaining
@@ -78,8 +123,12 @@ def _pieces(start, duration, beat_length=Fraction(1), settings=None):
             settings.syncopation == SyncopationPolicy.SHOW_METER
             and remaining > 0
             and _crosses_beat(cursor, remaining, beat_length)
+            and not _keep_conventional(cursor, remaining, beat_length)
         ):
-            cap = min(cap, (int(beat_position) + 1) * beat_length - cursor)
+            cap = min(
+                cap,
+                _metrical_cap(cursor, remaining, beat_length, measure_length),
+            )
         candidates = [value for value in values if value <= cap]
         if not candidates:
             # Local exception: restore the full vocabulary rather than fail.
@@ -104,6 +153,18 @@ def _pieces(start, duration, beat_length=Fraction(1), settings=None):
 def _rest(offset, length, voice, *, hidden=False, structural=False):
     kind = "structural" if structural or hidden else "musical"
     return PlannedRest(offset, length, voice, hidden=hidden, kind=kind)
+
+
+def _gap_rest(offset, length, voice, *, leading, trailing, primary_lane):
+    """Visible musical rests vs filler around a temporarily used inner lane."""
+    if length <= 0:
+        return None
+    tiny = length < Fraction(1, 16)
+    if not primary_lane and (leading or trailing):
+        return _rest(offset, length, voice, hidden=True, structural=True)
+    if tiny:
+        return _rest(offset, length, voice, hidden=True, structural=True)
+    return _rest(offset, length, voice, hidden=False, structural=False)
 
 
 def build_exact_measures(events, report, meter, key_name):
@@ -148,9 +209,18 @@ def build_exact_measures(events, report, meter, key_name):
                 for (start, end, tie), group in sorted(groups.items(), key=lambda item: item[0][0]):
                     if start < cursor:
                         raise ValueError("Exact voice lane contains overlapping attacks")
-                    for offset, length in _pieces(cursor, start - cursor, beat_length, local_settings):
-                        elements.append(_rest(offset, length, key[1], hidden=False, structural=False))
-                    pieces = list(_pieces(start, end - start, beat_length, local_settings))
+                    for offset, length in _pieces(
+                        cursor, start - cursor, beat_length, local_settings, mql
+                    ):
+                        rest = _gap_rest(
+                            offset, length, key[1],
+                            leading=cursor == 0,
+                            trailing=False,
+                            primary_lane=key == staff_lanes[0],
+                        )
+                        if rest is not None:
+                            elements.append(rest)
+                    pieces = list(_pieces(start, end - start, beat_length, local_settings, mql))
                     ties = tie_chain(len(pieces), tie)
                     for (offset, length), piece_tie in zip(pieces, ties):
                         elements.append(PlannedNote(
@@ -161,8 +231,15 @@ def build_exact_measures(events, report, meter, key_name):
                             tie=piece_tie, event_ids=[n.source_id for n in group],
                         ))
                     cursor = end
-                for offset, length in _pieces(cursor, mql - cursor, beat_length, local_settings):
-                    elements.append(_rest(offset, length, key[1], hidden=False, structural=False))
+                for offset, length in _pieces(cursor, mql - cursor, beat_length, local_settings, mql):
+                    rest = _gap_rest(
+                        offset, length, key[1],
+                        leading=False,
+                        trailing=True,
+                        primary_lane=key == staff_lanes[0],
+                    )
+                    if rest is not None:
+                        elements.append(rest)
                 annotate_rhythm(elements, meter.time_signature, f"{index}:{staff}:{key[1]}")
                 voices.append(PlannedVoice(key[1], elements))
             if not voices:
@@ -196,7 +273,12 @@ def annotate_rhythm(elements, time_signature, prefix):
         if isinstance(element, PlannedNote):
             element.beams = [(beam.type, beam.direction) for beam in beam_set] if beam_set else []
         tuplets = obj.duration.tuplets
-        if tuplets:
+        duration_is_tuplet = _is_tuplet(Fraction(element.duration_q))
+        if (
+            tuplets
+            and duration_is_tuplet
+            and not isinstance(element, PlannedRest)
+        ):
             tuplet = tuplets[0]
             if tuplet.type in ("start", "startStop"):
                 group += 1

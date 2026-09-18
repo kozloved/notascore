@@ -132,20 +132,20 @@ class PerformanceReport:
 
 
 def _onset_vocab(settings: NotationSettings, *, allow_finer=False):
+    settings = _settings(settings)
     exact = list(_ONSET_EXACT)
     search = list(_ONSET_SEARCH)
-    if settings.uses_current_vocabulary() or allow_finer:
-        return exact, search
-    max_binary = _GRID_BINARY_DENOMS.get(settings.display_grid)
-    if max_binary is not None:
-        exact = [
-            (denom, family) for denom, family in exact
-            if family != "binary" or denom <= max_binary
-        ]
-        search = [
-            row for row in search
-            if row[1] != "binary" or row[0] <= max_binary
-        ]
+    if not (settings.uses_current_vocabulary() or allow_finer):
+        max_binary = _GRID_BINARY_DENOMS.get(settings.display_grid)
+        if max_binary is not None:
+            exact = [
+                (denom, family) for denom, family in exact
+                if family != "binary" or denom <= max_binary
+            ]
+            search = [
+                row for row in search
+                if row[1] != "binary" or row[0] <= max_binary
+            ]
     if settings.triplet_policy == TripletPolicy.DISABLED:
         exact = [(denom, family) for denom, family in exact if family != "triplet"]
         search = [row for row in search if row[1] != "triplet"]
@@ -155,13 +155,19 @@ def _onset_vocab(settings: NotationSettings, *, allow_finer=False):
             for denom, family, cost in search
         ]
     if not exact:
-        exact = list(_ONSET_EXACT)
+        exact = [
+            (denom, family) for denom, family in _ONSET_EXACT
+            if family != "triplet" or settings.triplet_policy != TripletPolicy.DISABLED
+        ]
     if not search:
-        search = list(_ONSET_SEARCH)
+        search = [
+            row for row in _ONSET_SEARCH
+            if row[1] != "triplet" or settings.triplet_policy != TripletPolicy.DISABLED
+        ]
     return exact, search
 
 
-def _onset_candidates(raw, max_move, settings=None):
+def _onset_candidates(raw, max_move, settings=None, exceptions=None):
     settings = _settings(settings)
     # An already representable attack is stronger evidence than a preference
     # for a simpler rhythm. In particular, preserve 64ths and offbeat triplets.
@@ -171,8 +177,12 @@ def _onset_candidates(raw, max_move, settings=None):
         if abs(float(exact) - raw) <= min(1e-7, max_move):
             return [(exact, family, 0.0)]
     # Exact values outside the selected grid still win: they are distinct attacks.
+    # Triplet policy is still honored; a required tuplet is a recorded exception.
     if not settings.uses_current_vocabulary():
-        for denominator, family in _ONSET_EXACT:
+        fallback_exact = _ONSET_EXACT
+        if settings.triplet_policy == TripletPolicy.DISABLED:
+            fallback_exact = [(d, f) for d, f in _ONSET_EXACT if f != "triplet"]
+        for denominator, family in fallback_exact:
             exact = Fraction(round(raw * denominator), denominator)
             if abs(float(exact) - raw) <= min(1e-7, max_move):
                 return [(exact, family, 0.0)]
@@ -199,6 +209,18 @@ def _onset_candidates(raw, max_move, settings=None):
                     candidates[key] = cost
 
     _collect(search_vocab)
+    if not candidates and settings.triplet_policy == TripletPolicy.DISABLED:
+        _collect([row for row in _ONSET_SEARCH if row[1] == "triplet"])
+        if candidates and exceptions is not None:
+            exceptions.append(
+                {
+                    "kind": "triplet_policy",
+                    "policy": "disabled",
+                    "onset": float(raw),
+                    "reason": "A local tuplet was needed to keep this attack on the page.",
+                    "user_message": "A local tuplet was needed to keep this attack on the page.",
+                }
+            )
     if not candidates:
         _collect(_ONSET_SEARCH)
     if not candidates:
@@ -206,11 +228,14 @@ def _onset_candidates(raw, max_move, settings=None):
     return [(onset, family, cost) for (onset, family), cost in candidates.items()]
 
 
-def _search(groups, max_move, beam_width=24, settings=None):
+def _search(groups, max_move, beam_width=24, settings=None, measure_length=None, exceptions=None):
     # State includes the previous interval so recurring figures favor the same
     # interpretation. Strict ordering is a constraint, never a repair pass.
     settings = _settings(settings)
-    path = _search_beam(groups, max_move, beam_width, settings)
+    path = _search_beam(
+        groups, max_move, beam_width, settings,
+        measure_length=measure_length, exceptions=exceptions,
+    )
     if not settings.uses_improved_readable() or len(path) < 3:
         return path
     families = [family for onset, family in path if onset.denominator != 1]
@@ -225,7 +250,10 @@ def _search(groups, max_move, beam_width=24, settings=None):
     elif dominant == "binary" and preferred.triplet_policy == TripletPolicy.AUTO:
         preferred = preferred.replace(triplet_policy=TripletPolicy.DISABLED)
     try:
-        alt = _search_beam(groups, max_move, beam_width, preferred)
+        alt = _search_beam(
+            groups, max_move, beam_width, preferred,
+            measure_length=measure_length, exceptions=exceptions,
+        )
     except ValueError:
         return path
     # Keep the unified spelling only when attack order and the bound still hold.
@@ -234,13 +262,19 @@ def _search(groups, max_move, beam_width=24, settings=None):
     return alt
 
 
-def _search_beam(groups, max_move, beam_width, settings):
+def _search_beam(groups, max_move, beam_width, settings, measure_length=None, exceptions=None):
     beam = [(0.0, (), None)]
     for group in groups:
         raw = mean(e.start_beat for e in group)
+        local = settings
+        if measure_length:
+            bar_number = int(Fraction(str(raw)) / Fraction(measure_length)) + 1 if measure_length else 1
+            local = settings.resolved_for_measure(max(1, bar_number))
         next_beam = []
         for cost, path, last_interval in beam:
-            for onset, family, local_cost in _onset_candidates(raw, max_move, settings):
+            for onset, family, local_cost in _onset_candidates(
+                raw, max_move, local, exceptions=exceptions
+            ):
                 if any(abs(float(onset) - ev.start_beat) > max_move for ev in group):
                     continue
                 if path and onset <= path[-1][0]:
@@ -449,17 +483,17 @@ def _duration(
     to_bar = measure_length - bar_pos
     if to_bar > 0 and abs(raw - float(to_bar)) <= 0.35:
         named.add(to_bar)
-    dotted_ok = {d for d in named if _dot_count(d) <= int(settings.max_dots)}
-    if dotted_ok:
-        named = dotted_ok
+    # max_dots changes spelling (ties), not the selected musical duration.
     if preserve:
         exact = min(named, key=lambda d: abs(float(d) - raw))
         if abs(float(exact) - raw) < 1e-7:
             return exact
-    # Accepted line/release targets are authoritative over earlier same-voice
-    # neighbors and over spelling heuristics that would shrink further. Inner
-    # attacks under a pedal line are resolved by lanes, not by an unrelated cutoff.
-    if release_reason == "pedal_tail" and isinstance(release_at, Fraction):
+    # Preserve-overlap wins over an inferred pedal-tail cutoff.
+    if (
+        settings.overlap_handling != OverlapHandling.PRESERVE
+        and release_reason == "pedal_tail"
+        and isinstance(release_at, Fraction)
+    ):
         cap = release_at - onset
         if cap > 0:
             return cap
@@ -929,6 +963,7 @@ def quantize_notation(
     # resolve release targets to those onsets before duration spelling.
     onset_jobs = []
     onset_by_id = {}
+    policy_exceptions = []
     for key, voice in voices.items():
         groups = []
         for ev in sorted(voice, key=lambda e: (e.start_beat, e.pitch)):
@@ -938,12 +973,36 @@ def quantize_notation(
                 groups[-1].append(ev)
             else:
                 groups.append([ev])
-        path = _search(groups, config.max_onset_move, settings=settings)
+        path = _search(
+            groups,
+            config.max_onset_move,
+            settings=settings,
+            measure_length=measure_length,
+            exceptions=policy_exceptions,
+        )
+        for group in groups:
+            group_raw = mean(e.start_beat for e in group)
+            for row in policy_exceptions:
+                if "note_ids" not in row and abs(float(row.get("onset", 0)) - group_raw) < 1e-6:
+                    row["note_ids"] = [e.note_id for e in group]
         for i, (group, (onset, family)) in enumerate(zip(groups, path)):
             nxt = path[i + 1][0] if i + 1 < len(path) else None
-            neighbors = ([nxt - onset] if nxt is not None else [])
+            neighbors = []
+            if nxt is not None:
+                same_bar = (
+                    measure_length
+                    and int(onset / measure_length) == int(nxt / measure_length)
+                ) or measure_length is None
+                if same_bar:
+                    neighbors.append(nxt - onset)
             if i:
-                neighbors.append(onset - path[i - 1][0])
+                prev = path[i - 1][0]
+                same_bar = (
+                    measure_length
+                    and int(onset / measure_length) == int(prev / measure_length)
+                ) or measure_length is None
+                if same_bar:
+                    neighbors.append(onset - prev)
             if onset.denominator == 1 and any(d.denominator % 3 == 0 for d in neighbors):
                 family = "triplet"
             raw_next = min(e.start_beat for e in groups[i + 1]) if nxt is not None else None
@@ -1031,6 +1090,10 @@ def quantize_notation(
             "release_at": None if release_at is None else float(release_at),
             "pedal_source": pedal_source,
             "source_ids": [ev.note_id],
+            "policy_exceptions": [
+                row for row in policy_exceptions
+                if abs(float(row.get("onset", 0)) - float(source.start_beat)) < 1e-6
+            ],
         })
     summary = summarize_quantization(raw, out, decisions)
     if collapse_warning:
@@ -1047,5 +1110,6 @@ def quantize_notation(
                    notation_settings=settings.to_dict(),
                    notation_cache_key=settings.cache_key(),
                    algorithm_version=settings.algorithm_version,
+                   policy_exceptions=list(policy_exceptions),
                    score_profile=profile.to_dict())
     return out, decisions, PerformanceReport(summary, tuple(notes), decisions)

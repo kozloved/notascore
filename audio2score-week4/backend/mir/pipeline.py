@@ -344,12 +344,20 @@ class UnderstandingPipeline:
                 original, actual_backend
             )
             write_job_stage_midi(raw_path, original, bpm=120.0, split_hands=False)
+            saved_raw = raw_path.read_bytes()
+            self.last_performance_snapshot = (
+                self.last_performance_snapshot.with_midi_identity(saved_raw)
+            )
             provider_sha = None
         self.last_raw_identity = record_saved_raw(
             raw_path, provider_raw_sha256=provider_sha
         )
-        if source_bytes is not None:
-            self.last_performance_snapshot.verify_midi(source_bytes)
+        saved_raw = raw_path.read_bytes()
+        if self.last_performance_snapshot.midi_sha256 is None:
+            self.last_performance_snapshot = (
+                self.last_performance_snapshot.with_midi_identity(saved_raw)
+            )
+        self.last_performance_snapshot.verify_midi(saved_raw)
         self.last_performance_snapshot.write_json(out_dir / f"{job_id}.performance.json")
         self._write_transcription_diagnostics(out_dir, job_id, transcription)
 
@@ -430,6 +438,7 @@ class UnderstandingPipeline:
                 f"(velocities preserved, suggestions={len(piano.velocity_suggestions or [])}) "
                 f"pedal={len(pedal_events)} (job={job_id})"
             )
+        self.last_pedal_events = list(pedal_events)
         self.last_post_piano_notes = list(notes)
 
         onsets = [n.start_time for n in notes]
@@ -638,6 +647,7 @@ class UnderstandingPipeline:
             {"beat": beat, "bpm": bpm}
             for beat, bpm in timing.time_map.interval_bpms()
         ]
+        self.last_score_meta = meta
         self._write_timing_artifact(out_dir, job_id, timing, decision)
 
         self._write_debug(
@@ -886,6 +896,23 @@ class UnderstandingPipeline:
             },
         )
         self.last_structure = structure
+        self.last_meter_decision = decision
+        first_beat = min((e.start_beat for e in events), default=0.0)
+        from mir.score_interpretation import infer_pickup
+
+        if self.notation_settings.pickup_beats is not None or self.notation_settings.first_downbeat_beat is not None:
+            self.last_pickup = {
+                "pickup_inferred": True,
+                "pickup_beats": self.notation_settings.pickup_beats,
+                "first_downbeat_beat": self.notation_settings.first_downbeat_beat,
+                "source": "notation_settings",
+            }
+        else:
+            self.last_pickup = infer_pickup(
+                first_beat,
+                selected_meter.measure_quarter_length,
+                downbeat_beats=[0.0],
+            )
 
         meta = build_score_meta(
             tempo_map,
@@ -894,6 +921,7 @@ class UnderstandingPipeline:
             display_bpm=self._display_bpm(bpm),
             instrument_confidence=0.9,
             time_sig_hint=decision.meter,
+            key_hint=ingested.key_hint,
         )
         meta.extra = {
             **(meta.extra or {}),
@@ -912,6 +940,12 @@ class UnderstandingPipeline:
             ],
             "notation_settings": self.notation_settings.to_dict(),
         }
+        meta.extra["playback_tempo"] = [
+            {"beat": beat, "bpm": bpm}
+            for beat, bpm in timing.time_map.interval_bpms()
+        ]
+        self.last_pedal_events = list(meta.extra["pedal_events"])
+        self.last_score_meta = meta
         self._write_timing_artifact(out_dir, job_id, timing, decision)
         from intelligence.layer import maybe_enhance
         from mir.types import InstrumentPrediction
@@ -946,6 +980,7 @@ class UnderstandingPipeline:
         events = enhanced.events
         meta = enhanced.meta
         tempo_map = enhanced.tempo_map
+        self.last_score_meta = meta
         bpm = tempo_map.bpm_at(0.0)
         print(
             f"[MidiIngest] notes={len(notes)} tempo={bpm:.1f} "
@@ -1069,14 +1104,166 @@ class UnderstandingPipeline:
             json.dumps(metrics, indent=2) + "\n",
             encoding="utf-8",
         )
+        if payload.get("fallback_used"):
+            print(
+                "[Notation] debug: fallback to legacy build_score "
+                f"({payload.get('notation_fallback_error')})"
+            )
+        self.last_debug.write_json(out_dir / f"{job_id}.debug.json")
+        self._write_interpretation_context(job_id, out_dir)
+
+    def _write_interpretation_context(self, job_id: str, out_dir: Path) -> None:
+        """Persist the seconds-to-score-beats map used to build this score."""
+        from mir.interpretation_context import InterpretationContext
+        from timing.tempo_map import MusicalTimeMap
+
+        def _ctx_float(value):
+            if value is None or value == "":
+                return None
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        timing = self.last_timing
+        time_map = None
+        if timing is not None:
+            time_map = timing.time_map
+        elif self.last_musical_time_map is not None:
+            time_map = self.last_musical_time_map
+        if time_map is None:
+            self._write_notation_settings_sidecar(job_id, out_dir, context_digest=None)
+            return
+        if not isinstance(time_map, MusicalTimeMap):
+            duration = max(
+                (float(getattr(n, "end_time", 0.0) or 0.0) for n in (self.last_raw_notes or [])),
+                default=4.0,
+            )
+            time_map = MusicalTimeMap.from_tempo_map(time_map, duration_sec=max(duration, 1.0))
+        snapshot = self.last_performance_snapshot
+        snapshot_ids = [n.note_id for n in snapshot.notes] if snapshot is not None else []
+        accepted = [
+            ev.note_id for ev in (self.last_quantized_events or []) if getattr(ev, "note_id", None)
+        ]
+        if not accepted:
+            accepted = [
+                n.note_id for n in (self.last_validated_notes or self.last_raw_notes or [])
+                if getattr(n, "note_id", None)
+            ]
+        excluded = [ident for ident in snapshot_ids if ident not in set(accepted)]
+        pickup = dict(self.last_pickup or {})
+        choice = dict(self.last_interpretation_choice or {})
+        meter = None
+        if self.last_meter_decision is not None:
+            meter = self.last_meter_decision.meter
+        meta = getattr(self, "last_score_meta", None)
+        plan = getattr(self.notation, "last_plan", None)
+        key_name = None
+        if meta is not None and getattr(meta, "key_hint", None):
+            key_name = str(meta.key_hint)
+        if plan is not None and getattr(plan, "key_signature", None):
+            key_name = str(plan.key_signature)
+        key_name = key_name or "C"
+        instrument = "piano"
+        if meta is not None and getattr(meta, "instrument", None) is not None:
+            instrument = getattr(meta.instrument, "value", str(meta.instrument))
+        elif getattr(self, "last_structure", None) is not None:
+            inst = getattr(self.last_structure, "instrument", None)
+            if inst is not None:
+                instrument = getattr(inst, "value", str(inst))
+        settings_obj = getattr(self, "notation_settings", None)
+        pickup_beats = None
+        first_downbeat_beat = None
+        if pickup.get("pickup_inferred"):
+            pickup_beats = _ctx_float(pickup.get("pickup_beats") or pickup.get("beats"))
+            first_downbeat_beat = _ctx_float(pickup.get("first_downbeat_beat"))
+        if (pickup_beats is None or pickup_beats == 0.0) and settings_obj is not None:
+            pickup_beats = getattr(settings_obj, "pickup_beats", None)
+        if first_downbeat_beat is None and settings_obj is not None:
+            first_downbeat_beat = getattr(settings_obj, "first_downbeat_beat", None)
+        printed = []
+        playback = []
+        extra = dict(getattr(meta, "extra", None) or {})
+        if extra.get("printed_tempo"):
+            printed = [dict(row) for row in extra["printed_tempo"] if isinstance(row, dict)]
+        elif timing is not None:
+            printed = [
+                {"beat": m.beat, "bpm": m.bpm, "mark": m.mark, "reason": m.reason}
+                for m in (timing.printed or [])
+            ]
+        if extra.get("playback_tempo"):
+            playback = [dict(row) for row in extra["playback_tempo"] if isinstance(row, dict)]
+        elif timing is not None:
+            playback = [
+                {"beat": beat, "bpm": bpm} for beat, bpm in timing.time_map.interval_bpms()
+            ]
+        pedal = list(getattr(self, "last_pedal_events", None) or [])
+        if not pedal:
+            for row in extra.get("pedal_events") or []:
+                if isinstance(row, (list, tuple)) and len(row) >= 2:
+                    pedal.append((float(row[0]), int(row[1])))
+        if not pedal:
+            structure_extra = (getattr(getattr(self, "last_structure", None), "extra", None) or {})
+            for row in structure_extra.get("pedal_events") or []:
+                if isinstance(row, (list, tuple)) and len(row) >= 2:
+                    pedal.append((float(row[0]), int(row[1])))
+        decisions = list(getattr(self.notation, "last_quantization_decisions", None) or [])
+        downbeats = []
+        if timing is not None:
+            for t in getattr(timing.analysis, "downbeat_times", ()) or ():
+                try:
+                    downbeats.append(float(time_map.seconds_to_beats(float(t))))
+                except Exception:
+                    continue
+        display_bpm = choice.get("score_bpm")
+        if display_bpm is None and timing is not None:
+            display_bpm = timing.quality.median_bpm
+        context = InterpretationContext(
+            time_map=time_map,
+            selected_meter=str(meter or "4/4"),
+            key_name=key_name,
+            instrument=instrument,
+            display_bpm=float(display_bpm or 120.0),
+            tempo_scale=float(choice.get("tempo_scale") or getattr(timing, "tempo_scale", 1.0) or 1.0),
+            pickup_beats=pickup_beats,
+            first_downbeat_beat=first_downbeat_beat,
+            downbeat_beats=tuple(downbeats),
+            score_beat_offset=float(
+                (getattr(self.notation, "last_quantization_summary", None) or {}).get(
+                    "score_beat_offset", 0.0
+                )
+                or 0.0
+            ),
+            accepted_source_note_ids=tuple(accepted),
+            excluded_source_note_ids=tuple(excluded),
+            has_recorded_selection=True,
+            time_map_includes_score_offset=False,
+            layout_decisions=tuple(decisions),
+            printed_tempo=tuple(printed),
+            playback_tempo=tuple(playback),
+            pedal_events=tuple(pedal),
+            midi_sha256=getattr(snapshot, "midi_sha256", None),
+            source_backend=getattr(snapshot, "source_backend", "") or "",
+        )
+        context.write_json(out_dir / f"{job_id}.interpretation_context.json")
+        self._write_notation_settings_sidecar(
+            job_id, out_dir, context_digest=context.identity_digest()
+        )
+
+    def _write_notation_settings_sidecar(
+        self, job_id: str, out_dir: Path, *, context_digest: str | None
+    ) -> None:
+        midi_sha = getattr(self.last_performance_snapshot, "midi_sha256", None)
         (out_dir / f"{job_id}.notation_settings.json").write_text(
             json.dumps(
                 {
                     "notation_settings": self.notation_settings.to_dict(),
                     "algorithm_version": self.notation_settings.algorithm_version,
                     "notation_cache_key": self.notation_settings.cache_key(
-                        getattr(self.last_performance_snapshot, "midi_sha256", None)
+                        midi_sha, context_digest=context_digest
                     ),
+                    "midi_sha256": midi_sha,
+                    "interpretation_context_digest": context_digest,
                     "quantization_mode": self.config.quantization_mode.value,
                     "requested_quantization_mode": (self.config.extra or {}).get(
                         "requested_quantization_mode",
@@ -1091,12 +1278,6 @@ class UnderstandingPipeline:
             + "\n",
             encoding="utf-8",
         )
-        if payload.get("fallback_used"):
-            print(
-                "[Notation] debug: fallback to legacy build_score "
-                f"({payload.get('notation_fallback_error')})"
-            )
-        self.last_debug.write_json(out_dir / f"{job_id}.debug.json")
 
     def _publish_job(
         self,

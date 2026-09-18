@@ -34,7 +34,30 @@ def edit_bundle_keys(job_id: str, bundle_id: str) -> dict[str, str]:
         "json": f"{prefix}/{job_id}.edits.json",
         "musicxml": f"{prefix}/{job_id}.edited.musicxml",
         "midi": f"{prefix}/{job_id}.edited.mid",
+        "notation_settings": f"{prefix}/{job_id}.notation_settings.json",
+        "decisions": f"{prefix}/{job_id}.notation_decisions.json",
+        "interpretation": f"{prefix}/{job_id}.interpretation_context.json",
+        "corrections": f"{prefix}/{job_id}.corrections.json",
+        "manifest": f"{prefix}/{job_id}.revision.json",
     }
+
+
+REQUIRED_REVISION_FILES = ("musicxml", "midi", "notation_settings")
+
+
+def validate_revision_bundle(files: dict[str, bytes | str]) -> None:
+    """Reject an unpublished candidate that is missing a derived artifact."""
+    missing = [name for name in REQUIRED_REVISION_FILES if name not in files]
+    if missing:
+        raise ValueError(f"incomplete revision bundle: missing {', '.join(missing)}")
+    for name in REQUIRED_REVISION_FILES:
+        payload = files[name]
+        if payload is None:
+            raise ValueError(f"incomplete revision bundle: empty {name}")
+        if isinstance(payload, bytes) and not payload:
+            raise ValueError(f"incomplete revision bundle: empty {name}")
+        if isinstance(payload, str) and not payload.strip():
+            raise ValueError(f"incomplete revision bundle: empty {name}")
 
 
 def sibling_key(storage_key: str | None, filename: str) -> str | None:

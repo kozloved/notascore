@@ -105,6 +105,7 @@ export default function SheetResult({
           newSystemFromXML: false,
           newPageFromXML: false,
           alignRests: 2,
+          drawMeasureNumbersOnlyAtSystemStart: true,
         });
         osmdRef.current = osmd;
 
@@ -127,6 +128,9 @@ export default function SheetResult({
           osmd.EngravingRules.StaffDistance = 4.5;
           osmd.EngravingRules.BetweenStaffDistance = 3;
           osmd.EngravingRules.MinimumDistanceBetweenSystems = 4;
+          osmd.EngravingRules.MeasureNumberLabelOffset = 1.5;
+          osmd.EngravingRules.MeasureNumberLabelXOffset = 0.4;
+          osmd.EngravingRules.RenderMeasureNumbersOnlyAtSystemStart = true;
         }
 
         await osmd.load(xml);

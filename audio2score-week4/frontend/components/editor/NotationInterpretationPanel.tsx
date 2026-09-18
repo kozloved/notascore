@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 
 import {
-  ApiRequestError,
+  conflictMessage,
   getNotationSettings,
   saveNotationSettings,
   type NotationSettings,
+  type PolicyException,
 } from "../../lib/jobs";
 import Button from "../ui/Button";
 import SegmentedControl from "../ui/SegmentedControl";
@@ -38,6 +39,8 @@ export default function NotationInterpretationPanel({
   const [pickup, setPickup] = useState("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const [fallback, setFallback] = useState<string | null>(null);
+  const [exceptions, setExceptions] = useState<PolicyException[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,6 +54,8 @@ export default function NotationInterpretationPanel({
             ? ""
             : String(payload.notation_settings.pickup_beats)
         );
+        setFallback(payload.fallback || null);
+        setExceptions(payload.policy_exceptions || []);
       })
       .catch(() => {
         if (!cancelled) setStatus("Could not load notation settings.");
@@ -75,14 +80,12 @@ export default function NotationInterpretationPanel({
           ? ""
           : String(saved.notation_settings.pickup_beats)
       );
+      setFallback(saved.fallback || null);
+      setExceptions(saved.policy_exceptions || []);
       await onApplied();
       setStatus(saved.transcribed ? "Updated." : "Score updated from the original performance.");
     } catch (err) {
-      if (err instanceof ApiRequestError && err.status === 409) {
-        setStatus("This score was updated elsewhere. Reload and try again.");
-      } else {
-        setStatus(err instanceof Error ? err.message : "Could not update notation.");
-      }
+      setStatus(conflictMessage(err));
     } finally {
       setBusy(false);
     }
@@ -179,6 +182,22 @@ export default function NotationInterpretationPanel({
         and playback stay unchanged.
         {provenance ? ` ${provenance}` : ""}
       </p>
+      {fallback ? (
+        <p className="ns-notation-note" role="status">
+          This score is using a recovered tempo map.
+        </p>
+      ) : null}
+      {exceptions.length ? (
+        <ul className="ns-notation-note" aria-label="Notation exceptions">
+          {exceptions.map((row, index) => (
+            <li key={`${row.kind || "exception"}-${index}`}>
+              {row.user_message ||
+                row.reason ||
+                "A local notation exception was required."}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {status ? (
         <p className="ns-editor-save" role="status">
           {status}
