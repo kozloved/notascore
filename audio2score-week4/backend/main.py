@@ -468,6 +468,33 @@ def _edits_response(job: dict, model: dict, *, has_edits: bool | None = None) ->
     }
 
 
+def _editor_notes_changed(submitted: dict, displayed: dict) -> bool:
+    """True when the editor model changed timing or identity vs the current view."""
+    current = {
+        str(row.get("source_note_id") or row.get("id") or ""): row
+        for row in (displayed or {}).get("notes") or []
+        if row.get("source_note_id") or row.get("id")
+    }
+    incoming = {
+        str(row.get("source_note_id") or row.get("id") or ""): row
+        for row in (submitted or {}).get("notes") or []
+        if row.get("source_note_id") or row.get("id")
+    }
+    if set(current) != set(incoming):
+        return True
+    for sid, row in incoming.items():
+        other = current[sid]
+        for field in ("pitch", "track", "voice", "velocity"):
+            if row.get(field) is None and other.get(field) is None:
+                continue
+            if int(row.get(field) or 0) != int(other.get(field) or 0):
+                return True
+        for field in ("start", "duration"):
+            if abs(float(row.get(field) or 0) - float(other.get(field) or 0)) > 1e-6:
+                return True
+    return False
+
+
 def _read_result_sidecar(job: dict, filename: str, *, text: bool = False):
     storage_backend = storage_service.get_storage()
     result_key = job.get("result_storage_key")
@@ -1410,18 +1437,16 @@ def score_edits_put(
     if body.revision != current_revision:
         raise _conflict("stale_revision", STALE_REVISION)
     try:
-        model = parse_edits_payload(body.model_dump())
-        xml_text, midi_bytes = build_musicxml_and_midi(model)
-        json_text = dumps_edits(model)
-        snapshot = _performance_snapshot(job)
-        if snapshot is None:
-            raise EditError("Original performance identity is missing for these corrections.")
         from mir.notation_regen import (
             NotationEditConflict,
             baseline_uncorrected,
             extract_corrections,
         )
 
+        model = parse_edits_payload(body.model_dump())
+        xml_text, midi_bytes = build_musicxml_and_midi(model)
+        json_text = dumps_edits(model)
+        snapshot = _performance_snapshot(job)
         displayed = _load_edit_model(job)
         existing_ops: list[dict] = []
         stored_uncorrected: dict = {}
@@ -1457,6 +1482,9 @@ def score_edits_put(
         )
         extras.update(_baseline_identity_sidecars(extras, kind="note_edits"))
         edited_key = _write_revision_bundle(job, extras, require_complete=False)
+        note_changed = _editor_notes_changed(model, displayed)
+    except HTTPException:
+        raise
     except NotationEditConflict as exc:
         raise HTTPException(status_code=409, detail={"code": "edit_conflict", "message": str(exc)}) from exc
     except EditError as exc:
@@ -1491,7 +1519,7 @@ def score_edits_put(
     except Exception:
         pass
     job = dict(job, edit_revision=next_revision, edited_result_storage_key=edited_key)
-    return _edits_response(job, model, has_edits=bool(ops))
+    return _edits_response(job, model, has_edits=bool(ops) or note_changed)
 
 
 @app.post("/scores/{score_id}/edits/reset")

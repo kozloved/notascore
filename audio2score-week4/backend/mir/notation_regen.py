@@ -240,7 +240,7 @@ def baseline_uncorrected(
     *,
     displayed: dict | None,
     existing_ops: list[dict] | None,
-    snapshot: PerformanceSnapshot,
+    snapshot: PerformanceSnapshot | None,
     stored: dict | None = None,
 ) -> dict[str, dict]:
     """Uncorrected interpretation: stored baseline, else currently displayed fields without ops."""
@@ -249,7 +249,8 @@ def baseline_uncorrected(
     }
     displayed_map = correction_field_map(displayed)
     stored_map = _validate_uncorrected_map(stored)
-    original = {n.note_id: n for n in snapshot.notes}
+    original = {n.note_id: n for n in snapshot.notes} if snapshot is not None else {}
+    sids = set(displayed_map) | set(stored_map) | set(existing) | set(original)
     sids = set(displayed_map) | set(stored_map) | set(existing) | set(original)
     out: dict[str, dict] = {}
     for sid in sids:
@@ -391,7 +392,7 @@ def normalize_corrections(corrections: dict | list | None) -> list[dict]:
 def extract_corrections(
     submitted: dict | None,
     *,
-    snapshot: PerformanceSnapshot,
+    snapshot: PerformanceSnapshot | None,
     baseline: dict | None = None,
     displayed: dict | None = None,
     uncorrected: dict | None = None,
@@ -406,7 +407,7 @@ def extract_corrections(
     """
     if not submitted or not submitted.get("notes"):
         return normalize_corrections(existing or [])
-    original = {n.note_id: n for n in snapshot.notes}
+    original = {n.note_id: n for n in snapshot.notes} if snapshot is not None else {}
     shown = correction_field_map(displayed if displayed is not None else baseline)
     existing_ops = {
         op["source_note_id"]: dict(op) for op in normalize_corrections(existing or [])
@@ -427,7 +428,7 @@ def extract_corrections(
             raise NotationEditConflict([sid], f"Duplicate correction for source note {sid}.")
         seen_submitted.add(sid)
         orig = original.get(sid)
-        if orig is None:
+        if orig is None and snapshot is not None:
             if _row_looks_like_correction(row, None, shown.get(sid), existing_ops.get(sid)):
                 raise NotationEditConflict(
                     [sid],
@@ -436,7 +437,7 @@ def extract_corrections(
             continue
         current = merged.get(sid) or {"source_note_id": sid}
         unc = dict(uncorrected_map.get(sid) or {})
-        if unc.get("pitch") is None:
+        if orig is not None and unc.get("pitch") is None:
             unc["pitch"] = int(orig.pitch)
         disp = shown.get(sid) or {}
         for field in ("pitch", "track", "voice"):
