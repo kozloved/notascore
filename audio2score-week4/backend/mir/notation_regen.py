@@ -31,6 +31,7 @@ from mir.performance import PerformanceSnapshot
 from mir.pipeline_config import QuantizationMode
 from mir.types import InstrumentKind, ScoreMeta, copy_event
 from notation_engine.writer import NotationWriter
+from score_edits import PITCH_MAX, PITCH_MIN
 
 
 def public_policy_exception(row: dict) -> dict:
@@ -83,6 +84,9 @@ class NotationRegenResult:
     policy_exceptions: list[dict] = field(default_factory=list)
     editor_model: dict | None = None
     edits_digest: str | None = None
+    input_identity: str | None = None
+    output_identity: str | None = None
+    uncorrected: dict = field(default_factory=dict)
 
 
 def _layout_from_decisions(events, decisions):
@@ -130,29 +134,237 @@ def canonical_ops(ops: list[dict]) -> list[dict]:
     return [canonical_json(op) for op in ops]
 
 
-def normalize_corrections(corrections: dict | list | None) -> list[dict]:
-    """Return explicit correction operations, never a generated editor model."""
+ALLOWED_CORRECTION_FIELDS = {"source_note_id", "id", "pitch", "track", "voice"}
+ALLOWED_SIDECAR_KEYS = {"operations", "uncorrected"}
+CORRECTION_TRACK_MIN = 0
+CORRECTION_TRACK_MAX = 1
+CORRECTION_VOICE_MIN = 0
+CORRECTION_VOICE_MAX = 15
+
+
+def _source_note_id(row: dict | None) -> str:
+    if not isinstance(row, dict):
+        return ""
+    return str(row.get("source_note_id") or row.get("id") or "")
+
+
+def _correction_int(value, *, field: str, lo: int, hi: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise NotationEditConflict([], f"Invalid {field} in a saved correction.")
+    number = int(value)
+    if number != value or number < lo or number > hi:
+        raise NotationEditConflict([], f"Invalid {field} in a saved correction.")
+    return number
+
+
+def _validate_uncorrected_map(payload) -> dict[str, dict]:
+    if payload is None:
+        return {}
+    if not isinstance(payload, dict):
+        raise NotationEditConflict(
+            [],
+            "Saved uncorrected interpretation must be an object keyed by source note ID.",
+        )
+    out: dict[str, dict] = {}
+    for key, row in payload.items():
+        sid = str(key or "")
+        if not sid:
+            raise NotationEditConflict([], "Uncorrected interpretation is missing a source note ID.")
+        if not isinstance(row, dict):
+            raise NotationEditConflict([sid], f"Uncorrected interpretation for {sid} is not an object.")
+        extra = set(row.keys()) - {"pitch", "track", "voice"}
+        if extra:
+            raise NotationEditConflict(
+                [sid],
+                "Unsupported uncorrected fields: " + ", ".join(sorted(extra)) + ".",
+            )
+        fields: dict[str, int] = {}
+        if "pitch" in row and row["pitch"] is not None:
+            fields["pitch"] = _correction_int(row["pitch"], field="pitch", lo=PITCH_MIN, hi=PITCH_MAX)
+        if "track" in row and row["track"] is not None:
+            fields["track"] = _correction_int(
+                row["track"], field="track", lo=CORRECTION_TRACK_MIN, hi=CORRECTION_TRACK_MAX
+            )
+        if "voice" in row and row["voice"] is not None:
+            fields["voice"] = _correction_int(
+                row["voice"], field="voice", lo=CORRECTION_VOICE_MIN, hi=CORRECTION_VOICE_MAX
+            )
+        if fields:
+            out[sid] = fields
+    return out
+
+
+def correction_field_map(model: dict | None) -> dict[str, dict]:
+    """Pitch/staff/voice currently shown for each source note."""
+    out: dict[str, dict] = {}
+    for row in (model or {}).get("notes") or []:
+        sid = _source_note_id(row)
+        if not sid:
+            continue
+        fields: dict[str, int] = {}
+        if row.get("pitch") is not None:
+            fields["pitch"] = int(row["pitch"])
+        if row.get("track") is not None:
+            fields["track"] = int(row["track"])
+        if row.get("voice") is not None:
+            fields["voice"] = int(row["voice"])
+        if fields:
+            out[sid] = fields
+    return out
+
+
+def uncorrected_from_events(events) -> dict[str, dict]:
+    """Interpreted pitch/staff/musical voice before user operations."""
+    notes = []
+    for ev in events or []:
+        sid = str(getattr(ev, "note_id", "") or "")
+        if not sid:
+            continue
+        track = 1 if getattr(getattr(ev, "hand", None), "value", "") == "left" else 0
+        provenance = str(getattr(ev, "voice_provenance", "") or "")
+        musical = getattr(ev, "musical_voice", None)
+        printed = int(getattr(ev, "voice", 0) or 0)
+        voice = int(musical) if provenance == "user_edit" and musical is not None else printed
+        notes.append(
+            {
+                "source_note_id": sid,
+                "pitch": int(ev.pitch),
+                "track": track,
+                "voice": voice,
+            }
+        )
+    return correction_field_map({"notes": notes})
+
+
+def baseline_uncorrected(
+    *,
+    displayed: dict | None,
+    existing_ops: list[dict] | None,
+    snapshot: PerformanceSnapshot,
+    stored: dict | None = None,
+) -> dict[str, dict]:
+    """Uncorrected interpretation: stored baseline, else currently displayed fields without ops."""
+    existing = {
+        op["source_note_id"]: op for op in normalize_corrections(existing_ops or [])
+    }
+    displayed_map = correction_field_map(displayed)
+    stored_map = _validate_uncorrected_map(stored)
+    original = {n.note_id: n for n in snapshot.notes}
+    sids = set(displayed_map) | set(stored_map) | set(existing) | set(original)
+    out: dict[str, dict] = {}
+    for sid in sids:
+        prev = stored_map.get(sid) or {}
+        disp = displayed_map.get(sid) or {}
+        op = existing.get(sid) or {}
+        orig = original.get(sid)
+        row: dict[str, int] = {}
+        for field in ("pitch", "track", "voice"):
+            if prev.get(field) is not None:
+                row[field] = int(prev[field])
+            elif field not in op and disp.get(field) is not None:
+                row[field] = int(disp[field])
+            elif field == "pitch" and orig is not None:
+                row[field] = int(orig.pitch)
+        if row:
+            out[sid] = row
+    return out
+
+
+def parse_corrections_sidecar(corrections: dict | list | None) -> tuple[list[dict], dict]:
+    """Return (operations, uncorrected map). Empty sidecar is valid; malformed is not."""
     if not corrections:
-        return []
-    if isinstance(corrections, list):
-        rows = corrections
-    else:
-        rows = corrections.get("operations")
-        if rows is None and corrections.get("notes"):
+        return [], {}
+    stored = {}
+    if isinstance(corrections, dict):
+        extra = set(corrections.keys()) - ALLOWED_SIDECAR_KEYS - {"notes"}
+        if extra:
+            raise NotationEditConflict(
+                [],
+                "Unsupported correction sidecar fields: " + ", ".join(sorted(extra)) + ".",
+            )
+        if corrections.get("notes") is not None and "operations" not in corrections:
             raise NotationEditConflict(
                 [],
                 "Saved score corrections are a generated editor model, not "
                 "explicit operations. The published score was left unchanged.",
             )
-        rows = rows or []
+        if "notes" in corrections and "operations" in corrections:
+            raise NotationEditConflict(
+                [],
+                "Correction sidecar cannot mix a generated editor model with operations.",
+            )
+        stored = _validate_uncorrected_map(corrections.get("uncorrected"))
+    return normalize_corrections(corrections), stored
+
+
+def normalize_corrections(corrections: dict | list | None) -> list[dict]:
+    """Return explicit correction operations, never a generated editor model.
+
+    A missing or empty operations list is valid. A nonempty malformed payload
+    is rejected rather than silently normalized to [].
+    """
+    if not corrections:
+        return []
+    if isinstance(corrections, list):
+        rows = corrections
+    elif isinstance(corrections, dict):
+        if "operations" not in corrections:
+            if corrections.get("notes"):
+                raise NotationEditConflict(
+                    [],
+                    "Saved score corrections are a generated editor model, not "
+                    "explicit operations. The published score was left unchanged.",
+                )
+            extra = set(corrections.keys()) - ALLOWED_SIDECAR_KEYS
+            if extra:
+                raise NotationEditConflict(
+                    [],
+                    "Unsupported correction sidecar fields: "
+                    + ", ".join(sorted(extra))
+                    + ".",
+                )
+            return []
+        rows = corrections.get("operations")
+        if rows is None:
+            raise NotationEditConflict([], "Correction operations must be a list.")
+        if corrections.get("notes"):
+            raise NotationEditConflict(
+                [],
+                "Correction sidecar cannot mix a generated editor model with operations.",
+            )
+        extra = set(corrections.keys()) - ALLOWED_SIDECAR_KEYS - {"notes"}
+        if extra:
+            raise NotationEditConflict(
+                [],
+                "Unsupported correction sidecar fields: " + ", ".join(sorted(extra)) + ".",
+            )
+    else:
+        raise NotationEditConflict(
+            [],
+            "Saved score corrections must be a list or an object with operations.",
+        )
+    if not isinstance(rows, list):
+        raise NotationEditConflict([], "Correction operations must be a list.")
     ops = []
     seen = set()
     for row in rows:
         if not isinstance(row, dict):
-            continue
-        sid = str(row.get("source_note_id") or row.get("id") or "")
+            raise NotationEditConflict(
+                [],
+                "Each correction operation must be an object with a source note ID.",
+            )
+        extra = set(row.keys()) - ALLOWED_CORRECTION_FIELDS
+        if extra:
+            raise NotationEditConflict(
+                [],
+                "Unsupported correction fields: " + ", ".join(sorted(extra)) + ".",
+            )
+        sid = _source_note_id(row)
         if not sid:
-            continue
+            raise NotationEditConflict(
+                [],
+                "Each correction operation requires a source note ID.",
+            )
         if sid in seen:
             raise NotationEditConflict(
                 [sid],
@@ -160,12 +372,16 @@ def normalize_corrections(corrections: dict | list | None) -> list[dict]:
             )
         seen.add(sid)
         op = {"source_note_id": sid}
-        if row.get("pitch") is not None:
-            op["pitch"] = int(row["pitch"])
-        if row.get("track") is not None:
-            op["track"] = int(row["track"])
-        if row.get("voice") is not None:
-            op["voice"] = int(row["voice"])
+        if "pitch" in row and row["pitch"] is not None:
+            op["pitch"] = _correction_int(row["pitch"], field="pitch", lo=PITCH_MIN, hi=PITCH_MAX)
+        if "track" in row and row["track"] is not None:
+            op["track"] = _correction_int(
+                row["track"], field="track", lo=CORRECTION_TRACK_MIN, hi=CORRECTION_TRACK_MAX
+            )
+        if "voice" in row and row["voice"] is not None:
+            op["voice"] = _correction_int(
+                row["voice"], field="voice", lo=CORRECTION_VOICE_MIN, hi=CORRECTION_VOICE_MAX
+            )
         if len(op) == 1:
             continue
         ops.append(op)
@@ -177,57 +393,84 @@ def extract_corrections(
     *,
     snapshot: PerformanceSnapshot,
     baseline: dict | None = None,
+    displayed: dict | None = None,
+    uncorrected: dict | None = None,
+    existing: list[dict] | dict | None = None,
 ) -> list[dict]:
-    """Diff a saved editor model against snapshot pitch/staff and baseline voice."""
+    """Merge submitted editor changes into explicit operations.
+
+    Uncorrected interpretation stays separate from user operations. A field is
+    recorded only when the submitted value differs from the uncorrected
+    interpreted value. Automatic hand/voice inference is never stored. An
+    operation is removed only when the user restores that uncorrected value.
+    """
     if not submitted or not submitted.get("notes"):
-        return []
+        return normalize_corrections(existing or [])
     original = {n.note_id: n for n in snapshot.notes}
-    previous = {}
-    for row in (baseline or {}).get("notes") or []:
-        sid = str(row.get("source_note_id") or row.get("id") or "")
-        if sid:
-            previous[sid] = row
-    ops = []
+    shown = correction_field_map(displayed if displayed is not None else baseline)
+    existing_ops = {
+        op["source_note_id"]: dict(op) for op in normalize_corrections(existing or [])
+    }
+    if uncorrected is None:
+        uncorrected = {}
+    if isinstance(uncorrected, dict) and "notes" in uncorrected:
+        uncorrected_map = correction_field_map(uncorrected)
+    else:
+        uncorrected_map = _validate_uncorrected_map(uncorrected)
+    merged: dict[str, dict] = {sid: dict(op) for sid, op in existing_ops.items()}
+    seen_submitted = set()
     for row in submitted["notes"]:
-        sid = str(row.get("source_note_id") or row.get("id") or "")
+        sid = _source_note_id(row)
         if not sid:
             continue
+        if sid in seen_submitted:
+            raise NotationEditConflict([sid], f"Duplicate correction for source note {sid}.")
+        seen_submitted.add(sid)
         orig = original.get(sid)
-        op: dict[str, Any] = {"source_note_id": sid}
         if orig is None:
-            if _row_looks_like_correction(row, None, previous.get(sid)):
+            if _row_looks_like_correction(row, None, shown.get(sid), existing_ops.get(sid)):
                 raise NotationEditConflict(
                     [sid],
                     f"Correction {sid} does not match a source note.",
                 )
             continue
-        if row.get("pitch") is not None and int(row["pitch"]) != int(orig.pitch):
-            op["pitch"] = int(row["pitch"])
-        expected_track = 1 if str(orig.hand_hint or "") == "left" else 0
-        if row.get("track") is not None and int(row["track"]) != expected_track:
-            op["track"] = int(row["track"])
-        prev = previous.get(sid)
-        if (
-            row.get("voice") is not None
-            and prev is not None
-            and int(row["voice"]) != int(prev.get("voice") or 0)
-        ):
-            op["voice"] = int(row["voice"])
-        if len(op) > 1:
-            ops.append(op)
-    return ops
+        current = merged.get(sid) or {"source_note_id": sid}
+        unc = dict(uncorrected_map.get(sid) or {})
+        if unc.get("pitch") is None:
+            unc["pitch"] = int(orig.pitch)
+        disp = shown.get(sid) or {}
+        for field in ("pitch", "track", "voice"):
+            if row.get(field) is None:
+                continue
+            submitted_value = int(row[field])
+            uncorrected_value = unc.get(field)
+            displayed_value = disp.get(field)
+            if displayed_value is not None and submitted_value == int(displayed_value):
+                continue
+            if uncorrected_value is not None and submitted_value == int(uncorrected_value):
+                current.pop(field, None)
+            else:
+                current[field] = submitted_value
+        if len(current) > 1:
+            merged[sid] = current
+        else:
+            merged.pop(sid, None)
+    return [merged[sid] for sid in sorted(merged)]
 
 
-def _row_looks_like_correction(row: dict, orig, previous: dict | None) -> bool:
-    if orig is None and (row.get("pitch") is not None or row.get("track") is not None):
-        if previous is None:
-            return True
-        if row.get("pitch") is not None and int(row["pitch"]) != int(previous.get("pitch") or -1):
-            return True
-        if row.get("track") is not None and int(row["track"]) != int(previous.get("track") or -1):
-            return True
-        if row.get("voice") is not None and int(row["voice"]) != int(previous.get("voice") or 0):
-            return True
+def _row_looks_like_correction(row: dict, orig, previous: dict | None, existing: dict | None = None) -> bool:
+    if orig is not None:
+        return False
+    if existing:
+        return True
+    if previous is None:
+        return row.get("pitch") is not None or row.get("track") is not None or row.get("voice") is not None
+    if row.get("pitch") is not None and int(row["pitch"]) != int(previous.get("pitch") or -1):
+        return True
+    if row.get("track") is not None and int(row["track"]) != int(previous.get("track") or -1):
+        return True
+    if row.get("voice") is not None and int(row["voice"]) != int(previous.get("voice") or 0):
+        return True
     return False
 
 
@@ -263,10 +506,13 @@ def apply_note_edits(events, corrections, snapshot: PerformanceSnapshot):
             if hand != ev.hand:
                 changes["hand"] = hand
                 changes["hand_locked"] = True
-        if op.get("voice") is not None and int(op["voice"]) != int(ev.voice):
-            changes["voice"] = int(op["voice"])
-            changes["voice_assigned"] = True
-            changes["voice_provenance"] = "user_edit"
+        if op.get("voice") is not None:
+            musical_voice = int(op["voice"])
+            if musical_voice != int(ev.voice) or getattr(ev, "musical_voice", None) != musical_voice:
+                changes["voice"] = musical_voice
+                changes["musical_voice"] = musical_voice
+                changes["voice_assigned"] = True
+                changes["voice_provenance"] = "user_edit"
         out.append(copy_event(ev, **changes) if changes else ev)
     return out
 
@@ -293,9 +539,18 @@ def editor_model_from_events(
     )
 
     notes = []
+    has_user_voice = False
     for index, ev in enumerate(events):
         note_id = str(ev.note_id or f"n-{index:04d}")
         track = 1 if getattr(ev.hand, "value", "") == "left" else 0
+        provenance = str(getattr(ev, "voice_provenance", "") or "")
+        musical = getattr(ev, "musical_voice", None)
+        printed = int(getattr(ev, "voice", 0) or 0)
+        if provenance == "user_edit":
+            has_user_voice = True
+            voice = int(musical) if musical is not None else printed
+        else:
+            voice = printed
         notes.append(
             {
                 "id": note_id if ID_RE.match(note_id) else f"n-{index:04d}",
@@ -305,12 +560,16 @@ def editor_model_from_events(
                 "duration": min(MAX_DURATION, max(1e-6, float(ev.duration_beats))),
                 "velocity": max(1, min(127, int(ev.velocity or 64))),
                 "track": track,
-                "voice": int(getattr(ev, "voice", 0) or 0),
+                "voice": voice,
                 "start_sec": getattr(ev, "start_time_sec", None),
                 "end_sec": getattr(ev, "end_time_sec", None),
             }
         )
-    notes = assign_overlap_voices(notes) if all(int(n.get("voice") or 0) == 0 for n in notes) else notes
+    notes = (
+        assign_overlap_voices(notes)
+        if not has_user_voice and all(int(n.get("voice") or 0) == 0 for n in notes)
+        else notes
+    )
     printed = []
     for mark in printed_marks or []:
         if isinstance(mark, dict):
@@ -500,6 +759,7 @@ def recompute_notation(
     events = notes_to_events(notes, mapper, source_backend=backend)
     layout_rows = _layout_rows(context, prior_decisions)
     events = _layout_from_decisions(events, layout_rows)
+    baseline_events = list(events)
     applied_corrections = corrections if corrections is not None else edits
     events = apply_note_edits(events, applied_corrections, performance)
     if notes:
@@ -573,10 +833,39 @@ def recompute_notation(
             context.time_map if context is not None else None
         ),
     )
+    baseline_by_id = {ev.note_id: ev for ev in baseline_events if getattr(ev, "note_id", "")}
+    uncorrected_quantized = []
+    for ev in quantized:
+        base = baseline_by_id.get(ev.note_id)
+        if base is None:
+            uncorrected_quantized.append(ev)
+            continue
+        uncorrected_quantized.append(
+            copy_event(
+                ev,
+                pitch=base.pitch,
+                hand=base.hand,
+                voice=base.voice,
+                musical_voice=base.musical_voice,
+                voice_provenance=base.voice_provenance,
+                hand_locked=base.hand_locked,
+                voice_assigned=base.voice_assigned,
+            )
+        )
+    uncorrected_model = editor_model_from_events(
+        uncorrected_quantized,
+        tempo_bpm=float(display or 120),
+        time_signature=str(meter_hint or "4/4"),
+        printed_marks=printed,
+        time_map=mapper if hasattr(mapper, "interval_bpms") else (
+            context.time_map if context is not None else None
+        ),
+    )
+    uncorrected = correction_field_map(uncorrected_model)
     edits_digest = _edits_digest(applied_corrections)
-    context_digest = context.identity_digest() if context is not None else None
+    input_identity = context.identity_digest() if context is not None else None
     cache = settings.cache_key(
-        digest, context_digest=context_digest, edits_digest=edits_digest
+        digest, context_digest=input_identity, edits_digest=edits_digest
     )
     next_context = context
     if context is not None:
@@ -590,11 +879,16 @@ def recompute_notation(
             "fallback": used_fallback,
             "score_beat_offset": float(summary.get("score_beat_offset", context.score_beat_offset) or 0.0),
         }
-        if settings.pickup_beats is not None:
+        if explicit_pickup:
             next_payload["pickup_beats"] = settings.pickup_beats
-        if settings.first_downbeat_beat is not None:
             next_payload["first_downbeat_beat"] = settings.first_downbeat_beat
+        else:
+            if settings.pickup_beats is not None:
+                next_payload["pickup_beats"] = settings.pickup_beats
+            if settings.first_downbeat_beat is not None:
+                next_payload["first_downbeat_beat"] = settings.first_downbeat_beat
         next_context = InterpretationContext.from_dict(next_payload)
+    output_identity = next_context.identity_digest() if next_context is not None else None
     return NotationRegenResult(
         musicxml=xml,
         settings=settings,
@@ -610,6 +904,9 @@ def recompute_notation(
         policy_exceptions=policy_exceptions,
         editor_model=editor_model,
         edits_digest=edits_digest,
+        input_identity=input_identity,
+        output_identity=output_identity,
+        uncorrected=uncorrected,
     )
 
 
@@ -686,8 +983,12 @@ def recompute_job_dir(out_dir: Path, job_id: str, settings: NotationSettings | d
                 "notation_cache_key": result.cache_key,
                 "midi_sha256": result.midi_sha256,
                 "interpretation_context_digest": (
-                    result.context.identity_digest() if result.context else None
+                    result.output_identity
+                    or (result.context.identity_digest() if result.context else None)
                 ),
+                "input_identity": result.input_identity,
+                "output_identity": result.output_identity,
+                "identity_role": "regenerated_output",
                 "fallback": result.fallback,
             },
             indent=2,
