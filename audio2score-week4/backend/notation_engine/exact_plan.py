@@ -4,36 +4,113 @@ from collections import defaultdict
 from fractions import Fraction
 
 from mir.models import PlannedMeasure, PlannedNote, PlannedRest, PlannedStaff, PlannedVoice, PlannedTuplet
+from mir.notation_settings import (
+    NotationSettings,
+    SyncopationPolicy,
+    TripletPolicy,
+    parse_notation_settings,
+)
 from mir.quantizer import tie_chain
 
 
-def _pieces(start, duration, beat_length=Fraction(1)):
-    values = sorted({Fraction(n, d) for d in (1, 2, 4, 8, 16, 3, 6, 12, 24, 48)
-                     for n in (1, 2, 3, 4, 6, 8)}, reverse=True)
+def _dot_count(value: Fraction) -> int:
+    q = Fraction(value)
+    n, d = q.numerator, q.denominator
+    while d % 2 == 0:
+        d //= 2
+    if d != 1:
+        return 0
+    while n % 2 == 0:
+        n //= 2
+    if n <= 1:
+        return 0
+    if (n + 1) & n == 0:
+        return (n + 1).bit_length() - 2
+    return 0
+
+
+def _is_tuplet(value: Fraction) -> bool:
+    d = Fraction(value).denominator
+    while d % 2 == 0:
+        d //= 2
+    return d % 3 == 0
+
+
+def _spellable_values(settings: NotationSettings):
+    values = {
+        Fraction(n, d)
+        for d in (1, 2, 4, 8, 16, 3, 6, 12, 24, 48)
+        for n in (1, 2, 3, 4, 6, 8)
+    }
+    values = {value for value in values if _dot_count(value) <= int(settings.max_dots)}
+    if settings.triplet_policy == TripletPolicy.DISABLED:
+        values = {value for value in values if not _is_tuplet(value)}
+    return sorted(values, reverse=True)
+
+
+def _crosses_beat(cursor, remaining, beat_length) -> bool:
+    if beat_length <= 0 or remaining <= 0:
+        return False
+    start = Fraction(cursor) / Fraction(beat_length)
+    end = (Fraction(cursor) + Fraction(remaining)) / Fraction(beat_length)
+    return int(start) != int(end - Fraction(1, 10**12))
+
+
+def _pieces(start, duration, beat_length=Fraction(1), settings=None):
+    settings = parse_notation_settings(settings)
+    values = _spellable_values(settings)
     cursor, remaining = start, duration
     while remaining:
         # A writable syncopation or tuplet is already one note. Splitting it
         # at every pulse creates repeated-looking heads and needless ties.
-        if remaining in values:
+        keep_syncopation = (
+            settings.syncopation == SyncopationPolicy.PRESERVE
+            or not _crosses_beat(cursor, remaining, beat_length)
+        )
+        if remaining in values and keep_syncopation:
             yield cursor, remaining
             return
         cap = remaining
         beat_position = cursor / beat_length
         if beat_position.denominator != 1:
             cap = min(cap, (int(beat_position) + 1) * beat_length - cursor)
+        elif (
+            settings.syncopation == SyncopationPolicy.SHOW_METER
+            and remaining > 0
+            and _crosses_beat(cursor, remaining, beat_length)
+        ):
+            cap = min(cap, (int(beat_position) + 1) * beat_length - cursor)
         candidates = [value for value in values if value <= cap]
         if not candidates:
-            raise ValueError(f"Unspellable exact duration {remaining} at {cursor}")
+            # Local exception: restore the full vocabulary rather than fail.
+            fallback = sorted(
+                {
+                    Fraction(n, d)
+                    for d in (1, 2, 4, 8, 16, 3, 6, 12, 24, 48)
+                    for n in (1, 2, 3, 4, 6, 8)
+                    if Fraction(n, d) <= cap
+                },
+                reverse=True,
+            )
+            if not fallback:
+                raise ValueError(f"Unspellable exact duration {remaining} at {cursor}")
+            candidates = fallback
         piece = candidates[0]
         yield cursor, piece
         cursor += piece
         remaining -= piece
 
 
+def _rest(offset, length, voice, *, hidden=False, structural=False):
+    kind = "structural" if structural or hidden else "musical"
+    return PlannedRest(offset, length, voice, hidden=hidden, kind=kind)
+
+
 def build_exact_measures(events, report, meter, key_name):
     by_id = {ev.note_id: ev for ev in events}
     mql = Fraction(str(meter.measure_quarter_length))
     beat_length = Fraction(3, 2) if meter.denominator == 8 and meter.numerator > 3 and meter.numerator % 3 == 0 else Fraction(4, meter.denominator)
+    settings = parse_notation_settings((report.summary or {}).get("notation_settings"))
     end = max((n.onset + n.duration for n in report.notes), default=mql)
     count = max(1, -(-end // mql))
     lanes = defaultdict(list)
@@ -44,6 +121,7 @@ def build_exact_measures(events, report, meter, key_name):
     staff_ids = (0, 1) if profile["grand_staff"] else (0,)
     for index in range(count):
         bar_start, bar_end = index * mql, (index + 1) * mql
+        local_settings = settings.resolved_for_measure(index + 1)
         staves = []
         for staff in staff_ids:
             staff_lanes = sorted(key for key in lanes if key[0] == staff)
@@ -63,16 +141,16 @@ def build_exact_measures(events, report, meter, key_name):
                     # Importers may flatten a lone remaining voice and lose
                     # the identity needed to join its cross-bar ties.
                     voices.append(PlannedVoice(key[1], [
-                        PlannedRest(Fraction(0), mql, key[1], hidden=key != staff_lanes[0])
+                        _rest(Fraction(0), mql, key[1], hidden=key != staff_lanes[0], structural=True)
                     ]))
                     continue
                 elements, cursor = [], Fraction(0)
                 for (start, end, tie), group in sorted(groups.items(), key=lambda item: item[0][0]):
                     if start < cursor:
                         raise ValueError("Exact voice lane contains overlapping attacks")
-                    for offset, length in _pieces(cursor, start - cursor, beat_length):
-                        elements.append(PlannedRest(offset, length, key[1], hidden=key != staff_lanes[0]))
-                    pieces = list(_pieces(start, end - start, beat_length))
+                    for offset, length in _pieces(cursor, start - cursor, beat_length, local_settings):
+                        elements.append(_rest(offset, length, key[1], hidden=False, structural=False))
+                    pieces = list(_pieces(start, end - start, beat_length, local_settings))
                     ties = tie_chain(len(pieces), tie)
                     for (offset, length), piece_tie in zip(pieces, ties):
                         elements.append(PlannedNote(
@@ -83,12 +161,12 @@ def build_exact_measures(events, report, meter, key_name):
                             tie=piece_tie, event_ids=[n.source_id for n in group],
                         ))
                     cursor = end
-                for offset, length in _pieces(cursor, mql - cursor, beat_length):
-                    elements.append(PlannedRest(offset, length, key[1], hidden=key != staff_lanes[0]))
+                for offset, length in _pieces(cursor, mql - cursor, beat_length, local_settings):
+                    elements.append(_rest(offset, length, key[1], hidden=False, structural=False))
                 annotate_rhythm(elements, meter.time_signature, f"{index}:{staff}:{key[1]}")
                 voices.append(PlannedVoice(key[1], elements))
             if not voices:
-                voices = [PlannedVoice(0, [PlannedRest(Fraction(0), mql, 0)])]
+                voices = [PlannedVoice(0, [_rest(Fraction(0), mql, 0, structural=True)])]
             clef = ("treble" if staff == 0 else "bass") if profile["grand_staff"] else profile["clef"]
             staves.append(PlannedStaff(staff, clef, voices=voices))
         measures.append(PlannedMeasure(index + 1, index * mql, mql,

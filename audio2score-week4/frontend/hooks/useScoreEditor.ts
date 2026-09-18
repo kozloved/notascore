@@ -369,6 +369,7 @@ export function useScoreEditor(scoreId: string | null) {
     tempoBpm,
     timeSignature,
     tempoCurve,
+    provenance,
     renderKey,
     dirty: dirty && (hasEdits || !notesEqual(notes, originalRef.current)),
     canUndo,

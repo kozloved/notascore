@@ -1199,6 +1199,48 @@ body::before {
   align-items: center;
 }
 
+.ns-notation-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 8px 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--ns-border);
+  border-radius: var(--ns-radius-sm);
+  background: var(--ns-surface);
+}
+
+.ns-notation-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+
+.ns-notation-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--ns-text-muted);
+}
+
+.ns-notation-field input {
+  min-width: 88px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--ns-border-strong);
+  border-radius: 8px;
+  background: var(--ns-surface-elevated);
+  color: var(--ns-text-primary);
+}
+
+.ns-notation-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ns-text-muted);
+}
+
 .ns-note-toolbar {
   position: sticky;
   bottom: 12px;

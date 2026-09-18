@@ -276,7 +276,8 @@ export default function ListenPreview({ apiUrl, jobId, filename, revision = 0 })
     <section className="listen" aria-label="Listening previews">
       <h3 className="listen-title">Listen</h3>
       <p className="listen-lead">
-        Compare the original recording with the score.
+        Compare the original performance with the written score. The two MIDI
+        previews use different timing on purpose.
       </p>
 
       {!isMidiSource && (
@@ -337,8 +338,8 @@ export default function ListenPreview({ apiUrl, jobId, filename, revision = 0 })
       )}
 
       <TransportRow
-        label="MIDI"
-        hint="As performed"
+        label="Original performance"
+        hint="Unchanged performed timing"
         playing={active === "midi"}
         loading={loading === "midi"}
         current={clocks.midi.current}
@@ -349,8 +350,8 @@ export default function ListenPreview({ apiUrl, jobId, filename, revision = 0 })
       />
 
       <TransportRow
-        label="MIDI (score)"
-        hint="Matched to the score"
+        label="Score playback"
+        hint="Written notation timing"
         playing={active === "midi_score"}
         loading={loading === "midi_score"}
         current={clocks.midi_score.current}

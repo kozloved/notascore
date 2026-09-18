@@ -223,6 +223,7 @@ class MeasureQuantizer:
         self,
         events: list[MusicalEvent],
         meter: MeterHypothesis,
+        **kwargs,
     ) -> QuantizationResult:
         """Product path: performance quantizer only."""
         raw = [copy_event(ev) for ev in events]
@@ -233,6 +234,9 @@ class MeasureQuantizer:
             meter,
             config=self.config,
             mode=QuantizationMode.PERFORMANCE,
+            settings=kwargs.get("settings"),
+            tempo_map=kwargs.get("tempo_map"),
+            pedal_events=kwargs.get("pedal_events"),
         )
         result = QuantizationResult(
             events=list(out),

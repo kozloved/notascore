@@ -9,6 +9,7 @@ import { useScoreEditor } from "../../hooks/useScoreEditor";
 import Button from "../ui/Button";
 import SheetResult from "../SheetResult";
 import NoteToolbar from "./NoteToolbar";
+import NotationInterpretationPanel from "./NotationInterpretationPanel";
 
 type ScoreEditorProps = {
   apiUrl: string;
@@ -153,9 +154,9 @@ export default function ScoreEditor({
             variant="secondary"
             size="sm"
             onClick={() => void togglePlay()}
-            aria-label={playing ? "Stop" : "Play"}
+            aria-label={playing ? "Stop written score" : "Play written score"}
           >
-            {playing ? "Stop" : "Play"}
+            {playing ? "Stop score" : "Play score"}
           </Button>
         </div>
       </div>
@@ -171,6 +172,14 @@ export default function ScoreEditor({
           </button>
         </p>
       ) : null}
+
+      <NotationInterpretationPanel
+        jobId={jobId}
+        revision={editor.revision}
+        timeSignature={editor.timeSignature}
+        provenance={editor.provenance}
+        onApplied={() => editor.reloadRemote()}
+      />
 
       <NoteToolbar
         note={editor.selected}

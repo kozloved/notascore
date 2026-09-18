@@ -29,6 +29,7 @@ from mir.pipeline_config import (
     parse_quantization_mode,
     quantization_spells_writable,
 )
+from mir.notation_settings import notation_settings_from_meta
 from mir.types import Hand, InstrumentKind, MusicalEvent, ScoreMeta
 from notation_engine.meter import estimate_key
 
@@ -170,15 +171,30 @@ class NotationPlanner:
             else QuantizationMode.PERFORMANCE
         )
         self.quantizer.mode = parsed
+        settings = notation_settings_from_meta(meta)
         meter = self._resolve_meter(events, meta, structure)
+        if settings.meter:
+            from mir.meter import meter_from_time_signature
+
+            meter = meter_from_time_signature(settings.meter) or meter
         if parsed == QuantizationMode.PERFORMANCE and meta and meta.tempo_map:
             extra = meta.extra or {}
             if extra.get("detected_downbeat_meter") == meter.time_signature:
                 downbeats = [meta.tempo_map.seconds_to_beats(t)
                              for t in extra.get("detected_downbeats_seconds", [])]
                 meter = replace(meter, evidence={**meter.evidence, "downbeat_beats": downbeats})
+        pedal_events = None
+        tempo_map = meta.tempo_map if meta else None
+        if meta and isinstance(meta.extra, dict):
+            pedal_events = meta.extra.get("pedal_events")
         if parsed == QuantizationMode.PERFORMANCE:
-            quant_result = self.quantizer.quantize_production(events, meter)
+            quant_result = self.quantizer.quantize_production(
+                events,
+                meter,
+                settings=settings,
+                tempo_map=tempo_map,
+                pedal_events=pedal_events,
+            )
         else:
             quant_result = self.quantizer.quantize_experimental(events, meter, parsed)
         quantized, decisions = quant_result.events, quant_result.decisions
@@ -218,6 +234,8 @@ class NotationPlanner:
             "meter_confidence": meter.confidence,
             "quantization": quant_summary,
             "invariant_issues": self._collect_plan_issues(measures),
+            "notation_settings": settings.to_dict() if parsed == QuantizationMode.PERFORMANCE else None,
+            "algorithm_version": settings.algorithm_version if parsed == QuantizationMode.PERFORMANCE else None,
         }
         if meta and meta.extra:
             if meta.extra.get("meter_decision"):

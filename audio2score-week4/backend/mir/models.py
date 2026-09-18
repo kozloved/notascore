@@ -250,6 +250,7 @@ class PlannedRest:
     voice: int
     hidden: bool = False
     tuplet: Optional[PlannedTuplet] = None
+    kind: str = "musical"  # musical | structural
 
 
 PlannedElement = Union[PlannedNote, PlannedRest]

@@ -51,6 +51,7 @@ from mir.pipeline_config import (
     piano_analysis_enabled,
     quantization_snaps_display_tempo,
 )
+from mir.notation_settings import default_notation_settings
 from mir.raw_identity import record_saved_raw
 from mir.raw_midi import (
     job_raw_midi_path,
@@ -169,6 +170,7 @@ class UnderstandingPipeline:
         self.last_transcription_result: TranscriptionResult | None = None
         self.last_filter_report: list | None = None
         self.last_filtered_notes: list | None = None
+        self.notation_settings = default_notation_settings()
         self.job: PipelineJob | None = None
 
     def transcribe(self, audio_path: str | Path, job_id: str) -> str:
@@ -629,6 +631,8 @@ class UnderstandingPipeline:
                 for m in timing.printed
             ],
             "interpretation_choice": dict(self.last_interpretation_choice),
+            "pedal_events": [(float(t), int(v)) for t, v in pedal_events],
+            "notation_settings": self.notation_settings.to_dict(),
         }
         meta.extra["playback_tempo"] = [
             {"beat": beat, "bpm": bpm}
@@ -902,6 +906,11 @@ class UnderstandingPipeline:
                 {"beat": m.beat, "bpm": m.bpm, "mark": m.mark, "reason": m.reason}
                 for m in timing.printed
             ],
+            "pedal_events": [
+                (float(t), int(v))
+                for t, v in (ingested.pedal_events if hasattr(ingested, "pedal_events") else [])
+            ],
+            "notation_settings": self.notation_settings.to_dict(),
         }
         self._write_timing_artifact(out_dir, job_id, timing, decision)
         from intelligence.layer import maybe_enhance
@@ -995,6 +1004,14 @@ class UnderstandingPipeline:
         extra["quantization_summary"] = payload.get("quantization_summary") or {}
         extra["validation_mode"] = self.config.validation_mode.value
         extra["quantization_mode"] = self.config.quantization_mode.value
+        extra["requested_quantization_mode"] = (self.config.extra or {}).get(
+            "requested_quantization_mode", self.config.quantization_mode.value
+        )
+        extra["quantization_mode_fallback"] = (self.config.extra or {}).get(
+            "quantization_mode_fallback"
+        )
+        extra["notation_settings"] = self.notation_settings.to_dict()
+        extra["algorithm_version"] = self.notation_settings.algorithm_version
         extra["gemini_enabled"] = bool(self.last_gemini_enabled)
         extra["gemini_applied"] = int(self.last_gemini_applied)
         extra["raw_note_count"] = (
@@ -1050,6 +1067,28 @@ class UnderstandingPipeline:
         out_dir.mkdir(exist_ok=True)
         (out_dir / f"{job_id}.score_metrics.json").write_text(
             json.dumps(metrics, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        (out_dir / f"{job_id}.notation_settings.json").write_text(
+            json.dumps(
+                {
+                    "notation_settings": self.notation_settings.to_dict(),
+                    "algorithm_version": self.notation_settings.algorithm_version,
+                    "notation_cache_key": self.notation_settings.cache_key(
+                        getattr(self.last_performance_snapshot, "midi_sha256", None)
+                    ),
+                    "quantization_mode": self.config.quantization_mode.value,
+                    "requested_quantization_mode": (self.config.extra or {}).get(
+                        "requested_quantization_mode",
+                        self.config.quantization_mode.value,
+                    ),
+                    "quantization_mode_fallback": (self.config.extra or {}).get(
+                        "quantization_mode_fallback"
+                    ),
+                },
+                indent=2,
+            )
+            + "\n",
             encoding="utf-8",
         )
         if payload.get("fallback_used"):
@@ -1271,6 +1310,13 @@ class UnderstandingPipeline:
                 "role_confidence": role.confidence,
                 "validation_mode": self.config.validation_mode.value,
                 "quantization_mode": self.config.quantization_mode.value,
+                "requested_quantization_mode": (self.config.extra or {}).get(
+                    "requested_quantization_mode", self.config.quantization_mode.value
+                ),
+                "quantization_mode_fallback": (self.config.extra or {}).get(
+                    "quantization_mode_fallback"
+                ),
+                "notation_settings": self.notation_settings.to_dict(),
                 "hand_separator": self.config.hand_separator.value,
                 "hand_separator_source": getattr(
                     self.hand_separator, "last_source", "viterbi"
