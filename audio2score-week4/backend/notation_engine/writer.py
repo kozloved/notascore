@@ -50,6 +50,15 @@ CHORD_START_WINDOW = 0.08
 CHORD_DURATION_RATIO = 0.5
 
 
+def format_display_tempo(bpm: float) -> float:
+    """Pretty-print a displayed metronome mark without rounding the time map."""
+    value = float(bpm)
+    nearest = round(value)
+    if abs(value - nearest) < 0.051:
+        return float(int(nearest))
+    return round(value, 1)
+
+
 class NotationWriter:
     """Convert CMR events to a piano grand-staff MusicXML score."""
 
@@ -626,9 +635,9 @@ class NotationWriter:
                         self._safe_insert(m, 0, voice)
                 self._safe_append(part, m)
 
-        bpm = int(plan.tempo_bpm)
+        bpm = format_display_tempo(plan.tempo_bpm)
         if meta and meta.display_tempo_bpm:
-            bpm = int(meta.display_tempo_bpm)
+            bpm = format_display_tempo(meta.display_tempo_bpm)
         # Metronome marks must live in a measure. A score-level mark survives
         # in memory but music21 omits it from MusicXML, so OSMD never draws BPM.
         self._insert_metronome_at_beat(score, 0.0, bpm)
@@ -694,6 +703,13 @@ class NotationWriter:
         dynamic = getattr(el, "dynamic", None)
         if dynamic in ("p", "pp", "mp", "mf", "f", "ff", "fff"):
             n.expressions.append(m21dyn.Dynamic(dynamic))
+        ids = list(getattr(el, "event_ids", None) or [])
+        if ids:
+            from score_edits import _attach_source_identity
+
+            members = list(n.notes) if isinstance(n, m21chord.Chord) else [n]
+            for member, ident in zip(members, ids):
+                _attach_source_identity(member, ident, ident, int(getattr(el, "voice", 0) or 0))
         return n
 
     @staticmethod
@@ -1051,7 +1067,7 @@ class NotationWriter:
 
     def _insert_metronome_at_beat(self, score, beat: float, bpm: float) -> None:
         """Put a metronome mark inside the measure that OSMD/MusicXML will export."""
-        mark = m21tempo.MetronomeMark(number=float(bpm))
+        mark = m21tempo.MetronomeMark(number=format_display_tempo(bpm))
         try:
             mark.placement = "above"
         except Exception:
