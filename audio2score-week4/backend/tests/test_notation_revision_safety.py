@@ -591,6 +591,38 @@ def test_regional_display_grid_changes_only_the_overridden_passage():
     assert m2b["rhythm_family"] != "triplet"
 
 
+def test_syncopation_fixture_has_no_stray_tuplet(tmp_path, monkeypatch):
+    _fail_if_transcribe(monkeypatch)
+    source = tmp_path / "sync.mid"
+    FIXTURES["syncopation"](source)
+    from mir.performance_cli import convert
+
+    convert(source, tmp_path / "sync.musicxml")
+    xml = (tmp_path / "sync.musicxml").read_text(encoding="utf-8")
+    assert "<time-modification>" not in xml
+    assert "<tuplet " not in xml
+    assert "<type>half</type>" in xml
+    assert "<dot />" in xml
+    assert 'lyric name="99"' not in xml
+    assert "nsid_" in xml
+
+
+def test_compound_meter_displays_clean_tempo(tmp_path, monkeypatch):
+    _fail_if_transcribe(monkeypatch)
+    source = tmp_path / "m68.mid"
+    FIXTURES["meter_6_8"](source)
+    from mir.performance_cli import convert
+
+    convert(source, tmp_path / "m68.musicxml")
+    xml = (tmp_path / "m68.musicxml").read_text(encoding="utf-8")
+    assert "<per-minute>90</per-minute>" in xml.replace(" ", "")
+    assert "90.00009" not in xml
+    notes, meters, _keys, tempi = _musical_inventory(xml)
+    assert meters[0] == "6/8"
+    assert notes
+    assert all(abs(t - 90) < 0.051 for t in tempi)
+
+
 def test_meaningful_rests_without_redundant_lane_filler():
     events = [
         MusicalEvent(72, 0.0, 1.0, note_id="rh", hand=Hand.RIGHT, voice=0, voice_assigned=True),

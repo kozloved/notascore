@@ -705,11 +705,12 @@ class NotationWriter:
             n.expressions.append(m21dyn.Dynamic(dynamic))
         ids = list(getattr(el, "event_ids", None) or [])
         if ids:
-            from score_edits import _attach_source_identity
+            from score_edits import encode_source_xml_id
 
             members = list(n.notes) if isinstance(n, m21chord.Chord) else [n]
             for member, ident in zip(members, ids):
-                _attach_source_identity(member, ident, ident, int(getattr(el, "voice", 0) or 0))
+                # XML id only. Hidden lyrics still render in OSMD.
+                member.id = encode_source_xml_id(ident, ident)
         return n
 
     @staticmethod
@@ -1094,14 +1095,14 @@ class NotationWriter:
                     if abs(float(item.offset) - local) < 1e-6
                 ]
                 if existing:
-                    existing[0].number = float(bpm)
+                    existing[0].number = format_display_tempo(bpm)
                     return
                 self._safe_insert(meas, local, mark)
                 return
         first = measures[0]
         existing = list(first.getElementsByClass(m21tempo.MetronomeMark))
         if existing:
-            existing[0].number = float(bpm)
+            existing[0].number = format_display_tempo(bpm)
             return
         self._safe_insert(first, 0, mark)
 
