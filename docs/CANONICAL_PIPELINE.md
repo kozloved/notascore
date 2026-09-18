@@ -97,7 +97,12 @@ AUDIO
      pulled to the next bar instead of clamped to the previous 16th).
      Raw MT3 MIDI is never overwritten; notation_notes is a derived copy.
   → NotationPlan → MusicXML / {job}.score.mid
+  → {job}.notation_settings.json  (derived-score settings + algorithm version)
 ```
+
+Notation settings never rewrite `{job}.raw.mid`. Regenerating MusicXML from
+an existing performance must not resubmit audio transcription. Production
+quantization is always `performance`; experimental modes are comparison-only.
 
 Gemini is optional (`TRANSCRIPTION_ENABLE_GEMINI=0` by default) and never required.
 
@@ -117,7 +122,7 @@ Set `TRANSCRIPTION_VALIDATION_MODE=legacy_aggressive` to restore chord-start sna
 |---|---|---|
 | `TRANSCRIPTION_BACKEND` | `basic_pitch` | Solo detector; Polyphonic jobs force `mt3` |
 | `TRANSCRIPTION_VALIDATION_MODE` | source-aware | `safe` / `conservative` / `legacy_aggressive` |
-| `TRANSCRIPTION_QUANTIZATION_MODE` | `adaptive` | `off` keeps transcribed timing. `adaptive` builds a separate notation grid (meter-aware, chord-preserving). `strict_grid` snaps to sixteenths. `pm2s` is the PM2S quantization RNN (opt-in; falls back to off unless `TRANSCRIPTION_PM2S_REQUIRED=1`). |
+| `TRANSCRIPTION_QUANTIZATION_MODE` | `performance` | Production always uses the performance engine. `adaptive`, `strict_grid`, `off`, and `pm2s` are comparison-only (`quantize_experimental` / `compare_quantizers`). Requesting them on a production job records an explicit fallback to `performance`. Unknown values are rejected. |
 | `TRANSCRIPTION_HAND_SEPARATOR` | `viterbi` | `viterbi` = context-aware DP. `pm2s` = PM2S hand-part RNN only (opt-in; falls back to viterbi unless `TRANSCRIPTION_PM2S_REQUIRED=1`). Not piano_svsep. |
 | `TRANSCRIPTION_PM2S_REQUIRED` | `false` | Fail the job if PM2S was requested but weights/imports are missing. Testing only. |
 | `TRANSCRIPTION_ENABLE_GEMINI` | `false` | Alias that can disable `ENABLE_GEMINI_MUSIC_ANALYSIS` |

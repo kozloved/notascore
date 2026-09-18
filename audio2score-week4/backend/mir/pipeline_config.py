@@ -145,6 +145,77 @@ def parse_quantization_mode(value: str | QuantizationMode | None) -> Quantizatio
     return QUANTIZATION_ALIASES[key]
 
 
+PRODUCTION_QUANTIZATION_MODE = QuantizationMode.PERFORMANCE
+PRODUCTION_QUANTIZATION_FALLBACK = (
+    "Production jobs always use the performance engine. "
+    "adaptive, strict_grid, off, and pm2s are comparison-only via "
+    "MeasureQuantizer.quantize_experimental / compare_quantizers."
+)
+
+
+def inspect_quantization_env() -> dict[str, Any]:
+    """Health-safe snapshot. Never raises.
+
+    Production execution is always `performance`. A requested experimental
+    mode is recorded as an explicit fallback, not silently ignored. Unknown
+    values are rejected in the diagnostic error string and still fall back
+    to performance so health stays HTTP 200.
+    """
+    raw = env_str("TRANSCRIPTION_QUANTIZATION_MODE", "performance")
+    warning = None
+    error = None
+    requested = raw or "performance"
+    fallback = None
+    try:
+        parsed = parse_quantization_mode(raw)
+    except ValueError as exc:
+        parsed = QuantizationMode.PERFORMANCE
+        error = str(exc)
+        fallback = PRODUCTION_QUANTIZATION_FALLBACK
+    if error is None and parsed != QuantizationMode.PERFORMANCE:
+        fallback = PRODUCTION_QUANTIZATION_FALLBACK
+        warning = (
+            f"TRANSCRIPTION_QUANTIZATION_MODE={parsed.value!r} is not a "
+            "production engine; using performance."
+        )
+    return {
+        "valid": error is None,
+        "error": error,
+        "warning": warning,
+        "raw": requested,
+        "requested_quantization_mode": parsed.value if error is None else requested,
+        "effective_quantization_mode": QuantizationMode.PERFORMANCE.value,
+        "quantization_mode_fallback": fallback,
+    }
+
+
+def production_quantization_mode(
+    value: str | QuantizationMode | None = None,
+) -> tuple[QuantizationMode, str | None]:
+    """Effective production mode plus an explicit fallback reason.
+
+    Unknown values raise. Experimental aliases parse, then fall back to
+    performance so execution, health, and diagnostics report the same engine.
+    """
+    parsed = parse_quantization_mode(value)
+    if parsed == QuantizationMode.PERFORMANCE:
+        return parsed, None
+    return QuantizationMode.PERFORMANCE, PRODUCTION_QUANTIZATION_FALLBACK
+
+
+def require_production_quantization_mode(
+    value: str | QuantizationMode | None = None,
+) -> QuantizationMode:
+    """Raise when a non-production engine is asked to run as production."""
+    parsed = parse_quantization_mode(value)
+    if parsed != QuantizationMode.PERFORMANCE:
+        raise ValueError(
+            f"Unsupported production quantization mode {parsed.value!r}. "
+            f"{PRODUCTION_QUANTIZATION_FALLBACK}"
+        )
+    return parsed
+
+
 def quantization_skips_legacy_grid(mode: QuantizationMode) -> bool:
     """OFF keeps raw beats. PM2S already rewrote beats in MeasureQuantizer."""
     return mode in (QuantizationMode.OFF, QuantizationMode.PM2S, QuantizationMode.PERFORMANCE)
@@ -291,12 +362,18 @@ class PipelineConfig:
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        requested = (self.extra or {}).get(
+            "requested_quantization_mode", self.quantization_mode.value
+        )
+        fallback = (self.extra or {}).get("quantization_mode_fallback")
         return {
             "pipeline": self.pipeline,
             "backend": self.backend,
             "mode": self.mode,
             "validation_mode": self.validation_mode.value,
             "quantization_mode": self.quantization_mode.value,
+            "requested_quantization_mode": requested,
+            "quantization_mode_fallback": fallback,
             "hand_separator": self.hand_separator.value,
             "pm2s_required": self.pm2s_required,
             "enable_gemini": self.enable_gemini,
@@ -316,6 +393,7 @@ def load_pipeline_config(
 ) -> PipelineConfig:
     resolved_backend = (backend or env_str("TRANSCRIPTION_BACKEND", "basic_pitch")).lower()
     hands = inspect_hand_separator_env()
+    quant = inspect_quantization_env()
     extra: dict[str, Any] = {}
     if hands["error"]:
         extra["hand_separator_error"] = hands["error"]
@@ -323,14 +401,21 @@ def load_pipeline_config(
         print(f"[config] {hands['error']}; using viterbi for this process.")
     if hands["warning"]:
         extra["hand_separator_warning"] = hands["warning"]
+    extra["requested_quantization_mode"] = quant["requested_quantization_mode"]
+    if quant["error"]:
+        extra["quantization_mode_error"] = quant["error"]
+        extra["quantization_mode_fallback"] = PRODUCTION_QUANTIZATION_FALLBACK
+        print(f"[config] {quant['error']}; using performance for this process.")
+    elif quant["warning"]:
+        extra["quantization_mode_warning"] = quant["warning"]
+        extra["quantization_mode_fallback"] = quant["quantization_mode_fallback"]
+        print(f"[config] {quant['warning']}")
     return PipelineConfig(
         pipeline=env_str("TRANSCRIPTION_PIPELINE", "understanding").lower(),
         backend=resolved_backend,
         mode=mode,
         validation_mode=resolve_validation_mode(resolved_backend, validation_mode),
-        quantization_mode=parse_quantization_mode(
-            env_str("TRANSCRIPTION_QUANTIZATION_MODE", "performance")
-        ),
+        quantization_mode=QuantizationMode(quant["effective_quantization_mode"]),
         hand_separator=HandSeparatorMode(hands["effective_hand_separator"]),
         pm2s_required=pm2s_required(),
         enable_gemini=gemini_flag_enabled(),
