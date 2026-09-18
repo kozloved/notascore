@@ -411,27 +411,35 @@ def _overlay_corrections(job: dict) -> tuple[list[dict] | None, str | None]:
     Returns (operations, error_message). error_message is set when the overlay
     exists but the correction bundle cannot be read.
     """
-    ops, _uncorrected, error = _overlay_correction_sidecar(job)
+    ops, _uncorrected, _score, _unc_score, error = _overlay_correction_sidecar(job)
     return ops, error
 
 
-def _overlay_correction_sidecar(job: dict) -> tuple[list[dict] | None, dict, str | None]:
+def _overlay_has_edits(job: dict) -> bool:
+    ops, _unc, score, _unc_score, error = _overlay_correction_sidecar(job)
+    if error:
+        return bool(ops) or bool(score)
+    return bool(ops) or bool(score)
+
+
+def _overlay_correction_sidecar(job: dict) -> tuple[list[dict] | None, dict, dict, dict, str | None]:
     if not job.get("edited_result_storage_key"):
-        return [], {}, None
+        return [], {}, {}, {}, None
     raw = _read_edited_sidecar(job, f"{job['id']}.corrections.json", text=True)
     if raw is None:
-        return None, {}, "Saved note corrections are missing from this revision."
+        return None, {}, {}, {}, "Saved note corrections are missing from this revision."
     try:
         payload = json.loads(raw)
     except Exception:
-        return None, {}, "Saved note corrections could not be read."
-    from mir.notation_regen import NotationEditConflict, parse_corrections_sidecar
+        return None, {}, {}, {}, "Saved note corrections could not be read."
+    from mir.notation_regen import NotationEditConflict, parse_corrections_sidecar, parse_score_sidecar
 
     try:
         ops, uncorrected = parse_corrections_sidecar(payload)
-        return ops, uncorrected, None
+        score, unc_score = parse_score_sidecar(payload)
+        return ops, uncorrected, score, unc_score, None
     except NotationEditConflict as exc:
-        return None, {}, str(exc)
+        return None, {}, {}, {}, str(exc)
 
 
 def _performance_snapshot(job: dict):
@@ -453,8 +461,7 @@ def _performance_snapshot(job: dict):
 
 def _edits_response(job: dict, model: dict, *, has_edits: bool | None = None) -> dict:
     if has_edits is None:
-        ops, _err = _overlay_corrections(job) if job.get("edited_result_storage_key") else ([], None)
-        has_edits = bool(ops)
+        has_edits = _overlay_has_edits(job) if job.get("edited_result_storage_key") else False
     return {
         "score_id": job.get("id"),
         "revision": int(job.get("edit_revision") or 0),
@@ -1440,7 +1447,10 @@ def score_edits_put(
         from mir.notation_regen import (
             NotationEditConflict,
             baseline_uncorrected,
+            corrections_have_edits,
+            corrections_sidecar_payload,
             extract_corrections,
+            extract_score_overrides,
         )
 
         model = parse_edits_payload(body.model_dump())
@@ -1450,8 +1460,12 @@ def score_edits_put(
         displayed = _load_edit_model(job)
         existing_ops: list[dict] = []
         stored_uncorrected: dict = {}
+        stored_score: dict = {}
+        stored_uncorrected_score: dict = {}
         if job.get("edited_result_storage_key"):
-            existing_ops, stored_uncorrected, corr_error = _overlay_correction_sidecar(job)
+            existing_ops, stored_uncorrected, stored_score, stored_uncorrected_score, corr_error = (
+                _overlay_correction_sidecar(job)
+            )
             if corr_error:
                 raise _conflict("edit_conflict", corr_error)
             existing_ops = existing_ops or []
@@ -1468,6 +1482,17 @@ def score_edits_put(
             uncorrected=uncorrected,
             existing=existing_ops,
         )
+        uncorrected_score = stored_uncorrected_score or {
+            "tempo_bpm": displayed.get("tempo_bpm"),
+            "time_signature": displayed.get("time_signature"),
+            "tempo_curve": displayed.get("tempo_curve"),
+        }
+        score_overrides = extract_score_overrides(
+            model,
+            displayed=displayed,
+            uncorrected_score=uncorrected_score,
+            existing_score=stored_score,
+        )
         extras = _overlay_derived_files(job)
         extras.update(
             {
@@ -1475,7 +1500,12 @@ def score_edits_put(
                 "musicxml": xml_text,
                 "midi": midi_bytes,
                 "corrections": json.dumps(
-                    {"operations": ops, "uncorrected": uncorrected},
+                    corrections_sidecar_payload(
+                        ops,
+                        uncorrected,
+                        score_overrides=score_overrides,
+                        uncorrected_score=uncorrected_score,
+                    ),
                     indent=2,
                 ),
             }
@@ -1519,7 +1549,9 @@ def score_edits_put(
     except Exception:
         pass
     job = dict(job, edit_revision=next_revision, edited_result_storage_key=edited_key)
-    return _edits_response(job, model, has_edits=bool(ops) or note_changed)
+    return _edits_response(
+        job, model, has_edits=corrections_have_edits(ops, score_overrides) or note_changed
+    )
 
 
 @app.post("/scores/{score_id}/edits/reset")
@@ -1607,7 +1639,12 @@ def _recompute_notation_revision(
         InterpretationContextError,
         load_context_payload,
     )
-    from mir.notation_regen import NotationEditConflict, recompute_notation
+    from mir.notation_regen import (
+        NotationEditConflict,
+        corrections_have_edits,
+        corrections_sidecar_payload,
+        recompute_notation,
+    )
     from score_edits import dumps_edits
 
     job_id = job["id"]
@@ -1671,6 +1708,17 @@ def _recompute_notation_revision(
                 layout_prior = None
         if prior_decisions:
             layout_prior = prior_decisions
+    stored_uncorrected: dict = {}
+    stored_score: dict = {}
+    stored_uncorrected_score: dict = {}
+    if job.get("edited_result_storage_key"):
+        _ops, stored_uncorrected, stored_score, stored_uncorrected_score, _corr_error = (
+            _overlay_correction_sidecar(job)
+        )
+        stored_uncorrected = stored_uncorrected or {}
+        stored_score = stored_score or {}
+        stored_uncorrected_score = stored_uncorrected_score or {}
+    applied_score = {} if kind == "reset_corrections" else stored_score
     try:
         result = recompute_notation(
             midi_bytes=raw_midi,
@@ -1679,6 +1727,8 @@ def _recompute_notation_revision(
             prior_decisions=layout_prior,
             context=context,
             corrections=corrections,
+            uncorrected=stored_uncorrected,
+            score_overrides=applied_score,
             fallback=context_status,
             explicit_pickup=explicit_pickup,
         )
@@ -1742,7 +1792,12 @@ def _recompute_notation_revision(
         else None
     )
     corrections_json = json_mod.dumps(
-        {"operations": list(corrections or []), "uncorrected": result.uncorrected or {}},
+        corrections_sidecar_payload(
+            list(corrections or []),
+            result.uncorrected or {},
+            score_overrides=result.score_overrides or {},
+            uncorrected_score=result.uncorrected_score or {},
+        ),
         indent=2,
     )
     manifest_json = json_mod.dumps(
@@ -1750,7 +1805,7 @@ def _recompute_notation_revision(
             "scope": "published_revision",
             "kind": kind,
             "job_id": job_id,
-            "has_note_corrections": bool(corrections),
+            "has_note_corrections": corrections_have_edits(corrections, result.score_overrides),
             "interpretation_context_digest": context_digest,
             "input_identity": result.input_identity,
             "output_identity": result.output_identity,
@@ -1805,7 +1860,7 @@ def _recompute_notation_revision(
         "edited_key": edited_key,
         "result": result,
         "editor_model": editor_model,
-        "has_edits": bool(corrections),
+        "has_edits": corrections_have_edits(corrections, result.score_overrides),
     }
 
 
@@ -1837,7 +1892,7 @@ def _notation_settings_payload(job: dict) -> dict:
                 "midi_sha256": stored.get("midi_sha256"),
                 "fallback": stored.get("fallback"),
                 "policy_exceptions": stored.get("policy_exceptions") or [],
-                "has_edits": bool(_overlay_corrections(job)[0]),
+                "has_edits": _overlay_has_edits(job),
             }
         except Exception:
             pass
@@ -1848,7 +1903,7 @@ def _notation_settings_payload(job: dict) -> dict:
         "midi_sha256": None,
         "fallback": None,
         "policy_exceptions": [],
-        "has_edits": bool(_overlay_corrections(job)[0]) if job.get("edited_result_storage_key") else False,
+        "has_edits": _overlay_has_edits(job) if job.get("edited_result_storage_key") else False,
     }
 
 

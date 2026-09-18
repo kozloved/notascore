@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from tests.test_notation_correctness import _pointer, _prepare_http_job
 from tests.test_notation_revision_safety import _fail_if_transcribe, isolated_db
+from score_edits import extract_from_musicxml
 
 
 def _client():
@@ -27,6 +28,57 @@ def _bundle_json(key: str, job_id: str, filename: str):
 def _ops(key: str, job_id: str):
     payload = _bundle_json(key, job_id, "corrections.json")
     return payload.get("operations") or []
+
+
+def _uncorrected(key: str, job_id: str):
+    payload = _bundle_json(key, job_id, "corrections.json")
+    return payload.get("uncorrected") or {}
+
+
+def _note(model, sid):
+    return next(row for row in model["notes"] if (row.get("source_note_id") or row["id"]) == sid)
+
+
+def _assert_artifacts_agree(client, job_id, editor, *, sid, pitch=None, track=None, start=None, duration=None, velocity=None):
+    xml = client.get(f"/jobs/{job_id}/result?format=musicxml")
+    midi = client.get(f"/jobs/{job_id}/result?format=midi_score")
+    assert xml.status_code == 200 and "score-partwise" in xml.text.lower()
+    assert midi.status_code == 200 and midi.content[:4] == b"MThd"
+    parsed = extract_from_musicxml(xml.text)
+    editor_row = _note(editor, sid)
+    xml_row = next(
+        (
+            row
+            for row in parsed["notes"]
+            if row.get("source_note_id") == sid
+            or (
+                int(row["pitch"]) == int(editor_row["pitch"])
+                and int(row["track"]) == int(editor_row["track"])
+            )
+        ),
+        None,
+    )
+    assert xml_row is not None, f"MusicXML missing source note {sid}"
+    if pitch is not None:
+        assert int(editor_row["pitch"]) == pitch
+        assert int(xml_row["pitch"]) == pitch
+    if track is not None:
+        assert int(editor_row["track"]) == track
+        assert int(xml_row["track"]) == track
+    if start is not None:
+        assert float(editor_row["start"]) == pytest.approx(start, abs=1e-3)
+        assert float(xml_row["start"]) == pytest.approx(start, abs=0.26)
+    if duration is not None:
+        assert float(editor_row["duration"]) == pytest.approx(duration, abs=1e-3)
+        assert float(xml_row["duration"]) == pytest.approx(duration, abs=0.26)
+    if velocity is not None:
+        assert int(editor_row["velocity"]) == velocity
+        assert int(xml_row["velocity"]) == velocity
+        import io
+
+        score = pretty_midi.PrettyMIDI(io.BytesIO(midi.content))
+        velocities = [note.velocity for inst in score.instruments for note in inst.notes]
+        assert velocity in velocities
 
 
 def _prepare_hands_job(tmp_path, job_id: str):
@@ -386,3 +438,238 @@ def test_http_malformed_corrections_are_edit_conflict(isolated_db, monkeypatch):
         assert listed.status_code == 200
         musicxml = client.get(f"/jobs/{job_id}/result?format=musicxml")
         assert musicxml.status_code == 200
+
+
+def _regen_twice(client, job_id, revision, *, extra=None):
+    payload = {"display_grid": "sixteenth", "revision": revision}
+    if extra:
+        payload.update(extra)
+    first = client.post(f"/jobs/{job_id}/notation-settings", json=payload)
+    assert first.status_code == 200, first.text
+    second = client.post(
+        f"/jobs/{job_id}/notation-settings",
+        json={"display_grid": "sixteenth", "revision": first.json()["edit_revision"]},
+    )
+    assert second.status_code == 200, second.text
+    return second
+
+
+def test_http_staff_voice_return_after_double_regen_and_reset(isolated_db, monkeypatch):
+    _fail_if_transcribe(monkeypatch)
+    job_id = f"base-{uuid.uuid4().hex[:12]}"
+    xml_path, original = _prepare_hands_job(isolated_db, job_id)
+    with _client() as client:
+        posted = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={"interpretation": "literal", "revision": 0},
+        )
+        assert posted.status_code == 200, posted.text
+        loaded = client.get(f"/scores/{job_id}/edits").json()
+        notes = [dict(row) for row in loaded["notes"]]
+        target = next(row for row in notes if int(row["track"]) == 0)
+        sid = target.get("source_note_id") or target["id"]
+        other = next(row for row in notes if (row.get("source_note_id") or row["id"]) != sid)
+        other_sid = other.get("source_note_id") or other["id"]
+        uncorrected_track = int(target["track"])
+        uncorrected_voice = int(target["voice"] or 0)
+        uncorrected_pitch = int(target["pitch"])
+        other_pitch = int(other["pitch"])
+        target["track"] = 1
+        target["voice"] = uncorrected_voice + 1
+        other["pitch"] = other_pitch + 2
+        saved = _save_notes(client, job_id, loaded, notes)
+        assert saved.status_code == 200, saved.text
+        after_two = _regen_twice(client, job_id, saved.json()["revision"])
+        assert after_two.json()["has_edits"] is True
+        _, key = _pointer(job_id)
+        context = _bundle_json(key, job_id, "interpretation_context.json")
+        stored_unc = _uncorrected(key, job_id)
+        assert stored_unc[sid]["track"] == uncorrected_track
+        assert stored_unc[sid]["voice"] == uncorrected_voice
+        layout_row = next(row for row in context["layout_decisions"] if row.get("note_id") == sid)
+        assert layout_row.get("voice_provenance") != "user_edit"
+        assert layout_row.get("hand") != "left"
+        edited = client.get(f"/scores/{job_id}/edits").json()
+        kept = _note(edited, sid)
+        assert int(kept["track"]) == 1
+        assert int(kept["voice"]) == uncorrected_voice + 1
+        _assert_artifacts_agree(client, job_id, edited, sid=sid, track=1, pitch=uncorrected_pitch)
+        other_row = _note(edited, other_sid)
+        assert int(other_row["pitch"]) == other_pitch + 2
+        reset = client.post(
+            f"/scores/{job_id}/edits/reset",
+            json={"revision": edited["revision"]},
+        )
+        assert reset.status_code == 200, reset.text
+        restored = _note(reset.json(), sid)
+        assert int(restored["track"]) == uncorrected_track
+        assert int(restored["voice"]) == uncorrected_voice
+        assert int(restored["pitch"]) == uncorrected_pitch
+        assert reset.json()["has_edits"] is False
+        listed = client.get(f"/jobs/{job_id}/notation-settings")
+        assert listed.json()["notation_settings"]["interpretation"] == "literal"
+        assert listed.json()["notation_settings"]["display_grid"] == "sixteenth"
+        _assert_artifacts_agree(
+            client, job_id, reset.json(), sid=sid, track=uncorrected_track, pitch=uncorrected_pitch
+        )
+        _, key_reset = _pointer(job_id)
+        reset_unc = _uncorrected(key_reset, job_id)
+        assert reset_unc[sid]["track"] == uncorrected_track
+        assert reset_unc[sid]["voice"] == uncorrected_voice
+        assert reset_unc[sid]["track"] != 1
+        assert (isolated_db / f"{job_id}.raw.mid").read_bytes() == original
+        assert xml_path.read_bytes()
+
+
+def test_http_manual_revert_after_double_regen_restores_staff_voice(isolated_db, monkeypatch):
+    _fail_if_transcribe(monkeypatch)
+    job_id = f"revt-{uuid.uuid4().hex[:12]}"
+    _prepare_hands_job(isolated_db, job_id)
+    with _client() as client:
+        client.post(f"/jobs/{job_id}/notation-settings", json={"interpretation": "literal", "revision": 0})
+        loaded = client.get(f"/scores/{job_id}/edits").json()
+        notes = [dict(row) for row in loaded["notes"]]
+        target = next(row for row in notes if int(row["track"]) == 0)
+        sid = target.get("source_note_id") or target["id"]
+        other = next(row for row in notes if (row.get("source_note_id") or row["id"]) != sid)
+        other_sid = other.get("source_note_id") or other["id"]
+        uncorrected_track = int(target["track"])
+        uncorrected_voice = int(target["voice"] or 0)
+        other_pitch = int(other["pitch"])
+        target["track"] = 1
+        target["voice"] = uncorrected_voice + 1
+        other["pitch"] = other_pitch + 1
+        saved = _save_notes(client, job_id, loaded, notes)
+        _regen_twice(client, job_id, saved.json()["revision"])
+        edited = client.get(f"/scores/{job_id}/edits").json()
+        assert int(_note(edited, sid)["track"]) == 1
+        assert int(_note(edited, sid)["voice"]) == uncorrected_voice + 1
+        reverted = [dict(row) for row in edited["notes"]]
+        row = next(item for item in reverted if (item.get("source_note_id") or item["id"]) == sid)
+        row["track"] = uncorrected_track
+        row["voice"] = uncorrected_voice
+        saved_revert = _save_notes(client, job_id, edited, reverted)
+        assert saved_revert.status_code == 200, saved_revert.text
+        restored = _note(saved_revert.json(), sid)
+        assert int(restored["track"]) == uncorrected_track
+        assert int(restored["voice"]) == uncorrected_voice
+        assert int(_note(saved_revert.json(), other_sid)["pitch"]) == other_pitch + 1
+        _, key = _pointer(job_id)
+        remaining = [op for op in _ops(key, job_id) if op.get("source_note_id") == sid]
+        assert remaining == []
+        assert any(op.get("pitch") == other_pitch + 1 for op in _ops(key, job_id))
+        assert saved_revert.json()["has_edits"] is True
+        _assert_artifacts_agree(
+            client, job_id, saved_revert.json(), sid=sid, track=uncorrected_track
+        )
+
+
+def test_http_timing_velocity_add_delete_survive_grid_readability_and_reset(isolated_db, monkeypatch):
+    _fail_if_transcribe(monkeypatch)
+    job_id = f"time-{uuid.uuid4().hex[:12]}"
+    _xml_path, original = _prepare_hands_job(isolated_db, job_id)
+    with _client() as client:
+        client.post(f"/jobs/{job_id}/notation-settings", json={"interpretation": "literal", "revision": 0})
+        loaded = client.get(f"/scores/{job_id}/edits").json()
+        notes = [dict(row) for row in loaded["notes"]]
+        timed = notes[0]
+        timed_sid = timed.get("source_note_id") or timed["id"]
+        vel = next(row for row in notes if (row.get("source_note_id") or row["id"]) != timed_sid)
+        vel_sid = vel.get("source_note_id") or vel["id"]
+        uncorrected_start = float(timed["start"])
+        uncorrected_duration = float(timed["duration"])
+        uncorrected_velocity = int(vel["velocity"])
+        original_ids = {row.get("source_note_id") or row["id"] for row in notes}
+        deleted = notes[-1]
+        deleted_sid = deleted.get("source_note_id") or deleted["id"]
+        timed["start"] = uncorrected_start + 1.0
+        timed["duration"] = max(0.5, uncorrected_duration * 2)
+        vel["velocity"] = min(127, uncorrected_velocity + 17)
+        kept = [row for row in notes if (row.get("source_note_id") or row["id"]) != deleted_sid]
+        kept.append(
+            {
+                "id": "n-a0",
+                "source_note_id": None,
+                "pitch": 69,
+                "start": 3.0,
+                "duration": 1.0,
+                "velocity": 88,
+                "track": 0,
+                "voice": 0,
+            }
+        )
+        saved = _save_notes(client, job_id, loaded, kept)
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["has_edits"] is True
+        _, key1 = _pointer(job_id)
+        ops1 = _ops(key1, job_id)
+        assert any(op.get("source_note_id") == timed_sid and "start" in op for op in ops1)
+        assert any(
+            op.get("source_note_id") == vel_sid and op.get("velocity") == min(127, uncorrected_velocity + 17)
+            for op in ops1
+        )
+        assert any(op.get("exclude") and op.get("source_note_id") == deleted_sid for op in ops1)
+        assert any(op.get("insert") and op.get("id") == "n-a0" for op in ops1)
+        reloaded = client.get(f"/scores/{job_id}/edits").json()
+        assert float(_note(reloaded, timed_sid)["start"]) == pytest.approx(uncorrected_start + 1.0)
+        assert int(_note(reloaded, vel_sid)["velocity"]) == min(127, uncorrected_velocity + 17)
+        assert all((row.get("source_note_id") or row["id"]) != deleted_sid for row in reloaded["notes"])
+        assert any(row["id"] == "n-a0" and int(row["pitch"]) == 69 for row in reloaded["notes"])
+        grid = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={"display_grid": "sixteenth", "revision": reloaded["revision"]},
+        )
+        assert grid.status_code == 200, grid.text
+        readable = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={
+                "interpretation": "readable",
+                "algorithm_version": "performance-score-1",
+                "revision": grid.json()["edit_revision"],
+            },
+        )
+        assert readable.status_code == 200, readable.text
+        after = client.get(f"/scores/{job_id}/edits").json()
+        assert float(_note(after, timed_sid)["start"]) == pytest.approx(uncorrected_start + 1.0, abs=1e-3)
+        assert float(_note(after, timed_sid)["duration"]) == pytest.approx(
+            max(0.5, uncorrected_duration * 2), abs=1e-3
+        )
+        assert int(_note(after, vel_sid)["velocity"]) == min(127, uncorrected_velocity + 17)
+        assert all((row.get("source_note_id") or row["id"]) != deleted_sid for row in after["notes"])
+        inserted = next(row for row in after["notes"] if row["id"] == "n-a0")
+        assert int(inserted["pitch"]) == 69
+        _assert_artifacts_agree(
+            client,
+            job_id,
+            after,
+            sid=timed_sid,
+            start=uncorrected_start + 1.0,
+            duration=max(0.5, uncorrected_duration * 2),
+        )
+        _assert_artifacts_agree(
+            client,
+            job_id,
+            after,
+            sid=vel_sid,
+            velocity=min(127, uncorrected_velocity + 17),
+        )
+        reloaded_again = client.get(f"/scores/{job_id}/edits").json()
+        reset = client.post(
+            f"/scores/{job_id}/edits/reset",
+            json={"revision": reloaded_again["revision"]},
+        )
+        assert reset.status_code == 200, reset.text
+        restored_ids = {row.get("source_note_id") or row["id"] for row in reset.json()["notes"]}
+        assert deleted_sid in restored_ids
+        assert "n-a0" not in {row["id"] for row in reset.json()["notes"]}
+        assert float(_note(reset.json(), timed_sid)["start"]) == pytest.approx(uncorrected_start, abs=0.26)
+        assert int(_note(reset.json(), vel_sid)["velocity"]) == uncorrected_velocity
+        assert reset.json()["has_edits"] is False
+        listed = client.get(f"/jobs/{job_id}/notation-settings")
+        assert listed.json()["notation_settings"]["display_grid"] == "sixteenth"
+        assert listed.json()["notation_settings"]["interpretation"] == "readable"
+        assert (isolated_db / f"{job_id}.raw.mid").read_bytes() == original
+        raw = client.get(f"/jobs/{job_id}/result?format=midi")
+        assert raw.status_code == 200
+        assert raw.content == original
+        assert original_ids <= restored_ids

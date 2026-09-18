@@ -7,8 +7,10 @@ import json
 import pytest
 
 from mir.notation_regen import (
+    EDIT_CONTRACT,
     NotationEditConflict,
     extract_corrections,
+    extract_score_overrides,
     normalize_corrections,
     parse_corrections_sidecar,
 )
@@ -203,3 +205,190 @@ def test_malformed_operations_are_not_normalized_to_empty():
 def test_generated_editor_model_is_still_rejected():
     with pytest.raises(NotationEditConflict, match="generated editor model"):
         normalize_corrections({"notes": [{"id": "n1", "pitch": 60}]})
+
+
+def test_edit_contract_covers_every_accepted_field():
+    required = {
+        "pitch",
+        "track",
+        "voice",
+        "start",
+        "duration",
+        "velocity",
+        "start_sec",
+        "end_sec",
+        "exclude",
+        "insert",
+        "tempo_bpm",
+        "time_signature",
+        "tempo_curve",
+    }
+    assert required <= set(EDIT_CONTRACT)
+    assert EDIT_CONTRACT["start"]["unit"] == "score_beats"
+    assert EDIT_CONTRACT["start_sec"]["reject"] is True
+    assert EDIT_CONTRACT["duration"]["stage"] == "score_override"
+    assert EDIT_CONTRACT["pitch"]["stage"] == "layout"
+
+
+def test_timing_and_velocity_corrections_are_source_id_ops():
+    snapshot = _snapshot([("n1", 60, "unknown")])
+    uncorrected = {
+        "n1": {"pitch": 60, "track": 0, "voice": 0, "start": 0.0, "duration": 1.0, "velocity": 80}
+    }
+    displayed = _model([("n1", 60, 0, 0)])
+    timed = dict(displayed)
+    timed["notes"] = [dict(displayed["notes"][0], start=0.5, duration=2.0)]
+    ops = extract_corrections(
+        timed,
+        snapshot=snapshot,
+        displayed=displayed,
+        uncorrected=uncorrected,
+        existing=[],
+    )
+    assert ops == [{"source_note_id": "n1", "start": 0.5, "duration": 2.0}]
+    loud = dict(displayed)
+    loud["notes"] = [dict(displayed["notes"][0], velocity=110)]
+    vel = extract_corrections(
+        loud,
+        snapshot=snapshot,
+        displayed=displayed,
+        uncorrected=uncorrected,
+        existing=[],
+    )
+    assert vel == [{"source_note_id": "n1", "velocity": 110}]
+    restored = extract_corrections(
+        displayed,
+        snapshot=snapshot,
+        displayed=timed,
+        uncorrected=uncorrected,
+        existing=ops,
+    )
+    assert restored == []
+
+
+def test_unrelated_timing_survives_field_specific_revert():
+    snapshot = _snapshot([("n1", 60, "unknown")])
+    uncorrected = {
+        "n1": {"pitch": 60, "track": 0, "voice": 0, "start": 0.0, "duration": 1.0, "velocity": 80}
+    }
+    displayed = _model([("n1", 64, 1, 2)])
+    displayed["notes"][0]["start"] = 1.0
+    displayed["notes"][0]["duration"] = 2.0
+    displayed["notes"][0]["velocity"] = 100
+    existing = [
+        {
+            "source_note_id": "n1",
+            "pitch": 64,
+            "track": 1,
+            "voice": 2,
+            "start": 1.0,
+            "duration": 2.0,
+            "velocity": 100,
+        }
+    ]
+    restored_duration = extract_corrections(
+        {**displayed, "notes": [dict(displayed["notes"][0], duration=1.0)]},
+        snapshot=snapshot,
+        displayed=displayed,
+        uncorrected=uncorrected,
+        existing=existing,
+    )
+    assert restored_duration[0]["source_note_id"] == "n1"
+    assert "duration" not in restored_duration[0]
+    assert restored_duration[0]["start"] == 1.0
+    assert restored_duration[0]["velocity"] == 100
+    assert restored_duration[0]["pitch"] == 64
+
+
+def test_delete_and_insert_are_explicit_operations():
+    snapshot = _snapshot([("n1", 60, "unknown"), ("n2", 64, "unknown")])
+    displayed = _model([("n1", 60, 0, 0), ("n2", 64, 0, 0)])
+    uncorrected = {
+        "n1": {"pitch": 60, "track": 0, "voice": 0, "start": 0.0, "duration": 1.0, "velocity": 80},
+        "n2": {"pitch": 64, "track": 0, "voice": 0, "start": 0.0, "duration": 1.0, "velocity": 80},
+    }
+    deleted = {"notes": [displayed["notes"][0]], "tempo_bpm": 90, "time_signature": "4/4"}
+    ops = extract_corrections(
+        deleted,
+        snapshot=snapshot,
+        displayed=displayed,
+        uncorrected=uncorrected,
+        existing=[],
+    )
+    assert ops == [{"source_note_id": "n2", "exclude": True}]
+    added = {
+        "notes": displayed["notes"]
+        + [
+            {
+                "id": "n-a0",
+                "source_note_id": None,
+                "pitch": 67,
+                "start": 2.0,
+                "duration": 1.0,
+                "velocity": 80,
+                "track": 0,
+                "voice": 0,
+            }
+        ],
+        "tempo_bpm": 90,
+        "time_signature": "4/4",
+    }
+    inserts = extract_corrections(
+        added,
+        snapshot=snapshot,
+        displayed=displayed,
+        uncorrected=uncorrected,
+        existing=[],
+    )
+    assert any(op.get("insert") and op["id"] == "n-a0" and op["pitch"] == 67 for op in inserts)
+    restored = extract_corrections(
+        displayed,
+        snapshot=snapshot,
+        displayed=deleted,
+        uncorrected=uncorrected,
+        existing=ops,
+    )
+    assert restored == []
+
+
+def test_performed_seconds_cannot_be_changed():
+    snapshot = _snapshot([("n1", 60, "unknown")])
+    displayed = _model([("n1", 60, 0, 0)])
+    displayed["notes"][0]["start_sec"] = 0.0
+    displayed["notes"][0]["end_sec"] = 0.4
+    mutated = dict(displayed)
+    mutated["notes"] = [dict(displayed["notes"][0], start_sec=1.5)]
+    with pytest.raises(NotationEditConflict, match="start_sec"):
+        extract_corrections(
+            mutated,
+            snapshot=snapshot,
+            displayed=displayed,
+            uncorrected={"n1": {"pitch": 60, "track": 0, "voice": 0}},
+            existing=[],
+        )
+
+
+def test_echoed_tempo_is_not_a_score_override():
+    displayed = {"tempo_bpm": 90.0, "time_signature": "4/4", "tempo_curve": [{"beat": 0.0, "bpm": 90.0}]}
+    submitted = {
+        "tempo_bpm": 90.0,
+        "time_signature": "4/4",
+        "tempo_curve": [{"beat": 0.0, "bpm": 90.0}],
+        "notes": [],
+    }
+    assert extract_score_overrides(submitted, displayed=displayed, uncorrected_score=displayed) == {}
+    changed = dict(submitted)
+    changed["tempo_bpm"] = 72.0
+    assert extract_score_overrides(changed, displayed=displayed, uncorrected_score=displayed) == {
+        "tempo_bpm": 72.0
+    }
+
+
+def test_normalize_accepts_start_duration_velocity_and_rejects_start_sec():
+    ops = normalize_corrections(
+        {"operations": [{"source_note_id": "n1", "start": 1.0, "duration": 0.5, "velocity": 90}]}
+    )
+    assert ops == [{"source_note_id": "n1", "start": 1.0, "duration": 0.5, "velocity": 90}]
+    with pytest.raises(NotationEditConflict, match="Unsupported"):
+        normalize_corrections({"operations": [{"source_note_id": "n1", "start_sec": 0.2}]})
+

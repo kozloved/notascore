@@ -518,6 +518,16 @@ def _duration(
                 named.add(cap)
     if not named:
         named = {max(unit, round(raw / float(unit)) * unit)}
+    filled = _readable_v2_fill_small_release_gap(
+        raw,
+        onset,
+        effective_next,
+        to_bar,
+        release_reason=release_reason,
+        settings=settings,
+    )
+    if filled is not None:
+        return filled
     return min(
         named,
         key=lambda d: _duration_spelling_cost(
@@ -529,6 +539,44 @@ def _duration(
             beat_length=beat_length,
         ),
     )
+
+
+def _readable_v2_fill_small_release_gap(
+    raw,
+    onset,
+    next_onset,
+    to_bar,
+    *,
+    release_reason,
+    settings,
+):
+    """Opt-in readable-v2: leftover gaps smaller than a sixteenth are articulation.
+
+    Case A (detached quarters with ~80ms releases) should be written as quarters.
+    Case B (short notes plus a visible rest through the beat) must keep the rest.
+    Independent holds are left alone. This never extends a note past the next
+    attack or past the barline, and it does not run on the default engine.
+    """
+    if not settings.uses_improved_readable():
+        return None
+    if release_reason in {
+        "independent_hold",
+        "multi_attack_hold",
+        "overlapping_repeat",
+        "pedal_tail",
+    }:
+        return None
+    sixteenth = 0.25
+    if next_onset is not None:
+        ioi = Fraction(next_onset) - Fraction(onset)
+        remaining = float(ioi) - float(raw)
+        if ioi > 0 and 0 <= remaining < sixteenth:
+            return ioi
+    if to_bar is not None and Fraction(to_bar) > 0:
+        remaining = float(to_bar) - float(raw)
+        if 0 <= remaining < sixteenth:
+            return Fraction(to_bar)
+    return None
 
 
 def _score_voices(events, separator):
