@@ -217,7 +217,8 @@ def _onset_candidates(raw, max_move, settings=None, exceptions=None):
                     "kind": "triplet_policy",
                     "policy": "disabled",
                     "onset": float(raw),
-                    "reason": "preserving a distinct attack required a local tuplet exception",
+                    "reason": "A local tuplet was needed to keep this attack on the page.",
+                    "user_message": "A local tuplet was needed to keep this attack on the page.",
                 }
             )
     if not candidates:

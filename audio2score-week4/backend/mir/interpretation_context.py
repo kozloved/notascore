@@ -42,6 +42,8 @@ class InterpretationContext:
     score_beat_offset: float = 0.0
     accepted_source_note_ids: tuple[str, ...] = ()
     excluded_source_note_ids: tuple[str, ...] = ()
+    has_recorded_selection: bool = False
+    time_map_includes_score_offset: bool = False
     layout_decisions: tuple[dict, ...] = ()
     printed_tempo: tuple[dict, ...] = ()
     playback_tempo: tuple[dict, ...] = ()
@@ -73,9 +75,16 @@ class InterpretationContext:
             "first_downbeat_beat": self.first_downbeat_beat,
             "downbeat_beats": list(self.downbeat_beats),
             "score_beat_offset": self.score_beat_offset,
+            "time_map_includes_score_offset": self.time_map_includes_score_offset,
             "accepted_source_note_ids": list(self.accepted_source_note_ids),
             "excluded_source_note_ids": list(self.excluded_source_note_ids),
+            "has_recorded_selection": self.has_recorded_selection,
+            "layout_decisions": canonical_json(self.layout_decisions),
+            "printed_tempo": canonical_json(self.printed_tempo),
+            "playback_tempo": canonical_json(self.playback_tempo),
+            "pedal_events": [list(row) for row in self.pedal_events],
             "midi_sha256": self.midi_sha256 or "",
+            "source_backend": self.source_backend or "",
         }
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()
@@ -98,6 +107,8 @@ class InterpretationContext:
             "score_beat_offset": self.score_beat_offset,
             "accepted_source_note_ids": list(self.accepted_source_note_ids),
             "excluded_source_note_ids": list(self.excluded_source_note_ids),
+            "has_recorded_selection": self.has_recorded_selection,
+            "time_map_includes_score_offset": self.time_map_includes_score_offset,
             "layout_decisions": [dict(row) for row in self.layout_decisions],
             "printed_tempo": [dict(row) for row in self.printed_tempo],
             "playback_tempo": [dict(row) for row in self.playback_tempo],
@@ -141,6 +152,8 @@ class InterpretationContext:
             excluded_source_note_ids=tuple(
                 str(v) for v in (data.get("excluded_source_note_ids") or ()) if v
             ),
+            has_recorded_selection=_recorded_selection(data),
+            time_map_includes_score_offset=bool(data.get("time_map_includes_score_offset")),
             layout_decisions=tuple(
                 dict(row) for row in (data.get("layout_decisions") or ()) if isinstance(row, dict)
             ),
@@ -209,6 +222,34 @@ def _optional_float(value) -> float | None:
     return float(value)
 
 
+def _recorded_selection(data: dict[str, Any]) -> bool:
+    if "has_recorded_selection" in data:
+        return bool(data.get("has_recorded_selection"))
+    return "accepted_source_note_ids" in data or "excluded_source_note_ids" in data
+
+
+def canonical_json(value: Any) -> Any:
+    """Deterministic JSON-ready form for cache and identity digests."""
+    if isinstance(value, dict):
+        return {str(key): canonical_json(value[key]) for key in sorted(value)}
+    if isinstance(value, tuple):
+        return [canonical_json(item) for item in value]
+    if isinstance(value, list):
+        return [canonical_json(item) for item in value]
+    if isinstance(value, float):
+        return round(value, 9)
+    try:
+        from fractions import Fraction
+
+        if isinstance(value, Fraction):
+            return str(value)
+    except Exception:
+        pass
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    return str(value)
+
+
 def migrate_from_tempo_payload(
     payload: dict[str, Any],
     *,
@@ -247,6 +288,7 @@ def migrate_from_tempo_payload(
         downbeat_beats=tuple(downbeats),
         accepted_source_note_ids=accepted_source_note_ids,
         excluded_source_note_ids=excluded_source_note_ids,
+        has_recorded_selection=bool(accepted_source_note_ids or excluded_source_note_ids),
         layout_decisions=layout_decisions,
         printed_tempo=tuple(dict(row) for row in printed if isinstance(row, dict)),
         pedal_events=pedal_events,

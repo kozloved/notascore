@@ -37,6 +37,7 @@ def edit_bundle_keys(job_id: str, bundle_id: str) -> dict[str, str]:
         "notation_settings": f"{prefix}/{job_id}.notation_settings.json",
         "decisions": f"{prefix}/{job_id}.notation_decisions.json",
         "interpretation": f"{prefix}/{job_id}.interpretation_context.json",
+        "corrections": f"{prefix}/{job_id}.corrections.json",
         "manifest": f"{prefix}/{job_id}.revision.json",
     }
 

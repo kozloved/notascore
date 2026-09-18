@@ -53,6 +53,7 @@ def convert(source: Path, output: Path, meter=None, settings=None):
         selected_meter=str(settings.meter or meter or ingested.time_sig_hint or "4/4"),
         display_bpm=float(ingested.tempo_map.bpm_at(0)),
         accepted_source_note_ids=accepted,
+        has_recorded_selection=True,
         layout_decisions=tuple(writer.last_quantization_decisions or ()),
         pedal_events=tuple((float(t), int(v)) for t, v in (ingested.pedal_events or [])),
         midi_sha256=ingested.performance.midi_sha256,

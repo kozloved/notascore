@@ -33,6 +33,26 @@ from mir.types import InstrumentKind, ScoreMeta, copy_event
 from notation_engine.writer import NotationWriter
 
 
+def public_policy_exception(row: dict) -> dict:
+    """User-facing copy for a required local grid or tuplet exception."""
+    payload = dict(row or {})
+    kind = str(payload.get("kind") or "")
+    if not payload.get("user_message"):
+        if kind == "triplet_policy":
+            payload["user_message"] = (
+                "A local tuplet was needed to keep this attack on the page."
+            )
+        elif kind in {"display_grid", "grid"}:
+            payload["user_message"] = (
+                "A finer local grid was needed to keep this attack in place."
+            )
+        else:
+            payload["user_message"] = payload.get("reason") or (
+                "A local notation exception was required."
+            )
+    return payload
+
+
 class NotationEditConflict(ValueError):
     """A saved correction cannot be reapplied to the regenerated score."""
 
@@ -96,87 +116,159 @@ def _layout_from_decisions(events, decisions):
     return out
 
 
-def _edits_digest(edits: dict | None) -> str | None:
-    if not edits:
+def _edits_digest(corrections: dict | list | None) -> str | None:
+    ops = normalize_corrections(corrections)
+    if not ops:
         return None
-    notes = []
-    for row in edits.get("notes") or []:
-        notes.append(
-            {
-                "source_note_id": row.get("source_note_id") or row.get("id"),
-                "pitch": row.get("pitch"),
-                "track": row.get("track"),
-                "voice": row.get("voice"),
-            }
-        )
-    blob = json.dumps({"notes": notes}, sort_keys=True, separators=(",", ":"))
+    blob = json.dumps(canonical_ops(ops), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def apply_note_edits(events, edits: dict | None, snapshot: PerformanceSnapshot):
-    """Reattach pitch/staff/voice corrections by stable source IDs.
+def canonical_ops(ops: list[dict]) -> list[dict]:
+    from mir.interpretation_context import canonical_json
 
-    Timing and duration stay with the regenerated interpretation. A missing
-    source ID for a real correction preserves the current score via conflict.
-    """
-    if not edits or not edits.get("notes"):
+    return [canonical_json(op) for op in ops]
+
+
+def normalize_corrections(corrections: dict | list | None) -> list[dict]:
+    """Return explicit correction operations, never a generated editor model."""
+    if not corrections:
+        return []
+    if isinstance(corrections, list):
+        rows = corrections
+    else:
+        rows = corrections.get("operations")
+        if rows is None and corrections.get("notes"):
+            raise NotationEditConflict(
+                [],
+                "Saved score corrections are a generated editor model, not "
+                "explicit operations. The published score was left unchanged.",
+            )
+        rows = rows or []
+    ops = []
+    seen = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("source_note_id") or row.get("id") or "")
+        if not sid:
+            continue
+        if sid in seen:
+            raise NotationEditConflict(
+                [sid],
+                f"Duplicate correction for source note {sid}.",
+            )
+        seen.add(sid)
+        op = {"source_note_id": sid}
+        if row.get("pitch") is not None:
+            op["pitch"] = int(row["pitch"])
+        if row.get("track") is not None:
+            op["track"] = int(row["track"])
+        if row.get("voice") is not None:
+            op["voice"] = int(row["voice"])
+        if len(op) == 1:
+            continue
+        ops.append(op)
+    return ops
+
+
+def extract_corrections(
+    submitted: dict | None,
+    *,
+    snapshot: PerformanceSnapshot,
+    baseline: dict | None = None,
+) -> list[dict]:
+    """Diff a saved editor model against snapshot pitch/staff and baseline voice."""
+    if not submitted or not submitted.get("notes"):
+        return []
+    original = {n.note_id: n for n in snapshot.notes}
+    previous = {}
+    for row in (baseline or {}).get("notes") or []:
+        sid = str(row.get("source_note_id") or row.get("id") or "")
+        if sid:
+            previous[sid] = row
+    ops = []
+    for row in submitted["notes"]:
+        sid = str(row.get("source_note_id") or row.get("id") or "")
+        if not sid:
+            continue
+        orig = original.get(sid)
+        op: dict[str, Any] = {"source_note_id": sid}
+        if orig is None:
+            if _row_looks_like_correction(row, None, previous.get(sid)):
+                raise NotationEditConflict(
+                    [sid],
+                    f"Correction {sid} does not match a source note.",
+                )
+            continue
+        if row.get("pitch") is not None and int(row["pitch"]) != int(orig.pitch):
+            op["pitch"] = int(row["pitch"])
+        expected_track = 1 if str(orig.hand_hint or "") == "left" else 0
+        if row.get("track") is not None and int(row["track"]) != expected_track:
+            op["track"] = int(row["track"])
+        prev = previous.get(sid)
+        if (
+            row.get("voice") is not None
+            and prev is not None
+            and int(row["voice"]) != int(prev.get("voice") or 0)
+        ):
+            op["voice"] = int(row["voice"])
+        if len(op) > 1:
+            ops.append(op)
+    return ops
+
+
+def _row_looks_like_correction(row: dict, orig, previous: dict | None) -> bool:
+    if orig is None and (row.get("pitch") is not None or row.get("track") is not None):
+        if previous is None:
+            return True
+        if row.get("pitch") is not None and int(row["pitch"]) != int(previous.get("pitch") or -1):
+            return True
+        if row.get("track") is not None and int(row["track"]) != int(previous.get("track") or -1):
+            return True
+        if row.get("voice") is not None and int(row["voice"]) != int(previous.get("voice") or 0):
+            return True
+    return False
+
+
+def apply_note_edits(events, corrections, snapshot: PerformanceSnapshot):
+    """Reattach explicit pitch/staff/voice corrections by stable source IDs."""
+    ops = normalize_corrections(corrections)
+    if not ops:
         return list(events)
     from mir.types import Hand
 
-    original = {n.note_id: n for n in snapshot.notes}
     present = {ev.note_id for ev in events}
-    missing: list[str] = []
+    original = {n.note_id: n for n in snapshot.notes}
+    missing = []
     by_source = {}
-    for row in edits["notes"]:
-        sid = row.get("source_note_id") or row.get("id")
-        if sid:
-            by_source[str(sid)] = row
-    for sid, row in by_source.items():
-        if sid in present:
-            continue
-        orig = original.get(sid)
-        if orig is None:
-            continue
-        if _is_user_correction(row, orig):
+    for op in ops:
+        sid = op["source_note_id"]
+        by_source[sid] = op
+        if sid not in present or sid not in original:
             missing.append(sid)
     if missing:
         raise NotationEditConflict(missing)
     out = []
     for ev in events:
-        row = by_source.get(ev.note_id)
-        if not row:
+        op = by_source.get(ev.note_id)
+        if not op:
             out.append(ev)
             continue
-        orig = original.get(ev.note_id)
         changes: dict[str, Any] = {}
-        if orig is not None and int(row.get("pitch", orig.pitch)) != int(orig.pitch):
-            changes["pitch"] = int(row["pitch"])
-        elif orig is None and row.get("pitch") is not None and int(row["pitch"]) != int(ev.pitch):
-            changes["pitch"] = int(row["pitch"])
-        track = row.get("track")
-        if track is not None:
-            hand = Hand.LEFT if int(track) == 1 else Hand.RIGHT if int(track) == 0 else ev.hand
+        if op.get("pitch") is not None and int(op["pitch"]) != int(ev.pitch):
+            changes["pitch"] = int(op["pitch"])
+        if op.get("track") is not None:
+            hand = Hand.LEFT if int(op["track"]) == 1 else Hand.RIGHT if int(op["track"]) == 0 else ev.hand
             if hand != ev.hand:
                 changes["hand"] = hand
                 changes["hand_locked"] = True
-        if row.get("voice") is not None and int(row["voice"]) != int(ev.voice):
-            changes["voice"] = int(row["voice"])
+        if op.get("voice") is not None and int(op["voice"]) != int(ev.voice):
+            changes["voice"] = int(op["voice"])
             changes["voice_assigned"] = True
             changes["voice_provenance"] = "user_edit"
         out.append(copy_event(ev, **changes) if changes else ev)
     return out
-
-
-def _is_user_correction(row: dict, orig) -> bool:
-    if int(row.get("pitch", orig.pitch)) != int(orig.pitch):
-        return True
-    if row.get("voice") not in (None, 0) and int(row.get("voice") or 0) != 0:
-        return True
-    hand = str(getattr(orig, "hand_hint", "") or "")
-    expected_track = 1 if hand == "left" else 0
-    if row.get("track") is not None and int(row["track"]) != expected_track:
-        return True
-    return False
 
 
 def editor_model_from_events(
@@ -248,11 +340,68 @@ def editor_model_from_events(
 
 def _select_notes(performance: PerformanceSnapshot, context: InterpretationContext | None):
     notes = list(performance.to_notes())
-    if context is None or not context.accepted_source_note_ids:
+    if context is None:
         return notes
-    accepted = set(context.accepted_source_note_ids)
-    selected = [n for n in notes if n.note_id in accepted]
-    return selected or notes
+    known = {n.note_id for n in notes}
+    accepted = [ident for ident in context.accepted_source_note_ids if ident]
+    excluded = [ident for ident in context.excluded_source_note_ids if ident]
+    if len(accepted) != len(set(accepted)):
+        raise InterpretationContextError("Accepted source note IDs contain duplicates.")
+    if len(excluded) != len(set(excluded)):
+        raise InterpretationContextError("Excluded source note IDs contain duplicates.")
+    both = sorted(set(accepted) & set(excluded))
+    if both:
+        raise InterpretationContextError(
+            "Notes cannot be both kept and excluded: " + ", ".join(both) + "."
+        )
+    unknown_accepted = [ident for ident in accepted if ident not in known]
+    unknown_excluded = [ident for ident in excluded if ident not in known]
+    if unknown_accepted:
+        raise InterpretationContextError(
+            "Interpretation context lists unknown accepted notes: "
+            + ", ".join(unknown_accepted)
+            + ". The published score was left unchanged."
+        )
+    if unknown_excluded:
+        raise InterpretationContextError(
+            "Interpretation context lists unknown excluded notes: "
+            + ", ".join(unknown_excluded)
+            + ". The published score was left unchanged."
+        )
+    if not context.has_recorded_selection:
+        blocked = set(excluded)
+        return [note for note in notes if note.note_id not in blocked]
+    if not accepted and not excluded:
+        raise InterpretationContextError(
+            "Interpretation context recorded an empty note selection. "
+            "The published score was left unchanged."
+        )
+    if accepted:
+        selected = [note for note in notes if note.note_id in set(accepted)]
+        if not selected:
+            raise InterpretationContextError(
+                "Interpretation context does not match any source notes. "
+                "The published score was left unchanged."
+            )
+        return selected
+    remaining = [note for note in notes if note.note_id not in set(excluded)]
+    if not remaining:
+        raise InterpretationContextError(
+            "Interpretation context selected no source notes. "
+            "The published score was left unchanged."
+        )
+    return remaining
+
+
+def _layout_rows(context: InterpretationContext | None, prior_decisions: list[dict] | None):
+    """Published interpretation wins; original debug is migration-only."""
+    if context is not None and context.layout_decisions:
+        return list(context.layout_decisions)
+    if context is not None and not context.fallback:
+        return None
+    if prior_decisions:
+        return list(prior_decisions)
+    return None
 
 
 def _bind_snapshot(performance: PerformanceSnapshot | None, midi_bytes: bytes) -> PerformanceSnapshot:
@@ -281,7 +430,9 @@ def recompute_notation(
     display_bpm: int | None = None,
     context: InterpretationContext | None = None,
     edits: dict | None = None,
+    corrections: dict | list | None = None,
     fallback: str | None = None,
+    explicit_pickup: bool = False,
 ) -> NotationRegenResult:
     """Build a new score from frozen performance MIDI and production context.
 
@@ -312,10 +463,11 @@ def recompute_notation(
         pedal_events = list(context.pedal_events)
         printed = list(context.printed_tempo)
         playback = list(context.playback_tempo)
-        if context.pickup_beats is not None and settings.pickup_beats is None:
-            settings = settings.replace(pickup_beats=context.pickup_beats)
-        if context.first_downbeat_beat is not None and settings.first_downbeat_beat is None:
-            settings = settings.replace(first_downbeat_beat=context.first_downbeat_beat)
+        if not explicit_pickup and not context.time_map_includes_score_offset:
+            if context.pickup_beats is not None and settings.pickup_beats is None:
+                settings = settings.replace(pickup_beats=context.pickup_beats)
+            if context.first_downbeat_beat is not None and settings.first_downbeat_beat is None:
+                settings = settings.replace(first_downbeat_beat=context.first_downbeat_beat)
         if not meter_hint:
             meter_hint = context.selected_meter
         if context.midi_sha256 and context.midi_sha256 != digest:
@@ -340,13 +492,16 @@ def recompute_notation(
 
     notes = _select_notes(performance, context)
     if not notes:
-        raise ValueError("No accepted source notes remain for notation regeneration.")
+        raise InterpretationContextError(
+            "No accepted source notes remain for notation regeneration."
+        )
     source_ids = [n.note_id for n in notes]
     backend = performance.source_backend or (context.source_backend if context else "midi")
     events = notes_to_events(notes, mapper, source_backend=backend)
-    layout_rows = prior_decisions or (list(context.layout_decisions) if context else None)
+    layout_rows = _layout_rows(context, prior_decisions)
     events = _layout_from_decisions(events, layout_rows)
-    events = apply_note_edits(events, edits, performance)
+    applied_corrections = corrections if corrections is not None else edits
+    events = apply_note_edits(events, applied_corrections, performance)
     if notes:
         try:
             instrument = notes[0].instrument if notes[0].instrument != InstrumentKind.UNKNOWN else instrument
@@ -405,7 +560,9 @@ def recompute_notation(
     performance.verify_midi(midi_bytes)
     decisions = list(writer.last_quantization_decisions or [])
     summary = dict(writer.last_quantization_summary or {})
-    policy_exceptions = list(summary.get("policy_exceptions") or [])
+    policy_exceptions = [
+        public_policy_exception(row) for row in (summary.get("policy_exceptions") or [])
+    ]
     quantized = list(writer.last_quantized_events or events)
     editor_model = editor_model_from_events(
         quantized,
@@ -416,7 +573,7 @@ def recompute_notation(
             context.time_map if context is not None else None
         ),
     )
-    edits_digest = _edits_digest(edits or editor_model)
+    edits_digest = _edits_digest(applied_corrections)
     context_digest = context.identity_digest() if context is not None else None
     cache = settings.cache_key(
         digest, context_digest=context_digest, edits_digest=edits_digest
@@ -424,15 +581,20 @@ def recompute_notation(
     next_context = context
     if context is not None:
         accepted = tuple(n.note_id for n in notes)
-        next_context = InterpretationContext.from_dict(
-            {
-                **context.to_dict(),
-                "accepted_source_note_ids": list(accepted),
-                "layout_decisions": decisions,
-                "midi_sha256": digest,
-                "fallback": used_fallback,
-            }
-        )
+        next_payload = {
+            **context.to_dict(),
+            "accepted_source_note_ids": list(accepted),
+            "has_recorded_selection": True,
+            "layout_decisions": decisions,
+            "midi_sha256": digest,
+            "fallback": used_fallback,
+            "score_beat_offset": float(summary.get("score_beat_offset", context.score_beat_offset) or 0.0),
+        }
+        if settings.pickup_beats is not None:
+            next_payload["pickup_beats"] = settings.pickup_beats
+        if settings.first_downbeat_beat is not None:
+            next_payload["first_downbeat_beat"] = settings.first_downbeat_beat
+        next_context = InterpretationContext.from_dict(next_payload)
     return NotationRegenResult(
         musicxml=xml,
         settings=settings,
@@ -502,7 +664,9 @@ def recompute_job_dir(out_dir: Path, job_id: str, settings: NotationSettings | d
         midi_bytes=midi_bytes,
         settings=settings,
         performance=performance,
-        prior_decisions=prior if isinstance(prior, list) else None,
+        prior_decisions=None if context is not None and not getattr(context, "fallback", None) else (
+            prior if isinstance(prior, list) else None
+        ),
         context=context,
         fallback=status,
     )

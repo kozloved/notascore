@@ -438,6 +438,7 @@ class UnderstandingPipeline:
                 f"(velocities preserved, suggestions={len(piano.velocity_suggestions or [])}) "
                 f"pedal={len(pedal_events)} (job={job_id})"
             )
+        self.last_pedal_events = list(pedal_events)
         self.last_post_piano_notes = list(notes)
 
         onsets = [n.start_time for n in notes]
@@ -646,6 +647,7 @@ class UnderstandingPipeline:
             {"beat": beat, "bpm": bpm}
             for beat, bpm in timing.time_map.interval_bpms()
         ]
+        self.last_score_meta = meta
         self._write_timing_artifact(out_dir, job_id, timing, decision)
 
         self._write_debug(
@@ -894,6 +896,23 @@ class UnderstandingPipeline:
             },
         )
         self.last_structure = structure
+        self.last_meter_decision = decision
+        first_beat = min((e.start_beat for e in events), default=0.0)
+        from mir.score_interpretation import infer_pickup
+
+        if self.notation_settings.pickup_beats is not None or self.notation_settings.first_downbeat_beat is not None:
+            self.last_pickup = {
+                "pickup_inferred": True,
+                "pickup_beats": self.notation_settings.pickup_beats,
+                "first_downbeat_beat": self.notation_settings.first_downbeat_beat,
+                "source": "notation_settings",
+            }
+        else:
+            self.last_pickup = infer_pickup(
+                first_beat,
+                selected_meter.measure_quarter_length,
+                downbeat_beats=[0.0],
+            )
 
         meta = build_score_meta(
             tempo_map,
@@ -902,6 +921,7 @@ class UnderstandingPipeline:
             display_bpm=self._display_bpm(bpm),
             instrument_confidence=0.9,
             time_sig_hint=decision.meter,
+            key_hint=ingested.key_hint,
         )
         meta.extra = {
             **(meta.extra or {}),
@@ -920,6 +940,12 @@ class UnderstandingPipeline:
             ],
             "notation_settings": self.notation_settings.to_dict(),
         }
+        meta.extra["playback_tempo"] = [
+            {"beat": beat, "bpm": bpm}
+            for beat, bpm in timing.time_map.interval_bpms()
+        ]
+        self.last_pedal_events = list(meta.extra["pedal_events"])
+        self.last_score_meta = meta
         self._write_timing_artifact(out_dir, job_id, timing, decision)
         from intelligence.layer import maybe_enhance
         from mir.types import InstrumentPrediction
@@ -954,6 +980,7 @@ class UnderstandingPipeline:
         events = enhanced.events
         meta = enhanced.meta
         tempo_map = enhanced.tempo_map
+        self.last_score_meta = meta
         bpm = tempo_map.bpm_at(0.0)
         print(
             f"[MidiIngest] notes={len(notes)} tempo={bpm:.1f} "
@@ -1150,30 +1177,57 @@ class UnderstandingPipeline:
         meter = None
         if self.last_meter_decision is not None:
             meter = self.last_meter_decision.meter
-        key_name = "C"
+        meta = getattr(self, "last_score_meta", None)
         plan = getattr(self.notation, "last_plan", None)
+        key_name = None
+        if meta is not None and getattr(meta, "key_hint", None):
+            key_name = str(meta.key_hint)
         if plan is not None and getattr(plan, "key_signature", None):
             key_name = str(plan.key_signature)
+        key_name = key_name or "C"
         instrument = "piano"
-        if getattr(self, "last_structure", None) is not None:
+        if meta is not None and getattr(meta, "instrument", None) is not None:
+            instrument = getattr(meta.instrument, "value", str(meta.instrument))
+        elif getattr(self, "last_structure", None) is not None:
             inst = getattr(self.last_structure, "instrument", None)
             if inst is not None:
                 instrument = getattr(inst, "value", str(inst))
+        settings_obj = getattr(self, "notation_settings", None)
+        pickup_beats = None
+        first_downbeat_beat = None
+        if pickup.get("pickup_inferred"):
+            pickup_beats = _ctx_float(pickup.get("pickup_beats") or pickup.get("beats"))
+            first_downbeat_beat = _ctx_float(pickup.get("first_downbeat_beat"))
+        if (pickup_beats is None or pickup_beats == 0.0) and settings_obj is not None:
+            pickup_beats = getattr(settings_obj, "pickup_beats", None)
+        if first_downbeat_beat is None and settings_obj is not None:
+            first_downbeat_beat = getattr(settings_obj, "first_downbeat_beat", None)
         printed = []
         playback = []
-        if timing is not None:
+        extra = dict(getattr(meta, "extra", None) or {})
+        if extra.get("printed_tempo"):
+            printed = [dict(row) for row in extra["printed_tempo"] if isinstance(row, dict)]
+        elif timing is not None:
             printed = [
                 {"beat": m.beat, "bpm": m.bpm, "mark": m.mark, "reason": m.reason}
                 for m in (timing.printed or [])
             ]
+        if extra.get("playback_tempo"):
+            playback = [dict(row) for row in extra["playback_tempo"] if isinstance(row, dict)]
+        elif timing is not None:
             playback = [
                 {"beat": beat, "bpm": bpm} for beat, bpm in timing.time_map.interval_bpms()
             ]
-        pedal = []
-        extra = (getattr(getattr(self, "last_structure", None), "extra", None) or {})
-        for row in extra.get("pedal_events") or []:
-            if isinstance(row, (list, tuple)) and len(row) >= 2:
-                pedal.append((float(row[0]), int(row[1])))
+        pedal = list(getattr(self, "last_pedal_events", None) or [])
+        if not pedal:
+            for row in extra.get("pedal_events") or []:
+                if isinstance(row, (list, tuple)) and len(row) >= 2:
+                    pedal.append((float(row[0]), int(row[1])))
+        if not pedal:
+            structure_extra = (getattr(getattr(self, "last_structure", None), "extra", None) or {})
+            for row in structure_extra.get("pedal_events") or []:
+                if isinstance(row, (list, tuple)) and len(row) >= 2:
+                    pedal.append((float(row[0]), int(row[1])))
         decisions = list(getattr(self.notation, "last_quantization_decisions", None) or [])
         downbeats = []
         if timing is not None:
@@ -1192,8 +1246,8 @@ class UnderstandingPipeline:
             instrument=instrument,
             display_bpm=float(display_bpm or 120.0),
             tempo_scale=float(choice.get("tempo_scale") or getattr(timing, "tempo_scale", 1.0) or 1.0),
-            pickup_beats=_ctx_float(pickup.get("pickup_beats") or pickup.get("beats")),
-            first_downbeat_beat=_ctx_float(pickup.get("first_downbeat_beat")),
+            pickup_beats=pickup_beats,
+            first_downbeat_beat=first_downbeat_beat,
             downbeat_beats=tuple(downbeats),
             score_beat_offset=float(
                 (getattr(self.notation, "last_quantization_summary", None) or {}).get(
@@ -1203,6 +1257,8 @@ class UnderstandingPipeline:
             ),
             accepted_source_note_ids=tuple(accepted),
             excluded_source_note_ids=tuple(excluded),
+            has_recorded_selection=True,
+            time_map_includes_score_offset=False,
             layout_decisions=tuple(decisions),
             printed_tempo=tuple(printed),
             playback_tempo=tuple(playback),
