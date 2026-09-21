@@ -10,6 +10,12 @@ from pathlib import Path
 from mir.types import Hand, NoteEvent, TempoMap, TempoPoint
 from mir.performance import PerformanceSnapshot, snapshot_midi
 
+# New ingest pairs each note-off with the oldest unmatched same-pitch
+# note-on (FIFO). pretty_midi closes every open unison on the first off,
+# which is why overlapping re-attacks used to ingest as a quarter plus
+# leftover 32nds. Stored PerformanceSnapshots are not rewritten.
+NOTE_PAIRING_FIFO = "fifo_same_pitch"
+
 MIDI_EXTENSIONS = {".mid", ".midi"}
 MIDI_CONTENT_TYPES = {
     "audio/midi",
@@ -158,6 +164,69 @@ def _key_hint(midi) -> str | None:
         return None
     token = str(name).split()[0]
     return token or None
+
+
+def fifo_notes_from_midi_bytes(data: bytes, midi) -> list[dict]:
+    """Parse pitched note intervals with FIFO same-pitch pairing.
+
+    ``midi`` is a PrettyMIDI object used only for tick-to-seconds. Drum
+    channel 10 (MIDI channel 9) is tagged but still paired.
+    """
+    from collections import defaultdict, deque
+
+    import mido
+
+    mid = mido.MidiFile(file=io.BytesIO(data))
+    notes: list[dict] = []
+    for track_idx, track in enumerate(mid.tracks):
+        abs_tick = 0
+        programs = [0] * 16
+        stacks: dict[tuple[int, int], deque] = defaultdict(deque)
+        for msg in track:
+            abs_tick += int(getattr(msg, "time", 0) or 0)
+            if msg.type == "program_change":
+                programs[int(msg.channel)] = int(msg.program)
+                continue
+            if msg.type == "note_on" and int(msg.velocity) > 0:
+                stacks[(int(msg.channel), int(msg.note))].append(
+                    (abs_tick, int(msg.velocity), programs[int(msg.channel)])
+                )
+                continue
+            if msg.type != "note_off" and not (msg.type == "note_on" and int(msg.velocity) == 0):
+                continue
+            key = (int(msg.channel), int(msg.note))
+            if not stacks[key]:
+                continue
+            start_tick, velocity, program = stacks[key].popleft()
+            start = float(midi.tick_to_time(start_tick))
+            end = float(midi.tick_to_time(abs_tick))
+            if end <= start:
+                continue
+            notes.append(
+                {
+                    "track": track_idx,
+                    "channel": key[0],
+                    "program": program,
+                    "pitch": key[1],
+                    "start": start,
+                    "end": end,
+                    "velocity": velocity,
+                    "is_drum": key[0] == 9,
+                }
+            )
+    return notes
+
+
+def tagged_pedal_events(performance) -> list[tuple[float, int, str]]:
+    """CC64 events labeled by source track. Empty when the snapshot has none."""
+    rows: list[tuple[float, int, str]] = []
+    for track in getattr(performance, "tracks", ()) or ():
+        for item in track.controls:
+            if len(item) < 3 or int(item[1]) != 64:
+                continue
+            rows.append((float(item[0]), max(0, min(127, int(item[2]))), str(track.track_id)))
+    rows.sort(key=lambda row: (row[0], row[2]))
+    return rows
 
 
 def ingest_midi(path: str | Path, *, source_backend="midi") -> IngestedMidi:

@@ -32,7 +32,7 @@ from mir.job import ImmutableNoteSet, PipelineJob
 from mir.meter import MeterEstimator
 from mir.meter_arbitrator import BeatGroupingEvidence, MeterArbitrator
 from mir.midi_cleaner import MIDICleaner
-from mir.midi_ingest import ingest_midi, is_midi_path
+from mir.midi_ingest import ingest_midi, is_midi_path, tagged_pedal_events
 from mir.performance import PerformanceSnapshot
 from mir.models import (
     CleaningAction,
@@ -934,10 +934,15 @@ class UnderstandingPipeline:
                 {"beat": m.beat, "bpm": m.bpm, "mark": m.mark, "reason": m.reason}
                 for m in timing.printed
             ],
-            "pedal_events": [
-                (float(t), int(v))
-                for t, v in (ingested.pedal_events if hasattr(ingested, "pedal_events") else [])
-            ],
+            "pedal_events": (
+                list(tagged_pedal_events(ingested.performance))
+                if getattr(ingested, "performance", None) is not None
+                and tagged_pedal_events(ingested.performance)
+                else [
+                    (float(t), int(v))
+                    for t, v in (ingested.pedal_events if hasattr(ingested, "pedal_events") else [])
+                ]
+            ),
             "notation_settings": self.notation_settings.to_dict(),
         }
         meta.extra["playback_tempo"] = [
@@ -1200,7 +1205,9 @@ class UnderstandingPipeline:
         pedal = list(getattr(self, "last_pedal_events", None) or [])
         if not pedal:
             for row in extra.get("pedal_events") or []:
-                if isinstance(row, (list, tuple)) and len(row) >= 2:
+                if isinstance(row, (list, tuple)) and len(row) >= 3:
+                    pedal.append((float(row[0]), int(row[1]), str(row[2])))
+                elif isinstance(row, (list, tuple)) and len(row) >= 2:
                     pedal.append((float(row[0]), int(row[1])))
         if not pedal:
             structure_extra = (getattr(getattr(self, "last_structure", None), "extra", None) or {})

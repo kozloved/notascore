@@ -209,6 +209,32 @@ def test_compound_beams_are_planned_in_groups_of_three(tmp_path):
     assert [n.beams.getByNumber(1).type for n in parsed.parts[0].flatten().notes] == ["start", "continue", "stop"] * 2
 
 
+def test_simple_triple_meter_does_not_use_compound_beams(tmp_path):
+    raw = [event(72 + i, i * 0.5, 0.5, str(i)) for i in range(6)]
+    writer = NotationWriter()
+    score = writer.write_from_events_direct(
+        raw, ScoreMeta(time_sig_hint="3/4"), quantization_mode="performance"
+    )
+    notes = [
+        n
+        for s in writer.last_plan.measures[0].staves
+        for v in s.voices
+        for n in v.elements
+        if isinstance(n, PlannedNote)
+    ]
+    types = [n.beams[0][0] for n in notes if n.beams]
+    assert types != ["start", "continue", "stop"] * 2
+    path = tmp_path / "simple_34.musicxml"
+    writer._export_musicxml(score, path)
+    parsed = converter.parse(path)
+    exported = [
+        n.beams.getByNumber(1).type
+        for n in parsed.parts[0].flatten().notes
+        if n.beams.getByNumber(1) is not None
+    ]
+    assert exported != ["start", "continue", "stop"] * 2
+
+
 def test_tuplets_have_explicit_distinct_groups_and_export_boundaries(tmp_path):
     raw = [event(72 + i % 3, i / 3, 1 / 3, str(i)) for i in range(6)]
     writer = NotationWriter()
@@ -464,7 +490,7 @@ def test_same_pitch_pulse_still_caps_pedal_tail_for_voice_search():
 
     a = MusicalEvent(48, 0.0, 1.8, note_id="a", hand=Hand.LEFT, velocity=80)
     b = MusicalEvent(48, 1.0, 1.8, note_id="b", hand=Hand.LEFT, velocity=80)
-    assert _release_hypothesis(a, [a, b]) == ("b", "pedal_tail", "hypothesis")
+    assert _release_hypothesis(a, [a, b]) == ("b", "reattack", None)
     search = _voice_search_events([a, b])
     assert {e.note_id: e.duration_beats for e in search}["a"] == 1.0
     assert {e.note_id: e.duration_beats for e in search}["b"] == 1.8
@@ -707,7 +733,7 @@ def test_pedal_release_targets_resolve_early_jitter_through_export(tmp_path):
     assert notes["b"].onset == Fraction(1) and notes["b"].duration == Fraction(1)
     assert notes["c"].onset == Fraction(2)
     by_decision = {d["note_id"]: d for d in report.decisions}
-    assert by_decision["a"]["release_reason"] == "pedal_tail"
+    assert by_decision["a"]["release_reason"] == "reattack"
     assert by_decision["a"]["release_target_id"] == "b"
     assert by_decision["a"]["release_at"] == pytest.approx(1.0)
     assert by_decision["a"]["performed_duration"] == pytest.approx(1.8)
@@ -772,7 +798,7 @@ def test_cross_bar_pedal_release_uses_quantized_target_onset(tmp_path):
     assert notes["b"].onset == Fraction(4)
     assert notes["a"].duration == Fraction(1)
     decision = next(d for d in report.decisions if d["note_id"] == "a")
-    assert decision["release_reason"] == "pedal_tail"
+    assert decision["release_reason"] == "reattack"
     assert decision["release_target_id"] == "b"
     assert decision["release_at"] == pytest.approx(4.0)
 
@@ -827,7 +853,7 @@ def test_accepted_release_ignores_earlier_same_voice_neighbor(tmp_path):
     assert notes["inner"].duration == Fraction(1, 4)
     assert notes["b"].onset == Fraction(1)
     decision = next(d for d in report.decisions if d["note_id"] == "a")
-    assert decision["release_reason"] == "pedal_tail"
+    assert decision["release_reason"] == "reattack"
     assert decision["release_target_id"] == "b"
     assert decision["release_at"] == pytest.approx(1.0)
     assert decision["written_duration"] == pytest.approx(1.0)
@@ -871,7 +897,7 @@ def test_cross_bar_written_release_exports_necessary_ties(tmp_path):
     assert notes["hold"].onset == Fraction(3)
     assert notes["next"].onset == Fraction(5)
     decision = next(d for d in report.decisions if d["note_id"] == "hold")
-    assert decision["release_reason"] == "pedal_tail"
+    assert decision["release_reason"] == "reattack"
     assert decision["release_target_id"] == "next"
     assert notes["hold"].duration == Fraction(2)
     assert {e.note_id for e in out} == {"hold", "next"}
@@ -1131,7 +1157,7 @@ def test_lane_reuse_does_not_change_downbeat_or_release_decisions():
     out, report = quantize(raw)
     assert [(e.note_id, e.start_beat, e.duration_beats) for e in raw] == before
     by_dec = {d["note_id"]: d for d in report.decisions}
-    assert by_dec["a"]["release_reason"] == "pedal_tail"
+    assert by_dec["a"]["release_reason"] == "reattack"
     assert by_dec["a"]["release_target_id"] == "b"
     assert by_dec["a"]["score_onset"] == "0"
     assert by_dec["b"]["score_onset"] == "1"

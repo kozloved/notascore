@@ -3,6 +3,10 @@
 The MIDI checksum identifies the original bytes, which must be retained
 separately. This JSON model is an analysis view, not a lossless MIDI serializer.
 Track IDs identify PrettyMIDI instrument streams (not original SMF chunk indices).
+
+New ingest (``NOTE_PAIRING_FIFO``) repairs overlapping same-pitch durations
+from the original bytes. Existing stored snapshots keep their recorded
+start/end times and source IDs; they are not rewritten on load.
 """
 
 from dataclasses import asdict, dataclass, replace
@@ -146,8 +150,10 @@ class PerformanceSnapshot:
 
 
 def snapshot_midi(midi, data: bytes, *, backend="midi"):
-    from mir.midi_ingest import hand_from_track_name
+    from mir.midi_ingest import fifo_notes_from_midi_bytes, hand_from_track_name
 
+    fifo = fifo_notes_from_midi_bytes(data, midi)
+    unused = [row for row in fifo if not row.get("is_drum")]
     tracks, notes = [], []
     for ti, inst in enumerate(midi.instruments):
         track = f"track:{ti}"
@@ -158,8 +164,24 @@ def snapshot_midi(midi, data: bytes, *, backend="midi"):
                                   tuple((float(b.time), int(b.pitch)) for b in inst.pitch_bends)))
         # SourceNote.confidence=1.0 is a MIDI default, not calibrated acoustic
         # confidence. NoteEvent.confidence_source is "default" via to_notes().
+        # New ingest repairs pretty_midi's unison note-off collapse using FIFO
+        # pairing from the original bytes. IDs follow PrettyMIDI instrument
+        # order so existing jobs that already stored a snapshot are unchanged.
         for ni, note in enumerate(inst.notes):
-            notes.append(SourceNote(f"{track}:note:{ni}", int(note.pitch), float(note.start), float(note.end),
+            end = float(note.end)
+            if not inst.is_drum:
+                match_i = None
+                match_d = 0.05
+                for i, row in enumerate(unused):
+                    if int(row["pitch"]) != int(note.pitch):
+                        continue
+                    dist = abs(float(row["start"]) - float(note.start))
+                    if dist < match_d:
+                        match_d = dist
+                        match_i = i
+                if match_i is not None:
+                    end = float(unused.pop(match_i)["end"])
+            notes.append(SourceNote(f"{track}:note:{ni}", int(note.pitch), float(note.start), end,
                                     int(note.velocity), 1.0, track, int(inst.program), bool(inst.is_drum),
                                     kind.value, hand.value))
     times, bpms = midi.get_tempo_changes()

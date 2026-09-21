@@ -164,7 +164,9 @@ class InterpretationContext:
                 dict(row) for row in (data.get("playback_tempo") or ()) if isinstance(row, dict)
             ),
             pedal_events=tuple(
-                (float(row[0]), int(row[1]))
+                (float(row[0]), int(row[1]), str(row[2]))
+                if len(row) > 2
+                else (float(row[0]), int(row[1]))
                 for row in (data.get("pedal_events") or ())
                 if isinstance(row, (list, tuple)) and len(row) >= 2
             ),

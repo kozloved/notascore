@@ -86,12 +86,23 @@ def beats_to_ms(beats, bpm) -> float:
     return float(beats) * (60000.0 / max(float(bpm), 1e-6))
 
 
-def pedal_spans(pedal_events) -> tuple[tuple[float, float], ...]:
+def pedal_spans(pedal_events, *, track_id=None) -> tuple[tuple[float, float], ...]:
+    """Build sustain spans from CC64.
+
+    2-tuples apply globally (legacy ingest). 3-tuples ``(time, value, track)``
+    belong to one source stream; ``track_id`` then ignores other tracks.
+    """
     spans = []
     down_at = None
-    for item in sorted(pedal_events or (), key=lambda row: float(row[0])):
+    filtered = []
+    for item in pedal_events or ():
         time_sec = float(item[0])
         value = int(item[1])
+        item_track = item[2] if len(item) > 2 else None
+        if track_id is not None and item_track is not None and str(item_track) != str(track_id):
+            continue
+        filtered.append((time_sec, value))
+    for time_sec, value in sorted(filtered, key=lambda row: row[0]):
         on = value >= 64
         if on and down_at is None:
             down_at = time_sec
@@ -468,7 +479,7 @@ def _written_overlap(raw, onset, next_onset, overlaps, *, release_reason=None, s
     settings = _settings(settings)
     if settings.overlap_handling == OverlapHandling.PRESERVE:
         return bool(overlaps)
-    if release_reason == "pedal_tail":
+    if release_reason in {"pedal_tail", "reattack"}:
         return False
     if release_reason in {
         "no_line",
@@ -492,17 +503,24 @@ def _written_overlap(raw, onset, next_onset, overlaps, *, release_reason=None, s
     return overlaps
 
 
+def _stream_key(ev) -> tuple[str, object]:
+    """Source stream plus hand: another track's notes are not release targets."""
+    return (str(getattr(ev, "source_track_id", None) or ""), ev.hand)
+
+
 def _release_decisions(events, *, settings=None, pedal=None):
     """Map note_id -> (release_target_id_or_None, reason, pedal_source)."""
-    by_hand = defaultdict(list)
+    by_stream = defaultdict(list)
     for ev in events:
-        by_hand[ev.hand].append(ev)
+        by_stream[_stream_key(ev)].append(ev)
     decisions = {}
-    for group in by_hand.values():
+    for stream_key, group in by_stream.items():
+        track_id = stream_key[0] or None
+        spans = pedal_spans(pedal, track_id=track_id)
         ordered = sorted(group, key=lambda e: (e.start_beat, e.pitch, e.note_id))
         for ev in ordered:
             decisions[ev.note_id] = _release_hypothesis(
-                ev, ordered, settings=settings, pedal=pedal
+                ev, ordered, settings=settings, pedal=spans
             )
     return decisions
 
@@ -657,7 +675,7 @@ def _duration(
     # Preserve-overlap wins over an inferred pedal-tail cutoff.
     if (
         settings.overlap_handling != OverlapHandling.PRESERVE
-        and release_reason == "pedal_tail"
+        and release_reason in {"pedal_tail", "reattack"}
         and isinstance(release_at, Fraction)
     ):
         cap = release_at - onset
@@ -730,6 +748,7 @@ def _readable_v2_fill_small_release_gap(
         "multi_attack_hold",
         "overlapping_repeat",
         "pedal_tail",
+        "reattack",
     }:
         return None
     sixteenth = 0.25
@@ -747,14 +766,12 @@ def _readable_v2_fill_small_release_gap(
 
 def _score_voices(events, separator):
     if type(separator) is VoiceSeparator:
-        cap = min(2, int(separator.config.max_voices_per_hand or 2))
+        # Keep the configured complexity policy (default 4). Never drop notes
+        # to meet it; extra printed lanes are diagnosed on the separator.
         separator = VoiceSeparator(replace(
             separator.config,
             prefer_simple_chords=True,
-            # Keep a tight grace; pedal tails are shortened only for the
-            # voice-search copy below so genuine overlaps stay independent.
             overlap_grace_beats=0.10,
-            max_voices_per_hand=cap,
         ))
     search = _voice_search_events(events)
     voiced = separator.separate(search)
@@ -818,17 +835,18 @@ def _release_hypothesis(ev, ordered_same_hand, *, settings=None, pedal=None):
         under_sustain = nxt.start_beat < end - 0.04
         nxt_pedal = pedal_down_at(pedal, getattr(nxt, "start_time_sec", None))
         if nxt.pitch == ev.pitch and under_sustain:
-            # Pulse re-attack under pedal is a line continuation.
-            if (
-                0.20 <= gap <= 2.05
-                and gap * 1.25 < raw < gap * 4.0
-                and _pulsed_line_evidence(ev, nxt, ordered_same_hand)
-            ):
-                source = "cc64" if nxt_pedal else "hypothesis"
-                return nxt.note_id, "pedal_tail", source
             # Near-simultaneous or independently sustained repeated pitch.
             if gap <= 0.12 or raw >= gap * 4.0:
                 return None, "overlapping_repeat", None
+            # Same-pitch re-attack while this key is still down. Write to the
+            # next attack; never tie across a genuine re-strike. CC64 is not
+            # required — legato MIDI overlaps the same way.
+            if 0.20 <= gap <= 2.05 and raw > gap and _pulsed_line_evidence(
+                ev, nxt, ordered_same_hand
+            ):
+                if nxt_pedal:
+                    return nxt.note_id, "pedal_tail", "cc64"
+                return nxt.note_id, "reattack", None
         if leap > 9:
             continue
         # Different pitch sounding under a sustain is an independent hold
@@ -859,11 +877,11 @@ def _release_hypothesis(ev, ordered_same_hand, *, settings=None, pedal=None):
 def _voice_search_events(events):
     """Apply line/release hypotheses for voice search without mutating performed times."""
     by_id = {ev.note_id: ev for ev in events}
-    by_hand = defaultdict(list)
+    by_stream = defaultdict(list)
     for ev in events:
-        by_hand[ev.hand].append(ev)
+        by_stream[_stream_key(ev)].append(ev)
     capped = {}
-    for group in by_hand.values():
+    for group in by_stream.values():
         ordered = sorted(group, key=lambda e: (e.start_beat, e.pitch, e.note_id))
         for ev in ordered:
             target_id, _reason, _source = _release_hypothesis(ev, ordered)
@@ -873,6 +891,37 @@ def _voice_search_events(events):
                 gap = float(by_id[target_id].start_beat - ev.start_beat)
                 capped[ev.note_id] = copy_event(ev, duration_beats=gap)
     return [capped.get(ev.note_id, ev) for ev in events]
+
+
+def _conservative_articulations(events, *, settings=None):
+    """Optional readable marks with a high bar for evidence.
+
+    Short notes followed by a visible rest may receive staccato. This does
+    not invent dynamics, phrase slurs, or pedal marks from duration alone,
+    and it never overwrites a supplied articulation.
+    """
+    settings = _settings(settings)
+    if settings.interpretation != Interpretation.READABLE:
+        return events
+    by_stream = defaultdict(list)
+    for ev in events:
+        by_stream[_stream_key(ev)].append(ev)
+    marked = {}
+    for group in by_stream.values():
+        ordered = sorted(group, key=lambda e: (e.start_beat, e.pitch, e.note_id or ""))
+        for i, ev in enumerate(ordered):
+            if ev.articulation:
+                marked[ev.note_id] = ev
+                continue
+            nxt = ordered[i + 1] if i + 1 < len(ordered) else None
+            rest = None
+            if nxt is not None:
+                rest = float(nxt.start_beat) - float(ev.start_beat) - float(ev.duration_beats)
+            if ev.duration_beats <= 0.25 + 1e-9 and rest is not None and rest >= 0.45:
+                marked[ev.note_id] = copy_event(ev, articulation="staccato")
+            else:
+                marked[ev.note_id] = ev
+    return [marked.get(ev.note_id, ev) for ev in events]
 
 
 def _stable_lanes(events, exact, grand_staff=True):
@@ -1131,7 +1180,6 @@ def quantize_notation(
     if mode is not None:
         require_production_quantization_mode(mode)
     settings = _settings(settings)
-    spans = pedal_spans(pedal_events)
 
     ids = [e.note_id for e in events if e.note_id]
     if len(ids) != len(set(ids)):
@@ -1172,7 +1220,7 @@ def quantize_notation(
         voices[(staff, ev.voice)].append(ev)
 
     roles = _phrase_roles(voices, meter.measure_quarter_length)
-    release_by_id = _release_decisions(interpreted, settings=settings, pedal=spans)
+    release_by_id = _release_decisions(interpreted, settings=settings, pedal=pedal_events)
     # Phase 1: accept quantized onsets for every attack (all voices), then
     # resolve release targets to those onsets before duration spelling.
     onset_jobs = []
@@ -1274,6 +1322,7 @@ def quantize_notation(
             out.append(copy_event(ev, start_beat=float(onset), duration_beats=float(duration),
                                   role=role, phrase_id=phrase))
     out = _stable_lanes(out, exact, profile.grand_staff)
+    out = _conservative_articulations(out, settings=settings)
     raw_by_id = {e.note_id: e for e in raw}
     decisions, notes = [], []
     for ev in out:

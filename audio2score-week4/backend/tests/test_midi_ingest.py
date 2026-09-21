@@ -107,6 +107,27 @@ def test_ingest_drum_only_midi_raises_typed_no_pitched_notes(tmp_path):
     assert any(n.is_drum for n in exc.value.performance.notes)
 
 
+def test_ingest_fifo_pairs_overlapping_unison_reattacks(tmp_path):
+    """pretty_midi collapses overlapping G4s; FIFO pairing keeps ~0.58s each."""
+    from evaluation.readable_v2_cases import case_c_repeated_attacks_under_pedal
+
+    path = tmp_path / "overlap.mid"
+    case_c_repeated_attacks_under_pedal(path)
+    original = path.read_bytes()
+    ingested = ingest_midi(path)
+    assert path.read_bytes() == original
+    notes = ingested.performance.notes
+    assert len(notes) == 4
+    starts = [round(n.start_sec, 3) for n in notes]
+    durs = [n.end_sec - n.start_sec for n in notes]
+    assert starts == [0.0, 0.5, 1.0, 1.5]
+    assert all(0.55 <= d <= 0.61 for d in durs)
+    pm = pretty_midi.PrettyMIDI(str(path))
+    pretty_durs = [n.end - n.start for inst in pm.instruments for n in inst.notes]
+    assert min(pretty_durs) < 0.12
+    assert min(durs) > min(pretty_durs)
+
+
 def test_fallback_engine_does_not_use_legacy_for_midi(tmp_path, monkeypatch):
     path = _piano_midi(tmp_path / "no-legacy.mid")
     primary = UnderstandingPipeline()
