@@ -150,3 +150,224 @@ def test_get_engine_legacy_still_ingests_midi(tmp_path, monkeypatch):
     path = _piano_midi(tmp_path / "legacy.mid")
     xml = get_engine().transcribe(path, "legacy-midi")
     assert "score-partwise" in xml.lower()
+
+
+def _smf_bytes(*, tracks, tempo=120, ticks_per_beat=480):
+    import io
+
+    import mido
+
+    mid = mido.MidiFile(ticks_per_beat=ticks_per_beat, type=1)
+    meta = mido.MidiTrack()
+    mid.tracks.append(meta)
+    meta.append(mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(tempo)))
+    for spec in tracks:
+        tr = mido.MidiTrack()
+        mid.tracks.append(tr)
+        if spec.get("name"):
+            tr.append(mido.MetaMessage("track_name", name=spec["name"]))
+        for item in spec["events"]:
+            tr.append(item)
+    buf = io.BytesIO()
+    mid.save(file=buf)
+    return buf.getvalue()
+
+
+def _write_smf(path, **kwargs):
+    data = _smf_bytes(**kwargs)
+    path.write_bytes(data)
+    return data
+
+
+def test_pairing_same_pitch_onset_two_streams(tmp_path):
+    import hashlib
+
+    import mido
+
+    from mir.midi_ingest import NOTE_PAIRING_FIFO, parse_smf_notes
+
+    path = tmp_path / "two-streams.mid"
+    data = _write_smf(
+        path,
+        tracks=[
+            {
+                "name": "Long",
+                "events": [
+                    mido.Message("program_change", program=0, channel=0, time=0),
+                    mido.Message("note_on", note=67, velocity=80, channel=0, time=0),
+                    mido.Message("note_off", note=67, velocity=0, channel=0, time=1920),
+                ],
+            },
+            {
+                "name": "Short",
+                "events": [
+                    mido.Message("program_change", program=0, channel=1, time=0),
+                    mido.Message("note_on", note=67, velocity=90, channel=1, time=0),
+                    mido.Message("note_off", note=67, velocity=0, channel=1, time=480),
+                ],
+            },
+        ],
+    )
+    original = hashlib.sha256(data).hexdigest()
+    ingested = ingest_midi(path)
+    assert path.read_bytes() == data
+    assert ingested.performance.midi_sha256 == original
+    assert ingested.performance.note_pairing == NOTE_PAIRING_FIFO
+    by_ch = {n.channel: n for n in ingested.performance.notes}
+    assert round(by_ch[0].end_sec - by_ch[0].start_sec, 3) == 2.0
+    assert round(by_ch[1].end_sec - by_ch[1].start_sec, 3) == 0.5
+    parsed = parse_smf_notes(data, pretty_midi.PrettyMIDI(str(path)))
+    assert {(r["channel"], round(r["end"] - r["start"], 3)) for r in parsed.notes} == {
+        (0, 2.0),
+        (1, 0.5),
+    }
+
+
+def test_pairing_reversed_track_order(tmp_path):
+    import mido
+
+    path = tmp_path / "reversed.mid"
+    data = _write_smf(
+        path,
+        tracks=[
+            {
+                "name": "ShortFirst",
+                "events": [
+                    mido.Message("program_change", program=0, channel=2, time=0),
+                    mido.Message("note_on", note=60, velocity=70, channel=2, time=0),
+                    mido.Message("note_off", note=60, velocity=0, channel=2, time=240),
+                ],
+            },
+            {
+                "name": "LongSecond",
+                "events": [
+                    mido.Message("program_change", program=0, channel=3, time=0),
+                    mido.Message("note_on", note=60, velocity=80, channel=3, time=0),
+                    mido.Message("note_off", note=60, velocity=0, channel=3, time=1920),
+                ],
+            },
+        ],
+    )
+    ingested = ingest_midi(path)
+    assert path.read_bytes() == data
+    by_ch = {n.channel: n for n in ingested.performance.notes}
+    assert round(by_ch[2].end_sec, 3) == 0.25
+    assert round(by_ch[3].end_sec, 3) == 2.0
+    assert ingested.performance.notes[0].note_id.startswith("track:0:")
+    assert ingested.performance.notes[1].note_id.startswith("track:1:")
+
+
+def test_pairing_same_program_different_channels(tmp_path):
+    import mido
+
+    path = tmp_path / "channels.mid"
+    data = _write_smf(
+        path,
+        tracks=[
+            {
+                "name": "SplitCh",
+                "events": [
+                    mido.Message("program_change", program=40, channel=0, time=0),
+                    mido.Message("program_change", program=40, channel=1, time=0),
+                    mido.Message("note_on", note=64, velocity=80, channel=0, time=0),
+                    mido.Message("note_on", note=64, velocity=90, channel=1, time=0),
+                    mido.Message("note_off", note=64, velocity=0, channel=1, time=240),
+                    mido.Message("note_off", note=64, velocity=0, channel=0, time=1680),
+                ],
+            }
+        ],
+    )
+    ingested = ingest_midi(path)
+    assert path.read_bytes() == data
+    notes = ingested.performance.notes
+    assert {n.program for n in notes} == {40}
+    by_ch = {n.channel: n for n in notes}
+    assert round(by_ch[1].end_sec, 3) == 0.25
+    assert round(by_ch[0].end_sec, 3) == 2.0
+
+
+def test_pairing_overlapping_repeats_one_stream(tmp_path):
+    import mido
+
+    from mir.midi_ingest import parse_smf_notes
+
+    path = tmp_path / "retrig.mid"
+    data = _write_smf(
+        path,
+        tracks=[
+            {
+                "name": "Retrig",
+                "events": [
+                    mido.Message("note_on", note=67, velocity=80, channel=0, time=0),
+                    mido.Message("note_on", note=67, velocity=80, channel=0, time=240),
+                    mido.Message("note_off", note=67, velocity=0, channel=0, time=40),
+                    mido.Message("note_off", note=67, velocity=0, channel=0, time=240),
+                ],
+            }
+        ],
+    )
+    ingested = ingest_midi(path)
+    assert path.read_bytes() == data
+    starts = [round(n.start_sec, 3) for n in ingested.performance.notes]
+    ends = [round(n.end_sec, 3) for n in ingested.performance.notes]
+    assert starts == [0.0, 0.25]
+    assert ends == [0.292, 0.542]
+    pm = pretty_midi.PrettyMIDI(str(path))
+    pretty_ends = [round(n.end, 3) for inst in pm.instruments for n in inst.notes]
+    assert pretty_ends == [0.292, 0.292]
+    parsed = parse_smf_notes(data, pm)
+    assert parsed.unmatched_note_offs == 0
+    assert parsed.dangling_note_ons == 0
+
+
+def test_pairing_program_change_and_unmatched_note_off(tmp_path):
+    import mido
+
+    from mir.midi_ingest import parse_smf_notes
+
+    path = tmp_path / "pchg.mid"
+    data = _write_smf(
+        path,
+        tracks=[
+            {
+                "name": "Pchg",
+                "events": [
+                    mido.Message("program_change", program=0, channel=0, time=0),
+                    mido.Message("note_on", note=60, velocity=80, channel=0, time=0),
+                    mido.Message("program_change", program=40, channel=0, time=240),
+                    mido.Message("note_off", note=60, velocity=0, channel=0, time=240),
+                    mido.Message("note_on", note=67, velocity=70, channel=0, time=0),
+                    mido.Message("note_off", note=67, velocity=0, channel=0, time=480),
+                    mido.Message("note_off", note=72, velocity=0, channel=0, time=0),
+                ],
+            }
+        ],
+    )
+    parsed = parse_smf_notes(data, pretty_midi.PrettyMIDI(str(path)))
+    assert parsed.unmatched_note_offs == 1
+    assert parsed.dangling_note_ons == 0
+    by_pitch = {r["pitch"]: r for r in parsed.notes}
+    assert by_pitch[60]["program"] == 0
+    assert by_pitch[60]["program_off"] == 40
+    assert by_pitch[67]["program"] == 40
+    ingested = ingest_midi(path)
+    assert path.read_bytes() == data
+    assert ingested.performance.note_pairing is not None
+    # PrettyMIDI groups both notes onto the program-at-off instrument.
+    assert all(n.program == 40 for n in ingested.performance.notes)
+    assert [round(n.end_sec - n.start_sec, 3) for n in ingested.performance.notes] == [0.5, 0.5]
+
+
+def test_legacy_snapshot_without_pairing_metadata_still_loads(tmp_path):
+    from mir.performance import PerformanceSnapshot, SourceNote
+
+    snap = PerformanceSnapshot(
+        "midi",
+        (SourceNote("track:0:note:0", 60, 0.0, 1.0, 80, 1.0, "track:0", 0),),
+        midi_sha256="abc",
+    )
+    snap.write_json(tmp_path / "legacy.json")
+    loaded = PerformanceSnapshot.read_json(tmp_path / "legacy.json")
+    assert loaded.note_pairing is None
+    assert loaded.notes[0].note_id == "track:0:note:0"
+    assert loaded.schema_version == 1

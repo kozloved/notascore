@@ -5,8 +5,9 @@ separately. This JSON model is an analysis view, not a lossless MIDI serializer.
 Track IDs identify PrettyMIDI instrument streams (not original SMF chunk indices).
 
 New ingest (``NOTE_PAIRING_FIFO``) repairs overlapping same-pitch durations
-from the original bytes. Existing stored snapshots keep their recorded
-start/end times and source IDs; they are not rewritten on load.
+from the original bytes using per-stream FIFO pairing. Existing stored
+snapshots keep their recorded start/end times, source IDs, and pairing
+metadata; they are not rewritten on load.
 """
 
 from dataclasses import asdict, dataclass, replace
@@ -51,6 +52,7 @@ class SourceNote:
     is_drum: bool = False
     instrument: str = "unknown"
     hand_hint: str = "unknown"
+    channel: int | None = None
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,8 @@ class PerformanceSnapshot:
     meter_changes: tuple[tuple[float, int, int], ...] = ()
     midi_sha256: str | None = None
     schema_version: int = 1
+    # None on stored snapshots written before per-stream pairing.
+    note_pairing: str | None = None
 
     def __post_init__(self):
         if self.schema_version != 1:
@@ -149,11 +153,84 @@ class PerformanceSnapshot:
             raise ValueError("Original MIDI checksum mismatch")
 
 
-def snapshot_midi(midi, data: bytes, *, backend="midi"):
-    from mir.midi_ingest import fifo_notes_from_midi_bytes, hand_from_track_name
+def _match_stream_note(unused: list, note, *, window=0.05) -> dict | None:
+    """Take the FIFO note on this instrument stream that belongs to ``note``.
 
-    fifo = fifo_notes_from_midi_bytes(data, midi)
-    unused = [row for row in fifo if not row.get("is_drum")]
+    Exact pitch+onset wins. Simultaneous same-pitch events on the same stream
+    keep FIFO order (first unused exact match). A short onset window is only
+    a fallback inside this stream; other tracks/channels are never consulted.
+    """
+    pitch = int(note.pitch)
+    start = float(note.start)
+    exact = [
+        i
+        for i, row in enumerate(unused)
+        if int(row["pitch"]) == pitch and abs(float(row["start"]) - start) <= 1e-7
+    ]
+    if exact:
+        return unused.pop(exact[0])
+    match_i = None
+    match_d = window
+    for i, row in enumerate(unused):
+        if int(row["pitch"]) != pitch:
+            continue
+        dist = abs(float(row["start"]) - start)
+        if dist < match_d:
+            match_d = dist
+            match_i = i
+    if match_i is None:
+        return None
+    return unused.pop(match_i)
+
+
+def _align_instrument_groups(instruments, groups: list[list[dict]]) -> list[list[dict]]:
+    """Pair PrettyMIDI instruments with FIFO groups without assuming list equality.
+
+    PrettyMIDI load order is first-note-off of (program_at_off, channel, SMF
+    track). Constructor order can differ; ingest always re-parses bytes, so
+    the common case is 1:1. When counts differ, match by program/drum flag
+    and the (pitch, onset, velocity) signature.
+    """
+    if len(groups) == len(instruments):
+        return [list(group) for group in groups]
+    remaining = [list(group) for group in groups]
+    aligned = []
+    for inst in instruments:
+        signature = sorted(
+            (int(n.pitch), round(float(n.start), 4), int(n.velocity))
+            for n in inst.notes
+        )
+        best_i = None
+        best_score = None
+        for i, group in enumerate(remaining):
+            if not group:
+                continue
+            if bool(group[0]["is_drum"]) != bool(inst.is_drum):
+                continue
+            group_sig = sorted(
+                (int(row["pitch"]), round(float(row["start"]), 4), int(row["velocity"]))
+                for row in group
+            )
+            score = (
+                abs(int(group[0].get("program_off", group[0]["program"])) - int(inst.program)),
+                abs(len(group_sig) - len(signature)),
+                sum(a != b for a, b in zip(group_sig, signature)),
+            )
+            if best_score is None or score < best_score:
+                best_score = score
+                best_i = i
+        if best_i is None:
+            aligned.append([])
+        else:
+            aligned.append(remaining.pop(best_i))
+    return aligned
+
+
+def snapshot_midi(midi, data: bytes, *, backend="midi"):
+    from mir.midi_ingest import NOTE_PAIRING_FIFO, hand_from_track_name, parse_smf_notes
+
+    parsed = parse_smf_notes(data, midi)
+    grouped = _align_instrument_groups(midi.instruments, parsed.instrument_groups)
     tracks, notes = [], []
     for ti, inst in enumerate(midi.instruments):
         track = f"track:{ti}"
@@ -164,30 +241,23 @@ def snapshot_midi(midi, data: bytes, *, backend="midi"):
                                   tuple((float(b.time), int(b.pitch)) for b in inst.pitch_bends)))
         # SourceNote.confidence=1.0 is a MIDI default, not calibrated acoustic
         # confidence. NoteEvent.confidence_source is "default" via to_notes().
-        # New ingest repairs pretty_midi's unison note-off collapse using FIFO
-        # pairing from the original bytes. IDs follow PrettyMIDI instrument
-        # order so existing jobs that already stored a snapshot are unchanged.
+        # IDs follow PrettyMIDI instrument order so existing jobs that already
+        # stored a snapshot are unchanged. Durations come from per-stream FIFO.
+        unused = list(grouped[ti]) if ti < len(grouped) else []
         for ni, note in enumerate(inst.notes):
-            end = float(note.end)
-            if not inst.is_drum:
-                match_i = None
-                match_d = 0.05
-                for i, row in enumerate(unused):
-                    if int(row["pitch"]) != int(note.pitch):
-                        continue
-                    dist = abs(float(row["start"]) - float(note.start))
-                    if dist < match_d:
-                        match_d = dist
-                        match_i = i
-                if match_i is not None:
-                    end = float(unused.pop(match_i)["end"])
-            notes.append(SourceNote(f"{track}:note:{ni}", int(note.pitch), float(note.start), end,
-                                    int(note.velocity), 1.0, track, int(inst.program), bool(inst.is_drum),
-                                    kind.value, hand.value))
+            matched = None if inst.is_drum else _match_stream_note(unused, note)
+            end = float(matched["end"]) if matched is not None else float(note.end)
+            channel = None if matched is None else int(matched["channel"])
+            notes.append(SourceNote(
+                f"{track}:note:{ni}", int(note.pitch), float(note.start), end,
+                int(note.velocity), 1.0, track, int(inst.program), bool(inst.is_drum),
+                kind.value, hand.value, channel,
+            ))
     times, bpms = midi.get_tempo_changes()
     return PerformanceSnapshot(
         backend, tuple(notes), tuple(tracks),
         tuple((float(t), float(b)) for t, b in zip(times, bpms)),
         tuple((float(t.time), int(t.numerator), int(t.denominator)) for t in midi.time_signature_changes),
         hashlib.sha256(data).hexdigest(),
+        note_pairing=NOTE_PAIRING_FIFO,
     )

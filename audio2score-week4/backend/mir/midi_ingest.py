@@ -4,17 +4,29 @@ from __future__ import annotations
 
 import re
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from mir.types import Hand, NoteEvent, TempoMap, TempoPoint
 from mir.performance import PerformanceSnapshot, snapshot_midi
 
-# New ingest pairs each note-off with the oldest unmatched same-pitch
-# note-on (FIFO). pretty_midi closes every open unison on the first off,
-# which is why overlapping re-attacks used to ingest as a quarter plus
-# leftover 32nds. Stored PerformanceSnapshots are not rewritten.
-NOTE_PAIRING_FIFO = "fifo_same_pitch"
+# Pairing policy for overlapping same-pitch events on one MIDI stream.
+#
+# FIFO is a deterministic policy, not proof of musical intent. The oldest
+# unmatched note-on on (SMF track, channel, pitch) is closed by the next
+# note-off of that pitch. Independent streams never share a stack, even
+# when they use the same program and attack the same pitch at the same
+# time.
+#
+# PrettyMIDI instrument order is first-note-off order of
+# (program_at_off, channel, SMF track). That is not SMF track index and
+# is not the in-memory constructor order of a PrettyMIDI object that was
+# never serialized. Ingest always re-parses original bytes.
+#
+# PR #71 used a global pitch+onset pool (`fifo_same_pitch`). New snapshots
+# record NOTE_PAIRING_FIFO. Stored snapshots are not rewritten.
+NOTE_PAIRING_FIFO = "fifo_same_pitch_per_stream"
+NOTE_PAIRING_LEGACY_GLOBAL = "fifo_same_pitch"
 
 MIDI_EXTENSIONS = {".mid", ".midi"}
 MIDI_CONTENT_TYPES = {
@@ -166,18 +178,35 @@ def _key_hint(midi) -> str | None:
     return token or None
 
 
-def fifo_notes_from_midi_bytes(data: bytes, midi) -> list[dict]:
-    """Parse pitched note intervals with FIFO same-pitch pairing.
+@dataclass
+class ParsedMidiNotes:
+    """SMF notes with FIFO pairing, grouped like PrettyMIDI instruments."""
 
-    ``midi`` is a PrettyMIDI object used only for tick-to-seconds. Drum
-    channel 10 (MIDI channel 9) is tagged but still paired.
+    notes: list[dict]
+    unmatched_note_offs: int = 0
+    dangling_note_ons: int = 0
+    pairing: str = NOTE_PAIRING_FIFO
+    # One group per PrettyMIDI instrument, in PrettyMIDI load order.
+    instrument_groups: list[list[dict]] = field(default_factory=list)
+
+
+def parse_smf_notes(data: bytes, midi) -> ParsedMidiNotes:
+    """Parse note intervals with per-stream FIFO pairing.
+
+    ``midi`` is used only for tick-to-seconds. Drum channel 10 (MIDI
+    channel 9) is tagged but still paired. Dangling note-ons are counted
+    and dropped, matching PrettyMIDI. Unmatched note-offs are counted
+    and ignored.
     """
-    from collections import defaultdict, deque
+    from collections import OrderedDict, defaultdict, deque
 
     import mido
 
     mid = mido.MidiFile(file=io.BytesIO(data))
     notes: list[dict] = []
+    unmatched_note_offs = 0
+    dangling_note_ons = 0
+    groups: "OrderedDict[tuple[int, int, int], list[dict]]" = OrderedDict()
     for track_idx, track in enumerate(mid.tracks):
         abs_tick = 0
         programs = [0] * 16
@@ -194,27 +223,46 @@ def fifo_notes_from_midi_bytes(data: bytes, midi) -> list[dict]:
                 continue
             if msg.type != "note_off" and not (msg.type == "note_on" and int(msg.velocity) == 0):
                 continue
-            key = (int(msg.channel), int(msg.note))
+            channel = int(msg.channel)
+            pitch = int(msg.note)
+            key = (channel, pitch)
             if not stacks[key]:
+                unmatched_note_offs += 1
                 continue
-            start_tick, velocity, program = stacks[key].popleft()
+            start_tick, velocity, program_on = stacks[key].popleft()
             start = float(midi.tick_to_time(start_tick))
             end = float(midi.tick_to_time(abs_tick))
             if end <= start:
                 continue
-            notes.append(
-                {
-                    "track": track_idx,
-                    "channel": key[0],
-                    "program": program,
-                    "pitch": key[1],
-                    "start": start,
-                    "end": end,
-                    "velocity": velocity,
-                    "is_drum": key[0] == 9,
-                }
-            )
-    return notes
+            program_off = programs[channel]
+            row = {
+                "track": track_idx,
+                "channel": channel,
+                "program": program_on,
+                "program_off": program_off,
+                "pitch": pitch,
+                "start": start,
+                "end": end,
+                "velocity": velocity,
+                "is_drum": channel == 9,
+            }
+            notes.append(row)
+            group_key = (program_off, channel, track_idx)
+            groups.setdefault(group_key, []).append(row)
+        for _key, stack in stacks.items():
+            dangling_note_ons += len(stack)
+    return ParsedMidiNotes(
+        notes=notes,
+        unmatched_note_offs=unmatched_note_offs,
+        dangling_note_ons=dangling_note_ons,
+        pairing=NOTE_PAIRING_FIFO,
+        instrument_groups=list(groups.values()),
+    )
+
+
+def fifo_notes_from_midi_bytes(data: bytes, midi) -> list[dict]:
+    """Parse pitched note intervals with FIFO same-pitch pairing per stream."""
+    return parse_smf_notes(data, midi).notes
 
 
 def tagged_pedal_events(performance) -> list[tuple[float, int, str]]:
