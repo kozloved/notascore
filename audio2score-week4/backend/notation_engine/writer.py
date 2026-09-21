@@ -390,6 +390,9 @@ class NotationWriter:
         quantize_divisors: tuple[int, ...] = (4, 3),
         structure=None,
         quantization_mode: QuantizationMode | str | None = None,
+        *,
+        quantized_events: list[MusicalEvent] | None = None,
+        report=None,
     ) -> stream.Score:
         """Build a music21 score without writing files (tests / production path)."""
         score, _result = self._score_via_plan_or_legacy(
@@ -399,8 +402,41 @@ class NotationWriter:
             fallback_bpm=float(meta.display_tempo_bpm or 120),
             structure=structure,
             quantization_mode=quantization_mode,
+            quantized_events=quantized_events,
+            report=report,
         )
         return score
+
+    def write_from_quantized_events(
+        self,
+        events: list[MusicalEvent],
+        meta: ScoreMeta,
+        *,
+        report=None,
+        structure=None,
+    ) -> stream.Score:
+        """Plan and convert events that already carry written score timing."""
+        return self.write_from_events_direct(
+            events,
+            meta,
+            structure=structure,
+            quantization_mode=QuantizationMode.PERFORMANCE,
+            quantized_events=events,
+            report=report,
+        )
+
+    def export_musicxml_and_midi(self, score, meta: ScoreMeta) -> tuple[str, bytes]:
+        """Serialize a planned score to MusicXML and playback MIDI."""
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            xml_path = Path(tmp) / "score.musicxml"
+            midi_path = Path(tmp) / "score.mid"
+            self._export_musicxml(score, xml_path)
+            xml = xml_path.read_text(encoding="utf-8")
+            playback = self._score_for_playback(score, meta)
+            playback.write("midi", fp=str(midi_path))
+            return xml, midi_path.read_bytes()
 
     def _score_via_plan_or_legacy(
         self,
@@ -411,6 +447,8 @@ class NotationWriter:
         fallback_bpm: float,
         structure=None,
         quantization_mode: QuantizationMode | str | None = None,
+        quantized_events: list[MusicalEvent] | None = None,
+        report=None,
     ) -> tuple[stream.Score, NotationResult]:
         mode = (
             parse_quantization_mode(quantization_mode)
@@ -444,6 +482,8 @@ class NotationWriter:
                 structure=structure,
                 fallback_bpm=fallback_bpm,
                 quantization_mode=mode,
+                quantized_events=quantized_events,
+                report=report,
             )
             plan, decisions = built.plan, built.decisions
             result.quantization = built.quantization.copy()
@@ -1042,7 +1082,7 @@ class NotationWriter:
                 if annotation.get("mark") == "a_tempo":
                     bpm = meta.display_tempo_bpm
                 beat = float(annotation.get("beat", 0.0))
-                if bpm and 0 <= beat < float(score.highestTime):
+                if bpm and 0 <= beat <= float(score.highestTime) + 1e-9:
                     self._insert_metronome_at_beat(score, beat, int(round(bpm)))
             return
         tempo_map: TempoMap | None = meta.tempo_map
@@ -1087,8 +1127,12 @@ class NotationWriter:
                 dur = float(meas.barDuration.quarterLength)
             except Exception:
                 dur = float(getattr(meas.duration, "quarterLength", 4.0) or 4.0)
-            if start - 1e-6 <= float(beat) < start + dur - 1e-9:
+            if start - 1e-6 <= float(beat) < start + dur - 1e-9 or (
+                meas is measures[-1] and abs(float(beat) - (start + dur)) <= 1e-6
+            ):
                 local = max(0.0, float(beat) - start)
+                if local >= dur:
+                    local = max(0.0, dur - 1e-6)
                 existing = [
                     item
                     for item in meas.getElementsByClass(m21tempo.MetronomeMark)

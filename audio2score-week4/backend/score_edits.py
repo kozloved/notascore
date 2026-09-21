@@ -225,6 +225,73 @@ def parse_edits_payload(body: dict) -> dict:
     }
 
 
+def _apply_xml_attribute_identities(xml_text: str, notes: list[dict]) -> None:
+    """music21 drops MusicXML note @id on parse; recover nsid_ values from the file."""
+    from collections import defaultdict
+    from xml.etree import ElementTree as ET
+
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return
+    by_pitch: dict[int, list[str]] = defaultdict(list)
+    for element in root.iter():
+        tag = element.tag.split("}")[-1]
+        if tag != "note":
+            continue
+        if any(child.tag.split("}")[-1] == "rest" for child in list(element)):
+            continue
+        pitch_el = None
+        step = octave = alter = None
+        for child in list(element):
+            child_tag = child.tag.split("}")[-1]
+            if child_tag == "pitch":
+                pitch_el = child
+                break
+        if pitch_el is None:
+            continue
+        for child in list(pitch_el):
+            child_tag = child.tag.split("}")[-1]
+            if child_tag == "step":
+                step = child.text
+            elif child_tag == "octave":
+                octave = child.text
+            elif child_tag == "alter":
+                alter = child.text
+        midi = _midi_from_step(step, octave, alter)
+        decoded = decode_source_xml_id(element.get("id"))
+        if midi is None or not decoded:
+            continue
+        if not by_pitch[midi] or by_pitch[midi][-1] != decoded:
+            by_pitch[midi].append(decoded)
+    grouped: dict[int, list[dict]] = defaultdict(list)
+    for item in notes:
+        grouped[int(item["pitch"])].append(item)
+    for pitch, rows in grouped.items():
+        rows.sort(key=lambda item: (float(item["start"]), item["id"]))
+        for item, ident in zip(rows, by_pitch.get(pitch, [])):
+            if item.get("source_note_id"):
+                continue
+            item["source_note_id"] = ident
+            if ID_RE.match(ident):
+                item["id"] = ident
+
+
+def _midi_from_step(step, octave, alter) -> int | None:
+    names = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+    if step not in names or octave is None:
+        return None
+    try:
+        midi = (int(octave) + 1) * 12 + names[step]
+        if alter:
+            midi += int(round(float(alter)))
+    except (TypeError, ValueError):
+        return None
+    if midi < PITCH_MIN or midi > PITCH_MAX:
+        return None
+    return midi
+
+
 def encode_source_xml_id(source_note_id: str | None, note_id: str) -> str:
     import base64
 
@@ -492,6 +559,7 @@ def extract_from_musicxml(musicxml_text: str) -> dict:
                     break
         if voice is not None:
             item["voice"] = voice
+    _apply_xml_attribute_identities(musicxml_text, notes)
     provenance = (
         PROVENANCE_PERFORMANCE
         if any(item["source_note_id"] for item in notes)
@@ -635,105 +703,141 @@ def _apply_tempo_curve(part, curve: list[dict]) -> None:
             part.insert(beat, mark)
 
 
-def build_musicxml_and_midi(payload: dict) -> tuple[str, bytes]:
-    from music21 import clef, converter, instrument, meter, note, stream
+def editor_score_profile(data: dict, *, quantization_summary: dict | None = None) -> dict:
+    """Reuse the automatic score profile when present; otherwise infer from tracks."""
+    stored = (quantization_summary or {}).get("score_profile")
+    if isinstance(stored, dict) and "grand_staff" in stored:
+        return dict(stored)
+    tracks = {int(note.get("track") or 0) for note in data.get("notes") or []}
+    grand = bool(tracks) and max(tracks) >= 1
+    return {
+        "grand_staff": grand,
+        "program": 0 if grand else None,
+        "clef": "treble",
+        "evidence": "editor_tracks",
+    }
 
-    data = parse_edits_payload(payload)
-    from mir.types import MusicalEvent
-    from notation_engine.playback import playback_score
 
-    events = [
-        MusicalEvent(
-            n["pitch"],
-            n["start"],
-            n["duration"],
-            velocity=n["velocity"],
-            note_id=n.get("source_note_id") or n["id"],
-            voice=int(n.get("voice") or 0),
-            source_track_id=str(n["track"]),
-            start_time_sec=n.get("start_sec"),
-            end_time_sec=n.get("end_sec"),
-        )
-        for n in data["notes"]
-    ]
-    score = stream.Score()
-    tracks: dict[int, list[dict]] = {}
+def events_from_editor_model(
+    data: dict,
+    *,
+    quantization_summary: dict | None = None,
+    instrument=None,
+) -> list:
+    from mir.types import Hand, InstrumentKind, MusicalEvent
+
+    profile = editor_score_profile(data, quantization_summary=quantization_summary)
+    program = profile.get("program")
+    if instrument is None:
+        instrument = InstrumentKind.PIANO if profile.get("grand_staff") else InstrumentKind.UNKNOWN
+    events = []
     for item in data["notes"]:
-        tracks.setdefault(item["track"], []).append(item)
-    staff_indexes = sorted(tracks) or [0]
-    if max(staff_indexes) >= 1 and 0 not in staff_indexes:
-        staff_indexes = [0, *staff_indexes]
+        track = int(item.get("track") or 0)
+        hand = Hand.LEFT if track == 1 else Hand.RIGHT
+        note_id = str(item.get("source_note_id") or item["id"])
+        events.append(
+            MusicalEvent(
+                int(item["pitch"]),
+                float(item["start"]),
+                float(item["duration"]),
+                velocity=int(item["velocity"]),
+                note_id=note_id,
+                voice=int(item.get("voice") or 0),
+                musical_voice=int(item.get("voice") or 0),
+                hand=hand,
+                voice_assigned=True,
+                source_track_id=str(track),
+                source_program=program if program is not None else None,
+                instrument=instrument,
+                start_time_sec=item.get("start_sec"),
+                end_time_sec=item.get("end_sec"),
+            )
+        )
+    return events
 
-    curve = data["tempo_curve"]
+
+def _editor_score_meta(data: dict, *, quantization_summary: dict | None = None, key_hint: str | None = None):
+    from mir.notation_settings import NotationSettings
+    from mir.types import ScoreMeta
+
+    profile = editor_score_profile(data, quantization_summary=quantization_summary)
+    settings = NotationSettings.from_dict({"meter": data["time_signature"]})
     printed = data.get("printed_tempo_marks") or []
+    curve = data.get("tempo_curve") or []
     if data.get("provenance") == PROVENANCE_PERFORMANCE and printed:
-        xml_curve = [
-            {"beat": float(mark["beat"]), "bpm": validate_tempo(mark.get("bpm") or data["tempo_bpm"])}
+        xml_marks = [
+            {
+                "beat": float(mark["beat"]),
+                "bpm": validate_tempo(mark.get("bpm") or data["tempo_bpm"]),
+                "mark": str(mark.get("mark") or "metronome"),
+                "reason": str(mark.get("reason") or ""),
+            }
             for mark in printed
             if mark.get("bpm") is not None
-        ] or [{"beat": 0.0, "bpm": data["tempo_bpm"]}]
+        ] or [{"beat": 0.0, "bpm": data["tempo_bpm"], "mark": "metronome", "reason": "display_tempo"}]
     elif len(curve) <= 12:
-        xml_curve = curve
+        xml_marks = [
+            {"beat": float(point["beat"]), "bpm": float(point["bpm"]), "mark": "metronome", "reason": "tempo_curve"}
+            for point in curve
+        ]
     else:
-        xml_curve = [{"beat": 0.0, "bpm": data["tempo_bpm"]}]
-    for staff_index in staff_indexes:
-        part = stream.Part(id=f"P{staff_index + 1}")
-        part.partName = "Piano"
-        part.insert(0, instrument.Piano())
-        part.insert(0, meter.TimeSignature(data["time_signature"]))
-        part.insert(0, clef.TrebleClef() if staff_index == 0 else clef.BassClef())
-        staff_notes = tracks.get(staff_index, [])
-        if not staff_notes:
-            part.append(note.Rest(quarterLength=4.0))
-        for item in staff_notes:
-            event = note.Note(item["pitch"])
-            event.quarterLength = expressible_quarter_length(item["duration"])
-            event.volume.velocity = item["velocity"]
-            _attach_source_identity(
-                event, item.get("source_note_id"), item["id"], int(item.get("voice") or 0)
-            )
-            part.insert(0.0 if not item["start"] else _expressible_offset(item["start"]), event)
-        # makeNotation fills measures/rests/beams from the note list.
-        # This is music21 engraving, not the transcription notation planner.
-        # Do not wrap the whole part in Voice: makeNotation drops those streams.
-        if part.recurse().notes:
-            part.makeNotation(inPlace=True)
-        else:
-            if not list(part.recurse().getElementsByClass("Rest")):
-                part.append(note.Rest(quarterLength=4.0))
-            part.makeNotation(inPlace=True)
-        _scrub_inexpressible_durations(part)
-        _apply_tempo_curve(part, xml_curve)
-        score.insert(0, part)
+        xml_marks = [
+            {"beat": 0.0, "bpm": data["tempo_bpm"], "mark": "metronome", "reason": "display_tempo"}
+        ]
+    extra = {
+        "notation_settings": settings.to_dict(),
+        "printed_tempo": xml_marks,
+        "quantization": {
+            **dict(quantization_summary or {}),
+            "score_profile": profile,
+            "notation_settings": settings.to_dict(),
+        },
+    }
+    return ScoreMeta(
+        key_hint=key_hint,
+        time_sig_hint=data["time_signature"],
+        display_tempo_bpm=max(1, int(round(float(data["tempo_bpm"])))),
+        extra=extra,
+    )
 
+
+def build_musicxml_and_midi(
+    payload: dict,
+    *,
+    quantization_summary: dict | None = None,
+    key_hint: str | None = None,
+) -> tuple[str, bytes]:
+    from music21 import converter
+
+    from mir.notation_regen import _planner_edit_error
+    from notation_engine.writer import NotationWriter
+
+    data = parse_edits_payload(payload)
+    events = events_from_editor_model(data, quantization_summary=quantization_summary)
+    meta = _editor_score_meta(data, quantization_summary=quantization_summary, key_hint=key_hint)
+    writer = NotationWriter()
+    try:
+        score = writer.write_from_quantized_events(events, meta)
+        xml_text, planned_midi = writer.export_musicxml_and_midi(score, meta)
+    except ValueError as exc:
+        conflict = _planner_edit_error(exc)
+        if conflict:
+            raise EditError(str(conflict)) from exc
+        raise
+    seconds_midi = _midi_bytes_from_seconds(data)
+    midi_bytes = seconds_midi if seconds_midi is not None else planned_midi
+    converter.parse(xml_text, format="musicxml")
     with tempfile.TemporaryDirectory() as tmp:
         xml_path = Path(tmp) / "edited.musicxml"
         midi_path = Path(tmp) / "edited.mid"
-        try:
-            score.write("musicxml", fp=str(xml_path))
-        except Exception as exc:
-            from music21.musicxml.xmlObjects import MusicXMLExportException
-
-            if not isinstance(exc, MusicXMLExportException):
-                raise
-            for element in score.recurse().notesAndRests:
-                quarter = float(element.quarterLength or 0)
-                element.quarterLength = max(0.25, round(quarter / 0.25) * 0.25) if quarter else 0.25
-            score.write("musicxml", fp=str(xml_path))
-        tempo_points = [(float(point["beat"]), float(point["bpm"])) for point in data["tempo_curve"]]
-        seconds_midi = _midi_bytes_from_seconds(data)
-        if seconds_midi is not None:
-            midi_path.write_bytes(seconds_midi)
-            _validate_editor_exports(xml_path, midi_path, events, seconds_notes=data["notes"])
-        else:
-            playback = playback_score(events, data["time_signature"], tempo_points)
-            playback.write("midi", fp=str(midi_path))
-            _validate_editor_exports(xml_path, midi_path, events)
-        xml_text = xml_path.read_text(encoding="utf-8")
-        midi_bytes = midi_path.read_bytes()
-
-    # Confirm the written MusicXML still parses.
-    converter.parse(xml_text, format="musicxml")
+        xml_path.write_text(xml_text, encoding="utf-8")
+        midi_path.write_bytes(midi_bytes)
+        _validate_editor_exports(
+            xml_path,
+            midi_path,
+            events,
+            seconds_notes=data["notes"] if seconds_midi is not None else None,
+        )
     return xml_text, midi_bytes
 
 

@@ -1029,8 +1029,10 @@ def _apply_score_ops(events, ops: list[dict], snapshot: PerformanceSnapshot):
         changes: dict[str, Any] = {}
         if op.get("start") is not None and not _beats_close(op["start"], ev.start_beat):
             changes["start_beat"] = float(op["start"])
+            changes["score_timing_locked"] = True
         if op.get("duration") is not None and not _beats_close(op["duration"], ev.duration_beats):
             changes["duration_beats"] = float(op["duration"])
+            changes["score_timing_locked"] = True
         if op.get("velocity") is not None and int(op["velocity"]) != int(ev.velocity or 64):
             changes["velocity"] = int(op["velocity"])
         out.append(copy_event(ev, **changes) if changes else ev)
@@ -1051,9 +1053,51 @@ def _apply_score_ops(events, ops: list[dict], snapshot: PerformanceSnapshot):
                 voice_assigned=True,
                 voice_provenance="user_edit",
                 hand_locked=True,
+                score_timing_locked=True,
             )
         )
     return out
+
+
+def _planner_edit_error(exc: Exception) -> NotationEditConflict | None:
+    text = str(exc)
+    lowered = text.lower()
+    if any(
+        token in lowered
+        for token in (
+            "unspellable",
+            "overlapping attack",
+            "edited duration",
+            "edited onset",
+            "not a positive writable",
+        )
+    ):
+        return NotationEditConflict(
+            [],
+            "Edited timing cannot be engraved without changing the written values. "
+            f"{text}",
+        )
+    return None
+
+
+def _apply_score_meta_overrides(meta, settings, score_overrides: dict | None):
+    if not score_overrides:
+        return meta
+    extra = dict(meta.extra or {})
+    if score_overrides.get("tempo_bpm") is not None:
+        meta.display_tempo_bpm = max(1, int(round(float(score_overrides["tempo_bpm"]))))
+        extra["display_bpm_exact"] = float(score_overrides["tempo_bpm"])
+    if score_overrides.get("time_signature"):
+        meter = str(score_overrides["time_signature"])
+        meta.time_sig_hint = meter
+        extra["notation_settings"] = settings.replace(meter=meter).to_dict()
+    if score_overrides.get("tempo_curve") is not None:
+        extra["playback_tempo"] = [
+            {"beat": float(point["beat"]), "bpm": float(point["bpm"])}
+            for point in score_overrides["tempo_curve"]
+        ]
+    meta.extra = extra
+    return meta
 
 
 def _has_score_stage_ops(ops: list[dict]) -> bool:
@@ -1393,16 +1437,6 @@ def recompute_notation(
     score = writer.write_from_events_direct(
         events, meta, quantization_mode=QuantizationMode.PERFORMANCE
     )
-    import tempfile as _tf
-
-    with _tf.TemporaryDirectory() as tmp:
-        path = Path(tmp) / "score.musicxml"
-        midi_path = Path(tmp) / "score.mid"
-        writer._export_musicxml(score, path)
-        xml = path.read_text(encoding="utf-8")
-        playback_score = writer._score_for_playback(score, meta)
-        playback_score.write("midi", fp=str(midi_path))
-        score_midi = midi_path.read_bytes()
     if [n.note_id for n in notes] != source_ids:
         raise ValueError("Notation regen mutated source note IDs")
     performance.verify_midi(midi_bytes)
@@ -1412,6 +1446,11 @@ def recompute_notation(
         public_policy_exception(row) for row in (summary.get("policy_exceptions") or [])
     ]
     quantized = list(writer.last_quantized_events or events)
+    previous_report = (
+        writer.last_result.quantization.report
+        if writer.last_result is not None and writer.last_result.quantization is not None
+        else None
+    )
     model_kwargs = dict(
         tempo_bpm=float(display or 120),
         time_signature=str(meter_hint or "4/4"),
@@ -1462,10 +1501,23 @@ def recompute_notation(
     published_events = apply_note_edits(quantized, applied_ops, performance, stage="score")
     editor_model = editor_model_from_events(published_events, **model_kwargs)
     editor_model = _apply_score_model_overrides(editor_model, applied_score)
+    meta = _apply_score_meta_overrides(meta, settings, applied_score)
     if _has_score_stage_ops(applied_ops) or applied_score:
-        from score_edits import build_musicxml_and_midi
-
-        xml, score_midi = build_musicxml_and_midi(editor_model)
+        try:
+            score = writer.write_from_quantized_events(
+                published_events,
+                meta,
+                report=previous_report,
+            )
+        except ValueError as exc:
+            conflict = _planner_edit_error(exc)
+            if conflict:
+                raise conflict from exc
+            raise
+        writer.last_quantization_decisions = decisions
+        writer.last_quantization_summary = summary
+        writer.last_quantized_events = published_events
+    xml, score_midi = writer.export_musicxml_and_midi(score, meta)
     edits_digest = _edits_digest(applied_ops, applied_score)
     input_identity = context.identity_digest() if context is not None else None
     cache = settings.cache_key(

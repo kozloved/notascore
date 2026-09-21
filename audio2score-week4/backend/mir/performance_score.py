@@ -131,6 +131,172 @@ class PerformanceReport:
     decisions: list[dict]
 
 
+SCORE_FRACTION_LIMIT = 192
+SCORE_FRACTION_TOLERANCE = 1e-9
+
+
+def as_score_fraction(value, *, positive: bool = False, previous: Fraction | None = None, locked: bool = False) -> Fraction:
+    """Convert a score-beat value without inventing a simpler spelling.
+
+    Locked (user-edited) values stay exact so the planner can reject an
+    unspellable duration instead of silently rounding. Unlocked values, such
+    as performance-mapped editor floats, use the 64th writable grid already
+    used by the quantizer.
+    """
+    if previous is not None and abs(float(previous) - float(value)) <= SCORE_FRACTION_TOLERANCE:
+        return Fraction(previous)
+    if locked:
+        frac = Fraction(value).limit_denominator(SCORE_FRACTION_LIMIT)
+        if positive and frac <= 0:
+            raise ValueError(f"Edited duration {value} is not a positive writable length")
+        if frac < 0:
+            raise ValueError(f"Edited onset {value} is negative")
+        return frac
+    from mir.quantizer import SMALLEST_WRITABLE, snap_writable_length
+
+    if positive:
+        snapped = snap_writable_length(value, allow_empty=False)
+        return Fraction(str(snapped)).limit_denominator(64)
+    if abs(float(value)) < SMALLEST_WRITABLE / 2:
+        return Fraction(0)
+    snapped = snap_writable_length(max(0.0, float(value)), allow_empty=True)
+    return Fraction(str(snapped)).limit_denominator(64)
+
+
+def report_from_events(events, *, previous=None, summary=None) -> PerformanceReport:
+    """Build a PerformanceReport from already-quantized or explicitly edited events.
+
+    Reuses previous rational onsets/durations/lanes when the event still
+    matches, so a velocity-only edit cannot change engraving structure.
+    Locked timing always comes from the event.
+    """
+    summary = dict(summary or (getattr(previous, "summary", None) or {}) or {})
+    profile = summary.get("score_profile")
+    if not profile:
+        profile = score_profile(events).to_dict() if events else {
+            "grand_staff": True,
+            "program": 0,
+            "clef": "treble",
+            "evidence": "empty_score",
+        }
+        summary["score_profile"] = profile
+    grand = bool(profile.get("grand_staff", True))
+    prev_notes = {n.source_id: n for n in (getattr(previous, "notes", None) or ())}
+    notes = []
+    for index, ev in enumerate(events):
+        sid = ev.note_id or f"event:{index}"
+        staff = staff_for_hand(ev.hand, ev.pitch) if grand else 0
+        voice = int(ev.voice or 0)
+        locked = bool(getattr(ev, "score_timing_locked", False))
+        old = prev_notes.get(sid)
+        if (
+            old is not None
+            and not locked
+            and abs(float(old.onset) - float(ev.start_beat)) <= SCORE_FRACTION_TOLERANCE
+            and abs(float(old.duration) - float(ev.duration_beats)) <= SCORE_FRACTION_TOLERANCE
+            and int(old.voice) == voice
+            and int(old.staff) == staff
+        ):
+            notes.append(
+                ScoreNote(
+                    sid,
+                    old.onset,
+                    old.duration,
+                    old.voice,
+                    old.staff,
+                    old.role,
+                    old.rhythm_family,
+                    old.group_id,
+                    musical_voice=ev.musical_voice if ev.musical_voice is not None else old.musical_voice,
+                    voice_provenance=ev.voice_provenance or old.voice_provenance,
+                )
+            )
+            continue
+        onset = as_score_fraction(
+            ev.start_beat,
+            previous=None if locked or old is None else old.onset,
+            locked=locked,
+        )
+        duration = as_score_fraction(
+            ev.duration_beats,
+            positive=True,
+            previous=None if locked or old is None else old.duration,
+            locked=locked,
+        )
+        notes.append(
+            ScoreNote(
+                sid,
+                onset,
+                duration,
+                voice,
+                staff,
+                ev.role or (old.role if old is not None else ""),
+                old.rhythm_family if old is not None and not locked else "binary",
+                old.group_id if old is not None and not locked else f"{staff}:{voice}:{index}",
+                musical_voice=ev.musical_voice if ev.musical_voice is not None else (
+                    old.musical_voice if old is not None else None
+                ),
+                voice_provenance=ev.voice_provenance or (
+                    old.voice_provenance if old is not None else ""
+                ),
+            )
+        )
+    return PerformanceReport(
+        summary,
+        _serial_score_notes(tuple(notes)),
+        list(getattr(previous, "decisions", None) or []),
+    )
+
+
+def _serial_score_notes(notes: tuple[ScoreNote, ...]) -> tuple[ScoreNote, ...]:
+    """Give overlapping non-chord attacks distinct printed lanes.
+
+    Same onset and duration stay a chord. Explicit user voices that already
+    differ are left alone. Same-voice collisions with different spans get a
+    new printed lane so exact-plan export does not raise or merge attacks.
+    """
+    from collections import defaultdict
+
+    by_staff: dict[int, list[ScoreNote]] = defaultdict(list)
+    for note in notes:
+        by_staff[int(note.staff)].append(note)
+    out: list[ScoreNote] = []
+    for staff, rows in by_staff.items():
+        occupied: dict[int, list[tuple[Fraction, Fraction, str]]] = defaultdict(list)
+        next_voice = max((int(row.voice) for row in rows), default=-1) + 1
+        for note in sorted(rows, key=lambda row: (row.onset, row.duration, row.source_id)):
+            voice = int(note.voice)
+            end = note.onset + note.duration
+            conflict = False
+            for other_on, other_end, other_id in occupied[voice]:
+                if other_id == note.source_id:
+                    continue
+                same_span = other_on == note.onset and other_end == end
+                overlaps = note.onset < other_end and other_on < end
+                if overlaps and not same_span:
+                    conflict = True
+                    break
+            if conflict:
+                voice = next_voice
+                next_voice += 1
+            occupied[voice].append((note.onset, end, note.source_id))
+            if voice != note.voice:
+                note = ScoreNote(
+                    note.source_id,
+                    note.onset,
+                    note.duration,
+                    voice,
+                    note.staff,
+                    note.role,
+                    note.rhythm_family,
+                    note.group_id,
+                    musical_voice=note.musical_voice,
+                    voice_provenance=note.voice_provenance,
+                )
+            out.append(note)
+    return tuple(out)
+
+
 def _onset_vocab(settings: NotationSettings, *, allow_finer=False):
     settings = _settings(settings)
     exact = list(_ONSET_EXACT)
@@ -1055,7 +1221,10 @@ def quantize_notation(
                 family = "triplet"
             raw_next = min(e.start_beat for e in groups[i + 1]) if nxt is not None else None
             for ev in group:
-                onset_by_id[ev.note_id] = onset
+                if getattr(ev, "score_timing_locked", False):
+                    onset_by_id[ev.note_id] = as_score_fraction(ev.start_beat, locked=True)
+                else:
+                    onset_by_id[ev.note_id] = onset
             onset_jobs.append((key, group, onset, family, nxt, raw_next, i))
 
     out, exact = [], {}
@@ -1063,6 +1232,26 @@ def quantize_notation(
         bar_number = int(onset / measure_length) + 1 if measure_length > 0 else 1
         local_settings = settings.resolved_for_measure(bar_number)
         for ev in group:
+            role, phrase = roles[ev.note_id]
+            if getattr(ev, "score_timing_locked", False):
+                locked_onset = onset_by_id[ev.note_id]
+                locked_duration = as_score_fraction(ev.duration_beats, positive=True, locked=True)
+                exact[ev.note_id] = (
+                    locked_onset,
+                    locked_duration,
+                    family,
+                    f"{key[0]}:{key[1]}:{group_index}:locked",
+                )
+                out.append(
+                    copy_event(
+                        ev,
+                        start_beat=float(locked_onset),
+                        duration_beats=float(locked_duration),
+                        role=role,
+                        phrase_id=phrase,
+                    )
+                )
+                continue
             overlaps = raw_next is not None and ev.start_beat + ev.duration_beats > raw_next + 0.04
             target_id, release_reason, pedal_source = release_by_id.get(
                 ev.note_id, (None, None, None)
@@ -1082,7 +1271,6 @@ def quantize_notation(
                 settings=local_settings,
             )
             exact[ev.note_id] = (onset, duration, family, f"{key[0]}:{key[1]}:{group_index}")
-            role, phrase = roles[ev.note_id]
             out.append(copy_event(ev, start_beat=float(onset), duration_beats=float(duration),
                                   role=role, phrase_id=phrase))
     out = _stable_lanes(out, exact, profile.grand_staff)

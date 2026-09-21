@@ -164,6 +164,9 @@ class NotationPlanner:
         structure: MusicalStructure | None = None,
         fallback_bpm: float = 120.0,
         quantization_mode: QuantizationMode | str | None = None,
+        *,
+        quantized_events: list[MusicalEvent] | None = None,
+        report=None,
     ) -> PlanBuildResult:
         parsed = (
             parse_quantization_mode(quantization_mode)
@@ -172,7 +175,8 @@ class NotationPlanner:
         )
         self.quantizer.mode = parsed
         settings = notation_settings_from_meta(meta)
-        meter = self._resolve_meter(events, meta, structure)
+        plan_input = list(quantized_events) if quantized_events is not None else list(events)
+        meter = self._resolve_meter(plan_input, meta, structure)
         if settings.meter:
             from mir.meter import meter_from_time_signature
 
@@ -187,7 +191,26 @@ class NotationPlanner:
         tempo_map = meta.tempo_map if meta else None
         if meta and isinstance(meta.extra, dict):
             pedal_events = meta.extra.get("pedal_events")
-        if parsed == QuantizationMode.PERFORMANCE:
+        if quantized_events is not None:
+            from mir.performance_score import report_from_events
+
+            summary = dict((meta.extra or {}).get("quantization") or {}) if meta else {}
+            built_report = report_from_events(
+                quantized_events,
+                previous=report if report is not None and getattr(report, "notes", None) is not None else None,
+                summary=dict(getattr(report, "summary", None) or summary),
+            )
+            quant_result = QuantizationResult(
+                events=list(quantized_events),
+                decisions=list(getattr(built_report, "decisions", None) or []),
+                summary=dict(built_report.summary),
+                report=built_report,
+                raw_events=list(events or quantized_events),
+                mode=parsed.value,
+                engine="performance",
+                experimental=False,
+            )
+        elif parsed == QuantizationMode.PERFORMANCE:
             quant_result = self.quantizer.quantize_production(
                 events,
                 meter,

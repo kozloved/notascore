@@ -1454,7 +1454,27 @@ def score_edits_put(
         )
 
         model = parse_edits_payload(body.model_dump())
-        xml_text, midi_bytes = build_musicxml_and_midi(model)
+        quant_summary = None
+        key_hint = None
+        decisions_raw = _read_edited_sidecar(job, f"{score_id}.notation_decisions.json", text=True)
+        if not decisions_raw:
+            decisions_raw = _read_result_sidecar(job, f"{score_id}.notation_decisions.json", text=True)
+        if decisions_raw:
+            try:
+                quant_summary = json.loads(decisions_raw).get("quantization_summary")
+            except Exception:
+                quant_summary = None
+        context_raw = _read_edited_sidecar(job, f"{score_id}.interpretation_context.json", text=True)
+        if not context_raw:
+            context_raw = _read_result_sidecar(job, f"{score_id}.interpretation_context.json", text=True)
+        if context_raw:
+            try:
+                key_hint = json.loads(context_raw).get("key_name")
+            except Exception:
+                key_hint = None
+        xml_text, midi_bytes = build_musicxml_and_midi(
+            model, quantization_summary=quant_summary, key_hint=key_hint
+        )
         json_text = dumps_edits(model)
         snapshot = _performance_snapshot(job)
         displayed = _load_edit_model(job)

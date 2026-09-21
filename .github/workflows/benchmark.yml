@@ -48,6 +48,10 @@ jobs:
             tests/test_voice_preservation.py \
             tests/test_notation_plan_production.py \
             tests/test_midi_ingest.py \
-            tests/test_meter_quantizer.py
+            tests/test_meter_quantizer.py \
+            tests/test_correction_semantics.py \
+            tests/test_notation_http_stability.py \
+            tests/test_readable_v2_cases.py \
+            tests/test_shared_engraving.py
       - name: MIDI benchmark subset
         run: python -m benchmark.runner --mode midi --subset ci
