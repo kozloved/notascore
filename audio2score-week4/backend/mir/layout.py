@@ -25,6 +25,7 @@ class LayoutResult:
     authority: LayoutAuthority
     voice_complete: bool
     hand_complete: bool
+    diagnostics: tuple[dict, ...] = ()
 
     @property
     def layout_source(self) -> str:

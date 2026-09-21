@@ -52,6 +52,7 @@ jobs:
             tests/test_correction_semantics.py \
             tests/test_notation_http_stability.py \
             tests/test_readable_v2_cases.py \
-            tests/test_shared_engraving.py
+            tests/test_shared_engraving.py \
+            tests/test_voice_separator.py
       - name: MIDI benchmark subset
         run: python -m benchmark.runner --mode midi --subset ci

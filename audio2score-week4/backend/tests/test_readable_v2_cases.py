@@ -62,7 +62,8 @@ def test_short_notes_keep_meaningful_rests_on_both_versions(tmp_path):
     assert all(e.duration_beats <= 0.25 + 1e-9 for e in v1)
     assert all(e.duration_beats <= 0.25 + 1e-9 for e in v2)
     assert [round(e.duration_beats, 4) for e in v1] == [round(e.duration_beats, 4) for e in v2]
-    assert all(e.articulation == "staccato" for e in v2[:-1])
+    assert all(not e.articulation for e in v1)
+    assert all(not e.articulation for e in v2)
 
 
 def test_independent_sustain_is_not_clipped_by_v2(tmp_path):

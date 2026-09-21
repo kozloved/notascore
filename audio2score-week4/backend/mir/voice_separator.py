@@ -2,15 +2,18 @@
 
 Simultaneous compact pitches become a chord in one voice.
 Independent overlapping streams become separate voices on the same staff.
-Hand, musical voice, printed lane, and musical role stay distinct: this
-module only assigns a printed lane (`voice`) unless a user label is locked.
+
+These stay distinct:
+- Musical line identity (``musical_voice``)
+- Hand / staff assignment (``hand``)
+- Printed collision-free lane (``voice`` after lane allocation)
+- Musical role (``role``, never an inference input unless opted in)
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from itertools import permutations
 from statistics import mean
 
 from mir.types import Hand, MusicalEvent, copy_event
@@ -28,6 +31,9 @@ class VoiceSeparatorConfig:
     prefer_simple_chords: bool = False
     lookahead_clusters: int = 2
     mixed_release_beats: float = 0.85
+    # Role labels are a separate musical concept. Keep them out of assignment
+    # unless a caller is explicitly evaluating supplied-hint behavior.
+    use_role_hints: bool = False
 
 
 class VoiceSeparator:
@@ -70,139 +76,149 @@ class VoiceSeparator:
                     }
                 )
 
-        voices: list[dict] = []
-        assigned: list[MusicalEvent] = []
+        reserved: dict[int, list[dict]] = {}
         for item in prepared:
-            locked = [
-                ev
-                for ev in item["events"]
-                if ev.voice_assigned and ev.voice_provenance == "user_edit"
-            ]
+            locked = _locked_events(item)
             if not locked:
                 continue
-            voice_id = int(locked[0].voice)
-            voices.append(
-                {
+            reserved.setdefault(int(locked[0].voice), []).append(item)
+
+        voices: dict[int, dict] = {}
+        assigned: list[MusicalEvent] = []
+        for index, item in enumerate(prepared):
+            locked = _locked_events(item)
+            onset, end, pitch, dur = item["onset"], item["end"], item["pitch"], item["dur"]
+            look = prepared[index + 1 : index + 1 + max(0, int(cfg.lookahead_clusters))]
+            if locked:
+                voice_id = int(locked[0].voice)
+                voices[voice_id] = {
                     "id": voice_id,
-                    "pitch": item["pitch"],
-                    "end": item["end"],
-                    "dur": item["dur"],
+                    "pitch": pitch,
+                    "end": end,
+                    "dur": dur,
                     "role": item["role"],
                     "locked": True,
                 }
-            )
-
-        for index, item in enumerate(prepared):
-            locked = [
-                ev
-                for ev in item["events"]
-                if ev.voice_assigned and ev.voice_provenance == "user_edit"
-            ]
-            if locked:
-                voice_id = int(locked[0].voice)
-                for vs in voices:
-                    if vs["id"] == voice_id:
-                        vs.update(
-                            pitch=item["pitch"],
-                            end=item["end"],
-                            dur=item["dur"],
-                            role=item["role"],
-                        )
-                        break
                 leap_conf = 1.0
+                provenance = "user_edit"
             else:
-                onset, end, pitch, dur = item["onset"], item["end"], item["pitch"], item["dur"]
-                look = prepared[index + 1 : index + 1 + max(0, int(cfg.lookahead_clusters))]
-                best_i = None
-                best_cost = float("inf")
-                for i, vs in enumerate(voices):
-                    overlap = vs["end"] - onset
-                    if overlap > cfg.overlap_grace_beats:
-                        continue
-                    leap = abs(vs["pitch"] - pitch)
-                    gap = max(0.0, onset - vs["end"])
-                    cost = leap * 0.9
-                    cost += 1.4 * max(0.0, gap - 0.75)
-                    cost += 0.35 * abs(vs["dur"] - dur)
-                    if leap > cfg.max_leap:
-                        cost += 40.0
-                    if vs.get("role") and item["role"] and vs["role"] != item["role"]:
-                        cost += 4.0
-                    if vs.get("locked"):
-                        cost += 8.0
-                    cost += self._lookahead_cost(vs, item, look, cfg)
-                    if cost < best_cost:
-                        best_cost = cost
-                        best_i = i
-                create_new = (
-                    best_i is None
-                    or best_cost > cfg.new_voice_cost
-                    or len(voices) == 0
+                voice_id, leap_conf = self._choose_voice(
+                    item, voices, reserved, look, cfg, hand
                 )
-                if create_new and best_i is not None and best_cost <= cfg.new_voice_cost:
-                    create_new = False
-                if create_new:
-                    over_policy = len(voices) >= cfg.max_voices_per_hand
-                    if over_policy and best_i is not None and best_cost <= cfg.new_voice_cost + 12:
-                        voice_id = voices[best_i]["id"]
-                        voices[best_i] = {
-                            "id": voice_id,
-                            "pitch": pitch,
-                            "end": end,
-                            "dur": dur,
-                            "role": item["role"],
-                        }
-                    else:
-                        if over_policy:
-                            self.last_diagnostics.append(
-                                {
-                                    "kind": "voice_limit_exceeded",
-                                    "hand": hand.value if hasattr(hand, "value") else str(hand),
-                                    "policy_limit": cfg.max_voices_per_hand,
-                                    "required_lanes": len({vs["id"] for vs in voices}) + 1,
-                                    "onset": onset,
-                                    "action": "extra_printed_lane",
-                                }
-                            )
-                        used_ids = {vs["id"] for vs in voices}
-                        voice_id = 0
-                        while voice_id in used_ids:
-                            voice_id += 1
-                        voices.append(
-                            {
-                                "id": voice_id,
-                                "pitch": pitch,
-                                "end": end,
-                                "dur": dur,
-                                "role": item["role"],
-                            }
-                        )
-                else:
-                    voice_id = voices[best_i]["id"]
-                    voices[best_i] = {
-                        "id": voice_id,
-                        "pitch": pitch,
-                        "end": end,
-                        "dur": dur,
-                        "role": item["role"],
-                    }
-                leap_conf = 1.0
-                if best_i is not None:
-                    leap_conf = max(0.35, 1.0 - best_cost / 40.0)
-
+                provenance = "inferred"
             for ev in item["events"]:
                 if ev.voice_assigned and ev.voice_provenance == "user_edit":
-                    assigned.append(ev)
+                    assigned.append(
+                        copy_event(
+                            ev,
+                            musical_voice=int(ev.voice),
+                            voice_provenance="user_edit",
+                        )
+                    )
                     continue
                 assigned.append(
                     copy_event(
                         ev,
                         voice=voice_id,
+                        musical_voice=voice_id,
                         voice_confidence=round(leap_conf, 3),
                         voice_assigned=True,
+                        voice_provenance=provenance,
                     )
                 )
         return assigned
+
+    def _choose_voice(self, item, voices, reserved, look, cfg, hand) -> tuple[int, float]:
+        onset, end, pitch, dur = item["onset"], item["end"], item["pitch"], item["dur"]
+        candidates: list[tuple[float, int]] = []
+
+        def _free(vs) -> bool:
+            return vs["end"] - onset <= cfg.overlap_grace_beats
+
+        def _overlaps_future_lock(voice_id) -> bool:
+            for lock in reserved.get(voice_id, ()):
+                if lock is item:
+                    continue
+                if lock["onset"] >= end - cfg.overlap_grace_beats:
+                    continue
+                if lock["end"] <= onset + cfg.overlap_grace_beats:
+                    continue
+                return True
+            return False
+
+        for vs in voices.values():
+            if not _free(vs):
+                continue
+            if _overlaps_future_lock(vs["id"]):
+                continue
+            leap = abs(vs["pitch"] - pitch)
+            gap = max(0.0, onset - vs["end"])
+            cost = leap * 0.9
+            cost += 1.4 * max(0.0, gap - 0.75)
+            cost += 0.35 * abs(vs["dur"] - dur)
+            if leap > cfg.max_leap:
+                cost += 40.0
+            if cfg.use_role_hints and vs.get("role") and item["role"] and vs["role"] != item["role"]:
+                cost += 4.0
+            if vs.get("locked"):
+                cost += 2.0
+            cost += self._lookahead_cost(vs, item, look, cfg)
+            candidates.append((cost, vs["id"]))
+
+        for voice_id, locks in reserved.items():
+            if voice_id in voices and not _free(voices[voice_id]):
+                continue
+            if _overlaps_future_lock(voice_id):
+                continue
+            future = [lock for lock in locks if lock["onset"] > onset + 1e-9]
+            if not future:
+                continue
+            nearest = future[0]
+            leap = abs(nearest["pitch"] - pitch)
+            gap = max(0.0, nearest["onset"] - end)
+            cost = leap * 0.9 + 1.4 * max(0.0, gap - 0.75)
+            if leap == 0:
+                cost -= 10.0
+            candidates.append((cost, voice_id))
+
+        best = min(candidates, key=lambda row: row[0]) if candidates else None
+        create_new = best is None or best[0] > cfg.new_voice_cost
+        if create_new and best is not None and best[0] <= cfg.new_voice_cost:
+            create_new = False
+        if not create_new and best is not None:
+            voice_id = best[1]
+        else:
+            over_policy = len(voices) >= cfg.max_voices_per_hand
+            if over_policy and best is not None and best[0] <= cfg.new_voice_cost + 12:
+                voice_id = best[1]
+            else:
+                if over_policy:
+                    self.last_diagnostics.append(
+                        {
+                            "kind": "voice_limit_exceeded",
+                            "hand": hand.value if hasattr(hand, "value") else str(hand),
+                            "policy_limit": cfg.max_voices_per_hand,
+                            "required_lanes": len(voices) + 1,
+                            "onset": onset,
+                            "action": "extra_printed_lane",
+                        }
+                    )
+                used_ids = set(voices) | set(reserved)
+                voice_id = 0
+                while voice_id in used_ids:
+                    voice_id += 1
+        voices[voice_id] = {
+            "id": voice_id,
+            "pitch": pitch,
+            "end": end,
+            "dur": dur,
+            "role": item["role"],
+            "locked": bool(voice_id in reserved),
+        }
+        leap_conf = 1.0
+        if best is not None:
+            leap_conf = max(0.35, 1.0 - best[0] / 40.0)
+        return voice_id, leap_conf
 
     def _lookahead_cost(self, vs, item, look, cfg) -> float:
         """Penalize stealing a lane that later groups need for a closer pitch."""
@@ -236,17 +252,19 @@ class VoiceSeparator:
             return [cluster]
         ordered = sorted(cluster, key=lambda e: e.pitch)
         span = ordered[-1].pitch - ordered[0].pitch
+        role_split = (
+            self.config.use_role_hints
+            and ordered[0].role
+            and ordered[1].role
+            and ordered[0].role != ordered[1].role
+        )
         if (
             len(ordered) == 2
             and ordered[1].pitch - ordered[0].pitch >= 6
             and (
                 not self.config.prefer_simple_chords
                 or abs(ordered[1].duration_beats - ordered[0].duration_beats) > 0.20
-                or (
-                    ordered[0].role
-                    and ordered[1].role
-                    and ordered[0].role != ordered[1].role
-                )
+                or role_split
             )
         ):
             return [[ordered[0]], [ordered[1]]]
@@ -281,24 +299,94 @@ class VoiceSeparator:
         return groups
 
 
-def permutation_invariant_accuracy(predicted: list[int], truth: list[int]) -> float:
-    """Best accuracy after remapping predicted lane IDs onto truth IDs.
+def _locked_events(item) -> list[MusicalEvent]:
+    return [
+        ev
+        for ev in item["events"]
+        if ev.voice_assigned and ev.voice_provenance == "user_edit"
+    ]
 
-    This is a match rate, not a calibrated probability.
+
+def _hungarian(cost: list[list[float]]) -> list[int]:
+    """Minimum-cost assignment. ``cost`` is square. Returns col index per row."""
+    n = len(cost)
+    if n == 0:
+        return []
+    inf = 1e15
+    u = [0.0] * (n + 1)
+    v = [0.0] * (n + 1)
+    p = [0] * (n + 1)
+    way = [0] * (n + 1)
+    for i in range(1, n + 1):
+        p[0] = i
+        j0 = 0
+        minv = [inf] * (n + 1)
+        used = [False] * (n + 1)
+        while True:
+            used[j0] = True
+            i0 = p[j0]
+            delta = inf
+            j1 = 0
+            for j in range(1, n + 1):
+                if used[j]:
+                    continue
+                cur = cost[i0 - 1][j - 1] - u[i0] - v[j]
+                if cur < minv[j]:
+                    minv[j] = cur
+                    way[j] = j0
+                if minv[j] < delta:
+                    delta = minv[j]
+                    j1 = j
+            for j in range(n + 1):
+                if used[j]:
+                    u[p[j]] += delta
+                    v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+            if p[j0] == 0:
+                break
+        while True:
+            j1 = way[j0]
+            p[j0] = p[j1]
+            j0 = j1
+            if j0 == 0:
+                break
+    assignment = [0] * n
+    for j in range(1, n + 1):
+        if p[j] != 0:
+            assignment[p[j] - 1] = j - 1
+    return assignment
+
+
+def permutation_invariant_accuracy(predicted: list[int], truth: list[int]) -> float:
+    """Best accuracy after an optimal remapping of predicted labels onto truth.
+
+    Extra predicted labels may remain unmatched. This is a match rate, not a
+    calibrated probability. Empty vs empty is 1.0; unequal lengths are 0.0.
     """
-    if not predicted or len(predicted) != len(truth):
+    if predicted is None or truth is None:
         return 0.0
-    truth_ids = sorted(set(truth))
-    pred_ids = sorted(set(predicted))
-    if not truth_ids:
+    if len(predicted) != len(truth):
         return 0.0
-    best = 0.0
-    take = min(len(pred_ids), len(truth_ids))
-    for mapped in permutations(truth_ids, take):
-        mapping = dict(zip(pred_ids, mapped))
-        hits = sum(1 for pred, expected in zip(predicted, truth) if mapping.get(pred) == expected)
-        best = max(best, hits / len(truth))
-    return best
+    if not predicted:
+        return 1.0
+    pred_ids = list(dict.fromkeys(predicted))
+    truth_ids = list(dict.fromkeys(truth))
+    dim = max(len(pred_ids), len(truth_ids))
+    counts = [[0] * dim for _ in range(dim)]
+    pred_index = {label: i for i, label in enumerate(pred_ids)}
+    truth_index = {label: i for i, label in enumerate(truth_ids)}
+    for pred, expected in zip(predicted, truth):
+        counts[pred_index[pred]][truth_index[expected]] += 1
+    n = float(len(truth))
+    cost = [[n - counts[i][j] for j in range(dim)] for i in range(dim)]
+    assignment = _hungarian(cost)
+    hits = 0
+    for i, j in enumerate(assignment):
+        if i < len(pred_ids) and j < len(truth_ids):
+            hits += counts[i][j]
+    return hits / n
 
 
 def fragmentation_count(

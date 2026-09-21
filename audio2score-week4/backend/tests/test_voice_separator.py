@@ -3,6 +3,8 @@
 from mir.types import Hand, MusicalEvent
 from mir.voice_separator import VoiceSeparator
 
+import pytest
+
 
 def _ev(pitch, start, dur, hand=Hand.RIGHT, role=None):
     return MusicalEvent(
@@ -141,6 +143,7 @@ def test_broken_chord_under_melody_keeps_two_lines():
 
 
 def test_crossing_lines_use_lookahead_continuity():
+    from mir.types import copy_event
     from mir.voice_separator import extra_printed_lanes, fragmentation_count, permutation_invariant_accuracy
 
     events = []
@@ -148,26 +151,93 @@ def test_crossing_lines_use_lookahead_continuity():
     # Lower line: 60, 64, 67, 72 (ascending) — they cross.
     upper = [79, 76, 72, 67]
     lower = [60, 64, 67, 72]
+    truth_map = {}
     for i, (u, lo) in enumerate(zip(upper, lower)):
-        events.append(
-            MusicalEvent(
-                u, float(i), 1.0, hand=Hand.RIGHT, role="melody",
-                note_id=f"u{i}", velocity=80, musical_voice=0,
-            )
-        )
-        events.append(
-            MusicalEvent(
-                lo, float(i), 1.0, hand=Hand.RIGHT, role="inner",
-                note_id=f"l{i}", velocity=70, musical_voice=1,
-            )
-        )
+        events.append(MusicalEvent(u, float(i), 1.0, hand=Hand.RIGHT, note_id=f"u{i}", velocity=80))
+        events.append(MusicalEvent(lo, float(i), 1.0, hand=Hand.RIGHT, note_id=f"l{i}", velocity=70))
+        truth_map[f"u{i}"] = 0
+        truth_map[f"l{i}"] = 1
     out = VoiceSeparator().separate(events)
     by_id = {e.note_id: e for e in out}
     pred = [by_id[e.note_id].voice for e in events]
-    truth = [e.musical_voice for e in events]
+    truth = [truth_map[e.note_id] for e in events]
+    labeled = [copy_event(ev, musical_voice=truth_map[ev.note_id]) for ev in out]
     assert permutation_invariant_accuracy(pred, truth) >= 0.75
-    assert fragmentation_count(out, truth_attr="musical_voice") <= 2
+    assert fragmentation_count(labeled, truth_attr="musical_voice") <= 2
     assert extra_printed_lanes(pred, truth) <= 1
+
+
+def test_crossing_lines_with_supplied_voice_hints():
+    events = []
+    upper = [79, 76, 72, 67]
+    lower = [60, 64, 67, 72]
+    for i, (u, lo) in enumerate(zip(upper, lower)):
+        events.append(
+            MusicalEvent(
+                u, float(i), 1.0, hand=Hand.RIGHT, note_id=f"u{i}", velocity=80,
+                voice=0, voice_assigned=True, voice_provenance="user_edit",
+            )
+        )
+        events.append(
+            MusicalEvent(
+                lo, float(i), 1.0, hand=Hand.RIGHT, note_id=f"l{i}", velocity=70,
+                voice=1, voice_assigned=True, voice_provenance="user_edit",
+            )
+        )
+    out = VoiceSeparator().separate(events)
+    by_id = {e.note_id: e.voice for e in out}
+    assert [by_id[f"u{i}"] for i in range(4)] == [0, 0, 0, 0]
+    assert [by_id[f"l{i}"] for i in range(4)] == [1, 1, 1, 1]
+
+
+def test_partial_lock_does_not_split_nonoverlapping_same_pitch():
+    events = [
+        MusicalEvent(60, 0.0, 1.0, hand=Hand.RIGHT, note_id="early", velocity=80),
+        MusicalEvent(
+            60, 2.0, 1.0, hand=Hand.RIGHT, note_id="late", velocity=80,
+            voice=5, voice_assigned=True, voice_provenance="user_edit",
+        ),
+    ]
+    out = VoiceSeparator().separate(events)
+    by_id = {e.note_id: e.voice for e in out}
+    assert by_id["late"] == 5
+    assert by_id["early"] == 5
+
+
+def test_permutation_invariant_accuracy_is_label_invariant():
+    from mir.voice_separator import permutation_invariant_accuracy
+
+    truth = [0, 0, 1, 1]
+    renamed = permutation_invariant_accuracy([2, 2, 0, 1], truth)
+    extra = permutation_invariant_accuracy([0, 0, 1, 2], truth)
+    assert extra == pytest.approx(0.75)
+    assert renamed == pytest.approx(0.75)
+    assert extra == renamed
+    assert permutation_invariant_accuracy([], []) == 1.0
+    assert permutation_invariant_accuracy([0], [0, 1]) == 0.0
+    assert permutation_invariant_accuracy([0, 1, 2], [0, 1]) == 0.0
+    many_pred = list(range(12))
+    many_truth = [i % 3 for i in range(12)]
+    score = permutation_invariant_accuracy(many_pred, many_truth)
+    assert 0.0 <= score <= 1.0
+
+
+def test_score_voices_propagates_confidence_provenance_and_diagnostics():
+    from mir.performance_score import _score_voices
+    from mir.voice_separator import VoiceSeparatorConfig
+
+    events = [
+        MusicalEvent(pitch, 0.0, 4.0, hand=Hand.RIGHT, note_id=f"n{lane}", velocity=80)
+        for lane, pitch in enumerate((48, 55, 62, 69, 76))
+    ]
+    sep = VoiceSeparator(VoiceSeparatorConfig(max_voices_per_hand=2, max_chord_span=3, split_gap=4))
+    out = _score_voices(events, sep)
+    assert len(out) == 5
+    assert all(e.voice_provenance == "inferred" for e in out)
+    assert all(e.musical_voice is not None for e in out)
+    assert all(e.voice_assigned for e in out)
+    if len({e.voice for e in out}) > 2:
+        assert any(row["kind"] == "voice_limit_exceeded" for row in sep.last_diagnostics)
 
 
 def test_user_voice_labels_are_respected():

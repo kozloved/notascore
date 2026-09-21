@@ -765,22 +765,38 @@ def _readable_v2_fill_small_release_gap(
 
 
 def _score_voices(events, separator):
+    worker = separator
     if type(separator) is VoiceSeparator:
         # Keep the configured complexity policy (default 4). Never drop notes
         # to meet it; extra printed lanes are diagnosed on the separator.
-        separator = VoiceSeparator(replace(
+        worker = VoiceSeparator(replace(
             separator.config,
             prefer_simple_chords=True,
             overlap_grace_beats=0.10,
         ))
     search = _voice_search_events(events)
-    voiced = separator.separate(search)
-    by_id = {ev.note_id: ev.voice for ev in voiced}
-    restored = [
-        copy_event(ev, voice=by_id.get(ev.note_id, ev.voice))
-        for ev in events
-    ]
-    return _mark_voices_assigned(restored)
+    voiced = worker.separate(search)
+    if worker is not separator:
+        separator.last_diagnostics = list(worker.last_diagnostics)
+    by_id = {ev.note_id: ev for ev in voiced}
+    restored = []
+    for ev in events:
+        chosen = by_id.get(ev.note_id)
+        if chosen is None:
+            restored.append(ev)
+            continue
+        musical = chosen.musical_voice if chosen.musical_voice is not None else chosen.voice
+        restored.append(
+            copy_event(
+                ev,
+                voice=chosen.voice,
+                musical_voice=musical,
+                voice_confidence=chosen.voice_confidence,
+                voice_assigned=True,
+                voice_provenance=chosen.voice_provenance or "inferred",
+            )
+        )
+    return restored
 
 
 def _pulsed_line_evidence(ev, nxt, ordered_same_hand) -> bool:
@@ -894,34 +910,16 @@ def _voice_search_events(events):
 
 
 def _conservative_articulations(events, *, settings=None):
-    """Optional readable marks with a high bar for evidence.
+    """Keep supplied marks. Do not guess staccato from a rest.
 
-    Short notes followed by a visible rest may receive staccato. This does
-    not invent dynamics, phrase slurs, or pedal marks from duration alone,
-    and it never overwrites a supplied articulation.
+    A rest after a short note is not evidence of staccato. This never invents
+    dynamics, phrase slurs, or pedal marks from duration alone, and it never
+    overwrites a supplied articulation.
     """
     settings = _settings(settings)
     if settings.interpretation != Interpretation.READABLE:
         return events
-    by_stream = defaultdict(list)
-    for ev in events:
-        by_stream[_stream_key(ev)].append(ev)
-    marked = {}
-    for group in by_stream.values():
-        ordered = sorted(group, key=lambda e: (e.start_beat, e.pitch, e.note_id or ""))
-        for i, ev in enumerate(ordered):
-            if ev.articulation:
-                marked[ev.note_id] = ev
-                continue
-            nxt = ordered[i + 1] if i + 1 < len(ordered) else None
-            rest = None
-            if nxt is not None:
-                rest = float(nxt.start_beat) - float(ev.start_beat) - float(ev.duration_beats)
-            if ev.duration_beats <= 0.25 + 1e-9 and rest is not None and rest >= 0.45:
-                marked[ev.note_id] = copy_event(ev, articulation="staccato")
-            else:
-                marked[ev.note_id] = ev
-    return [marked.get(ev.note_id, ev) for ev in events]
+    return list(events)
 
 
 def _stable_lanes(events, exact, grand_staff=True):
@@ -1089,11 +1087,13 @@ def assign_pipeline_layout(events, profile: ScoreProfile, hand_separator, voice_
         if authority is LayoutAuthority.NONE:
             authority = LayoutAuthority.PROVIDER
     out = stamp_authority(out, authority)
+    diagnostics = tuple(getattr(voice_separator, "last_diagnostics", None) or ())
     return LayoutResult(
         events=out,
         authority=authority,
         voice_complete=True,
         hand_complete=hands_complete(out) if profile.grand_staff else True,
+        diagnostics=diagnostics,
     )
 
 
@@ -1134,8 +1134,12 @@ def resolve_layout(raw, profile: ScoreProfile) -> LayoutResult:
             authority = LayoutAuthority.PROVIDER
             events = stamp_authority(events, authority)
             return LayoutResult(events, authority, True, True)
-        events = stamp_authority(_score_voices(cleared, VoiceSeparator()), LayoutAuthority.INFERRED)
-        return LayoutResult(events, LayoutAuthority.INFERRED, True, True)
+        separator = VoiceSeparator()
+        events = stamp_authority(_score_voices(cleared, separator), LayoutAuthority.INFERRED)
+        return LayoutResult(
+            events, LayoutAuthority.INFERRED, True, True,
+            diagnostics=tuple(separator.last_diagnostics),
+        )
 
     if hands_complete(raw):
         authority = prior or classify_hand_authority(raw)
@@ -1158,11 +1162,15 @@ def resolve_layout(raw, profile: ScoreProfile) -> LayoutResult:
         events = stamp_authority(events, LayoutAuthority.MIXED)
         return LayoutResult(events, LayoutAuthority.MIXED, True, True)
 
+    separator = VoiceSeparator()
     events = stamp_authority(
-        _score_voices(HandSeparator().separate(raw), VoiceSeparator()),
+        _score_voices(HandSeparator().separate(raw), separator),
         LayoutAuthority.INFERRED,
     )
-    return LayoutResult(events, LayoutAuthority.INFERRED, True, True)
+    return LayoutResult(
+        events, LayoutAuthority.INFERRED, True, True,
+        diagnostics=tuple(separator.last_diagnostics),
+    )
 
 
 def quantize_notation(
@@ -1396,5 +1404,6 @@ def quantize_notation(
                    notation_cache_key=settings.cache_key(),
                    algorithm_version=settings.algorithm_version,
                    policy_exceptions=list(policy_exceptions),
-                   score_profile=profile.to_dict())
+                   score_profile=profile.to_dict(),
+                   voice_diagnostics=list(layout.diagnostics))
     return out, decisions, PerformanceReport(summary, tuple(notes), decisions)
