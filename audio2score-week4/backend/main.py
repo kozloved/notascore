@@ -600,6 +600,7 @@ class ScoreNoteIn(BaseModel):
     source_note_id: str | None = Field(default=None, max_length=128)
     start_sec: float | None = Field(default=None, ge=0, le=10000)
     end_sec: float | None = Field(default=None, ge=0, le=10000)
+    articulation: str | None = Field(default=None, max_length=32)
 
 
 class TempoCurvePointIn(BaseModel):

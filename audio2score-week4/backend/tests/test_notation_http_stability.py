@@ -673,3 +673,69 @@ def test_http_timing_velocity_add_delete_survive_grid_readability_and_reset(isol
         assert raw.status_code == 200
         assert raw.content == original
         assert original_ids <= restored_ids
+
+
+def test_http_articulation_round_trip_velocity_regen_and_reset(isolated_db, monkeypatch):
+    _fail_if_transcribe(monkeypatch)
+    job_id = f"marks-{uuid.uuid4().hex[:12]}"
+    xml_path, original = _prepare_http_job(isolated_db, job_id)
+    with _client() as client:
+        posted = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={"interpretation": "readable", "revision": 0},
+        )
+        assert posted.status_code == 200, posted.text
+        loaded = client.get(f"/scores/{job_id}/edits")
+        assert loaded.status_code == 200
+        body = loaded.json()
+        notes = [dict(row) for row in body["notes"]]
+        target = notes[0]
+        sid = target.get("source_note_id") or target["id"]
+        settings_before = client.get(f"/jobs/{job_id}/notation-settings").json()["notation_settings"]
+        target["articulation"] = "staccato"
+        saved = _save_notes(client, job_id, body, notes)
+        assert saved.status_code == 200, saved.text
+        assert _note(saved.json(), sid).get("articulation") == "staccato"
+        _, key1 = _pointer(job_id)
+        assert any(op.get("articulation") == "staccato" and op["source_note_id"] == sid for op in _ops(key1, job_id))
+
+        loaded2 = saved.json()
+        notes2 = [dict(row) for row in loaded2["notes"]]
+        other = next(row for row in notes2 if (row.get("source_note_id") or row["id"]) != sid)
+        other_sid = other.get("source_note_id") or other["id"]
+        other["velocity"] = 110
+        saved2 = _save_notes(client, job_id, loaded2, notes2)
+        assert saved2.status_code == 200, saved2.text
+        assert _note(saved2.json(), sid).get("articulation") == "staccato"
+        assert int(_note(saved2.json(), other_sid)["velocity"]) == 110
+
+        reloaded = client.get(f"/scores/{job_id}/edits")
+        assert reloaded.status_code == 200
+        assert _note(reloaded.json(), sid).get("articulation") == "staccato"
+
+        regen = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={"display_grid": "sixteenth", "revision": saved2.json()["revision"]},
+        )
+        assert regen.status_code == 200, regen.text
+        after_regen = client.get(f"/scores/{job_id}/edits")
+        assert after_regen.status_code == 200
+        assert _note(after_regen.json(), sid).get("articulation") == "staccato"
+        listed = client.get(f"/jobs/{job_id}/notation-settings")
+        assert listed.json()["notation_settings"]["display_grid"] == "sixteenth"
+        assert listed.json()["notation_settings"]["interpretation"] == "readable"
+
+        reset = client.post(
+            f"/scores/{job_id}/edits/reset",
+            json={"revision": after_regen.json()["revision"]},
+        )
+        assert reset.status_code == 200, reset.text
+        assert reset.json()["has_edits"] is False
+        assert not _note(reset.json(), sid).get("articulation")
+        listed_reset = client.get(f"/jobs/{job_id}/notation-settings")
+        assert listed_reset.json()["notation_settings"]["display_grid"] == "sixteenth"
+        assert listed_reset.json()["notation_settings"]["interpretation"] == settings_before["interpretation"]
+        assert (isolated_db / f"{job_id}.raw.mid").read_bytes() == original
+        raw = client.get(f"/jobs/{job_id}/result?format=midi")
+        assert raw.status_code == 200
+        assert raw.content == original

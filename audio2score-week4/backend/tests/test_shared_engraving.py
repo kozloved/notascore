@@ -84,8 +84,34 @@ def _xml_shape(xml_text: str):
                         "pitches": pitches,
                         "is_rest": bool(el.isRest),
                         "tie": getattr(getattr(el, "tie", None), "type", None),
+                        "beams": tuple(
+                            sorted(
+                                str(getattr(beam, "type", beam))
+                                for beam in (getattr(el, "beams", None) or [])
+                            )
+                        ),
+                        "stem": str(getattr(el, "stemDirection", None) or ""),
+                        "tuplets": tuple(
+                            (
+                                int(getattr(tup, "numberNotesActual", 0) or 0),
+                                int(getattr(tup, "numberNotesNormal", 0) or 0),
+                            )
+                            for tup in (getattr(getattr(el, "duration", None), "tuplets", None) or [])
+                        ),
+                        "articulations": tuple(
+                            sorted(
+                                type(art).__name__
+                                for art in (getattr(el, "articulations", None) or [])
+                            )
+                        ),
                     }
                 )
+            clef = None
+            if measure.clef is not None:
+                clef = str(getattr(measure.clef, "sign", None) or measure.clef)
+            key_name = None
+            if measure.keySignature is not None:
+                key_name = str(measure.keySignature)
             part_row["measures"].append(
                 {
                     "number": int(measure.number),
@@ -93,6 +119,8 @@ def _xml_shape(xml_text: str):
                         {"id": vid, "elements": voices[vid]} for vid in sorted(voices)
                     ],
                     "ts": getattr(measure.timeSignature, "ratioString", None),
+                    "clef": clef,
+                    "key": key_name,
                 }
             )
         parts.append(part_row)
@@ -190,12 +218,15 @@ def test_two_voices_on_one_staff_survive_duration_edit(tmp_path):
     held = _sid(auto, 72, 0.0)
     moving = _sid(auto, 79)
     auto_moving = next(n for n in auto.editor_model["notes"] if n["source_note_id"] == moving)
+    auto_duration = float(auto_moving["duration"])
+    edited_duration = 0.25 if auto_duration > 0.4 else 1.0
+    assert abs(auto_duration - edited_duration) > 1e-6
     edited = recompute_notation(
         midi_bytes=midi_bytes,
         settings=NotationSettings(),
         performance=ingested.performance,
         context=auto.context,
-        corrections=[{"source_note_id": moving, "duration": 0.5}],
+        corrections=[{"source_note_id": moving, "duration": edited_duration}],
     )
     edited_shape = _xml_shape(edited.musicxml)
     edited_voices = {
@@ -209,8 +240,7 @@ def test_two_voices_on_one_staff_survive_duration_edit(tmp_path):
     assert float(held_row["duration"]) == pytest.approx(float(
         next(n for n in auto.editor_model["notes"] if n["source_note_id"] == held)["duration"]
     ))
-    assert float(moving_row["duration"]) == pytest.approx(0.5)
-    assert abs(float(auto_moving["duration"]) - 0.5) > 1e-6 or True
+    assert float(moving_row["duration"]) == pytest.approx(edited_duration)
 
 
 def test_barline_tie_and_unrelated_measure_stay_stable(tmp_path):
@@ -363,3 +393,56 @@ def test_report_from_events_reuses_previous_lanes_for_velocity():
     assert [n.duration for n in first.notes] == [n.duration for n in second.notes]
     assert [n.voice for n in first.notes] == [n.voice for n in second.notes]
     assert [n.group_id for n in first.notes] == [n.group_id for n in second.notes]
+
+
+def test_supplied_articulation_survives_velocity_edit_and_rest_is_not_staccato(tmp_path):
+    midi_bytes = _write_midi(
+        tmp_path / "marks.mid",
+        [
+            (76, 0.0, 0.10, 88),
+            (77, 0.5, 0.60, 88),
+            (79, 1.0, 1.45, 80),
+        ],
+    )
+    ingested = ingest_midi(tmp_path / "marks.mid")
+    context = _context_for(ingested)
+    auto = recompute_notation(
+        midi_bytes=midi_bytes,
+        settings=NotationSettings(),
+        performance=ingested.performance,
+        context=context,
+    )
+    short = _sid(auto, 76, 0.0)
+    later = _sid(auto, 79)
+    assert all(not n.get("articulation") for n in auto.editor_model["notes"])
+    marked = recompute_notation(
+        midi_bytes=midi_bytes,
+        settings=NotationSettings(),
+        performance=ingested.performance,
+        context=auto.context,
+        corrections=[{"source_note_id": later, "articulation": "staccato"}],
+    )
+    marked_row = next(n for n in marked.editor_model["notes"] if n["source_note_id"] == later)
+    assert marked_row["articulation"] == "staccato"
+    short_row = next(n for n in marked.editor_model["notes"] if n["source_note_id"] == short)
+    assert not short_row.get("articulation")
+    louder = recompute_notation(
+        midi_bytes=midi_bytes,
+        settings=NotationSettings(),
+        performance=ingested.performance,
+        context=marked.context,
+        corrections=[{"source_note_id": later, "articulation": "staccato", "velocity": 110}],
+    )
+    assert _xml_shape(marked.musicxml) == _xml_shape(louder.musicxml)
+    louder_row = next(n for n in louder.editor_model["notes"] if n["source_note_id"] == later)
+    assert louder_row["articulation"] == "staccato"
+    assert int(louder_row["velocity"]) == 110
+    arts = [
+        el["articulations"]
+        for part in _xml_shape(louder.musicxml)["parts"]
+        for measure in part["measures"]
+        for voice in measure["voices"]
+        for el in voice["elements"]
+        if el["articulations"]
+    ]
+    assert any("Staccato" in names for names in arts)

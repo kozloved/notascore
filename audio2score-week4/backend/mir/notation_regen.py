@@ -300,14 +300,16 @@ ALLOWED_CORRECTION_FIELDS = {
     "start",
     "duration",
     "velocity",
+    "articulation",
     "exclude",
     "insert",
 }
 ALLOWED_SIDECAR_KEYS = {"operations", "uncorrected", "score", "uncorrected_score"}
 UNC_INT_FIELDS = {"pitch", "track", "voice", "velocity"}
 UNC_FLOAT_FIELDS = {"start", "duration"}
+UNC_STR_FIELDS = {"articulation"}
 LAYOUT_OP_FIELDS = ("pitch", "track", "voice")
-SCORE_OP_FIELDS = ("start", "duration", "velocity")
+SCORE_OP_FIELDS = ("start", "duration", "velocity", "articulation")
 SCORE_OVERRIDE_FIELDS = ("tempo_bpm", "time_signature", "tempo_curve")
 CORRECTION_TRACK_MIN = 0
 CORRECTION_TRACK_MAX = 1
@@ -341,6 +343,19 @@ def _correction_float(value, *, field: str, lo: float, hi: float) -> float:
     return number
 
 
+def _correction_articulation(value) -> str | None:
+    from score_edits import ALLOWED_ARTICULATIONS
+
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text not in ALLOWED_ARTICULATIONS:
+        raise NotationEditConflict([], "Invalid articulation in a saved correction.")
+    return text
+
+
 def _beats_close(left, right) -> bool:
     if left is None or right is None:
         return False
@@ -362,7 +377,7 @@ def _validate_uncorrected_map(payload) -> dict[str, dict]:
             raise NotationEditConflict([], "Uncorrected interpretation is missing a source note ID.")
         if not isinstance(row, dict):
             raise NotationEditConflict([sid], f"Uncorrected interpretation for {sid} is not an object.")
-        extra = set(row.keys()) - UNC_INT_FIELDS - UNC_FLOAT_FIELDS
+        extra = set(row.keys()) - UNC_INT_FIELDS - UNC_FLOAT_FIELDS - UNC_STR_FIELDS
         if extra:
             raise NotationEditConflict(
                 [sid],
@@ -387,6 +402,8 @@ def _validate_uncorrected_map(payload) -> dict[str, dict]:
             fields["duration"] = _correction_float(
                 row["duration"], field="duration", lo=1e-6, hi=MAX_DURATION
             )
+        if "articulation" in row:
+            fields["articulation"] = _correction_articulation(row.get("articulation"))
         if fields:
             out[sid] = fields
     return out
@@ -442,6 +459,8 @@ def correction_field_map(model: dict | None) -> dict[str, dict]:
             fields["start"] = float(row["start"])
         if row.get("duration") is not None:
             fields["duration"] = float(row["duration"])
+        if "articulation" in row:
+            fields["articulation"] = row.get("articulation") or None
         if fields:
             out[sid] = fields
     return out
@@ -468,6 +487,7 @@ def uncorrected_from_events(events) -> dict[str, dict]:
                 "start": float(ev.start_beat),
                 "duration": float(ev.duration_beats),
                 "velocity": int(ev.velocity or 64),
+                "articulation": getattr(ev, "articulation", None) or None,
             }
         )
     return correction_field_map({"notes": notes})
@@ -496,7 +516,7 @@ def baseline_uncorrected(
         disp = displayed_map.get(sid) or {}
         op = existing.get(sid) or {}
         orig = original.get(sid)
-        row: dict[str, int | float] = {}
+        row: dict[str, int | float | str | None] = {}
         for field in ("pitch", "track", "voice", "velocity"):
             if prev.get(field) is not None:
                 row[field] = int(prev[field])
@@ -511,6 +531,11 @@ def baseline_uncorrected(
                 row[field] = float(prev[field])
             elif field not in op and disp.get(field) is not None:
                 row[field] = float(disp[field])
+        if "articulation" in prev or "articulation" in op or "articulation" in disp:
+            if "articulation" in prev:
+                row["articulation"] = prev.get("articulation") or None
+            elif "articulation" not in op:
+                row["articulation"] = disp.get("articulation") or None
         if row:
             out[sid] = row
     return out
@@ -649,6 +674,8 @@ def normalize_corrections(corrections: dict | list | None) -> list[dict]:
             op["voice"] = _correction_int(
                 row.get("voice", 0), field="voice", lo=CORRECTION_VOICE_MIN, hi=CORRECTION_VOICE_MAX
             )
+            if "articulation" in row:
+                op["articulation"] = _correction_articulation(row.get("articulation"))
             ops.append(op)
             continue
         sid = _source_note_id(row)
@@ -686,6 +713,8 @@ def normalize_corrections(corrections: dict | list | None) -> list[dict]:
             )
         if "velocity" in row and row["velocity"] is not None:
             op["velocity"] = _correction_int(row["velocity"], field="velocity", lo=1, hi=127)
+        if "articulation" in row:
+            op["articulation"] = _correction_articulation(row.get("articulation"))
         if len(op) == 1:
             continue
         ops.append(op)
@@ -839,6 +868,16 @@ def _merge_note_fields(current: dict, row: dict, unc: dict, disp: dict) -> None:
             current.pop(field, None)
         else:
             current[field] = submitted_value
+    if "articulation" in row:
+        submitted_value = _correction_articulation(row.get("articulation"))
+        uncorrected_value = unc.get("articulation") if "articulation" in unc else None
+        displayed_value = disp.get("articulation") if "articulation" in disp else None
+        if displayed_value is not None and submitted_value == (displayed_value or None):
+            return
+        if "articulation" in unc and submitted_value == (uncorrected_value or None):
+            current.pop("articulation", None)
+        else:
+            current["articulation"] = submitted_value
 
 
 def _reject_performed_timing_mutation(row: dict, orig) -> None:
@@ -919,7 +958,7 @@ def _row_looks_like_correction(row: dict, orig, previous: dict | None, existing:
     if existing:
         return True
     if previous is None:
-        return any(row.get(field) is not None for field in ("pitch", "track", "voice", "start", "duration", "velocity"))
+        return any(row.get(field) is not None for field in ("pitch", "track", "voice", "start", "duration", "velocity", "articulation"))
     if row.get("pitch") is not None and int(row["pitch"]) != int(previous.get("pitch") or -1):
         return True
     if row.get("track") is not None and int(row["track"]) != int(previous.get("track") or -1):
@@ -931,6 +970,8 @@ def _row_looks_like_correction(row: dict, orig, previous: dict | None, existing:
     if row.get("start") is not None and not _beats_close(row["start"], previous.get("start")):
         return True
     if row.get("duration") is not None and not _beats_close(row["duration"], previous.get("duration")):
+        return True
+    if "articulation" in row and (row.get("articulation") or None) != (previous.get("articulation") or None):
         return True
     return False
 
@@ -1035,6 +1076,10 @@ def _apply_score_ops(events, ops: list[dict], snapshot: PerformanceSnapshot):
             changes["score_timing_locked"] = True
         if op.get("velocity") is not None and int(op["velocity"]) != int(ev.velocity or 64):
             changes["velocity"] = int(op["velocity"])
+        if "articulation" in op:
+            mark = op.get("articulation") or None
+            if mark != (ev.articulation or None):
+                changes["articulation"] = mark
         out.append(copy_event(ev, **changes) if changes else ev)
     for op in ops:
         if not op.get("insert"):
@@ -1054,6 +1099,7 @@ def _apply_score_ops(events, ops: list[dict], snapshot: PerformanceSnapshot):
                 voice_provenance="user_edit",
                 hand_locked=True,
                 score_timing_locked=True,
+                articulation=op.get("articulation") or None,
             )
         )
     return out
@@ -1190,6 +1236,7 @@ def editor_model_from_events(
                 "voice": voice,
                 "start_sec": getattr(ev, "start_time_sec", None),
                 "end_sec": getattr(ev, "end_time_sec", None),
+                "articulation": getattr(ev, "articulation", None) or None,
             }
         )
     notes = (

@@ -28,6 +28,7 @@ TIME_SIG_RE = re.compile(r"^([1-9]|1[0-6])/(1|2|4|8|16)$")
 XML_ID_PREFIX = "nsid_"
 PROVENANCE_PERFORMANCE = "performance"
 PROVENANCE_MUSICXML_DEGRADED = "musicxml_degraded"
+ALLOWED_ARTICULATIONS = {"staccato", "tenuto"}
 
 
 class EditError(ValueError):
@@ -40,6 +41,17 @@ def validate_voice(value: Any) -> int:
     except (TypeError, ValueError):
         return 0
     return max(0, min(15, voice))
+
+
+def validate_articulation(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text not in ALLOWED_ARTICULATIONS:
+        raise EditError("Unsupported articulation.")
+    return text
 
 
 def validate_source_note_id(value: Any) -> str | None:
@@ -156,6 +168,7 @@ def validate_notes(raw_notes: Any) -> list[dict]:
                 "voice": validate_voice(item.get("voice", 0)),
                 "start_sec": start_sec,
                 "end_sec": end_sec,
+                "articulation": validate_articulation(item.get("articulation")),
             }
         )
     notes.sort(key=lambda note: (note["start"], note["track"], note["pitch"], note["id"]))
@@ -751,6 +764,7 @@ def events_from_editor_model(
                 instrument=instrument,
                 start_time_sec=item.get("start_sec"),
                 end_time_sec=item.get("end_sec"),
+                articulation=item.get("articulation") or None,
             )
         )
     return events

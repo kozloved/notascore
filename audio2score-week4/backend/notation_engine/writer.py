@@ -738,7 +738,7 @@ class NotationWriter:
         arts = getattr(el, "articulations", None) or []
         if "staccato" in arts:
             n.articulations.append(articulations.Staccato())
-        if "legato" in arts:
+        if "tenuto" in arts or "legato" in arts:
             n.articulations.append(articulations.Tenuto())
         dynamic = getattr(el, "dynamic", None)
         if dynamic in ("p", "pp", "mp", "mf", "f", "ff", "fff"):
@@ -1006,7 +1006,7 @@ class NotationWriter:
         arts = {e.articulation for e in group if e.articulation}
         if "staccato" in arts:
             el.articulations.append(articulations.Staccato())
-        elif "legato" in arts:
+        if "tenuto" in arts or "legato" in arts:
             el.articulations.append(articulations.Tenuto())
         marks = [e.dynamic for e in group if e.dynamic]
         if marks:

@@ -222,13 +222,19 @@ def build_exact_measures(events, report, meter, key_name):
                             elements.append(rest)
                     pieces = list(_pieces(start, end - start, beat_length, local_settings, mql))
                     ties = tie_chain(len(pieces), tie)
-                    for (offset, length), piece_tie in zip(pieces, ties):
+                    supplied = [
+                        by_id[note.source_id].articulation
+                        for note in group
+                        if getattr(by_id[note.source_id], "articulation", None)
+                    ]
+                    for piece_i, ((offset, length), piece_tie) in enumerate(zip(pieces, ties)):
                         elements.append(PlannedNote(
                             pitches=[by_id[n.source_id].pitch for n in group],
                             start_q=offset, duration_q=length, voice=key[1],
                             velocity=max(by_id[n.source_id].velocity for n in group),
                             velocities=[by_id[n.source_id].velocity for n in group],
                             tie=piece_tie, event_ids=[n.source_id for n in group],
+                            articulations=supplied[:1] if piece_i == 0 else [],
                         ))
                     cursor = end
                 for offset, length in _pieces(cursor, mql - cursor, beat_length, local_settings, mql):
