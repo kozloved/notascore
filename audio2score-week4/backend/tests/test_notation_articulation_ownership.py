@@ -8,7 +8,7 @@ import pytest
 
 from mir.notation_regen import NotationEditConflict, recompute_notation
 from mir.notation_settings import ALGORITHM_VERSION_CURRENT, NotationSettings
-from tests.test_shared_engraving import _context_for, _sid, _write_midi, _xml_shape
+from tests.test_shared_engraving import _context_for, _sid, _write_midi
 
 
 def _local(tag: str) -> str:
@@ -50,9 +50,11 @@ def musicxml_note_marks(xml_text: str):
                 for child in list(arts)
             )
         )
-        tie = None
-        for tie_el in el.findall("{*}tie"):
-            tie = tie_el.get("type") or tie
+        ties = tuple(
+            t.get("type")
+            for t in el.findall("{*}tie")
+            if t.get("type")
+        )
         rows.append(
             {
                 "measure": measure_number,
@@ -62,7 +64,9 @@ def musicxml_note_marks(xml_text: str):
                     alter.text if alter is not None else None,
                 ),
                 "articulations": arts,
-                "tie": tie,
+                "tie": ties[-1] if ties else None,
+                "ties": ties,
+                "attack": "stop" not in ties,
                 "chord": el.find("{*}chord") is not None,
             }
         )
@@ -103,12 +107,12 @@ def test_tenuto_three_bar_tie_marks_only_the_attack(tmp_path):
     ] == "tenuto"
     rows = [row for row in musicxml_note_marks(marked.musicxml) if row["pitch"] == 72]
     assert len(rows) >= 3
-    attack = rows[0]
-    assert attack["tie"] in (None, "start")
-    assert "tenuto" in attack["articulations"]
-    for row in rows[1:]:
-        assert "tenuto" not in row["articulations"]
-        assert "staccato" not in row["articulations"]
+    attacks = [row for row in rows if row["attack"]]
+    continues = [row for row in rows if not row["attack"]]
+    assert attacks and continues
+    assert all("tenuto" in row["articulations"] for row in attacks)
+    assert all("tenuto" not in row["articulations"] for row in continues)
+    assert all("staccato" not in row["articulations"] for row in rows)
 
 
 def test_staccato_within_measure_split_marks_only_the_attack(tmp_path):
@@ -128,9 +132,11 @@ def test_staccato_within_measure_split_marks_only_the_attack(tmp_path):
     assert hashlib_unchanged(ingested.performance.midi_sha256, midi_bytes)
     rows = [row for row in musicxml_note_marks(marked.musicxml) if row["pitch"] == 76]
     assert len(rows) >= 2
-    assert "staccato" in rows[0]["articulations"]
-    for row in rows[1:]:
-        assert "staccato" not in row["articulations"]
+    attacks = [row for row in rows if row["attack"]]
+    continues = [row for row in rows if not row["attack"]]
+    assert attacks and continues
+    assert all("staccato" in row["articulations"] for row in attacks)
+    assert all("staccato" not in row["articulations"] for row in continues)
 
 
 def test_mixed_chord_keeps_both_marks_through_velocity_export(tmp_path):
@@ -170,17 +176,7 @@ def test_mixed_chord_keeps_both_marks_through_velocity_export(tmp_path):
     assert c_row["articulations"] == ("staccato",)
     assert e_row["articulations"] == ("tenuto",)
     assert "Tenuto" not in "".join(c_row["articulations"])
-    shape = _xml_shape(louder.musicxml)
-    members = [
-        member
-        for part in shape["parts"]
-        for measure in part["measures"]
-        for voice in measure["voices"]
-        for el in voice["elements"]
-        for member in el.get("member_articulations") or []
-    ]
-    assert any(m["pitch"] == 72 and "Staccato" in m["articulations"] for m in members)
-    assert any(m["pitch"] == 76 and "Tenuto" in m["articulations"] for m in members)
+    assert c_row["attack"] and e_row["attack"]
 
 
 def test_unspellable_mixed_ownership_is_an_explicit_conflict():

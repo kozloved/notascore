@@ -788,7 +788,11 @@ class NotationWriter:
                 str(mark or "").strip().lower()
                 for mark in arts
             }
-            if len(shared) == 1 and next(iter(shared)):
+            if (
+                isinstance(n, m21chord.Chord)
+                and len(shared) == 1
+                and next(iter(shared))
+            ):
                 for art in self._articulation_objects([next(iter(shared))]):
                     n.articulations.append(art)
             return
@@ -1348,10 +1352,34 @@ def _ensure_member_articulations_in_musicxml(xml: str, score) -> str:
     def tag(name: str) -> str:
         return f"{ns}{name}"
 
+    def _is_attack(note_el) -> bool:
+        for tie in note_el.findall(tag("tie")):
+            if (tie.get("type") or "").lower() == "stop":
+                return False
+        return True
+
+    def _remove_articulations(note_el) -> bool:
+        notations = note_el.find(tag("notations"))
+        if notations is None:
+            return False
+        removed = False
+        for arts in list(notations.findall(tag("articulations"))):
+            notations.remove(arts)
+            removed = True
+        if removed and not list(notations):
+            note_el.remove(notations)
+        return removed
+
     changed = False
     for note in root.iter(tag("note")):
+        if note.find(tag("rest")) is not None:
+            continue
         ident = note.get("id") or note.get("{http://www.w3.org/XML/1998/namespace}id")
         marks = wanted.get(str(ident or ""))
+        if not _is_attack(note):
+            if _remove_articulations(note):
+                changed = True
+            continue
         if not marks:
             continue
         notations = note.find(tag("notations"))
