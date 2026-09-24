@@ -657,6 +657,21 @@ def _dot_count(value: Fraction) -> int:
     return 0
 
 
+def _triplet_local_pulse(interval):
+    """Preceding interval that can stand in for a missing next triplet onset.
+
+    Already-notated tuplets keep their exact fractions elsewhere. This only
+    names a coherent performed pulse (denominator divisible by 3) so a group
+    ending can use the same leftover-gap policy as an intra-group IOI.
+    """
+    if interval is None:
+        return None
+    pulse = Fraction(interval)
+    if pulse <= 0 or pulse.denominator % 3 != 0:
+        return None
+    return pulse
+
+
 def _duration(
     raw,
     onset,
@@ -670,6 +685,7 @@ def _duration(
     release_reason=None,
     release_at=None,
     settings=None,
+    local_pulse=None,
 ):
     settings = _settings(settings)
     if settings.preserve_performed_durations():
@@ -734,6 +750,7 @@ def _duration(
         to_bar,
         release_reason=release_reason,
         settings=settings,
+        local_pulse=local_pulse if family == "triplet" else None,
     )
     if filled is not None:
         return filled
@@ -758,6 +775,7 @@ def _readable_v2_fill_small_release_gap(
     *,
     release_reason,
     settings,
+    local_pulse=None,
 ):
     """Opt-in readable-v2: leftover gaps smaller than a sixteenth are articulation.
 
@@ -765,6 +783,12 @@ def _readable_v2_fill_small_release_gap(
     Case B (short notes plus a visible rest through the beat) must keep the rest.
     Independent holds are left alone. This never extends a note past the next
     attack or past the barline, and it does not run on the default engine.
+
+    When a triplet group ends (no next onset, or the next attack is too far
+    to be this pulse), the preceding triplet interval is a virtual IOI. The
+    last note then uses the same remaining < sixteenth rule as its siblings.
+    Already-notated tuplets are not inferred here; they are preserved by
+    ``as_score_fraction`` / locked timing.
     """
     if not settings.uses_improved_readable():
         return None
@@ -782,6 +806,13 @@ def _readable_v2_fill_small_release_gap(
         remaining = float(ioi) - float(raw)
         if ioi > 0 and 0 <= remaining < sixteenth:
             return ioi
+    pulse = _triplet_local_pulse(local_pulse)
+    if pulse is not None:
+        remaining = float(pulse) - float(raw)
+        if 0 <= remaining < sixteenth:
+            written_end = Fraction(onset) + pulse
+            if next_onset is None or written_end <= Fraction(next_onset) + Fraction(1, 10**9):
+                return pulse
     if to_bar is not None and Fraction(to_bar) > 0:
         remaining = float(to_bar) - float(raw)
         if 0 <= remaining < sixteenth:
@@ -1301,15 +1332,16 @@ def quantize_notation(
             if onset.denominator == 1 and any(d.denominator % 3 == 0 for d in neighbors):
                 family = "triplet"
             raw_next = min(e.start_beat for e in groups[i + 1]) if nxt is not None else None
+            prev_interval = (onset - path[i - 1][0]) if i else None
             for ev in group:
                 if getattr(ev, "score_timing_locked", False):
                     onset_by_id[ev.note_id] = as_score_fraction(ev.start_beat, locked=True)
                 else:
                     onset_by_id[ev.note_id] = onset
-            onset_jobs.append((key, group, onset, family, nxt, raw_next, i))
+            onset_jobs.append((key, group, onset, family, nxt, raw_next, i, prev_interval))
 
     out, exact = [], {}
-    for key, group, onset, family, nxt, raw_next, group_index in onset_jobs:
+    for key, group, onset, family, nxt, raw_next, group_index, prev_interval in onset_jobs:
         bar_number = int(onset / measure_length) + 1 if measure_length > 0 else 1
         local_settings = settings.resolved_for_measure(bar_number)
         for ev in group:
@@ -1350,6 +1382,7 @@ def quantize_notation(
                 release_reason=release_reason,
                 release_at=release_at,
                 settings=local_settings,
+                local_pulse=prev_interval if family == "triplet" else None,
             )
             exact[ev.note_id] = (onset, duration, family, f"{key[0]}:{key[1]}:{group_index}")
             out.append(copy_event(ev, start_beat=float(onset), duration_beats=float(duration),
