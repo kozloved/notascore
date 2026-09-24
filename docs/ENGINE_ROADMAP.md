@@ -81,8 +81,10 @@ or notation version actually produced a score.
   and notation version from existing artifacts.
 - Internal fields stay off ordinary user edit payloads.
 
-**Status.** Implemented in this increment; verification is the focused test
-run recorded in the PR.
+**Status.** Verified locally in this increment for the P0 acceptance
+criteria (concurrency, voice/layout metrics, identity regressions, readable-v2
+suites, MIDI benchmark). Musician review of 138 remains missing; that is a
+P1/P2 input, not a P0 gate.
 
 ## P1 — Reviewed musical baseline
 
