@@ -101,6 +101,30 @@ test("pitch change keeps source identity voice and timing", () => {
   assert.equal(secondsAtBeat(8, curve, 120), 7);
 });
 
+test("pitch change does not snap already-notated triplet timing", () => {
+  const triplets = [
+    { id: "t0", source_note_id: "src-t0", pitch: 72, start: 0, duration: 1 / 3, velocity: 80, track: 0, voice: 0 },
+    { id: "t1", source_note_id: "src-t1", pitch: 74, start: 1 / 3, duration: 1 / 3, velocity: 80, track: 0, voice: 0 },
+    { id: "t2", source_note_id: "src-t2", pitch: 76, start: 2 / 3, duration: 1 / 3, velocity: 84, track: 0, voice: 0 },
+  ];
+  const next = changePitch(triplets, "t1", 1);
+  assert.equal(findNote(next, "t1")?.pitch, 75);
+  assert.equal(findNote(next, "t0")?.start, 0);
+  assert.equal(findNote(next, "t1")?.start, 1 / 3);
+  assert.equal(findNote(next, "t2")?.start, 2 / 3);
+  assert.equal(findNote(next, "t1")?.duration, 1 / 3);
+});
+
+test("only explicit move and duration edits snap to the sixteenth grid", () => {
+  const triplets = [
+    { id: "t0", source_note_id: "src-t0", pitch: 72, start: 1 / 3, duration: 1 / 3, velocity: 80, track: 0, voice: 0 },
+  ];
+  assert.equal(findNote(moveNote(triplets, "t0", 1), "t0")?.start, 0.5);
+  assert.equal(findNote(changeDuration(triplets, "t0", 0.4), "t0")?.duration, 0.5);
+  assert.equal(findNote(triplets, "t0")?.start, 1 / 3);
+  assert.equal(findNote(triplets, "t0")?.duration, 1 / 3);
+});
+
 test("new notes have no source identity", () => {
   const { notes, id } = addNote(chord, { start: 2, pitch: 62, duration: 1, voice: 1 });
   assert.equal(findNote(notes, id)?.source_note_id, null);
