@@ -1,0 +1,4766 @@
+{
+  "inventory": {
+    "evidence_kind": "synthetic_midi",
+    "real_audio_evidence": false,
+    "real_material": {
+      "nota_test_samples": [
+        {
+          "id": "160_f_melody_piano",
+          "kind": "local_reference_midi",
+          "source": "evaluation/development/NotaTestSamples",
+          "performance": "development_raw_quantized_pair",
+          "held_out_of_last_note_tune": true,
+          "raw_midi": "evaluation/development/NotaTestSamples/Case1/160_f_melody_piano_raw.mid",
+          "quantized_midi": "evaluation/development/NotaTestSamples/Case1/160_f_melody_piano_q.mid",
+          "audio": "evaluation/development/NotaTestSamples/Case1/160_f_melody_piano_audio.wav",
+          "license": "undocumented_in_repo",
+          "musician_reviewed": false,
+          "note": "Development raw/quantized pair with matching audio. Not documented as a licensed commercial recording and not musician-reviewed score ground truth. Used only as performed-MIDI input to the shared planner."
+        },
+        {
+          "id": "138_\u0441_chords_piano",
+          "kind": "local_reference_midi",
+          "source": "evaluation/development/NotaTestSamples",
+          "performance": "development_raw_quantized_pair",
+          "held_out_of_last_note_tune": true,
+          "raw_midi": "evaluation/development/NotaTestSamples/Case2/138_\u0441_chords_piano_raw.mid",
+          "quantized_midi": "evaluation/development/NotaTestSamples/Case2/138_\u0441_chords_piano_q.mid",
+          "audio": "evaluation/development/NotaTestSamples/Case2/138_\u0441_chords_piano_audio.wav",
+          "license": "undocumented_in_repo",
+          "musician_reviewed": false,
+          "note": "Development raw/quantized pair with matching audio. Not documented as a licensed commercial recording and not musician-reviewed score ground truth. Used only as performed-MIDI input to the shared planner."
+        },
+        {
+          "id": "88_D_waltz_th_piano",
+          "kind": "local_reference_midi",
+          "source": "evaluation/development/NotaTestSamples",
+          "performance": "development_raw_quantized_pair",
+          "held_out_of_last_note_tune": true,
+          "raw_midi": "evaluation/development/NotaTestSamples/Case3/88_D_waltz_th_piano_raw.mid",
+          "quantized_midi": "evaluation/development/NotaTestSamples/Case3/88_D_waltz_th_piano_q.mid",
+          "audio": "evaluation/development/NotaTestSamples/Case3/88_D_waltz_th_piano_audio.wav",
+          "license": "undocumented_in_repo",
+          "musician_reviewed": false,
+          "note": "Development raw/quantized pair with matching audio. Not documented as a licensed commercial recording and not musician-reviewed score ground truth. Used only as performed-MIDI input to the shared planner."
+        }
+      ],
+      "realworld_local": [],
+      "paired_corpus_populated": false,
+      "licensed_performances_available": false,
+      "local_reference_midi_available": true,
+      "real_performances_available": false,
+      "gap": "No documented licensed commercial recordings or paired-corpus performances are present. 3 local NotaTestSamples raw/quantized pairs are available and are labeled development reference MIDI, not licensed performances. benchmark/realworld/local has no extra audio/MIDI."
+    },
+    "default_algorithm_version": "performance-score-1",
+    "opt_in_algorithm_version": "performance-score-2",
+    "tuning_set": [
+      "I_detached_triplet_groups",
+      "J_intentional_short_triplet_rests",
+      "K_repeated_triplet_pitches",
+      "L_held_voice_under_triplets",
+      "mixed_tuplets"
+    ],
+    "fixtures": [
+      {
+        "id": "humanized_quarters",
+        "kind": "synthetic_midi",
+        "source": "evaluation.notation_fixtures",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "short_rests_repeats",
+        "kind": "synthetic_midi",
+        "source": "evaluation.notation_fixtures",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "melody_over_bass",
+        "kind": "synthetic_midi",
+        "source": "evaluation.notation_fixtures",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "syncopation",
+        "kind": "synthetic_midi",
+        "source": "evaluation.notation_fixtures",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "meter_3_4",
+        "kind": "synthetic_midi",
+        "source": "evaluation.notation_fixtures",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "3/4",
+        "tempo": 120
+      },
+      {
+        "id": "meter_6_8",
+        "kind": "synthetic_midi",
+        "source": "evaluation.notation_fixtures",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "6/8",
+        "tempo": 90
+      },
+      {
+        "id": "mixed_tuplets",
+        "kind": "synthetic_midi",
+        "source": "evaluation.notation_fixtures",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": false,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "rubato_pickup",
+        "kind": "synthetic_midi",
+        "source": "evaluation.notation_fixtures",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "unison_crossing",
+        "kind": "synthetic_midi",
+        "source": "evaluation.notation_fixtures",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "mixed_release_chord",
+        "kind": "synthetic_midi",
+        "source": "evaluation.notation_fixtures",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "multibar_held_melody",
+        "kind": "synthetic_midi",
+        "source": "evaluation.notation_fixtures",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      }
+    ],
+    "readable_v2_cases": [
+      {
+        "id": "A_detached_regular_line",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "B_short_notes_with_rests",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "C_repeated_attacks_under_pedal",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "D_independent_sustain",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "E_repeated_attacks_no_pedal",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "F_overlapping_unisons",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "G_held_voice_same_staff",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "H_foreign_track_pedal",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "I_detached_triplet_groups",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": false,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "J_intentional_short_triplet_rests",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": false,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "K_repeated_triplet_pitches",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": false,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "L_held_voice_under_triplets",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": false,
+        "meter": "4/4",
+        "tempo": 120
+      }
+    ],
+    "heldout_cases": [
+      {
+        "id": "final_short_then_silence",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases.HELDOUT_CASES",
+        "performance": "synthetic_heldout",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "irregular_triplet_intervals",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases.HELDOUT_CASES",
+        "performance": "synthetic_heldout",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "mixed_families_after_bar",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases.HELDOUT_CASES",
+        "performance": "synthetic_heldout",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "near_barline_short_release",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases.HELDOUT_CASES",
+        "performance": "synthetic_heldout",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "independent_voices_mixed_release",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases.HELDOUT_CASES",
+        "performance": "synthetic_heldout",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "long_monophonic_phrase",
+        "kind": "synthetic_midi",
+        "source": "evaluation.readable_v2_cases.HELDOUT_CASES",
+        "performance": "synthetic_heldout",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120
+      }
+    ],
+    "local_reference_midi": [
+      {
+        "id": "160_f_melody_piano",
+        "kind": "local_reference_midi",
+        "source": "evaluation/development/NotaTestSamples",
+        "performance": "development_raw_quantized_pair",
+        "held_out_of_last_note_tune": true,
+        "raw_midi": "evaluation/development/NotaTestSamples/Case1/160_f_melody_piano_raw.mid",
+        "quantized_midi": "evaluation/development/NotaTestSamples/Case1/160_f_melody_piano_q.mid",
+        "audio": "evaluation/development/NotaTestSamples/Case1/160_f_melody_piano_audio.wav",
+        "license": "undocumented_in_repo",
+        "musician_reviewed": false,
+        "note": "Development raw/quantized pair with matching audio. Not documented as a licensed commercial recording and not musician-reviewed score ground truth. Used only as performed-MIDI input to the shared planner."
+      },
+      {
+        "id": "138_\u0441_chords_piano",
+        "kind": "local_reference_midi",
+        "source": "evaluation/development/NotaTestSamples",
+        "performance": "development_raw_quantized_pair",
+        "held_out_of_last_note_tune": true,
+        "raw_midi": "evaluation/development/NotaTestSamples/Case2/138_\u0441_chords_piano_raw.mid",
+        "quantized_midi": "evaluation/development/NotaTestSamples/Case2/138_\u0441_chords_piano_q.mid",
+        "audio": "evaluation/development/NotaTestSamples/Case2/138_\u0441_chords_piano_audio.wav",
+        "license": "undocumented_in_repo",
+        "musician_reviewed": false,
+        "note": "Development raw/quantized pair with matching audio. Not documented as a licensed commercial recording and not musician-reviewed score ground truth. Used only as performed-MIDI input to the shared planner."
+      },
+      {
+        "id": "88_D_waltz_th_piano",
+        "kind": "local_reference_midi",
+        "source": "evaluation/development/NotaTestSamples",
+        "performance": "development_raw_quantized_pair",
+        "held_out_of_last_note_tune": true,
+        "raw_midi": "evaluation/development/NotaTestSamples/Case3/88_D_waltz_th_piano_raw.mid",
+        "quantized_midi": "evaluation/development/NotaTestSamples/Case3/88_D_waltz_th_piano_q.mid",
+        "audio": "evaluation/development/NotaTestSamples/Case3/88_D_waltz_th_piano_audio.wav",
+        "license": "undocumented_in_repo",
+        "musician_reviewed": false,
+        "note": "Development raw/quantized pair with matching audio. Not documented as a licensed commercial recording and not musician-reviewed score ground truth. Used only as performed-MIDI input to the shared planner."
+      }
+    ],
+    "corpus": [
+      {
+        "id": "c_major_quarters",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "melody_simple",
+        "copyrighted": false
+      },
+      {
+        "id": "g_major_eighths",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "melody_simple",
+        "copyrighted": false
+      },
+      {
+        "id": "melody_and_bass",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "piano_simple",
+        "copyrighted": false
+      },
+      {
+        "id": "c_major_block_chords",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "piano_chords",
+        "copyrighted": false
+      },
+      {
+        "id": "octave_doubling",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "piano_chords",
+        "copyrighted": false
+      },
+      {
+        "id": "two_hand_scale",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "piano_two_hands",
+        "copyrighted": false
+      },
+      {
+        "id": "middle_register",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "piano_two_hands",
+        "copyrighted": false
+      },
+      {
+        "id": "hand_crossing",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "piano_two_hands",
+        "copyrighted": false
+      },
+      {
+        "id": "polyphonic_rh",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "piano_two_hands",
+        "copyrighted": false
+      },
+      {
+        "id": "quarters",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "rhythm",
+        "copyrighted": false
+      },
+      {
+        "id": "eighths",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "rhythm",
+        "copyrighted": false
+      },
+      {
+        "id": "sixteenths",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "rhythm",
+        "copyrighted": false
+      },
+      {
+        "id": "dotted",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "rhythm",
+        "copyrighted": false
+      },
+      {
+        "id": "triplets",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "rhythm",
+        "copyrighted": false
+      },
+      {
+        "id": "syncopation",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "rhythm",
+        "copyrighted": false
+      },
+      {
+        "id": "waltz_3_4",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "3/4",
+        "tempo": 90,
+        "category": "rhythm",
+        "copyrighted": false
+      },
+      {
+        "id": "compound_6_8",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "6/8",
+        "tempo": 120,
+        "category": "rhythm",
+        "copyrighted": false
+      },
+      {
+        "id": "midi_rh_lh_tracks",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "midi_ingest",
+        "copyrighted": false
+      },
+      {
+        "id": "midi_3_4",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "3/4",
+        "tempo": 96,
+        "category": "midi_ingest",
+        "copyrighted": false
+      },
+      {
+        "id": "midi_6_8",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "6/8",
+        "tempo": 120,
+        "category": "midi_ingest",
+        "copyrighted": false
+      },
+      {
+        "id": "midi_chords_and_melody",
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "held_out_of_last_note_tune": true,
+        "meter": "4/4",
+        "tempo": 120,
+        "category": "midi_ingest",
+        "copyrighted": false
+      }
+    ],
+    "note": "All committed MIDI is generated. Do not describe these as real performances. Real-audio transcription accuracy is a separate evaluation and is not used for this rollout decision."
+  },
+  "cases": [
+    {
+      "label": "A_detached_regular_line",
+      "fixture": "A_detached_regular_line",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": {
+        "onset": "Eight attacks on successive quarter beats.",
+        "release": "Written as quarters; 80ms gaps are articulation, not rests.",
+        "engraving": "Single-voice quarter line. Staccato marks optional."
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "5a0e0be8f784321bb92ceb573a405cc1f15c9b582e5e9631dc1211a438ca89da",
+      "performance_sha256": "5a0e0be8f784321bb92ceb573a405cc1f15c9b582e5e9631dc1211a438ca89da",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 8,
+          "rest_count": 10,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 8,
+          "rest_count": 2,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": false,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": [
+          {
+            "index": 0,
+            "pitch": 72,
+            "v1": 0.75,
+            "v2": 1.0
+          },
+          {
+            "index": 1,
+            "pitch": 72,
+            "v1": 0.75,
+            "v2": 1.0
+          },
+          {
+            "index": 2,
+            "pitch": 72,
+            "v1": 0.75,
+            "v2": 1.0
+          },
+          {
+            "index": 3,
+            "pitch": 72,
+            "v1": 0.75,
+            "v2": 1.0
+          },
+          {
+            "index": 4,
+            "pitch": 72,
+            "v1": 0.75,
+            "v2": 1.0
+          },
+          {
+            "index": 5,
+            "pitch": 72,
+            "v1": 0.75,
+            "v2": 1.0
+          },
+          {
+            "index": 6,
+            "pitch": 72,
+            "v1": 0.75,
+            "v2": 1.0
+          },
+          {
+            "index": 7,
+            "pitch": 72,
+            "v1": 0.75,
+            "v2": 1.0
+          }
+        ]
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 10,
+        "v2": 2,
+        "delta": -8
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": false
+    },
+    {
+      "label": "B_short_notes_with_rests",
+      "fixture": "B_short_notes_with_rests",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": {
+        "onset": "Four attacks on successive quarter beats.",
+        "release": "Sounding sixteenths with visible rests through each quarter.",
+        "engraving": "Do not fill to the next attack. The rest is the music."
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "bbe76c96da15f3d45f206115a112afbf0b0b70b5b3dee09a3313476d20d08996",
+      "performance_sha256": "bbe76c96da15f3d45f206115a112afbf0b0b70b5b3dee09a3313476d20d08996",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 4,
+          "rest_count": 9,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 4,
+          "rest_count": 9,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 9,
+        "v2": 9,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "humanized_quarters",
+      "fixture": "humanized_quarters",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": null,
+      "expected_meter": "4/4",
+      "midi_sha256": "febef3b0038b5e409a19c1616274447005c670c952839c9ddc98405a2b97b5f9",
+      "performance_sha256": "febef3b0038b5e409a19c1616274447005c670c952839c9ddc98405a2b97b5f9",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 8,
+          "rest_count": 2,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 8,
+          "rest_count": 2,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 2,
+        "v2": 2,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "short_rests_repeats",
+      "fixture": "short_rests_repeats",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": null,
+      "expected_meter": "4/4",
+      "midi_sha256": "e3715e386b719a366bc240e9fe596e626ef01282f058fe69174edfcafbedcf6f",
+      "performance_sha256": "e3715e386b719a366bc240e9fe596e626ef01282f058fe69174edfcafbedcf6f",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 7,
+          "rest_count": 10,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 7,
+          "rest_count": 5,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": false,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": [
+          {
+            "index": 0,
+            "pitch": 76,
+            "v1": 0.1875,
+            "v2": 0.25
+          },
+          {
+            "index": 2,
+            "pitch": 76,
+            "v1": 0.1875,
+            "v2": 0.25
+          },
+          {
+            "index": 3,
+            "pitch": 76,
+            "v1": 0.1875,
+            "v2": 0.25
+          },
+          {
+            "index": 4,
+            "pitch": 76,
+            "v1": 0.1875,
+            "v2": 0.25
+          },
+          {
+            "index": 5,
+            "pitch": 76,
+            "v1": 0.1875,
+            "v2": 0.25
+          }
+        ]
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 10,
+        "v2": 5,
+        "delta": -5
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": false
+    },
+    {
+      "label": "mixed_tuplets",
+      "fixture": "mixed_tuplets",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": false
+      },
+      "tuning_set": true,
+      "expected": {
+        "onset": "Four quarters, then six triplet-eighth attacks starting at beat 4.",
+        "release": "v1: sixteenths at triplet onsets. v2: all six written 1/3, including the last.",
+        "engraving": "Keep the binary quarters. Do not invent a tiny triplet rest after the last eighth."
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "f37ef4547e24f1de20fe7308d89b251dd64a2571bb5b64c562dbf5b02ed08a33",
+      "performance_sha256": "f37ef4547e24f1de20fe7308d89b251dd64a2571bb5b64c562dbf5b02ed08a33",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 10,
+          "rest_count": 9,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 10,
+          "rest_count": 3,
+          "tied_fragments": 0,
+          "tuplet_notes": 6,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": false,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": [
+          {
+            "index": 4,
+            "pitch": 72,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 5,
+            "pitch": 73,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 6,
+            "pitch": 74,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 7,
+            "pitch": 72,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 8,
+            "pitch": 73,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 9,
+            "pitch": 74,
+            "v1": 0.25,
+            "v2": 0.3333
+          }
+        ]
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 9,
+        "v2": 3,
+        "delta": -6
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": false
+    },
+    {
+      "label": "I_detached_triplet_groups",
+      "fixture": "I_detached_triplet_groups",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": false
+      },
+      "tuning_set": true,
+      "expected": {
+        "onset": "Two groups of three attacks at triplet-eighth spacing, gap of a quarter.",
+        "release": "All six written as triplet eighths (1/3), including each group-ending note.",
+        "engraving": "No sixteenth plus tiny triplet rest on the last note before silence."
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "0da7a1f61f0f8453e472ee7a576c30176b3da738b46bed28897084dc53e36894",
+      "performance_sha256": "0da7a1f61f0f8453e472ee7a576c30176b3da738b46bed28897084dc53e36894",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 6,
+          "rest_count": 9,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 6,
+          "rest_count": 3,
+          "tied_fragments": 0,
+          "tuplet_notes": 6,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": false,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": [
+          {
+            "index": 0,
+            "pitch": 72,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 1,
+            "pitch": 72,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 2,
+            "pitch": 72,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 3,
+            "pitch": 72,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 4,
+            "pitch": 72,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 5,
+            "pitch": 72,
+            "v1": 0.25,
+            "v2": 0.3333
+          }
+        ]
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 9,
+        "v2": 3,
+        "delta": -6
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": false
+    },
+    {
+      "label": "J_intentional_short_triplet_rests",
+      "fixture": "J_intentional_short_triplet_rests",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": false
+      },
+      "tuning_set": true,
+      "expected": {
+        "onset": "Three attacks at triplet-eighth spacing.",
+        "release": "Sounding 32nds (or shorter) with visible rests through each 1/3 pulse.",
+        "engraving": "Do not fill the last note. Remaining >= a sixteenth is a rest."
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "4f4e6dd91d59cdae2f0e2965d60e93548dce6a12026978d0d42d8a8320afb4e2",
+      "performance_sha256": "4f4e6dd91d59cdae2f0e2965d60e93548dce6a12026978d0d42d8a8320afb4e2",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 3,
+          "rest_count": 5,
+          "tied_fragments": 0,
+          "tuplet_notes": 3,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 3,
+          "rest_count": 5,
+          "tied_fragments": 0,
+          "tuplet_notes": 3,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 5,
+        "v2": 5,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "mixed_families_after_bar",
+      "fixture": "mixed_families_after_bar",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_heldout",
+        "performance": "synthetic_heldout",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": {
+        "onset": "Four quarters, six triplet eighths, four more quarters.",
+        "release": "Keep both families. Last triplet must not steal the returning quarter.",
+        "engraving": "Measure integrity and onsets stay put across the family change."
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "4e9d75115a1b7852324ca72189d28faf7f5a6d4a907b624d99d4f913052691f5",
+      "performance_sha256": "4e9d75115a1b7852324ca72189d28faf7f5a6d4a907b624d99d4f913052691f5",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 14,
+          "rest_count": 10,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 3,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 14,
+          "rest_count": 4,
+          "tied_fragments": 0,
+          "tuplet_notes": 6,
+          "mixed_chord_marks": false,
+          "measure_count": 3,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": false,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": [
+          {
+            "index": 4,
+            "pitch": 72,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 5,
+            "pitch": 73,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 6,
+            "pitch": 74,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 7,
+            "pitch": 72,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 8,
+            "pitch": 73,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 9,
+            "pitch": 74,
+            "v1": 0.25,
+            "v2": 0.3333
+          }
+        ]
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 10,
+        "v2": 4,
+        "delta": -6
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": false
+    },
+    {
+      "label": "irregular_triplet_intervals",
+      "fixture": "irregular_triplet_intervals",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_heldout",
+        "performance": "synthetic_heldout",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": {
+        "onset": "Three irregular attacks, not on a 1/3 grid.",
+        "release": "Keep performed spacing. Do not rewrite as regular triplet eighths.",
+        "engraving": "Exact tuplets stay exact; this fixture is not an exact tuplet."
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "47df28cfe4eed073998867fc04cb42d0922974640a50053fd55d002785ee7ca9",
+      "performance_sha256": "47df28cfe4eed073998867fc04cb42d0922974640a50053fd55d002785ee7ca9",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 3,
+          "rest_count": 4,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 3,
+          "rest_count": 2,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": false,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": [
+          {
+            "index": 0,
+            "pitch": 72,
+            "v1": 0.25,
+            "v2": 0.375
+          },
+          {
+            "index": 1,
+            "pitch": 74,
+            "v1": 0.25,
+            "v2": 0.375
+          }
+        ]
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 4,
+        "v2": 2,
+        "delta": -2
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": false
+    },
+    {
+      "label": "final_short_then_silence",
+      "fixture": "final_short_then_silence",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_heldout",
+        "performance": "synthetic_heldout",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": {
+        "onset": "Four quarter attacks, then one short attack on the next beat.",
+        "release": "Last note stays short. The following silence is a rest, not leftover articulation.",
+        "engraving": "Do not fill the last note to the barline."
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "61b3e9bc28227a6645e414f07101bde19a99b25a1ae238423bc0ef2d968d1df5",
+      "performance_sha256": "61b3e9bc28227a6645e414f07101bde19a99b25a1ae238423bc0ef2d968d1df5",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 5,
+          "rest_count": 5,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 5,
+          "rest_count": 5,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 5,
+        "v2": 5,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "rubato_pickup",
+      "fixture": "rubato_pickup",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": null,
+      "expected_meter": "4/4",
+      "midi_sha256": "6a6e795e7eb8c00dc7a6bada808ac1dfe538a91bdbcb4ffa3c8a3b158c4e9cd5",
+      "performance_sha256": "6a6e795e7eb8c00dc7a6bada808ac1dfe538a91bdbcb4ffa3c8a3b158c4e9cd5",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 8,
+          "rest_count": 10,
+          "tied_fragments": 2,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 8,
+          "rest_count": 10,
+          "tied_fragments": 2,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 10,
+        "v2": 10,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 2,
+        "v2": 2,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "syncopation",
+      "fixture": "syncopation",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": null,
+      "expected_meter": "4/4",
+      "midi_sha256": "f8238162c47ed24b5ce0326175d2b6d94ca74ddc17f8ad2339a6a712091d6a3a",
+      "performance_sha256": "f8238162c47ed24b5ce0326175d2b6d94ca74ddc17f8ad2339a6a712091d6a3a",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 7,
+          "rest_count": 5,
+          "tied_fragments": 4,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 3,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 7,
+          "rest_count": 5,
+          "tied_fragments": 4,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 3,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 5,
+        "v2": 5,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 4,
+        "v2": 4,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "meter_6_8",
+      "fixture": "meter_6_8",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": null,
+      "expected_meter": "6/8",
+      "midi_sha256": "233c65001861637080a624a01fa74393f073de7e4b8c55940f547b8cc338d62a",
+      "performance_sha256": "233c65001861637080a624a01fa74393f073de7e4b8c55940f547b8cc338d62a",
+      "source_midi_unchanged": true,
+      "ingested_meter": "6/8",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 4,
+          "rest_count": 2,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "6/8"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 4,
+          "rest_count": 2,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "6/8"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "6/8"
+        ],
+        "v2": [
+          "6/8"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 2,
+        "v2": 2,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "C_repeated_attacks_under_pedal",
+      "fixture": "C_repeated_attacks_under_pedal",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": {
+        "onset": "Four repeated G4 attacks, one per quarter.",
+        "release": "Repeated quarters, not one tied note. Pedal is performance.",
+        "engraving": "Same pitch re-attacks stay separate under CC64."
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "a7404c045eefcd53af6f47844174778e65410a9aefc1a6b4d92353283a0c7561",
+      "performance_sha256": "a7404c045eefcd53af6f47844174778e65410a9aefc1a6b4d92353283a0c7561",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 4,
+          "rest_count": 1,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 4,
+          "rest_count": 1,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 1,
+        "v2": 1,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "E_repeated_attacks_no_pedal",
+      "fixture": "E_repeated_attacks_no_pedal",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": {
+        "onset": "Four repeated G4 attacks, one per quarter, no CC64.",
+        "release": "Repeated quarters. Legato MIDI overlap is not a tie.",
+        "engraving": "Re-attacks stay separate without pedal evidence."
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "f0fb516b4a1ab8016d5d5b57289e5d760ad5c4b4f8cb7f307c1b54b26f49868d",
+      "performance_sha256": "f0fb516b4a1ab8016d5d5b57289e5d760ad5c4b4f8cb7f307c1b54b26f49868d",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 4,
+          "rest_count": 1,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 4,
+          "rest_count": 1,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 1,
+        "v2": 1,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "G_held_voice_same_staff",
+      "fixture": "G_held_voice_same_staff",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": {
+        "onset": "Held G4 plus four upper-quarter attacks on one staff.",
+        "release": "The hold lasts the bar; moving notes keep their releases.",
+        "engraving": "Two independent voices on the same staff."
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "5f03280a7237a808bd4a90641ba780e38233902df9926b9cfc993d76d63837f8",
+      "performance_sha256": "5f03280a7237a808bd4a90641ba780e38233902df9926b9cfc993d76d63837f8",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 5,
+          "rest_count": 4,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 5,
+          "rest_count": 0,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": false,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": [
+          {
+            "index": 0,
+            "pitch": 76,
+            "v1": 0.75,
+            "v2": 1.0
+          },
+          {
+            "index": 2,
+            "pitch": 77,
+            "v1": 0.75,
+            "v2": 1.0
+          },
+          {
+            "index": 3,
+            "pitch": 78,
+            "v1": 0.75,
+            "v2": 1.0
+          },
+          {
+            "index": 4,
+            "pitch": 79,
+            "v1": 0.75,
+            "v2": 1.0
+          }
+        ]
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 4,
+        "v2": 0,
+        "delta": -4
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": false
+    },
+    {
+      "label": "L_held_voice_under_triplets",
+      "fixture": "L_held_voice_under_triplets",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": false
+      },
+      "tuning_set": true,
+      "expected": {
+        "onset": "One bass attack plus six treble triplet-eighth attacks.",
+        "release": "Bass lasts its span; treble last note is a triplet eighth.",
+        "engraving": "Two independent voices. Do not clip the hold."
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "8bb6d5cff77764f050a2c18e94645a671ce4b524fc1fef0f5f68cc9bab93d195",
+      "performance_sha256": "8bb6d5cff77764f050a2c18e94645a671ce4b524fc1fef0f5f68cc9bab93d195",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 7,
+          "rest_count": 8,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 7,
+          "rest_count": 2,
+          "tied_fragments": 0,
+          "tuplet_notes": 6,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": false,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": [
+          {
+            "index": 0,
+            "pitch": 72,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 2,
+            "pitch": 73,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 3,
+            "pitch": 74,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 4,
+            "pitch": 72,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 5,
+            "pitch": 73,
+            "v1": 0.25,
+            "v2": 0.3333
+          },
+          {
+            "index": 6,
+            "pitch": 74,
+            "v1": 0.25,
+            "v2": 0.3333
+          }
+        ]
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 8,
+        "v2": 2,
+        "delta": -6
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": false
+    },
+    {
+      "label": "independent_voices_mixed_release",
+      "fixture": "independent_voices_mixed_release",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_heldout",
+        "performance": "synthetic_heldout",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": {
+        "onset": "Held bass plus a short inner C3 and four short treble attacks.",
+        "release": "Bass lasts the bar. Treble keeps rests. Voices stay independent.",
+        "engraving": "Do not clip the hold or fill moving notes from the other voice."
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "4bffd38e7355626f9f464380dc2da5f233cbef2d7ee75615ecfeb4772aff1959",
+      "performance_sha256": "4bffd38e7355626f9f464380dc2da5f233cbef2d7ee75615ecfeb4772aff1959",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 6,
+          "rest_count": 6,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 6,
+          "rest_count": 6,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0,
+          1
+        ],
+        "v2_voices": [
+          0,
+          1
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 6,
+        "v2": 6,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "mixed_release_chord",
+      "fixture": "mixed_release_chord",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": null,
+      "expected_meter": "4/4",
+      "midi_sha256": "153545977df4e41c1762689625e5b1738bcc10fcc14b935e66f46da9baae150e",
+      "performance_sha256": "153545977df4e41c1762689625e5b1738bcc10fcc14b935e66f46da9baae150e",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 3,
+          "rest_count": 2,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 3,
+          "rest_count": 2,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0,
+          1
+        ],
+        "v2_voices": [
+          0,
+          1
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 2,
+        "v2": 2,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "unison_crossing",
+      "fixture": "unison_crossing",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_fixture",
+        "performance": "synthetic_fixture",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": null,
+      "expected_meter": "4/4",
+      "midi_sha256": "f66f9b638813762de3e21db0c01dc1c51b5aa5fd61995c62d6beb4a2813055b6",
+      "performance_sha256": "f66f9b638813762de3e21db0c01dc1c51b5aa5fd61995c62d6beb4a2813055b6",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 9,
+          "rest_count": 4,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 9,
+          "rest_count": 4,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0,
+          1
+        ],
+        "v2_voices": [
+          0,
+          1
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 4,
+        "v2": 4,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "near_barline_short_release",
+      "fixture": "near_barline_short_release",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_heldout",
+        "performance": "synthetic_heldout",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": {
+        "onset": "Three quarters, then a short attack on the last eighth of the bar.",
+        "release": "Short note plus remaining rest through the barline.",
+        "engraving": "Leftover < sixteenth to the bar is still a rest when the attack is short."
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "69437394c4892179c6891c2b7c2682708b2f2931887df1d870bd068ca1da940b",
+      "performance_sha256": "69437394c4892179c6891c2b7c2682708b2f2931887df1d870bd068ca1da940b",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 4,
+          "rest_count": 4,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 4,
+          "rest_count": 4,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 4,
+        "v2": 4,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "long_monophonic_phrase",
+      "fixture": "long_monophonic_phrase",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "synthetic_heldout",
+        "performance": "synthetic_heldout",
+        "held_out_of_last_note_tune": true
+      },
+      "tuning_set": false,
+      "expected": {
+        "onset": "Forty bars of C-major scale quarters.",
+        "release": "Written quarters. Used for multi-page export, not duration tuning.",
+        "engraving": "One voice, intact measures, raw MIDI preserved."
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "b0fd89872bd5bcbfb2a30e68ada2f5fab2d4bda1f5feb8fc5e0ac53ccf01d3e9",
+      "performance_sha256": "b0fd89872bd5bcbfb2a30e68ada2f5fab2d4bda1f5feb8fc5e0ac53ccf01d3e9",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 320,
+          "rest_count": 41,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 41,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 320,
+          "rest_count": 41,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 41,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0,
+          1
+        ],
+        "v2_voices": [
+          0,
+          1
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 41,
+        "v2": 41,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    }
+  ],
+  "corpus": [
+    {
+      "label": "c_major_quarters",
+      "fixture": "c_major_quarters",
+      "family": "melody_simple",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "copyrighted": false,
+        "held_out_of_last_note_tune": true
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "0d5275a90417887a6ec0bba54fcf1949fa0f1cf54618b76f48b043bd7ac1b462",
+      "performance_sha256": "0d5275a90417887a6ec0bba54fcf1949fa0f1cf54618b76f48b043bd7ac1b462",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 2,
+        "v2": 2,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "melody_and_bass",
+      "fixture": "melody_and_bass",
+      "family": "piano_simple",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "copyrighted": false,
+        "held_out_of_last_note_tune": true
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "de76aa46964aa820df7b2825dfb61cfde11c0385e9acb70ffee78764c11e30f4",
+      "performance_sha256": "de76aa46964aa820df7b2825dfb61cfde11c0385e9acb70ffee78764c11e30f4",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "hand_crossing",
+      "fixture": "hand_crossing",
+      "family": "piano_two_hands",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "copyrighted": false,
+        "held_out_of_last_note_tune": true
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "a881ce46c3ea48806f485119628812f22ed89e5e399eaa82f669dd86535b359d",
+      "performance_sha256": "a881ce46c3ea48806f485119628812f22ed89e5e399eaa82f669dd86535b359d",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 2,
+        "v2": 2,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "triplets",
+      "fixture": "triplets",
+      "family": "rhythm",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "copyrighted": false,
+        "held_out_of_last_note_tune": true
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "edda21b1206e6c680cce5e737bd4349af9b80b8d6125a9071f06acb4ca1c9448",
+      "performance_sha256": "edda21b1206e6c680cce5e737bd4349af9b80b8d6125a9071f06acb4ca1c9448",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 1,
+        "v2": 1,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "syncopation",
+      "fixture": "syncopation",
+      "family": "rhythm",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "copyrighted": false,
+        "held_out_of_last_note_tune": true
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "bed818b02913ebd3fb87a5592be3ecfe9785a66ec3207dab152c4869861960ec",
+      "performance_sha256": "bed818b02913ebd3fb87a5592be3ecfe9785a66ec3207dab152c4869861960ec",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 1,
+        "v2": 1,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "compound_6_8",
+      "fixture": "compound_6_8",
+      "family": "rhythm",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "copyrighted": false,
+        "held_out_of_last_note_tune": true
+      },
+      "expected_meter": "6/8",
+      "midi_sha256": "c0b701b9b5d9647da3fe542d838ea53d42e519eadc9814a411c4ede8ffd76063",
+      "performance_sha256": "c0b701b9b5d9647da3fe542d838ea53d42e519eadc9814a411c4ede8ffd76063",
+      "source_midi_unchanged": true,
+      "ingested_meter": "6/8",
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "6/8"
+        ],
+        "v2": [
+          "6/8"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0
+        ],
+        "v2_voices": [
+          0
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "midi_chords_and_melody",
+      "fixture": "midi_chords_and_melody",
+      "family": "midi_ingest",
+      "provenance": {
+        "kind": "synthetic_midi",
+        "source": "benchmark.fixtures.catalog",
+        "performance": "synthetic_corpus",
+        "copyrighted": false,
+        "held_out_of_last_note_tune": true
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "c4ad15eeedf6d42c177eccc9b185b1a31b5bcadb56ba360bbc5318c1a4abc440",
+      "performance_sha256": "c4ad15eeedf6d42c177eccc9b185b1a31b5bcadb56ba360bbc5318c1a4abc440",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "v2_voices": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 0,
+        "v2": 0,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    }
+  ],
+  "reference_midi": [
+    {
+      "label": "160_f_melody_piano",
+      "fixture": "160_f_melody_piano",
+      "family": "local_reference_midi",
+      "provenance": {
+        "kind": "local_reference_midi",
+        "source": "evaluation/development/NotaTestSamples",
+        "performance": "development_raw_quantized_pair",
+        "held_out_of_last_note_tune": true,
+        "license": "undocumented_in_repo",
+        "musician_reviewed": false
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "97aa8bdc29e63fa628191ca8c2f65c3b26904e0aa7a3fb4478bde5f171a92abd",
+      "performance_sha256": "97aa8bdc29e63fa628191ca8c2f65c3b26904e0aa7a3fb4478bde5f171a92abd",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 13,
+          "rest_count": 21,
+          "tied_fragments": 10,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 8,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 13,
+          "rest_count": 21,
+          "tied_fragments": 10,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 8,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0,
+          1
+        ],
+        "v2_voices": [
+          0,
+          1
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 21,
+        "v2": 21,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 10,
+        "v2": 10,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    },
+    {
+      "label": "138_\u0441_chords_piano",
+      "fixture": "138_\u0441_chords_piano",
+      "family": "local_reference_midi",
+      "provenance": {
+        "kind": "local_reference_midi",
+        "source": "evaluation/development/NotaTestSamples",
+        "performance": "development_raw_quantized_pair",
+        "held_out_of_last_note_tune": true,
+        "license": "undocumented_in_repo",
+        "musician_reviewed": false
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "077eca3c35924432c02796dd7918b47f87649815dfe3486709daf4fcc4cd3cce",
+      "performance_sha256": "077eca3c35924432c02796dd7918b47f87649815dfe3486709daf4fcc4cd3cce",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 54,
+          "rest_count": 40,
+          "tied_fragments": 51,
+          "tuplet_notes": 11,
+          "mixed_chord_marks": false,
+          "measure_count": 7,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 37,
+          "rest_count": 32,
+          "tied_fragments": 32,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 7,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": false,
+        "durations_equal": false,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": [
+          {
+            "index": 7,
+            "pitch": 60,
+            "v1": 3.9583,
+            "v2": 4.0
+          },
+          {
+            "index": 8,
+            "pitch": 67,
+            "v1": 3.4792,
+            "v2": 3.5
+          },
+          {
+            "index": 9,
+            "pitch": 71,
+            "v1": 3.6458,
+            "v2": 4.0
+          },
+          {
+            "index": 13,
+            "pitch": 67,
+            "v1": 7.5833,
+            "v2": 7.5625
+          }
+        ]
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "v2_voices": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 40,
+        "v2": 32,
+        "delta": -8
+      },
+      "tie_count": {
+        "v1": 51,
+        "v2": 32,
+        "delta": -19
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": false
+    },
+    {
+      "label": "88_D_waltz_th_piano",
+      "fixture": "88_D_waltz_th_piano",
+      "family": "local_reference_midi",
+      "provenance": {
+        "kind": "local_reference_midi",
+        "source": "evaluation/development/NotaTestSamples",
+        "performance": "development_raw_quantized_pair",
+        "held_out_of_last_note_tune": true,
+        "license": "undocumented_in_repo",
+        "musician_reviewed": false
+      },
+      "expected_meter": "4/4",
+      "midi_sha256": "8d681b985c61e520e9ce3dc38539e0eff2c21e7cad051f7fba72291cee0847fb",
+      "performance_sha256": "8d681b985c61e520e9ce3dc38539e0eff2c21e7cad051f7fba72291cee0847fb",
+      "source_midi_unchanged": true,
+      "ingested_meter": "4/4",
+      "v1": {
+        "algorithm_version": "performance-score-1",
+        "surface": {
+          "printed_notes": 31,
+          "rest_count": 55,
+          "tied_fragments": 14,
+          "tuplet_notes": 11,
+          "mixed_chord_marks": false,
+          "measure_count": 4,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "v2": {
+        "algorithm_version": "performance-score-2",
+        "surface": {
+          "printed_notes": 31,
+          "rest_count": 55,
+          "tied_fragments": 14,
+          "tuplet_notes": 11,
+          "mixed_chord_marks": false,
+          "measure_count": 4,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "timing": {
+        "starts_equal": true,
+        "durations_equal": true,
+        "pitches_equal": true,
+        "source_ids_equal": true,
+        "hands_equal": true,
+        "voices_equal": true,
+        "duration_changes": []
+      },
+      "measure_integrity": {
+        "v1": [
+          "4/4"
+        ],
+        "v2": [
+          "4/4"
+        ],
+        "equal": true
+      },
+      "hand_voice": {
+        "v1_hands": [
+          ""
+        ],
+        "v2_hands": [
+          ""
+        ],
+        "v1_voices": [
+          0,
+          1
+        ],
+        "v2_voices": [
+          0,
+          1
+        ],
+        "equal": true
+      },
+      "rest_count": {
+        "v1": 55,
+        "v2": 55,
+        "delta": 0
+      },
+      "tie_count": {
+        "v1": 14,
+        "v2": 14,
+        "delta": 0
+      },
+      "fewer_rests_not_better": true,
+      "fewer_ties_not_better": true,
+      "identical_written": true
+    }
+  ],
+  "renders": [
+    {
+      "label": "B_short_notes_with_rests",
+      "version": "v1",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "B_short_notes_with_rests",
+      "version": "v2",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "mixed_tuplets",
+      "version": "v1",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "mixed_tuplets",
+      "version": "v2",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "final_short_then_silence",
+      "version": "v1",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "final_short_then_silence",
+      "version": "v2",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "meter_6_8",
+      "version": "v1",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "meter_6_8",
+      "version": "v2",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "independent_voices_mixed_release",
+      "version": "v1",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "independent_voices_mixed_release",
+      "version": "v2",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "mixed_release_chord",
+      "version": "v1",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": true
+    },
+    {
+      "label": "mixed_release_chord",
+      "version": "v2",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": true
+    },
+    {
+      "label": "unison_crossing",
+      "version": "v1",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "unison_crossing",
+      "version": "v2",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "near_barline_short_release",
+      "version": "v1",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "near_barline_short_release",
+      "version": "v2",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "long_monophonic_phrase",
+      "version": "v1",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "long_monophonic_phrase",
+      "version": "v2",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "160_f_melody_piano",
+      "version": "v1",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "160_f_melody_piano",
+      "version": "v2",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "138_\u0441_chords_piano",
+      "version": "v1",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "138_\u0441_chords_piano",
+      "version": "v2",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "88_D_waltz_th_piano",
+      "version": "v1",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    },
+    {
+      "label": "88_D_waltz_th_piano",
+      "version": "v2",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      },
+      "visual": {
+        "status": "rendered",
+        "counts_as_success": false,
+        "pages_rendered": true,
+        "visual_review_completed": false,
+        "svg": true,
+        "png": true,
+        "pages_checked": 1,
+        "reason": "Pages rendered; visual review is not claimed from screenshots",
+        "model": true
+      },
+      "pdf": {
+        "status": "passed",
+        "counts_as_success": true,
+        "export_completed": true,
+        "pdf_parsed": true,
+        "page_count_verified": true,
+        "pages_rendered": false,
+        "visual_review_completed": false,
+        "pdf": true,
+        "pages_checked": 1,
+        "parsed_pages": 1,
+        "expected_pages": 1,
+        "claimed_pages": 1,
+        "all_pages_checked": true,
+        "reason": null
+      },
+      "mixed_chord_renderer_limitation": false
+    }
+  ],
+  "evidence_kind": "synthetic_midi",
+  "real_audio_evidence": false,
+  "mixed_chord_renderer_limitation": "OSMD may union per-member articulations on a chord. MusicXML keeps ownership; compare_engraving now fails a swapped pair.",
+  "recommendation": {
+    "decision": "continued_opt_in",
+    "rationale": "Keep performance-score-2 opt-in. Remaining regressions or missing real-performance evidence are listed below. Do not migrate existing jobs or change the default because synthetic tests pass.",
+    "remaining": [
+      {
+        "case": "short_rests_repeats",
+        "issue": "v2 rest count 10\u21925. Fewer rests are not automatically better; musician review needed."
+      },
+      {
+        "case": "irregular_triplet_intervals",
+        "issue": "v2 filled leftover < sixteenth to the next attack (0.25\u21920.375), not a 1/3 tuplet. Ambiguous silence; not used to retune.",
+        "duration_changes": [
+          {
+            "index": 0,
+            "pitch": 72,
+            "v1": 0.25,
+            "v2": 0.375
+          },
+          {
+            "index": 1,
+            "pitch": 74,
+            "v1": 0.25,
+            "v2": 0.375
+          }
+        ]
+      },
+      {
+        "case": "real_performances",
+        "issue": "No documented licensed commercial recordings or paired-corpus performances are present. 3 local NotaTestSamples raw/quantized pairs are available and are labeled development reference MIDI, not licensed performances. benchmark/realworld/local has no extra audio/MIDI."
+      },
+      {
+        "case": "long_monophonic_phrase",
+        "issue": "Production OSMD compact A4 rendered the 41-bar phrase as 1 page. Multi-page output did not occur. Reported only; renderer was not changed."
+      }
+    ],
+    "default_algorithm_version": "performance-score-1",
+    "opt_in_setting": {
+      "interpretation": "readable",
+      "algorithm_version": "performance-score-2"
+    },
+    "reversible": true,
+    "migrate_existing_jobs": false
+  }
+}

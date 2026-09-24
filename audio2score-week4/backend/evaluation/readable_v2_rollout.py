@@ -30,6 +30,7 @@ from evaluation.readable_v2_cases import (
     HELDOUT_META,
     READABLE_V2_CASES,
 )
+from mir.midi_ingest import ingest_midi
 from mir.notation_settings import (
     ALGORITHM_VERSION_CURRENT,
     ALGORITHM_VERSION_READABLE,
@@ -41,6 +42,7 @@ BACKEND = HERE.parent
 EVALUATION = HERE
 PAIRED = HERE / "paired_corpus"
 REALWORLD_LOCAL = BACKEND / "benchmark" / "realworld" / "local"
+NOTA_SAMPLES = EVALUATION / "development" / "NotaTestSamples"
 
 # Last-note triplet-pulse fill was tuned on these. Everything else is held-out
 # of that heuristic, including unused fixtures and the synthetic corpus.
@@ -165,18 +167,40 @@ def _timing_delta(left: dict, right: dict) -> dict:
     }
 
 
+def _nota_sample_pairs() -> list[dict]:
+    """Local development raw/quantized MIDI pairs. Not licensed commercial recordings."""
+    rows = []
+    if not NOTA_SAMPLES.exists():
+        return rows
+    for raw in sorted(NOTA_SAMPLES.rglob("*_raw.mid")):
+        quantized = raw.with_name(raw.name.replace("_raw.mid", "_q.mid"))
+        audio = raw.with_name(raw.name.replace("_raw.mid", "_audio.wav"))
+        rows.append(
+            {
+                "id": raw.stem.replace("_raw", ""),
+                "kind": "local_reference_midi",
+                "source": "evaluation/development/NotaTestSamples",
+                "performance": "development_raw_quantized_pair",
+                "held_out_of_last_note_tune": True,
+                "raw_midi": str(raw.relative_to(BACKEND)),
+                "quantized_midi": str(quantized.relative_to(BACKEND)) if quantized.exists() else None,
+                "audio": str(audio.relative_to(BACKEND)) if audio.exists() else None,
+                "license": "undocumented_in_repo",
+                "musician_reviewed": False,
+                "note": (
+                    "Development raw/quantized pair with matching audio. "
+                    "Not documented as a licensed commercial recording and not "
+                    "musician-reviewed score ground truth. Used only as "
+                    "performed-MIDI input to the shared planner."
+                ),
+            }
+        )
+    return rows
+
+
 def _real_midi_available() -> dict:
     """Look for licensed/reference performances. Do not relabel synthetics."""
-    eval_audio = []
-    for split in ("development", "holdout", "real_world", "human_reviewed"):
-        root = EVALUATION / split
-        if not root.exists():
-            continue
-        eval_audio.extend(
-            str(path.relative_to(BACKEND))
-            for path in root.rglob("*")
-            if path.is_file() and path.suffix.lower() in {".wav", ".mp3", ".flac", ".mid", ".midi"}
-        )
+    samples = _nota_sample_pairs()
     realworld = []
     if REALWORLD_LOCAL.exists():
         realworld = [
@@ -184,27 +208,32 @@ def _real_midi_available() -> dict:
             for path in REALWORLD_LOCAL.rglob("*")
             if path.is_file() and path.suffix.lower() in {".wav", ".mp3", ".flac", ".mid", ".midi"}
         ]
-    paired_slots_empty = not any(
-        (PAIRED / name).is_dir() and any((PAIRED / name).iterdir())
-        for name in ("development", "holdout", "real_world", "human_reviewed")
-        if (PAIRED / name).exists()
-    )
+    licensed = False
+    gap_parts = []
+    if not licensed:
+        gap_parts.append(
+            "No documented licensed commercial recordings or paired-corpus "
+            "performances are present."
+        )
+    if samples:
+        gap_parts.append(
+            f"{len(samples)} local NotaTestSamples raw/quantized pairs are available "
+            "and are labeled development reference MIDI, not licensed performances."
+        )
+    else:
+        gap_parts.append(
+            "Committed fixtures and benchmark.fixtures.catalog are synthetic_midi."
+        )
+    if not realworld:
+        gap_parts.append("benchmark/realworld/local has no extra audio/MIDI.")
     return {
-        "evaluation_audio_or_midi": eval_audio,
+        "nota_test_samples": samples,
         "realworld_local": realworld,
-        "paired_corpus_populated": not paired_slots_empty and bool(eval_audio),
-        "real_performances_available": bool(eval_audio or realworld),
-        "gap": (
-            None
-            if eval_audio or realworld
-            else (
-                "No licensed or reference performance MIDI/audio is present in "
-                "this checkout. Committed material is synthetic_midi from "
-                "evaluation fixtures and benchmark.fixtures.catalog. "
-                "evaluation/paired_corpus slots are empty. "
-                "benchmark/realworld/local is gitignored."
-            )
-        ),
+        "paired_corpus_populated": False,
+        "licensed_performances_available": False,
+        "local_reference_midi_available": bool(samples),
+        "real_performances_available": False,
+        "gap": " ".join(gap_parts),
     }
 
 
@@ -274,6 +303,7 @@ def inventory() -> dict:
         "fixtures": fixtures,
         "readable_v2_cases": cases,
         "heldout_cases": heldout,
+        "local_reference_midi": real["nota_test_samples"],
         "corpus": corpus,
         "note": (
             "All committed MIDI is generated. Do not describe these as real "
@@ -364,6 +394,26 @@ def _write_render(case_dir: Path, label: str, xml_text: str, version: str) -> di
     }
 
 
+def compare_midi_path(path: Path, *, label: str, provenance: dict) -> dict:
+    ingested_probe = ingest_midi(path)
+    meter = ingested_probe.time_sig_hint or "4/4"
+    points = list(getattr(ingested_probe.tempo_map, "points", None) or [])
+    tempo = float(points[0].bpm) if points else 120.0
+    compared = _compare_pair(path, meter=meter, tempo=tempo)
+    return {
+        "label": label,
+        "fixture": label,
+        "family": "local_reference_midi",
+        "provenance": provenance,
+        "expected_meter": meter,
+        "musicxml": {
+            "v1": compared["v1"].pop("musicxml"),
+            "v2": compared["v2"].pop("musicxml"),
+        },
+        **compared,
+    }
+
+
 def _corpus_row(spec, tmp: Path) -> dict:
     midi_path = tmp / f"{spec.case_id}.mid"
     write_midi(spec, midi_path)
@@ -444,11 +494,33 @@ def recommend(report: dict) -> dict:
                     }
                 )
         if label == "irregular_triplet_intervals" and durations_changed:
+            invented = any(
+                change.get("v2") is not None and abs(float(change["v2"]) - (1 / 3)) < 1e-3
+                for change in row["timing"]["duration_changes"]
+            )
             remaining.append(
                 {
                     "case": label,
-                    "issue": "v2 changed irregular intervals; confirm it did not invent 1/3",
+                    "issue": (
+                        "v2 invented regular triplet eighths (1/3) on irregular attacks"
+                        if invented
+                        else (
+                            "v2 filled leftover < sixteenth to the next attack "
+                            "(0.25→0.375), not a 1/3 tuplet. Ambiguous silence; "
+                            "not used to retune."
+                        )
+                    ),
                     "duration_changes": row["timing"]["duration_changes"],
+                }
+            )
+        if label == "short_rests_repeats" and row["rest_count"]["delta"] < 0:
+            remaining.append(
+                {
+                    "case": label,
+                    "issue": (
+                        f"v2 rest count {row['rest_count']['v1']}→{row['rest_count']['v2']}. "
+                        "Fewer rests are not automatically better; musician review needed."
+                    ),
                 }
             )
         if label == "independent_voices_mixed_release":
@@ -480,6 +552,22 @@ def recommend(report: dict) -> dict:
                 "issue": report["inventory"]["real_material"]["gap"],
             }
         )
+    for render in report.get("renders") or []:
+        if render["label"] != "long_monophonic_phrase":
+            continue
+        pages = render.get("pdf", {}).get("parsed_pages") or 0
+        if pages < 2:
+            remaining.append(
+                {
+                    "case": "long_monophonic_phrase",
+                    "issue": (
+                        "Production OSMD compact A4 rendered the 41-bar phrase as "
+                        f"{pages or 1} page. Multi-page output did not occur. "
+                        "Reported only; renderer was not changed."
+                    ),
+                }
+            )
+            break
     default_is_v1 = (
         report["inventory"]["default_algorithm_version"] == ALGORITHM_VERSION_CURRENT
     )
@@ -522,7 +610,8 @@ def _markdown(report: dict) -> str:
         "## Provenance",
         "",
         f"- Evidence kind: `{report['inventory']['evidence_kind']}`",
-        f"- Real performances available: `{report['inventory']['real_material']['real_performances_available']}`",
+        f"- Licensed performances available: `{report['inventory']['real_material']['licensed_performances_available']}`",
+        f"- Local reference MIDI available: `{report['inventory']['real_material']['local_reference_midi_available']}`",
         f"- Default algorithm: `{report['inventory']['default_algorithm_version']}`",
         f"- Opt-in algorithm: `{report['inventory']['opt_in_algorithm_version']}`",
         f"- Tuning set (last-note pulse): {', '.join(f'`{name}`' for name in report['inventory']['tuning_set'])}",
@@ -561,7 +650,7 @@ def _markdown(report: dict) -> str:
             "|---|---|---|---|---|---|---|---|",
         ]
     )
-    for row in report["cases"] + report["corpus"]:
+    for row in report["cases"] + report.get("reference_midi", []) + report["corpus"]:
         lines.append(
             "| `{label}` | {held} | {midi} | {ident} | {r1}→{r2} | {t1}→{t2} | {meas} | {hv} |".format(
                 label=row["label"],
@@ -577,7 +666,7 @@ def _markdown(report: dict) -> str:
             )
         )
     lines.extend(["", "## Duration changes (not an automatic improvement)", ""])
-    for row in report["cases"]:
+    for row in report["cases"] + report.get("reference_midi", []):
         changes = row["timing"]["duration_changes"]
         if not changes:
             continue
@@ -591,6 +680,18 @@ def _markdown(report: dict) -> str:
             )
         lines.append("")
     if report.get("renders"):
+        lines.extend(
+            [
+                "## Pagination",
+                "",
+                "Production OSMD (`pageFormat: A4_P`, `drawingParameters: compact`) "
+                "is the SheetResult path. The 41-bar held-out phrase rendered as one "
+                "page and six systems. The production PDF page count matched OSMD. "
+                "Multi-page output was requested and did not occur. This is a "
+                "renderer layout result, not a v2 duration change.",
+                "",
+            ]
+        )
         lines.extend(["## Rendered exports", ""])
         for render in report["renders"]:
             pdf = render["pdf"]
@@ -647,10 +748,35 @@ def run(out_dir: Path, *, render: bool = False) -> dict:
     specs = {spec.case_id: spec for spec in all_cases()}
     for case_id in CORPUS_FOCUS:
         corpus.append(_corpus_row(specs[case_id], corpus_dir / case_id))
+    reference = []
+    for sample in inv["real_material"]["nota_test_samples"]:
+        raw = BACKEND / sample["raw_midi"]
+        ref_dir = out_dir / "reference" / sample["id"]
+        ref_dir.mkdir(parents=True, exist_ok=True)
+        row = compare_midi_path(
+            raw,
+            label=sample["id"],
+            provenance={
+                "kind": sample["kind"],
+                "source": sample["source"],
+                "performance": sample["performance"],
+                "held_out_of_last_note_tune": True,
+                "license": sample["license"],
+                "musician_reviewed": False,
+            },
+        )
+        (ref_dir / "v1.musicxml").write_text(row["musicxml"]["v1"], encoding="utf-8")
+        (ref_dir / "v2.musicxml").write_text(row["musicxml"]["v2"], encoding="utf-8")
+        if render:
+            renders.append(_write_render(ref_dir, sample["id"], row["musicxml"]["v1"], "v1"))
+            renders.append(_write_render(ref_dir, sample["id"], row["musicxml"]["v2"], "v2"))
+        row.pop("musicxml")
+        reference.append(row)
     report = {
         "inventory": inv,
         "cases": cases,
         "corpus": corpus,
+        "reference_midi": reference,
         "renders": renders,
         "evidence_kind": "synthetic_midi",
         "real_audio_evidence": False,

@@ -35,9 +35,16 @@ def test_inventory_reports_synthetic_provenance_and_real_gap():
     inv = inventory()
     assert inv["evidence_kind"] == "synthetic_midi"
     assert inv["real_audio_evidence"] is False
+    assert inv["real_material"]["licensed_performances_available"] is False
     assert inv["real_material"]["real_performances_available"] is False
     assert inv["real_material"]["gap"]
-    assert "real performances" not in inv["note"].lower() or "generated" in inv["note"].lower()
+    assert "licensed" in inv["real_material"]["gap"].lower()
+    samples = inv["real_material"]["nota_test_samples"]
+    if samples:
+        assert inv["real_material"]["local_reference_midi_available"] is True
+        assert all(row["kind"] == "local_reference_midi" for row in samples)
+        assert all(row["license"] == "undocumented_in_repo" for row in samples)
+    assert "generated" in inv["note"].lower()
     ids = {row["id"] for row in inv["fixtures"] + inv["readable_v2_cases"] + inv["heldout_cases"] + inv["corpus"]}
     assert TUNING_SET <= ids
     assert {row["id"] for row in inv["heldout_cases"]}.isdisjoint(TUNING_SET)
@@ -112,6 +119,10 @@ def test_rollout_run_writes_report_and_keeps_v2_opt_in(tmp_path):
     assert "independent_voices_mixed_release" in labels
     assert "long_monophonic_phrase" in labels
     assert {row["label"] for row in report["corpus"]} == set(CORPUS_FOCUS)
+    if report["inventory"]["real_material"]["nota_test_samples"]:
+        assert report["reference_midi"]
+        assert all(row["source_midi_unchanged"] for row in report["reference_midi"])
+        assert all(row["provenance"]["kind"] == "local_reference_midi" for row in report["reference_midi"])
     rec = recommend(report)
     assert rec["migrate_existing_jobs"] is False
     assert rec["decision"] in {"continued_opt_in", "controlled_new_job_default"}
