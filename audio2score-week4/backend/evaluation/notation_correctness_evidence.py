@@ -369,7 +369,6 @@ def engraving_structure(xml_text: str) -> dict:
                         "member_articulations": [
                             {
                                 "pitch": int(member.pitch.midi),
-                                "source_id": str(getattr(member, "id", None) or "") or None,
                                 "tie": getattr(getattr(member, "tie", None), "type", None),
                                 "articulations": tuple(
                                     sorted(
