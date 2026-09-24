@@ -188,6 +188,90 @@ def case_d_independent_sustain(path: Path) -> str:
     return _write(path, notes)
 
 
+def case_final_short_then_silence(path: Path) -> str:
+    """Held-out: four quarters, then a short attack followed by silence.
+
+    Expected: the last note stays short with a visible rest. Filling it to
+    the bar because leftover < a sixteenth would erase intentional silence.
+    Not used to tune the last-note triplet pulse.
+    """
+    notes = [(72, i * 0.5, i * 0.5 + 0.45, 80) for i in range(4)]
+    notes.append((74, 2.0, 2.10, 86))
+    return _write(path, notes)
+
+
+def case_irregular_triplet_intervals(path: Path) -> str:
+    """Held-out: three attacks with irregular, not 1/3, spacing.
+
+    Expected: keep the performed spacing family. Do not invent a regular
+    triplet eighth grid or fill the last note to 1/3.
+    """
+    # 120 BPM seconds: 0.00, 0.19, 0.41 — not 0, 1/6, 2/6.
+    notes = [
+        (72, 0.00, 0.12, 84),
+        (74, 0.19, 0.31, 82),
+        (76, 0.41, 0.53, 80),
+    ]
+    return _write(path, notes)
+
+
+def case_mixed_families_after_bar(path: Path) -> str:
+    """Held-out: binary quarters, triplet eighths, then binary again.
+
+    Expected: keep both families. The last triplet before the binary return
+    must not steal the following quarter onset or invent a tiny rest.
+    """
+    notes = [(60, i * 0.5, i * 0.5 + 0.45, 76) for i in range(4)]
+    pulse = 0.5 / 3.0
+    for i in range(6):
+        start = 2.0 + i * pulse
+        notes.append((72 + i % 3, start, start + 0.14, 84))
+    for i in range(4):
+        start = 3.0 + i * 0.5
+        notes.append((67, start, start + 0.45, 78))
+    return _write(path, notes)
+
+
+def case_near_barline_short_release(path: Path) -> str:
+    """Held-out: a short attack just before the barline, then silence.
+
+    Expected: written sixteenth (or shorter) plus the remaining rest. Filling
+    leftover < sixteenth to the barline would hide the rest.
+    """
+    notes = [(72, i * 0.5, i * 0.5 + 0.45, 80) for i in range(3)]
+    # Beat 4 of bar 1: 1.5s at 120 BPM. Short 16th-like release.
+    notes.append((76, 1.75, 1.85, 88))
+    return _write(path, notes)
+
+
+def case_independent_voices_mixed_release(path: Path) -> str:
+    """Held-out: held bass vs detached treble with different releases.
+
+    Expected: bass lasts the bar. Treble keeps its own short releases and
+    rests. Do not clip the hold or fill the moving line from the bass.
+    """
+    notes = [(48, 0.0, 1.95, 68), (50, 0.0, 0.42, 70)]
+    for i in range(4):
+        start = i * 0.5
+        notes.append((72 + i, start, start + 0.12, 86))
+    return _write(path, notes)
+
+
+def case_long_monophonic_phrase(path: Path) -> str:
+    """Held-out: 40 bars of a monophonic scale for multi-page export.
+
+    Expected: one voice, intact measures, raw MIDI preserved. Used for
+    pagination evidence, not last-note heuristic tuning.
+    """
+    notes = []
+    pitches = [60, 62, 64, 65, 67, 69, 71, 72]
+    for bar in range(40):
+        for i, pitch in enumerate(pitches):
+            start = (bar * 4 + i) * 0.5
+            notes.append((pitch, start, start + 0.45, 80))
+    return _write(path, notes)
+
+
 READABLE_V2_CASES = {
     "A_detached_regular_line": case_a_detached_regular_line,
     "B_short_notes_with_rests": case_b_short_notes_with_rests,
@@ -201,6 +285,26 @@ READABLE_V2_CASES = {
     "J_intentional_short_triplet_rests": case_j_intentional_short_triplet_rests,
     "K_repeated_triplet_pitches": case_k_repeated_triplet_pitches,
     "L_held_voice_under_triplets": case_l_held_voice_under_triplets,
+}
+
+# Held-out investigation material. None of these were used to tune the
+# last-note triplet-pulse fill in performance-score-2.
+HELDOUT_CASES = {
+    "final_short_then_silence": case_final_short_then_silence,
+    "irregular_triplet_intervals": case_irregular_triplet_intervals,
+    "mixed_families_after_bar": case_mixed_families_after_bar,
+    "near_barline_short_release": case_near_barline_short_release,
+    "independent_voices_mixed_release": case_independent_voices_mixed_release,
+    "long_monophonic_phrase": case_long_monophonic_phrase,
+}
+
+HELDOUT_META = {
+    "final_short_then_silence": {"meter": "4/4", "tempo": 120},
+    "irregular_triplet_intervals": {"meter": "4/4", "tempo": 120},
+    "mixed_families_after_bar": {"meter": "4/4", "tempo": 120},
+    "near_barline_short_release": {"meter": "4/4", "tempo": 120},
+    "independent_voices_mixed_release": {"meter": "4/4", "tempo": 120},
+    "long_monophonic_phrase": {"meter": "4/4", "tempo": 120},
 }
 
 EXPECTED_NOTATION = {
@@ -268,5 +372,35 @@ EXPECTED_NOTATION = {
         "onset": "Four quarters, then six triplet-eighth attacks starting at beat 4.",
         "release": "v1: sixteenths at triplet onsets. v2: all six written 1/3, including the last.",
         "engraving": "Keep the binary quarters. Do not invent a tiny triplet rest after the last eighth.",
+    },
+    "final_short_then_silence": {
+        "onset": "Four quarter attacks, then one short attack on the next beat.",
+        "release": "Last note stays short. The following silence is a rest, not leftover articulation.",
+        "engraving": "Do not fill the last note to the barline.",
+    },
+    "irregular_triplet_intervals": {
+        "onset": "Three irregular attacks, not on a 1/3 grid.",
+        "release": "Keep performed spacing. Do not rewrite as regular triplet eighths.",
+        "engraving": "Exact tuplets stay exact; this fixture is not an exact tuplet.",
+    },
+    "mixed_families_after_bar": {
+        "onset": "Four quarters, six triplet eighths, four more quarters.",
+        "release": "Keep both families. Last triplet must not steal the returning quarter.",
+        "engraving": "Measure integrity and onsets stay put across the family change.",
+    },
+    "near_barline_short_release": {
+        "onset": "Three quarters, then a short attack on the last eighth of the bar.",
+        "release": "Short note plus remaining rest through the barline.",
+        "engraving": "Leftover < sixteenth to the bar is still a rest when the attack is short.",
+    },
+    "independent_voices_mixed_release": {
+        "onset": "Held bass plus a short inner C3 and four short treble attacks.",
+        "release": "Bass lasts the bar. Treble keeps rests. Voices stay independent.",
+        "engraving": "Do not clip the hold or fill moving notes from the other voice.",
+    },
+    "long_monophonic_phrase": {
+        "onset": "Forty bars of C-major scale quarters.",
+        "release": "Written quarters. Used for multi-page export, not duration tuning.",
+        "engraving": "One voice, intact measures, raw MIDI preserved.",
     },
 }
