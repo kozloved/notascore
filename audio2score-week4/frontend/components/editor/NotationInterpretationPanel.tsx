@@ -9,6 +9,12 @@ import {
   type NotationSettings,
   type PolicyException,
 } from "../../lib/jobs";
+import {
+  READABLE_GAP_OPTIONS,
+  patchForReadableGapStyle,
+  readableGapStyle,
+  type ReadableGapStyle,
+} from "../../lib/notation-style";
 import Button from "../ui/Button";
 import SegmentedControl from "../ui/SegmentedControl";
 
@@ -119,6 +125,21 @@ export default function NotationInterpretationPanel({
             { value: "literal", label: "Literal" },
           ]}
         />
+        {settings.interpretation === "readable" ? (
+          <SegmentedControl
+            compact
+            label="Tiny release gaps"
+            value={readableGapStyle(settings)}
+            disabled={busy}
+            onChange={(style: ReadableGapStyle) =>
+              void apply({
+                ...settings,
+                ...patchForReadableGapStyle(style),
+              })
+            }
+            options={[...READABLE_GAP_OPTIONS]}
+          />
+        ) : null}
         <SegmentedControl
           compact
           label="Display grid"
@@ -179,7 +200,8 @@ export default function NotationInterpretationPanel({
       </div>
       <p className="ns-notation-note">
         These controls rewrite the derived score only. Original performance MIDI
-        and playback stay unchanged.
+        and playback stay unchanged. Existing scores stay on Keep tiny gaps
+        until you choose Fill tiny gaps.
         {provenance ? ` ${provenance}` : ""}
       </p>
       {fallback ? (

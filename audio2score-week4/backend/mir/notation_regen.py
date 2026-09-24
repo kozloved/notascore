@@ -1123,6 +1123,20 @@ def _planner_edit_error(exc: Exception) -> NotationEditConflict | None:
             "Edited timing cannot be engraved without changing the written values. "
             f"{text}",
         )
+    if any(
+        token in lowered
+        for token in (
+            "articulation ownership",
+            "source articulation",
+            "tied continuation",
+            "mixed chord articulation",
+        )
+    ):
+        return NotationEditConflict(
+            [],
+            "These articulations cannot be engraved without dropping or "
+            f"reassigning a source-note mark. {text}",
+        )
     return None
 
 

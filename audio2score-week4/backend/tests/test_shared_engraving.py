@@ -100,10 +100,28 @@ def _xml_shape(xml_text: str):
                         ),
                         "articulations": tuple(
                             sorted(
-                                type(art).__name__
-                                for art in (getattr(el, "articulations", None) or [])
+                                {
+                                    type(art).__name__
+                                    for obj in [el, *members]
+                                    for art in (getattr(obj, "articulations", None) or [])
+                                }
                             )
                         ),
+                        "member_articulations": [
+                            {
+                                "pitch": int(member.pitch.midi),
+                                "articulations": tuple(
+                                    sorted(
+                                        type(art).__name__
+                                        for art in (
+                                            getattr(member, "articulations", None) or []
+                                        )
+                                    )
+                                ),
+                            }
+                            for member in members
+                            if getattr(member, "pitch", None) is not None
+                        ],
                     }
                 )
             clef = None

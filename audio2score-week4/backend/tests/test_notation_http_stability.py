@@ -739,3 +739,153 @@ def test_http_articulation_round_trip_velocity_regen_and_reset(isolated_db, monk
         raw = client.get(f"/jobs/{job_id}/result?format=midi")
         assert raw.status_code == 200
         assert raw.content == original
+
+
+def _prepare_chord_job(tmp_path, job_id: str):
+    import database as db
+    from mir.performance_cli import convert
+    from tests.test_notation_revision_safety import _job_row
+
+    midi = pretty_midi.PrettyMIDI(initial_tempo=120)
+    piano = pretty_midi.Instrument(program=0, name="Piano")
+    piano.notes.append(pretty_midi.Note(velocity=80, pitch=72, start=0.0, end=0.5))
+    piano.notes.append(pretty_midi.Note(velocity=80, pitch=76, start=0.0, end=0.5))
+    midi.instruments.append(piano)
+    source = tmp_path / f"{job_id}.mid"
+    midi.write(str(source))
+    original = source.read_bytes()
+    xml_path = tmp_path / f"{job_id}.musicxml"
+    convert(source, xml_path)
+    (tmp_path / f"{job_id}.raw.mid").write_bytes(original)
+    db.create_job(_job_row(job_id, result_storage_key=str(xml_path), edit_revision=0))
+    return xml_path, original
+
+
+def _xml_pitch_marks(xml_text: str):
+    from tests.test_notation_articulation_ownership import musicxml_note_marks
+
+    return {
+        row["pitch"]: row["articulations"]
+        for row in musicxml_note_marks(xml_text)
+        if row["articulations"]
+    }
+
+
+def test_http_mixed_chord_articulations_survive_save_reload_regen_reset(isolated_db, monkeypatch):
+    _fail_if_transcribe(monkeypatch)
+    job_id = f"chord-{uuid.uuid4().hex[:12]}"
+    _xml_path, original = _prepare_chord_job(isolated_db, job_id)
+    with _client() as client:
+        posted = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={"interpretation": "readable", "revision": 0},
+        )
+        assert posted.status_code == 200, posted.text
+        loaded = client.get(f"/scores/{job_id}/edits")
+        assert loaded.status_code == 200
+        notes = [dict(row) for row in loaded.json()["notes"]]
+        c5 = next(row for row in notes if int(row["pitch"]) == 72)
+        e5 = next(row for row in notes if int(row["pitch"]) == 76)
+        c_sid = c5.get("source_note_id") or c5["id"]
+        e_sid = e5.get("source_note_id") or e5["id"]
+        c5["articulation"] = "staccato"
+        e5["articulation"] = "tenuto"
+        saved = _save_notes(client, job_id, loaded.json(), notes)
+        assert saved.status_code == 200, saved.text
+        assert _note(saved.json(), c_sid).get("articulation") == "staccato"
+        assert _note(saved.json(), e_sid).get("articulation") == "tenuto"
+        xml = client.get(f"/jobs/{job_id}/result?format=musicxml")
+        assert xml.status_code == 200
+        marks = _xml_pitch_marks(xml.text)
+        assert marks.get(72) == ("staccato",)
+        assert marks.get(76) == ("tenuto",)
+
+        loaded2 = saved.json()
+        notes2 = [dict(row) for row in loaded2["notes"]]
+        next(row for row in notes2 if (row.get("source_note_id") or row["id"]) == e_sid)["velocity"] = 110
+        saved2 = _save_notes(client, job_id, loaded2, notes2)
+        assert saved2.status_code == 200, saved2.text
+        assert _note(saved2.json(), c_sid).get("articulation") == "staccato"
+        assert _note(saved2.json(), e_sid).get("articulation") == "tenuto"
+        assert int(_note(saved2.json(), e_sid)["velocity"]) == 110
+        marks2 = _xml_pitch_marks(client.get(f"/jobs/{job_id}/result?format=musicxml").text)
+        assert marks2.get(72) == ("staccato",)
+        assert marks2.get(76) == ("tenuto",)
+
+        reloaded = client.get(f"/scores/{job_id}/edits")
+        assert _note(reloaded.json(), c_sid).get("articulation") == "staccato"
+        assert _note(reloaded.json(), e_sid).get("articulation") == "tenuto"
+
+        regen = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={"display_grid": "sixteenth", "revision": saved2.json()["revision"]},
+        )
+        assert regen.status_code == 200, regen.text
+        after = client.get(f"/scores/{job_id}/edits")
+        assert _note(after.json(), c_sid).get("articulation") == "staccato"
+        assert _note(after.json(), e_sid).get("articulation") == "tenuto"
+        marks3 = _xml_pitch_marks(client.get(f"/jobs/{job_id}/result?format=musicxml").text)
+        assert marks3.get(72) == ("staccato",)
+        assert marks3.get(76) == ("tenuto",)
+
+        reset = client.post(
+            f"/scores/{job_id}/edits/reset",
+            json={"revision": after.json()["revision"]},
+        )
+        assert reset.status_code == 200, reset.text
+        assert not _note(reset.json(), c_sid).get("articulation")
+        assert not _note(reset.json(), e_sid).get("articulation")
+        assert (isolated_db / f"{job_id}.raw.mid").read_bytes() == original
+
+
+def test_http_readable_v2_is_explicit_opt_in_and_persists(isolated_db, monkeypatch):
+    _fail_if_transcribe(monkeypatch)
+    job_id = f"v2-{uuid.uuid4().hex[:12]}"
+    _xml_path, original = _prepare_http_job(isolated_db, job_id)
+    with _client() as client:
+        listed = client.get(f"/jobs/{job_id}/notation-settings")
+        assert listed.status_code == 200
+        assert listed.json()["algorithm_version"] == "performance-score-1"
+        assert listed.json()["notation_settings"]["interpretation"] == "readable"
+
+        readable = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={"interpretation": "readable", "revision": 0},
+        )
+        assert readable.status_code == 200, readable.text
+        assert readable.json()["algorithm_version"] == "performance-score-1"
+        assert readable.json()["notation_settings"]["algorithm_version"] == "performance-score-1"
+
+        v2 = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={
+                "interpretation": "readable",
+                "algorithm_version": "performance-score-2",
+                "revision": readable.json()["edit_revision"],
+            },
+        )
+        assert v2.status_code == 200, v2.text
+        assert v2.json()["algorithm_version"] == "performance-score-2"
+        persisted = client.get(f"/jobs/{job_id}/notation-settings")
+        assert persisted.json()["algorithm_version"] == "performance-score-2"
+        assert persisted.json()["notation_settings"]["interpretation"] == "readable"
+
+        keep_readable = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={
+                "interpretation": "readable",
+                "algorithm_version": persisted.json()["notation_settings"]["algorithm_version"],
+                "revision": v2.json()["edit_revision"],
+            },
+        )
+        assert keep_readable.status_code == 200, keep_readable.text
+        assert keep_readable.json()["algorithm_version"] == "performance-score-2"
+
+        reset = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={"reset": True, "revision": keep_readable.json()["edit_revision"]},
+        )
+        assert reset.status_code == 200, reset.text
+        assert reset.json()["algorithm_version"] == "performance-score-1"
+        assert (isolated_db / f"{job_id}.raw.mid").read_bytes() == original
+
