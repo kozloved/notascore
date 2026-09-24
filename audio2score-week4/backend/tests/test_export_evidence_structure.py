@@ -9,8 +9,10 @@ from evaluation.notation_correctness_evidence import (
     compare_engraving,
     engraving_structure,
     inspect_xml,
+    measure_validity,
     musicxml_members,
     parse_pdf_page_count,
+    valid_pdf_bytes,
 )
 from evaluation.notation_fixtures import fixture_68, fixture_mixed_release_chord, fixture_mixed_tuplets
 from mir.midi_ingest import ingest_midi
@@ -111,13 +113,34 @@ def test_mixed_chord_mre_has_per_member_marks():
     assert inspected["marked_notes"] == 2
 
 
-MINIMAL_ONE_PAGE_PDF = (
+# Marker soup that a regex /Type /Page counter would accept.
+MARKER_ONLY_PDF = b"%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\n%%EOF\n"
+
+# Catalog + page objects but no xref / startxref. pypdf must reject this.
+NO_XREF_PAGE_MARKERS = (
     b"%PDF-1.1\n"
     b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
     b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
     b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n"
     b"trailer\n<< /Root 1 0 R >>\n%%EOF\n"
 )
+
+_ONE_MEASURE_4_4 = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name>Music</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      {body}
+    </measure>
+  </part>
+</score-partwise>
+"""
 
 
 def _mixed_chord_mre() -> str:
@@ -215,9 +238,30 @@ def test_malformed_pdf_is_not_export_success(tmp_path):
     assert record["all_pages_checked"] is False
 
 
+def test_marker_only_pdf_is_rejected():
+    parsed = parse_pdf_page_count(MARKER_ONLY_PDF)
+    assert parsed["ok"] is False
+    assert parsed["pages"] is None
+    assert parsed["reason"]
+
+
+def test_page_markers_without_xref_are_rejected():
+    parsed = parse_pdf_page_count(NO_XREF_PAGE_MARKERS)
+    assert parsed["ok"] is False
+    assert parsed["pages"] is None
+    assert "malformed" in (parsed["reason"] or "").lower() or "startxref" in (parsed["reason"] or "").lower()
+
+
+def test_compressed_pdf_page_tree_is_parsed():
+    data = valid_pdf_bytes(pages=2, compressed=True)
+    assert b"FlateDecode" in data
+    parsed = parse_pdf_page_count(data)
+    assert parsed == {"ok": True, "pages": 2, "reason": None}
+
+
 def test_pdf_page_count_mismatch_fails(tmp_path):
     path = tmp_path / "one.pdf"
-    path.write_bytes(MINIMAL_ONE_PAGE_PDF)
+    path.write_bytes(valid_pdf_bytes(pages=1, compressed=True))
     parsed = parse_pdf_page_count(path.read_bytes())
     assert parsed == {"ok": True, "pages": 1, "reason": None}
     record = _pdf_record(
@@ -238,7 +282,7 @@ def test_pdf_page_count_mismatch_fails(tmp_path):
 
 def test_parsed_pdf_matching_osmd_pages_passes_without_visual_review(tmp_path):
     path = tmp_path / "one.pdf"
-    path.write_bytes(MINIMAL_ONE_PAGE_PDF)
+    path.write_bytes(valid_pdf_bytes(pages=1, compressed=True))
     record = _pdf_record(
         {"returncode": 0, "pdf": True, "stdout": '{"pages": 1}\n'},
         path,
@@ -262,6 +306,69 @@ def test_screenshots_do_not_complete_visual_review(tmp_path):
     assert record["visual_review_completed"] is False
     assert record["counts_as_success"] is False
     assert record["status"] != "passed"
+
+
+def test_overflow_measure_is_invalid_despite_same_meter_and_count():
+    valid = _ONE_MEASURE_4_4.format(
+        body='<note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>'
+    )
+    overflow = _ONE_MEASURE_4_4.format(
+        body='<note><pitch><step>C</step><octave>4</octave></pitch><duration>5</duration><type>whole</type></note>'
+    )
+    assert inspect_xml(valid)["shape"]["time_signatures"] == inspect_xml(overflow)["shape"]["time_signatures"]
+    assert inspect_xml(valid)["shape"]["measure_count"] == inspect_xml(overflow)["shape"]["measure_count"]
+    ok = measure_validity(valid)
+    bad = measure_validity(overflow)
+    assert ok["musical_valid"] is True
+    assert bad["musical_valid"] is False
+    assert any(issue.get("reason") == "ends_after_measure" for issue in bad["issues"])
+
+
+def test_chords_pickups_polyphony_and_rests_stay_valid():
+    chord = _ONE_MEASURE_4_4.format(
+        body=(
+            '<note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>'
+            '<note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>'
+            '<note><chord/><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>'
+        )
+    )
+    rests = _ONE_MEASURE_4_4.format(
+        body=(
+            '<note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>'
+            '<note><rest/><duration>3</duration><type>half</type><dot/></note>'
+        )
+    )
+    polyphony = _ONE_MEASURE_4_4.format(
+        body=(
+            '<note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type></note>'
+            '<backup><duration>4</duration></backup>'
+            '<note><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice><type>quarter</type></note>'
+            '<note><rest/><duration>3</duration><voice>2</voice><type>half</type><dot/></note>'
+        )
+    )
+    pickup = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name>Music</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="0">
+      <attributes>
+        <divisions>1</divisions>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+    </measure>
+    <measure number="1">
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+  </part>
+</score-partwise>
+"""
+    assert measure_validity(chord)["musical_valid"] is True
+    assert measure_validity(rests)["musical_valid"] is True
+    assert measure_validity(polyphony)["musical_valid"] is True
+    assert measure_validity(pickup)["musical_valid"] is True
 
 
 def test_meter_6_8_structure_keeps_compound_signature(tmp_path):

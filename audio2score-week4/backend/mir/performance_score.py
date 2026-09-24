@@ -777,12 +777,13 @@ def _readable_v2_fill_small_release_gap(
     settings,
     local_pulse=None,
 ):
-    """Opt-in readable-v2: leftover gaps smaller than a sixteenth are articulation.
+    """Opt-in readable-v2: leftover gaps that are articulation, not rests.
 
     Case A (detached quarters with ~80ms releases) should be written as quarters.
-    Case B (short notes plus a visible rest through the beat) must keep the rest.
-    Independent holds are left alone. This never extends a note past the next
-    attack or past the barline, and it does not run on the default engine.
+    Case B and short_rests_repeats keep visible rests. A leftover smaller than
+    a sixteenth is not enough by itself. Independent holds are left alone.
+    This never extends a note past the next attack or past the barline, and it
+    does not run on the default engine.
 
     When a triplet group ends (no next onset, or the next attack is too far
     to be this pulse), the preceding triplet interval is a virtual IOI. The
@@ -804,7 +805,7 @@ def _readable_v2_fill_small_release_gap(
     if next_onset is not None:
         ioi = Fraction(next_onset) - Fraction(onset)
         remaining = float(ioi) - float(raw)
-        if ioi > 0 and 0 <= remaining < sixteenth:
+        if _readable_v2_gap_is_articulation(raw, remaining, float(ioi), sixteenth):
             return ioi
     pulse = _triplet_local_pulse(local_pulse)
     if pulse is not None:
@@ -815,9 +816,28 @@ def _readable_v2_fill_small_release_gap(
                 return pulse
     if to_bar is not None and Fraction(to_bar) > 0:
         remaining = float(to_bar) - float(raw)
-        if 0 <= remaining < sixteenth:
+        if _readable_v2_gap_is_articulation(raw, remaining, float(to_bar), sixteenth):
             return Fraction(to_bar)
     return None
+
+
+def _readable_v2_gap_is_articulation(raw, remaining, slot, sixteenth):
+    """A small absolute leftover is not enough to prove detached playing.
+
+    Detached quarters (80ms of a beat) fill. A sixteenth plus a rest that
+    happens to leave less than a sixteenth of leftover stays a rest.
+    Triplet group-ends use ``local_pulse`` and do not go through this test.
+    Boundary leftover ratios are treated as ambiguous and keep the rest.
+    """
+    raw_f = Fraction(raw).limit_denominator(64)
+    rem_f = Fraction(remaining).limit_denominator(64)
+    slot_f = Fraction(slot).limit_denominator(64)
+    sixteenth_f = Fraction(sixteenth).limit_denominator(64)
+    if slot_f <= 0 or rem_f < 0 or rem_f >= sixteenth_f:
+        return False
+    if rem_f >= raw_f:
+        return False
+    return rem_f / slot_f < Fraction(1, 5)
 
 
 def _score_voices(events, separator):

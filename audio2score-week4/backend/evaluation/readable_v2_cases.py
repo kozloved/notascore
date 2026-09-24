@@ -257,6 +257,24 @@ def case_independent_voices_mixed_release(path: Path) -> str:
     return _write(path, notes)
 
 
+def case_grand_staff_pagination(path: Path) -> str:
+    """Held-out: long two-hand score for genuine multi-page export.
+
+    56 bars of RH eighths over LH quarters. Bar count alone is not the
+    criterion: this must exceed usable page height at normal staff size.
+    """
+    notes = []
+    melody = [72, 74, 76, 77, 79, 77, 76, 74]
+    for bar in range(56):
+        bass = 36 + (bar % 8)
+        notes.append((bass, bar * 2.0, bar * 2.0 + 1.95, 68))
+        notes.append((bass + 7, bar * 2.0 + 1.0, bar * 2.0 + 1.95, 66))
+        for i, pitch in enumerate(melody):
+            start = bar * 2.0 + i * 0.25
+            notes.append((pitch, start, start + 0.22, 82))
+    return _write(path, notes)
+
+
 def case_long_monophonic_phrase(path: Path) -> str:
     """Held-out: 40 bars of a monophonic scale for multi-page export.
 
@@ -296,6 +314,7 @@ HELDOUT_CASES = {
     "near_barline_short_release": case_near_barline_short_release,
     "independent_voices_mixed_release": case_independent_voices_mixed_release,
     "long_monophonic_phrase": case_long_monophonic_phrase,
+    "grand_staff_pagination": case_grand_staff_pagination,
 }
 
 HELDOUT_META = {
@@ -305,6 +324,7 @@ HELDOUT_META = {
     "near_barline_short_release": {"meter": "4/4", "tempo": 120},
     "independent_voices_mixed_release": {"meter": "4/4", "tempo": 120},
     "long_monophonic_phrase": {"meter": "4/4", "tempo": 120},
+    "grand_staff_pagination": {"meter": "4/4", "tempo": 120},
 }
 
 EXPECTED_NOTATION = {
@@ -380,8 +400,8 @@ EXPECTED_NOTATION = {
     },
     "irregular_triplet_intervals": {
         "onset": "Three irregular attacks, not on a 1/3 grid.",
-        "release": "Keep performed spacing. Do not rewrite as regular triplet eighths.",
-        "engraving": "Exact tuplets stay exact; this fixture is not an exact tuplet.",
+        "release": "Keep performed spacing. A leftover < sixteenth is not enough to fill.",
+        "engraving": "Ambiguous gap: preserve the rest rather than invent a longer value.",
     },
     "mixed_families_after_bar": {
         "onset": "Four quarters, six triplet eighths, four more quarters.",
@@ -400,7 +420,17 @@ EXPECTED_NOTATION = {
     },
     "long_monophonic_phrase": {
         "onset": "Forty bars of C-major scale quarters.",
-        "release": "Written quarters. Used for multi-page export, not duration tuning.",
+        "release": "Written quarters. Compact layout may still fit one page; not a defect by bar count.",
         "engraving": "One voice, intact measures, raw MIDI preserved.",
+    },
+    "grand_staff_pagination": {
+        "onset": "Fifty-six bars of RH eighths over LH quarters.",
+        "release": "Must produce at least two real PDF pages at normal staff size.",
+        "engraving": "Grand staff. No whole-score shrinking, missing systems, or clipped notes.",
+    },
+    "short_rests_repeats": {
+        "onset": "Sixteenth attacks with a deliberate rest, then repeated sixteenths.",
+        "release": "Keep the rest. A leftover smaller than a sixteenth is not enough intent to fill.",
+        "engraving": "Paired against detached quarters: short notes plus a rest stay short.",
     },
 }

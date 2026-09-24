@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from evaluation.readable_v2_cases import READABLE_V2_CASES
+from evaluation.notation_fixtures import FIXTURES
+from evaluation.readable_v2_cases import HELDOUT_CASES, READABLE_V2_CASES
 from mir.cmr_builder import notes_to_events
 from mir.midi_ingest import ingest_midi, tagged_pedal_events
 from mir.models import MeterHypothesis
@@ -33,6 +34,53 @@ def _quantize(path: Path, settings: NotationSettings):
         pedal_events=pedal,
     )
     return out, decisions, ingested
+
+
+def test_paired_detached_vs_short_rest_fill_uses_relative_gap():
+    from fractions import Fraction
+
+    from mir.performance_score import _readable_v2_fill_small_release_gap
+
+    kwargs = dict(release_reason="performed_release", settings=V2)
+    # Case A: detached quarters. ~80ms leftover on a beat is articulation.
+    assert _readable_v2_fill_small_release_gap(0.84, 0, 1.0, 4, **kwargs) == 1
+    # Deliberate sixteenth + rest. Leftover 0.05 of a 0.25 slot is 20% — keep rest.
+    assert _readable_v2_fill_small_release_gap(0.20, 0, 0.25, 4, **kwargs) is None
+    # A leftover equal to a sixteenth is already a rest.
+    assert _readable_v2_fill_small_release_gap(0.75, 0, 1.0, 4, **kwargs) is None
+    # Remaining as large as the sounding note is not detached playing.
+    assert _readable_v2_fill_small_release_gap(0.10, 0, 0.20, 4, **kwargs) is None
+    # v1 never fills the detached line.
+    assert _readable_v2_fill_small_release_gap(
+        0.84, 0, 1.0, 4, release_reason="performed_release", settings=V1
+    ) is None
+    # Triplet group-end still uses the local pulse, not this relative test.
+    assert _readable_v2_fill_small_release_gap(
+        0.28, Fraction(17, 3), None, Fraction(7, 3), local_pulse=Fraction(1, 3), **kwargs
+    ) == Fraction(1, 3)
+
+
+def test_short_rests_repeats_keep_v1_durations_on_v2(tmp_path):
+    source = tmp_path / "short_rests.mid"
+    FIXTURES["short_rests_repeats"](source)
+    original = source.read_bytes()
+    v1, _dec1, _ = _quantize(source, V1)
+    v2, _dec2, _ = _quantize(source, V2)
+    assert source.read_bytes() == original
+    assert [round(e.start_beat, 4) for e in v1] == [round(e.start_beat, 4) for e in v2]
+    assert [round(e.duration_beats, 4) for e in v1] == [round(e.duration_beats, 4) for e in v2]
+    assert any(e.duration_beats <= 0.25 + 1e-9 for e in v2)
+
+
+def test_irregular_triplet_intervals_preserve_rests(tmp_path):
+    source = tmp_path / "irregular.mid"
+    HELDOUT_CASES["irregular_triplet_intervals"](source)
+    original = source.read_bytes()
+    v1, _dec1, _ = _quantize(source, V1)
+    v2, _dec2, _ = _quantize(source, V2)
+    assert source.read_bytes() == original
+    assert [round(e.duration_beats, 4) for e in v1] == [round(e.duration_beats, 4) for e in v2]
+    assert all(abs(float(e.duration_beats) - (1 / 3)) > 1e-3 for e in v2)
 
 
 def test_v2_group_end_uses_triplet_pulse_not_the_beat():

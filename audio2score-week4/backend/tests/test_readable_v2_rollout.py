@@ -12,11 +12,15 @@ from mir.quantizer import QuantizerConfig
 from mir.types import Hand, MusicalEvent
 from mir.models import MeterHypothesis
 
+from evaluation.notation_fixtures import FIXTURE_META, FIXTURES
 from evaluation.readable_v2_cases import HELDOUT_CASES, READABLE_V2_CASES
 from evaluation.readable_v2_rollout import (
     CORPUS_FOCUS,
     TUNING_SET,
+    _assignments,
+    _timing_delta,
     compare_case,
+    compare_staff_voice,
     inventory,
     recommend,
     run,
@@ -53,6 +57,121 @@ def test_inventory_reports_synthetic_provenance_and_real_gap():
     assert all(row["held_out_of_last_note_tune"] for row in inv["corpus"])
 
 
+class _Result:
+    def __init__(self, notes):
+        self.editor_model = {"notes": notes}
+
+
+def _note(ident, *, pitch, start, duration, track, voice, source_note_id=None):
+    return {
+        "id": ident,
+        "source_note_id": source_note_id if source_note_id is not None else ident,
+        "pitch": pitch,
+        "start": start,
+        "duration": duration,
+        "track": track,
+        "voice": voice,
+    }
+
+
+def test_swapped_staff_and_voice_is_not_unchanged():
+    left = _assignments(
+        _Result(
+            [
+                _note("src-a", pitch=72, start=0, duration=1, track=0, voice=0),
+                _note("src-b", pitch=48, start=0, duration=1, track=1, voice=1),
+            ]
+        )
+    )
+    right = _assignments(
+        _Result(
+            [
+                _note("src-a", pitch=72, start=0, duration=1, track=1, voice=1),
+                _note("src-b", pitch=48, start=0, duration=1, track=0, voice=0),
+            ]
+        )
+    )
+    compared = compare_staff_voice(left, right)
+    assert compared["assignments_unchanged"] is False
+    assert compared["staff_equal"] is False
+    assert compared["grouping_equal"] is False
+    assert {row["id"] for row in compared["staff_changes"]} == {"src-a", "src-b"}
+
+
+def test_voice_label_permutation_on_one_staff_is_unchanged_grouping():
+    left = _assignments(
+        _Result(
+            [
+                _note("src-a", pitch=72, start=0, duration=1, track=0, voice=0),
+                _note("src-b", pitch=74, start=1, duration=1, track=0, voice=1),
+            ]
+        )
+    )
+    right = _assignments(
+        _Result(
+            [
+                _note("src-a", pitch=72, start=0, duration=1, track=0, voice=1),
+                _note("src-b", pitch=74, start=1, duration=1, track=0, voice=0),
+            ]
+        )
+    )
+    compared = compare_staff_voice(left, right)
+    assert compared["staff_equal"] is True
+    assert compared["grouping_equal"] is True
+    assert compared["assignments_unchanged"] is True
+
+
+def test_timing_matches_stable_identity_not_array_index():
+    left = _assignments(
+        _Result(
+            [
+                _note("src-a", pitch=72, start=0, duration=1.0, track=0, voice=0),
+                _note("src-b", pitch=48, start=0, duration=2.0, track=1, voice=0),
+            ]
+        )
+    )
+    reordered = _assignments(
+        _Result(
+            [
+                _note("src-b", pitch=48, start=0, duration=2.0, track=1, voice=0),
+                _note("src-a", pitch=72, start=0, duration=1.0, track=0, voice=0),
+            ]
+        )
+    )
+    swapped_durations = _assignments(
+        _Result(
+            [
+                _note("src-a", pitch=72, start=0, duration=2.0, track=0, voice=0),
+                _note("src-b", pitch=48, start=0, duration=1.0, track=1, voice=0),
+            ]
+        )
+    )
+    same = _timing_delta(left, reordered)
+    assert same["durations_equal"] is True
+    assert same["starts_equal"] is True
+    assert same["matched_by"] == "source_note_id_or_editor_id"
+    changed = _timing_delta(left, swapped_durations)
+    assert changed["durations_equal"] is False
+    by_id = {row["id"]: row for row in changed["duration_changes"]}
+    assert by_id["src-a"] == {"id": "src-a", "pitch": 72, "v1": 1.0, "v2": 2.0}
+    assert by_id["src-b"] == {"id": "src-b", "pitch": 48, "v1": 2.0, "v2": 1.0}
+
+
+def test_editor_model_uses_track_not_hand(tmp_path):
+    row = compare_case(
+        "unison_crossing",
+        FIXTURES,
+        FIXTURE_META["unison_crossing"],
+        "synthetic_fixture",
+        True,
+        tmp_path,
+    )
+    notes = row["v1"]["assignments"]["notes"]
+    assert {note["staff"] for note in notes} == {0, 1}
+    assert row["hand_voice"]["assignments_unchanged"] is True
+    assert row["hand_voice"]["staff_equal"] is True
+
+
 def test_heldout_final_short_preserves_midi(tmp_path):
     row = compare_case(
         "final_short_then_silence",
@@ -65,6 +184,9 @@ def test_heldout_final_short_preserves_midi(tmp_path):
     assert row["source_midi_unchanged"] is True
     assert row["provenance"]["held_out_of_last_note_tune"] is True
     assert row["measure_integrity"]["equal"] is True
+    assert row["measure_integrity"]["structural_similar"] is True
+    assert row["measure_integrity"]["v1_musical_valid"] is True
+    assert row["measure_integrity"]["v2_musical_valid"] is True
     assert row["v1"]["algorithm_version"] == "performance-score-1"
     assert row["v2"]["algorithm_version"] == "performance-score-2"
     # The last attack is the intentional short note.
@@ -118,6 +240,14 @@ def test_rollout_run_writes_report_and_keeps_v2_opt_in(tmp_path):
     assert "near_barline_short_release" in labels
     assert "independent_voices_mixed_release" in labels
     assert "long_monophonic_phrase" in labels
+    assert "grand_staff_pagination" in labels
+    assert "short_rests_repeats" in labels
+    short = next(row for row in report["cases"] if row["label"] == "short_rests_repeats")
+    irregular = next(row for row in report["cases"] if row["label"] == "irregular_triplet_intervals")
+    assert short["timing"]["durations_equal"] is True
+    assert irregular["timing"]["durations_equal"] is True
+    assert short["measure_integrity"]["v1_musical_valid"] is True
+    assert short["measure_integrity"]["v2_musical_valid"] is True
     assert {row["label"] for row in report["corpus"]} == set(CORPUS_FOCUS)
     if report["inventory"]["real_material"]["nota_test_samples"]:
         assert report["reference_midi"]
@@ -125,7 +255,8 @@ def test_rollout_run_writes_report_and_keeps_v2_opt_in(tmp_path):
         assert all(row["provenance"]["kind"] == "local_reference_midi" for row in report["reference_midi"])
     rec = recommend(report)
     assert rec["migrate_existing_jobs"] is False
-    assert rec["decision"] in {"continued_opt_in", "controlled_new_job_default"}
+    assert rec["decision"] == "continued_opt_in"
+    assert report["inventory"]["real_material"]["licensed_performances_available"] is False
     assert (tmp_path / "out" / "rollout_report.md").exists()
     assert (tmp_path / "out" / "B_short_notes_with_rests" / "v1.musicxml").exists()
     assert (tmp_path / "out" / "B_short_notes_with_rests" / "v2.musicxml").exists()
@@ -136,5 +267,7 @@ def test_tuning_set_does_not_include_heldout_investigation():
     assert "near_barline_short_release" not in TUNING_SET
     assert "irregular_triplet_intervals" not in TUNING_SET
     assert "mixed_families_after_bar" not in TUNING_SET
+    assert "grand_staff_pagination" not in TUNING_SET
+    assert "short_rests_repeats" not in TUNING_SET
     assert set(HELDOUT_CASES).isdisjoint(READABLE_V2_CASES)
     assert set(HELDOUT_CASES).isdisjoint(TUNING_SET)
