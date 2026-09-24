@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -238,6 +239,12 @@ def inspect_xml(xml_text: str) -> dict:
         "marked_notes": len([row for row in rows if row["articulations"]]),
         "tuplet_notes": len([row for row in rows if row["tuplet"]]),
         "mixed_chord_marks": _mixed_chord_articulations(rows),
+        "rest_count": sum(
+            1
+            for el in root.iter()
+            if _local(el.tag) == "note"
+            and (el.find("{*}rest") is not None or el.find(".//{*}rest") is not None)
+        ),
         "shape": {
             "part_count": max(1, len(parts)),
             "time_signatures": signatures,
@@ -247,13 +254,72 @@ def inspect_xml(xml_text: str) -> dict:
     }
 
 
+def _midi_from_pitch(note_el) -> int | None:
+    pitch_el = note_el.find("{*}pitch")
+    if pitch_el is None:
+        return None
+    step_el = pitch_el.find("{*}step")
+    octave_el = pitch_el.find("{*}octave")
+    if step_el is None or octave_el is None or step_el.text is None or octave_el.text is None:
+        return None
+    step = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}.get(step_el.text.strip())
+    if step is None:
+        return None
+    alter_el = pitch_el.find("{*}alter")
+    alter = int(float(alter_el.text)) if alter_el is not None and alter_el.text else 0
+    return 12 * (int(octave_el.text) + 1) + step + alter
+
+
+def musicxml_members(xml_text: str) -> list[dict]:
+    """Per-member pitch, source id, articulations and ties from MusicXML.
+
+    Chord marks stay attached to the sounding note that owns them. A swapped
+    staccato/tenuto pair must not compare equal.
+    """
+    root = ET.fromstring(xml_text)
+    rows = []
+    measure_number = 0
+    for el in root.iter():
+        name = _local(el.tag)
+        if name == "measure":
+            measure_number = int(el.get("number") or measure_number + 1)
+        if name != "note":
+            continue
+        if el.find("{*}rest") is not None or el.find(".//{*}rest") is not None:
+            continue
+        pitch = _midi_from_pitch(el)
+        if pitch is None:
+            continue
+        arts = tuple(
+            sorted(
+                _local(child.tag)
+                for arts in el.findall(".//{*}articulations")
+                for child in list(arts)
+            )
+        )
+        ties = tuple(t.get("type") for t in el.findall("{*}tie") if t.get("type"))
+        voice_el = el.find("{*}voice")
+        rows.append(
+            {
+                "measure": measure_number,
+                "pitch": pitch,
+                "source_id": el.get("id"),
+                "voice": (voice_el.text if voice_el is not None else None),
+                "articulations": arts,
+                "tie": ties[-1] if ties else None,
+                "chord": el.find("{*}chord") is not None,
+            }
+        )
+    return rows
+
+
 def engraving_structure(xml_text: str) -> dict:
     """Normalized engraving used to compare automatic vs edited exports.
 
     Includes pitches, onsets, durations, voices, ties, beams, tuplets, clefs,
-    meter and articulations. Velocity / dynamics are excluded so an unrelated
-    velocity edit can be shown to leave structure unchanged. Meter equality
-    alone is not a pass.
+    meter and per-member articulations / source identities. Velocity is
+    excluded so an unrelated velocity edit can leave structure unchanged.
+    Meter equality alone is not a pass. Unioned chord marks are not enough.
     """
     from music21 import converter
 
@@ -300,15 +366,22 @@ def engraving_structure(xml_text: str) -> dict:
                             )
                             for tup in (getattr(getattr(el, "duration", None), "tuplets", None) or [])
                         ),
-                        "articulations": tuple(
-                            sorted(
-                                {
-                                    type(art).__name__
-                                    for obj in [el, *members]
-                                    for art in (getattr(obj, "articulations", None) or [])
-                                }
-                            )
-                        ),
+                        "member_articulations": [
+                            {
+                                "pitch": int(member.pitch.midi),
+                                "tie": getattr(getattr(member, "tie", None), "type", None),
+                                "articulations": tuple(
+                                    sorted(
+                                        type(art).__name__
+                                        for art in (
+                                            getattr(member, "articulations", None) or []
+                                        )
+                                    )
+                                ),
+                            }
+                            for member in members
+                            if getattr(member, "pitch", None) is not None
+                        ],
                     }
                 )
             clef = None
@@ -329,6 +402,7 @@ def engraving_structure(xml_text: str) -> dict:
         "part_count": len(parts),
         "parts": parts,
         "time_signatures": [ts.ratioString for ts in score.flatten().getTimeSignatures()],
+        "members": musicxml_members(xml_text),
     }
 
 
@@ -339,6 +413,10 @@ def _drop_articulations(structure: dict) -> dict:
             for voice in measure.get("voices", []):
                 for el in voice.get("elements", []):
                     el.pop("articulations", None)
+                    for member in el.get("member_articulations", []):
+                        member.pop("articulations", None)
+    for member in stripped.get("members", []):
+        member.pop("articulations", None)
     return stripped
 
 
@@ -365,7 +443,43 @@ def compare_engraving(auto_xml: str, edited_xml: str, *, kind: str) -> dict:
     }
 
 
+PDF_MAGIC = b"%PDF-"
+_PDF_PAGE_OBJECT = re.compile(rb"/Type\s*/Page(?![sA-Za-z])")
+
+
+def parse_pdf_page_count(data: bytes) -> dict:
+    """Parse a PDF enough to reject junk and count page objects.
+
+    stdout page claims and file existence are not enough. A text file that
+    happens to mention pages must fail. ``/Type /Pages`` is the tree node,
+    not a rendered page.
+    """
+    if not data.startswith(PDF_MAGIC):
+        return {"ok": False, "pages": None, "reason": "missing %PDF- header"}
+    if b"%%EOF" not in data:
+        return {"ok": False, "pages": None, "reason": "missing %%EOF trailer"}
+    pages = len(_PDF_PAGE_OBJECT.findall(data))
+    if pages < 1:
+        return {"ok": False, "pages": 0, "reason": "no /Type /Page objects"}
+    return {"ok": True, "pages": pages, "reason": None}
+
+
+def expected_osmd_pages(out_dir: Path) -> int | None:
+    """Page count from the OSMD model, not from PDF stdout."""
+    model = _osmd_model(out_dir)
+    if isinstance(model, dict):
+        count = model.get("pageCount")
+        if isinstance(count, int) and count >= 1:
+            return count
+    if out_dir.exists():
+        rendered = len(list(out_dir.glob("osmd-page-*.svg")))
+        if rendered >= 1:
+            return rendered
+    return None
+
+
 def _visual_record(render: dict, out_dir: Path) -> dict:
+    """Record whether OSMD pages were rendered. Never claims visual review."""
     status_path = out_dir / "visual_status.json"
     payload = {}
     if status_path.exists():
@@ -379,10 +493,11 @@ def _visual_record(render: dict, out_dir: Path) -> dict:
     pages = int(payload.get("pages") or 0)
     if not pages:
         pages = len(list(out_dir.glob("osmd-page-*.svg"))) if out_dir.exists() else 0
+    pages_rendered = bool(svg and png and pages >= 1)
     if skipped or render.get("returncode") not in (0, None):
         status = "failed" if render.get("returncode") not in (0, None) and not skipped else "skipped"
-    elif svg and png and pages >= 1:
-        status = "passed"
+    elif pages_rendered:
+        status = "rendered"
     elif svg or png:
         status = "incomplete"
     else:
@@ -390,9 +505,13 @@ def _visual_record(render: dict, out_dir: Path) -> dict:
     reason = payload.get("reason") or (render.get("stderr") or "")[:400]
     if status == "skipped" and not reason:
         reason = "OSMD snapshot was not produced"
+    elif status == "rendered":
+        reason = "Pages rendered; visual review is not claimed from screenshots"
     return {
         "status": status,
-        "counts_as_success": status == "passed",
+        "counts_as_success": False,
+        "pages_rendered": pages_rendered,
+        "visual_review_completed": False,
         "svg": svg,
         "png": png,
         "pages_checked": pages,
@@ -401,33 +520,77 @@ def _visual_record(render: dict, out_dir: Path) -> dict:
     }
 
 
-def _pdf_record(pdf: dict, pdf_path: Path) -> dict:
-    pages = None
+def _pdf_record(pdf: dict, pdf_path: Path, *, expected_pages: int | None = None) -> dict:
+    """Separate export, parse, page-count check, and visual review.
+
+    File existence plus a stdout page count is not a pass. Visual review is
+    never inferred from export or screenshot generation.
+    """
+    skipped = bool(pdf.get("skipped"))
+    exists = pdf_path.exists() and pdf_path.stat().st_size > 0
+    export_completed = (
+        not skipped
+        and pdf.get("returncode") in (0, None)
+        and bool(pdf.get("pdf"))
+        and exists
+    )
+    parsed = (
+        parse_pdf_page_count(pdf_path.read_bytes())
+        if exists
+        else {"ok": False, "pages": None, "reason": "missing file"}
+    )
+    pdf_parsed = bool(parsed.get("ok"))
+    parsed_pages = parsed.get("pages")
+    page_count_verified = (
+        pdf_parsed
+        and expected_pages is not None
+        and int(expected_pages) >= 1
+        and int(parsed_pages) == int(expected_pages)
+    )
+    claimed_pages = None
     for line in (pdf.get("stdout") or "").splitlines():
         try:
             payload = json.loads(line)
         except json.JSONDecodeError:
             continue
         if "pages" in payload:
-            pages = int(payload["pages"])
+            claimed_pages = int(payload["pages"])
             break
-    exists = bool(pdf.get("pdf")) and pdf_path.exists()
-    skipped = bool(pdf.get("skipped"))
     if skipped:
         status = "skipped"
-    elif pdf.get("returncode") not in (0, None) or not exists:
+        reason = pdf.get("reason") or "PDF export skipped"
+    elif not export_completed:
         status = "failed"
-    elif pages is None:
+        reason = (pdf.get("stderr") or pdf.get("stdout") or "PDF export missing")[:400]
+    elif not pdf_parsed:
+        status = "failed"
+        reason = parsed.get("reason") or "malformed PDF"
+    elif expected_pages is None:
         status = "incomplete"
+        reason = "PDF parsed; expected OSMD page count is unavailable"
+    elif not page_count_verified:
+        status = "failed"
+        reason = (
+            f"PDF page count {parsed_pages} != expected OSMD pages {expected_pages}"
+        )
     else:
         status = "passed"
+        reason = None
     return {
         "status": status,
         "counts_as_success": status == "passed",
+        "export_completed": export_completed,
+        "pdf_parsed": pdf_parsed,
+        "page_count_verified": page_count_verified,
+        "pages_rendered": False,
+        "visual_review_completed": False,
         "pdf": exists,
-        "pages_checked": pages or 0,
-        "all_pages_checked": bool(pages and pages >= 1 and exists),
-        "reason": None if status == "passed" else (pdf.get("stderr") or pdf.get("stdout") or "PDF export missing")[:400],
+        "pages_checked": parsed_pages or 0,
+        "parsed_pages": parsed_pages,
+        "expected_pages": expected_pages,
+        "claimed_pages": claimed_pages,
+        "all_pages_checked": page_count_verified,
+        "reason": reason,
     }
 
 
@@ -536,13 +699,37 @@ def run(out_dir: Path) -> dict:
         visual_edited = (
             _visual_record(edited_render, case_dir / "edited_osmd")
             if corrections
-            else {"status": "skipped", "counts_as_success": False, "reason": "no edit"}
+            else {
+                "status": "skipped",
+                "counts_as_success": False,
+                "pages_rendered": False,
+                "visual_review_completed": False,
+                "reason": "no edit",
+            }
         )
-        pdf_auto_rec = _pdf_record(pdf_auto, case_dir / "automatic_sheetresult.pdf")
+        expected_auto = expected_osmd_pages(case_dir / "automatic_osmd")
+        expected_edited = expected_osmd_pages(case_dir / "edited_osmd")
+        pdf_auto_rec = _pdf_record(
+            pdf_auto,
+            case_dir / "automatic_sheetresult.pdf",
+            expected_pages=expected_auto,
+        )
         pdf_edited_rec = (
-            _pdf_record(pdf_edited, case_dir / "after_unrelated_edit_sheetresult.pdf")
+            _pdf_record(
+                pdf_edited,
+                case_dir / "after_unrelated_edit_sheetresult.pdf",
+                expected_pages=expected_edited,
+            )
             if corrections
-            else {"status": "skipped", "counts_as_success": False, "reason": "no edit"}
+            else {
+                "status": "skipped",
+                "counts_as_success": False,
+                "export_completed": False,
+                "pdf_parsed": False,
+                "page_count_verified": False,
+                "visual_review_completed": False,
+                "reason": "no edit",
+            }
         )
         for visual, where in ((visual_auto, "automatic"), (visual_edited, "edited")):
             if visual.get("status") in {"skipped", "failed", "incomplete"} and visual.get("reason") != "no edit":
