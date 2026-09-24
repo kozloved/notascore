@@ -3,8 +3,11 @@
 The RunPod console wraps pasted JSON as `input`. NotaScore /runsync also
 sends `{"input": {...}}`. This handler accepts both, including a double wrap.
 
-YourMT3 is loaded once at process start. This file does not clean, quantize,
-or otherwise post-process MIDI.
+YourMT3 is loaded once, on the first job (and in a background preload).
+This process connects to RunPod first. Loading CUDA/checkpoint before
+serverless.start() leaves the worker stuck on Initializing with no logs.
+
+This file does not clean, quantize, or otherwise post-process MIDI.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ from __future__ import annotations
 import base64
 import os
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -21,22 +25,43 @@ import soundfile as sf
 from gpu_compat import refuse_unsupported_cuda
 from payload import audio_base64_from_job, is_warmup_job
 
-print("[MT3] worker boot: importing YourMT3...")
-_model_load_started = time.perf_counter()
+print("[MT3] handler process start", flush=True)
 
 MODEL_NAME = os.getenv("MODEL_NAME", "yourmt3")
 DEVICE = os.getenv("MT3_DEVICE", "cuda")
-refuse_unsupported_cuda(DEVICE)
 
-from mt3_infer import load_model  # noqa: E402
+MODEL = None
+MODEL_LOAD_SECONDS = 0.0
+_MODEL_LOCK = threading.Lock()
 
-MODEL = load_model(MODEL_NAME, device=DEVICE, auto_download=False)
-MODEL_LOAD_SECONDS = time.perf_counter() - _model_load_started
 
-print(
-    f"[MT3] model ready model={MODEL_NAME} device={DEVICE} "
-    f"load_seconds={MODEL_LOAD_SECONDS:.2f}"
-)
+def _ensure_model():
+    """Load YourMT3 once. Safe to call from the preload thread and the handler."""
+    global MODEL, MODEL_LOAD_SECONDS
+    if MODEL is not None:
+        return
+    with _MODEL_LOCK:
+        if MODEL is not None:
+            return
+        print("[MT3] worker boot: importing YourMT3...", flush=True)
+        started = time.perf_counter()
+        refuse_unsupported_cuda(DEVICE)
+        from mt3_infer import load_model
+
+        MODEL = load_model(MODEL_NAME, device=DEVICE, auto_download=False)
+        MODEL_LOAD_SECONDS = time.perf_counter() - started
+        print(
+            f"[MT3] model ready model={MODEL_NAME} device={DEVICE} "
+            f"load_seconds={MODEL_LOAD_SECONDS:.2f}",
+            flush=True,
+        )
+
+
+def _preload_model():
+    try:
+        _ensure_model()
+    except Exception as exc:
+        print(f"[MT3] preload error {type(exc).__name__}: {exc}", flush=True)
 
 
 def _decode_audio(job: dict, workdir: Path) -> Path:
@@ -69,6 +94,7 @@ def _decode_audio(job: dict, workdir: Path) -> Path:
 
 def handler(job: dict):
     try:
+        _ensure_model()
         return _transcribe_job(job)
     except Exception as exc:
         # Returning an error payload keeps the worker process alive.
@@ -100,7 +126,7 @@ def _transcribe_job(job: dict):
 
     with tempfile.TemporaryDirectory(prefix="notascore-mt3-") as tmp:
         audio_path = _decode_audio(job, Path(tmp))
-        print(f"[MT3] job={job.get('id', 'unknown')} audio={audio_path.name}")
+        print(f"[MT3] job={job.get('id', 'unknown')} audio={audio_path.name}", flush=True)
 
         audio, sample_rate = sf.read(str(audio_path), always_2d=False)
         if getattr(audio, "ndim", 1) > 1:
@@ -110,7 +136,8 @@ def _transcribe_job(job: dict):
 
         print(
             f"[MT3] decoded sample_rate={sample_rate} "
-            f"samples={len(audio)}"
+            f"samples={len(audio)}",
+            flush=True,
         )
 
         inference_started = time.perf_counter()
@@ -124,7 +151,8 @@ def _transcribe_job(job: dict):
     total_seconds = time.perf_counter() - started
     print(
         f"[MT3] complete inference_seconds={inference_seconds:.2f} "
-        f"total_seconds={total_seconds:.2f} bytes={len(midi_bytes)}"
+        f"total_seconds={total_seconds:.2f} bytes={len(midi_bytes)}",
+        flush=True,
     )
 
     return {
@@ -139,4 +167,6 @@ def _transcribe_job(job: dict):
 
 
 if __name__ == "__main__":
+    print("[MT3] connecting to RunPod — model loads after the worker is Running", flush=True)
+    threading.Thread(target=_preload_model, name="mt3-preload", daemon=True).start()
     runpod.serverless.start({"handler": handler})
