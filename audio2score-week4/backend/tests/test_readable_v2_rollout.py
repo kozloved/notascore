@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mir.notation_settings import (
     ALGORITHM_VERSION_CURRENT,
     ALGORITHM_VERSION_READABLE,
@@ -16,11 +18,15 @@ from evaluation.notation_fixtures import FIXTURE_META, FIXTURES
 from evaluation.readable_v2_cases import HELDOUT_CASES, READABLE_V2_CASES
 from evaluation.readable_v2_rollout import (
     CORPUS_FOCUS,
+    NOTA_SAMPLES,
     TUNING_SET,
     _assignments,
+    _staff_voice_cell,
     _timing_delta,
     compare_case,
+    compare_midi_path,
     compare_staff_voice,
+    diagnose_note_identities,
     inventory,
     recommend,
     run,
@@ -62,8 +68,21 @@ class _Result:
         self.editor_model = {"notes": notes}
 
 
-def _note(ident, *, pitch, start, duration, track, voice, source_note_id=None):
-    return {
+def _note(
+    ident,
+    *,
+    pitch,
+    start,
+    duration,
+    track,
+    voice,
+    source_note_id=None,
+    musical_voice=None,
+    printed_voice=None,
+    voice_provenance="",
+    voice_assigned=False,
+):
+    row = {
         "id": ident,
         "source_note_id": source_note_id if source_note_id is not None else ident,
         "pitch": pitch,
@@ -71,7 +90,14 @@ def _note(ident, *, pitch, start, duration, track, voice, source_note_id=None):
         "duration": duration,
         "track": track,
         "voice": voice,
+        "voice_provenance": voice_provenance,
+        "voice_assigned": voice_assigned,
     }
+    if musical_voice is not None:
+        row["musical_voice"] = musical_voice
+    if printed_voice is not None:
+        row["printed_voice"] = printed_voice
+    return row
 
 
 def test_swapped_staff_and_voice_is_not_unchanged():
@@ -95,6 +121,7 @@ def test_swapped_staff_and_voice_is_not_unchanged():
     assert compared["assignments_unchanged"] is False
     assert compared["staff_equal"] is False
     assert compared["grouping_equal"] is False
+    assert compared["kind"] == "staff_change"
     assert {row["id"] for row in compared["staff_changes"]} == {"src-a", "src-b"}
 
 
@@ -119,6 +146,9 @@ def test_voice_label_permutation_on_one_staff_is_unchanged_grouping():
     assert compared["staff_equal"] is True
     assert compared["grouping_equal"] is True
     assert compared["assignments_unchanged"] is True
+    assert compared["kind"] == "unchanged"
+    assert compared["printed_lane_adjustment"] is False
+    assert _staff_voice_cell(compared) == "ok"
 
 
 def test_timing_matches_stable_identity_not_array_index():
@@ -271,3 +301,117 @@ def test_tuning_set_does_not_include_heldout_investigation():
     assert "short_rests_repeats" not in TUNING_SET
     assert set(HELDOUT_CASES).isdisjoint(READABLE_V2_CASES)
     assert set(HELDOUT_CASES).isdisjoint(TUNING_SET)
+
+
+def test_printed_lane_adjustment_is_not_musical_regrouping():
+    left = _assignments(
+        _Result(
+            [
+                _note("a", pitch=72, start=0, duration=1, track=0, voice=0, musical_voice=0, printed_voice=0),
+                _note("b", pitch=60, start=0, duration=1, track=0, voice=1, musical_voice=0, printed_voice=1),
+                _note("c", pitch=67, start=2, duration=1, track=0, voice=0, musical_voice=0, printed_voice=0),
+            ]
+        )
+    )
+    right = _assignments(
+        _Result(
+            [
+                _note("a", pitch=72, start=0, duration=1.25, track=0, voice=0, musical_voice=0, printed_voice=0),
+                _note("b", pitch=60, start=0, duration=1, track=0, voice=1, musical_voice=0, printed_voice=1),
+                _note("c", pitch=67, start=2, duration=1, track=0, voice=1, musical_voice=0, printed_voice=1),
+            ]
+        )
+    )
+    compared = compare_staff_voice(left, right)
+    assert compared["kind"] == "printed_lane_adjustment"
+    assert compared["assignments_unchanged"] is True
+    assert compared["musical_grouping_equal"] is True
+    assert compared["printed_grouping_equal"] is False
+    assert compared["printed_lane_adjustment"] is True
+    assert _staff_voice_cell(compared) == "lanes"
+    report = {
+        "inventory": inventory(),
+        "cases": [
+            {
+                "label": "printed_lane_only",
+                "identical_written": False,
+                "timing": {"durations_equal": False, "duration_changes": []},
+                "rest_count": {"delta": 0},
+                "hand_voice": compared,
+                "v1": {"assignments": left},
+                "v2": {"assignments": right},
+            }
+        ],
+        "reference_midi": [],
+        "renders": [],
+    }
+    assert recommend(report)["remaining"] == []
+
+
+def test_musical_grouping_change_is_detected():
+    left = _assignments(
+        _Result(
+            [
+                _note("a", pitch=72, start=0, duration=1, track=0, voice=0, musical_voice=0, printed_voice=0),
+                _note("b", pitch=60, start=0, duration=1, track=0, voice=1, musical_voice=1, printed_voice=1),
+                _note("c", pitch=67, start=1, duration=1, track=0, voice=0, musical_voice=0, printed_voice=0),
+            ]
+        )
+    )
+    right = _assignments(
+        _Result(
+            [
+                _note("a", pitch=72, start=0, duration=1, track=0, voice=0, musical_voice=0, printed_voice=0),
+                _note("b", pitch=60, start=0, duration=1, track=0, voice=1, musical_voice=1, printed_voice=1),
+                _note("c", pitch=67, start=1, duration=1, track=0, voice=1, musical_voice=1, printed_voice=1),
+            ]
+        )
+    )
+    compared = compare_staff_voice(left, right)
+    assert compared["kind"] == "musical_grouping_change"
+    assert compared["assignments_unchanged"] is False
+    assert compared["musical_grouping_equal"] is False
+    assert _staff_voice_cell(compared) == "DIFF"
+    diagnosed = {row["id"]: row for row in diagnose_note_identities(left, right)}
+    assert diagnosed["c"]["musical_voice"] == {"v1": 0, "v2": 1}
+
+
+def test_138_chords_piano_is_printed_lane_not_musical_regrouping():
+    raw = next(NOTA_SAMPLES.rglob("*chords_piano_raw.mid"), None)
+    if raw is None or not raw.is_file():
+        pytest.skip("138 development MIDI is missing; not fabricating a classification")
+    sample = next(
+        row
+        for row in inventory()["real_material"]["nota_test_samples"]
+        if row["id"].endswith("chords_piano")
+    )
+    compared = compare_midi_path(
+        raw,
+        label=sample["id"],
+        provenance={
+            "kind": sample["kind"],
+            "source": sample["source"],
+            "license": sample["license"],
+            "musician_reviewed": False,
+        },
+    )
+    hv = compared["hand_voice"]
+    notes = diagnose_note_identities(compared["v1"]["assignments"], compared["v2"]["assignments"])
+    musical = {row["musical_voice"]["v1"] for row in notes} | {
+        row["musical_voice"]["v2"] for row in notes
+    }
+    printed_changed = [
+        row["id"]
+        for row in notes
+        if row["printed_voice"]["v1"] != row["printed_voice"]["v2"]
+    ]
+    assert compared["source_midi_unchanged"] is True
+    assert hv["staff_equal"] is True
+    assert hv["musical_grouping_equal"] is True
+    assert hv["assignments_unchanged"] is True
+    assert hv["kind"] in {"printed_lane_adjustment", "unchanged"}
+    if printed_changed:
+        assert hv["kind"] == "printed_lane_adjustment"
+        assert hv["printed_lane_adjustment"] is True
+    assert musical == {0}
+    assert all(row["voice_provenance"]["v1"] != "user_edit" for row in notes)

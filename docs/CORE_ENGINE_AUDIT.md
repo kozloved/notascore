@@ -4,6 +4,8 @@
 **Scope:** Production request path, transcription backends, MIR / notation, data model, dead code.
 **Rule followed:** inspect first; no deletions; no large rewrite before this document.
 
+Current engine milestones: [ENGINE_ROADMAP.md](ENGINE_ROADMAP.md). This audit is a snapshot, not the living plan.
+
 Live product code lives in `audio2score-week4/`. The top-level `backend/` tree is a disconnected stub. The top-level `README.md` Fast/Quality (Basic Pitch vs MR-MT3) story is **not** what the running API does.
 
 ---

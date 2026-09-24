@@ -132,9 +132,23 @@ def _note_staff(note: dict) -> int:
 
 def _assignments(result) -> dict:
     notes = list(result.editor_model.get("notes") or [])
+    decisions = {
+        str(row.get("note_id")): row
+        for row in (getattr(result, "decisions", None) or [])
+        if row.get("note_id")
+    }
     rows = []
     for note in notes:
         ident = _note_identity(note)
+        dec = decisions.get(ident) or {}
+        printed = dec.get("printed_voice")
+        if printed is None:
+            printed = note.get("printed_voice", note.get("voice") or 0)
+        musical = dec.get("musical_voice")
+        if musical is None:
+            musical = note.get("musical_voice")
+        if musical is None:
+            musical = printed
         rows.append(
             {
                 "id": ident,
@@ -142,7 +156,11 @@ def _assignments(result) -> dict:
                 "start": round(float(note["start"]), 4),
                 "duration": round(float(note["duration"]), 4),
                 "staff": _note_staff(note),
-                "voice": int(note.get("voice") or 0),
+                "voice": int(printed),
+                "printed_voice": int(printed),
+                "musical_voice": int(musical),
+                "voice_provenance": dec.get("voice_provenance") or note.get("voice_provenance") or "",
+                "voice_assigned": bool(dec.get("voice_assigned") or note.get("voice_assigned")),
             }
         )
     return {
@@ -153,19 +171,19 @@ def _assignments(result) -> dict:
         "durations": [row["duration"] for row in rows],
         "pitches": [row["pitch"] for row in rows],
         "staves": sorted({row["staff"] for row in rows}),
-        "voices": sorted({row["voice"] for row in rows}),
+        "voices": sorted({row["printed_voice"] for row in rows}),
+        "musical_voices": sorted({row["musical_voice"] for row in rows}),
     }
 
 
-def _canonical_voice_groups(notes: list[dict]) -> dict[int, list[frozenset[str]]]:
-    """Staff -> voice partitions, labels discarded.
-
-    Matches existing voice metrics: a global voice-number permutation on one
-    staff is the same grouping. A note moving staff or changing companions is not.
-    """
+def _canonical_groups(notes: list[dict], field: str) -> dict[int, list[frozenset[str]]]:
+    """Staff -> partitions by ``field``, labels discarded."""
     by_staff: dict[int, dict[int, list[str]]] = {}
     for note in notes:
-        by_staff.setdefault(note["staff"], {}).setdefault(note["voice"], []).append(note["id"])
+        key = note.get(field)
+        if key is None:
+            key = note.get("printed_voice", note.get("voice") or 0)
+        by_staff.setdefault(note["staff"], {}).setdefault(int(key), []).append(note["id"])
     groups: dict[int, list[frozenset[str]]] = {}
     for staff, voices in by_staff.items():
         ordered = sorted(
@@ -176,49 +194,125 @@ def _canonical_voice_groups(notes: list[dict]) -> dict[int, list[frozenset[str]]
     return groups
 
 
+def _canonical_voice_groups(notes: list[dict]) -> dict[int, list[frozenset[str]]]:
+    """Staff -> musical-voice partitions. Printed-lane labels are ignored."""
+    return _canonical_groups(notes, "musical_voice")
+
+
+def _group_diffs(left_groups, right_groups) -> list[dict]:
+    rows = []
+    for staff in sorted(set(left_groups) | set(right_groups)):
+        if left_groups.get(staff) != right_groups.get(staff):
+            rows.append(
+                {
+                    "staff": staff,
+                    "v1": [sorted(group) for group in left_groups.get(staff, [])],
+                    "v2": [sorted(group) for group in right_groups.get(staff, [])],
+                }
+            )
+    return rows
+
+
 def compare_staff_voice(left: dict, right: dict) -> dict:
+    """Compare staff, musical-line identity, and printed lanes separately.
+
+    Musical grouping is line identity. Printed-lane reallocation after a
+    duration change is reported, not treated as a musical regrouping.
+    A global label permutation on one staff is unchanged grouping.
+    """
     left_by = {row["id"]: row for row in left["notes"]}
     right_by = {row["id"]: row for row in right["notes"]}
     ids = sorted(set(left_by) | set(right_by))
     staff_changes = []
-    voice_membership_changes = []
     for ident in ids:
         a = left_by.get(ident)
         b = right_by.get(ident)
-        if a is None or b is None:
-            staff_changes.append({"id": ident, "v1": None if a is None else a["staff"], "v2": None if b is None else b["staff"]})
-            continue
-        if a["staff"] != b["staff"]:
-            staff_changes.append({"id": ident, "v1": a["staff"], "v2": b["staff"]})
-        if a["voice"] != b["voice"] and a["staff"] == b["staff"]:
-            # Label change only; grouping check decides if membership changed.
-            pass
-    left_groups = _canonical_voice_groups(left["notes"])
-    right_groups = _canonical_voice_groups(right["notes"])
-    grouping_equal = left_groups == right_groups
-    if not grouping_equal:
-        for staff in sorted(set(left_groups) | set(right_groups)):
-            if left_groups.get(staff) != right_groups.get(staff):
-                voice_membership_changes.append(
-                    {
-                        "staff": staff,
-                        "v1": [sorted(group) for group in left_groups.get(staff, [])],
-                        "v2": [sorted(group) for group in right_groups.get(staff, [])],
-                    }
-                )
+        if a is None or b is None or a["staff"] != b["staff"]:
+            staff_changes.append(
+                {
+                    "id": ident,
+                    "v1": None if a is None else a["staff"],
+                    "v2": None if b is None else b["staff"],
+                }
+            )
+    musical_left = _canonical_groups(left["notes"], "musical_voice")
+    musical_right = _canonical_groups(right["notes"], "musical_voice")
+    printed_left = _canonical_groups(left["notes"], "printed_voice")
+    printed_right = _canonical_groups(right["notes"], "printed_voice")
+    musical_equal = musical_left == musical_right
+    printed_equal = printed_left == printed_right
     staff_equal = not staff_changes
+    assignments_unchanged = staff_equal and musical_equal
+    printed_lane_adjustment = assignments_unchanged and not printed_equal
+    if not staff_equal:
+        kind = "staff_change"
+    elif not musical_equal:
+        kind = "musical_grouping_change"
+    elif printed_lane_adjustment:
+        kind = "printed_lane_adjustment"
+    else:
+        kind = "unchanged"
     return {
         "staff_equal": staff_equal,
-        "grouping_equal": grouping_equal,
-        "assignments_unchanged": staff_equal and grouping_equal,
+        "grouping_equal": musical_equal,
+        "musical_grouping_equal": musical_equal,
+        "printed_grouping_equal": printed_equal,
+        "printed_lane_adjustment": printed_lane_adjustment,
+        "assignments_unchanged": assignments_unchanged,
+        "kind": kind,
         "staff_changes": staff_changes,
-        "voice_membership_changes": voice_membership_changes,
+        "voice_membership_changes": _group_diffs(musical_left, musical_right),
+        "printed_membership_changes": _group_diffs(printed_left, printed_right),
         "v1_staves": left["staves"],
         "v2_staves": right["staves"],
         "v1_voice_labels": left["voices"],
         "v2_voice_labels": right["voices"],
-        "equal": staff_equal and grouping_equal,
+        "equal": assignments_unchanged,
     }
+
+
+def diagnose_note_identities(left: dict, right: dict) -> list[dict]:
+    """Per-source-note staff, musical voice, printed lane, timing, and locks."""
+    left_by = {row["id"]: row for row in left["notes"]}
+    right_by = {row["id"]: row for row in right["notes"]}
+    rows = []
+    for ident in sorted(set(left_by) | set(right_by)):
+        a = left_by.get(ident)
+        b = right_by.get(ident)
+        rows.append(
+            {
+                "id": ident,
+                "staff": {
+                    "v1": None if a is None else a["staff"],
+                    "v2": None if b is None else b["staff"],
+                },
+                "musical_voice": {
+                    "v1": None if a is None else a["musical_voice"],
+                    "v2": None if b is None else b["musical_voice"],
+                },
+                "printed_voice": {
+                    "v1": None if a is None else a["printed_voice"],
+                    "v2": None if b is None else b["printed_voice"],
+                },
+                "onset": {
+                    "v1": None if a is None else a["start"],
+                    "v2": None if b is None else b["start"],
+                },
+                "duration": {
+                    "v1": None if a is None else a["duration"],
+                    "v2": None if b is None else b["duration"],
+                },
+                "voice_provenance": {
+                    "v1": None if a is None else a.get("voice_provenance") or "",
+                    "v2": None if b is None else b.get("voice_provenance") or "",
+                },
+                "voice_assigned": {
+                    "v1": None if a is None else bool(a.get("voice_assigned")),
+                    "v2": None if b is None else bool(b.get("voice_assigned")),
+                },
+            }
+        )
+    return rows
 
 
 def _surface(xml_text: str) -> dict:
@@ -698,9 +792,11 @@ def recommend(report: dict) -> dict:
                 {
                     "case": label,
                     "issue": (
-                        "v2 changed per-note staff or voice grouping. "
-                        "Voice-number permutation alone is not this signal."
+                        "v2 changed per-note staff or musical-voice grouping. "
+                        "Printed-lane reallocation and voice-number permutation "
+                        "alone are not this signal."
                     ),
+                    "kind": row["hand_voice"].get("kind"),
                     "staff_changes": row["hand_voice"].get("staff_changes"),
                     "voice_membership_changes": row["hand_voice"].get("voice_membership_changes"),
                 }
@@ -844,7 +940,7 @@ def _markdown(report: dict) -> str:
                     if integrity.get("v1_musical_valid") and integrity.get("v2_musical_valid")
                     else "INVALID"
                 ),
-                hv="ok" if row["hand_voice"].get("assignments_unchanged", row["hand_voice"].get("equal")) else "DIFF",
+                hv=_staff_voice_cell(row["hand_voice"]),
             )
         )
     lines.extend(["", "## Duration changes (not an automatic improvement)", ""])
@@ -906,6 +1002,15 @@ def _markdown(report: dict) -> str:
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def _staff_voice_cell(hand_voice: dict) -> str:
+    kind = hand_voice.get("kind")
+    if kind == "printed_lane_adjustment":
+        return "lanes"
+    if hand_voice.get("assignments_unchanged", hand_voice.get("equal")):
+        return "ok"
+    return "DIFF"
 
 
 def run(out_dir: Path, *, render: bool = False) -> dict:

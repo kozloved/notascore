@@ -2,6 +2,9 @@
 
 This is the implementation map after `docs/CORE_ENGINE_AUDIT.md`. Legacy `BasicPitchEngine` is kept as fallback and benchmark baseline. New musical logic goes only through the canonical path.
 
+Scheduled engine work lives in [ENGINE_ROADMAP.md](ENGINE_ROADMAP.md). Do not
+add a second competing plan.
+
 ## Target flow
 
 ```
