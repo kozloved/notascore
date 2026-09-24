@@ -600,7 +600,9 @@ class NotationPlanner:
                 tie = "start"
             elif "stop" in ties:
                 tie = "stop"
-            arts = [it[0].articulation for it in group if it[0].articulation]
+            arts = [it[0].articulation or None for it in group]
+            if tie in ("continue", "stop"):
+                arts = [None] * len(group)
             dyns = [it[0].dynamic for it in group if it[0].dynamic]
             elements.append(
                 PlannedNote(
@@ -609,9 +611,10 @@ class NotationPlanner:
                     duration_q=dur,
                     voice=voice_id,
                     velocity=max(it[0].velocity for it in group),
+                    velocities=[it[0].velocity for it in group],
                     tie=tie,
                     event_ids=[it[0].note_id for it in group if it[0].note_id],
-                    articulations=arts[:1],
+                    articulations=arts,
                     dynamic=dyns[0] if dyns else None,
                 )
             )

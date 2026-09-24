@@ -222,19 +222,15 @@ def build_exact_measures(events, report, meter, key_name):
                             elements.append(rest)
                     pieces = list(_pieces(start, end - start, beat_length, local_settings, mql))
                     ties = tie_chain(len(pieces), tie)
-                    supplied = [
-                        by_id[note.source_id].articulation
-                        for note in group
-                        if getattr(by_id[note.source_id], "articulation", None)
-                    ]
-                    for piece_i, ((offset, length), piece_tie) in enumerate(zip(pieces, ties)):
+                    supplied = _source_articulations(group, by_id)
+                    for (offset, length), piece_tie in zip(pieces, ties):
                         elements.append(PlannedNote(
                             pitches=[by_id[n.source_id].pitch for n in group],
                             start_q=offset, duration_q=length, voice=key[1],
                             velocity=max(by_id[n.source_id].velocity for n in group),
                             velocities=[by_id[n.source_id].velocity for n in group],
                             tie=piece_tie, event_ids=[n.source_id for n in group],
-                            articulations=supplied[:1] if piece_i == 0 else [],
+                            articulations=_attack_articulations(supplied, piece_tie),
                         ))
                     cursor = end
                 for offset, length in _pieces(cursor, mql - cursor, beat_length, local_settings, mql):
@@ -255,7 +251,27 @@ def build_exact_measures(events, report, meter, key_name):
         measures.append(PlannedMeasure(index + 1, index * mql, mql,
                                        meter.time_signature, key_name if index == 0 else None, staves))
     validate_source_coverage(measures, report, by_id)
+    validate_articulation_ownership(measures, report, by_id)
     return measures
+
+
+def _source_articulations(group, by_id):
+    """One mark per source note, aligned with pitches and event_ids."""
+    return [
+        getattr(by_id[note.source_id], "articulation", None) or None
+        for note in group
+    ]
+
+
+def _is_original_attack(piece_tie) -> bool:
+    return piece_tie in (None, "start")
+
+
+def _attack_articulations(supplied, piece_tie):
+    """Attack marks belong on the first printed fragment only."""
+    if _is_original_attack(piece_tie):
+        return list(supplied)
+    return [None] * len(supplied)
 
 
 def annotate_rhythm(elements, time_signature, prefix):
@@ -321,3 +337,40 @@ def validate_source_coverage(measures, report, by_id):
             cursor += duration
         if cursor != note.onset + note.duration:
             raise ValueError(f"Notation changed duration for {note.source_id}")
+
+
+def validate_articulation_ownership(measures, report, by_id):
+    """Keep each source mark on that note's original attack, never a tie continue."""
+    owned = {}
+    for measure in measures:
+        for staff in measure.staves:
+            for voice in staff.voices:
+                for element in voice.elements:
+                    if not isinstance(element, PlannedNote):
+                        continue
+                    ids = list(element.event_ids or [])
+                    marks = list(getattr(element, "articulations", None) or [])
+                    if marks and len(marks) != len(ids):
+                        raise ValueError(
+                            "Notation chord lost source-note articulation ownership"
+                        )
+                    if not marks:
+                        marks = [None] * len(ids)
+                    attack = _is_original_attack(element.tie)
+                    for ident, mark in zip(ids, marks):
+                        expected = getattr(by_id.get(ident), "articulation", None) or None
+                        printed = mark or None
+                        if attack:
+                            if printed != expected:
+                                raise ValueError(
+                                    "Notation dropped or reassigned a source articulation"
+                                )
+                            owned[ident] = printed
+                        elif printed:
+                            raise ValueError(
+                                "Attack articulation printed on a tied continuation"
+                            )
+    for note in report.notes:
+        expected = getattr(by_id.get(note.source_id), "articulation", None) or None
+        if expected and owned.get(note.source_id) != expected:
+            raise ValueError("Notation dropped or reassigned a source articulation")

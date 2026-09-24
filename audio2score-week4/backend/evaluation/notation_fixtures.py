@@ -124,6 +124,25 @@ def fixture_unison_and_crossing(path: Path) -> str:
     return _write(path, notes)
 
 
+def fixture_mixed_release_chord(path: Path) -> str:
+    # Simultaneous attack; inner C4 is held while E4/G4 release after a quarter.
+    notes = [
+        (60, 0.0, 1.95, 70),
+        (64, 0.0, 0.45, 82),
+        (67, 0.0, 0.45, 80),
+    ]
+    return _write(path, notes)
+
+
+def fixture_multibar_held_melody(path: Path) -> str:
+    # A three-bar held C5 plus a later attack used for unrelated edits.
+    notes = [
+        (72, 0.0, 5.9, 80),
+        (76, 6.0, 6.45, 82),
+    ]
+    return _write(path, notes)
+
+
 FIXTURES = {
     "humanized_quarters": fixture_humanized_quarters,
     "short_rests_repeats": fixture_short_rests_and_repeats,
@@ -134,4 +153,6 @@ FIXTURES = {
     "mixed_tuplets": fixture_mixed_tuplets,
     "rubato_pickup": fixture_rubato_pickup,
     "unison_crossing": fixture_unison_and_crossing,
+    "mixed_release_chord": fixture_mixed_release_chord,
+    "multibar_held_melody": fixture_multibar_held_melody,
 }

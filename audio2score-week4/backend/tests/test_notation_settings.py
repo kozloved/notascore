@@ -63,6 +63,23 @@ def test_cache_key_includes_algorithm_and_settings():
     assert parse_notation_settings(a.to_dict()).to_dict() == a.to_dict()
 
 
+def test_readable_without_version_keeps_current_engine():
+    patched = merge_notation_settings(
+        NotationSettings(),
+        {"interpretation": "readable"},
+        fields_set={"interpretation"},
+    )
+    assert patched.interpretation == Interpretation.READABLE
+    assert patched.algorithm_version == ALGORITHM_VERSION_CURRENT
+    opted = merge_notation_settings(
+        patched,
+        {"algorithm_version": ALGORITHM_VERSION_READABLE},
+        fields_set={"algorithm_version"},
+    )
+    assert opted.uses_improved_readable() is True
+    assert opted.algorithm_version == ALGORITHM_VERSION_READABLE
+
+
 def test_unknown_fields_are_rejected():
     with pytest.raises(NotationSettingsError, match="display_grid"):
         parse_notation_settings({"display_grid": "sixty-fourth"})

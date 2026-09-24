@@ -735,11 +735,7 @@ class NotationWriter:
                 n.volume.velocity = int(velocities[0])
         if getattr(el, "tie", None) in ("start", "stop", "continue"):
             n.tie = m21tie.Tie(el.tie)
-        arts = getattr(el, "articulations", None) or []
-        if "staccato" in arts:
-            n.articulations.append(articulations.Staccato())
-        if "tenuto" in arts or "legato" in arts:
-            n.articulations.append(articulations.Tenuto())
+        self._apply_planned_articulations(n, el)
         dynamic = getattr(el, "dynamic", None)
         if dynamic in ("p", "pp", "mp", "mf", "f", "ff", "fff"):
             n.expressions.append(m21dyn.Dynamic(dynamic))
@@ -752,6 +748,57 @@ class NotationWriter:
                 # XML id only. Hidden lyrics still render in OSMD.
                 member.id = encode_source_xml_id(ident, ident)
         return n
+
+    @staticmethod
+    def _articulation_objects(names):
+        objects = []
+        seen = set()
+        for raw in names or []:
+            mark = str(raw or "").strip().lower()
+            if not mark or mark in seen:
+                continue
+            if mark == "staccato":
+                objects.append(articulations.Staccato())
+                seen.add(mark)
+            elif mark in ("tenuto", "legato"):
+                objects.append(articulations.Tenuto())
+                seen.add("tenuto")
+        return objects
+
+    def _apply_planned_articulations(self, n, el):
+        """Attach each source-note mark to that chord member. Never truncate."""
+        arts = list(getattr(el, "articulations", None) or [])
+        members = list(n.notes) if isinstance(n, m21chord.Chord) else [n]
+        ids = list(getattr(el, "event_ids", None) or [])
+        if arts and len(arts) not in (0, len(members)):
+            raise ValueError("Notation chord lost source-note articulation ownership")
+        if len(arts) == len(members):
+            unique = {str(mark or "").strip().lower() for mark in arts if mark}
+            if len(unique) > 1 and ids and len(ids) != len(members):
+                raise ValueError(
+                    "Mixed chord articulations cannot be expressed without source identity"
+                )
+            for member, mark in zip(members, arts):
+                for art in self._articulation_objects([mark]):
+                    member.articulations.append(art)
+            # Shared mark also stays on the printed chord for importers that
+            # only read the outer element. A single member's mark is never
+            # copied onto unmarked neighbors.
+            shared = {
+                str(mark or "").strip().lower()
+                for mark in arts
+            }
+            if len(shared) == 1 and next(iter(shared)):
+                for art in self._articulation_objects([next(iter(shared))]):
+                    n.articulations.append(art)
+            return
+        unique = {str(mark or "").strip().lower() for mark in arts if mark}
+        if len(unique) > 1:
+            raise ValueError(
+                "Mixed chord articulations cannot be expressed without per-note ownership"
+            )
+        for art in self._articulation_objects(arts):
+            n.articulations.append(art)
 
     @staticmethod
     def _apply_planned_rhythm(obj, element):
@@ -1162,7 +1209,9 @@ class NotationWriter:
             self._sanitize_export_durations(score)
             score.write("musicxml", fp=str(xml_path), makeNotation=False)
         xml = xml_path.read_text(encoding="utf-8")
-        cleaned = _strip_forced_musicxml_layout(xml)
+        cleaned = _ensure_member_articulations_in_musicxml(
+            _strip_forced_musicxml_layout(xml), score
+        )
         if cleaned != xml:
             xml_path.write_text(cleaned, encoding="utf-8")
 
@@ -1256,6 +1305,79 @@ def _strip_forced_musicxml_layout(xml: str) -> str:
         flags=re.IGNORECASE,
     )
     return cleaned
+
+
+_ARTICULATION_XML = {
+    "staccato": "staccato",
+    "tenuto": "tenuto",
+    "legato": "tenuto",
+}
+
+
+def _member_articulation_names(member) -> list[str]:
+    names = []
+    for art in list(getattr(member, "articulations", None) or []):
+        key = type(art).__name__.lower()
+        if key in _ARTICULATION_XML:
+            names.append(key)
+    return names
+
+
+def _ensure_member_articulations_in_musicxml(xml: str, score) -> str:
+    """Keep per-note marks on chord members after music21 serialization."""
+    wanted: dict[str, list[str]] = {}
+    for el in score.recurse().notes:
+        members = list(el.notes) if el.isChord else [el]
+        for member in members:
+            ident = str(getattr(member, "id", "") or "")
+            names = _member_articulation_names(member)
+            if ident and names:
+                wanted[ident] = names
+    if not wanted:
+        return xml
+    from xml.etree import ElementTree as ET
+
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return xml
+    ns = ""
+    if root.tag.startswith("{") and "}" in root.tag:
+        ns = root.tag.split("}", 1)[0] + "}"
+
+    def tag(name: str) -> str:
+        return f"{ns}{name}"
+
+    changed = False
+    for note in root.iter(tag("note")):
+        ident = note.get("id") or note.get("{http://www.w3.org/XML/1998/namespace}id")
+        marks = wanted.get(str(ident or ""))
+        if not marks:
+            continue
+        notations = note.find(tag("notations"))
+        if notations is None:
+            notations = ET.SubElement(note, tag("notations"))
+            changed = True
+        arts = notations.find(tag("articulations"))
+        if arts is None:
+            arts = ET.SubElement(notations, tag("articulations"))
+            changed = True
+        present = {child.tag.split("}")[-1] for child in list(arts)}
+        for mark in marks:
+            xml_name = _ARTICULATION_XML[mark]
+            if xml_name in present:
+                continue
+            ET.SubElement(arts, tag(xml_name))
+            present.add(xml_name)
+            changed = True
+    if not changed:
+        return xml
+    serialized = ET.tostring(root, encoding="unicode")
+    if xml.lstrip().startswith("<?xml"):
+        header = xml.split("?>", 1)[0] + "?>"
+        if not serialized.lstrip().startswith("<?xml"):
+            return header + serialized
+    return serialized
 
 
 def _staff_for(ev: MusicalEvent) -> str:

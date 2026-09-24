@@ -234,7 +234,8 @@ class PlannedNote:
     velocity: int = 64
     tie: Optional[str] = None
     event_ids: list[str] = field(default_factory=list)
-    articulations: list[str] = field(default_factory=list)
+    # Parallel to pitches/event_ids. Empty or None means that member is unmarked.
+    articulations: list = field(default_factory=list)
     dynamic: Optional[str] = None
     beams: list[tuple[str, Optional[str]]] = field(default_factory=list)
     tuplet: Optional[PlannedTuplet] = None
