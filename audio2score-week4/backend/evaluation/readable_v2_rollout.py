@@ -633,7 +633,7 @@ def compare_case(label: str, catalog, meta: dict, provenance: str, held_out: boo
 def recommend(report: dict) -> dict:
     """Recommend continued opt-in unless the held-out set is clean."""
     remaining = []
-    for row in report["cases"]:
+    for row in report["cases"] + report.get("reference_midi", []):
         if row.get("identical_written"):
             continue
         label = row["label"]
