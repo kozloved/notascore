@@ -290,14 +290,15 @@ def test_concurrent_saves_one_success_one_conflict(isolated_db, monkeypatch):
     )
     model = extract_from_musicxml(xml_path.read_text(encoding="utf-8"))
     barrier = threading.Barrier(2)
-    original_write = app_main._write_edited_sidecars
+    original_cas = db.cas_update_job
 
-    def delayed(job, json_text, musicxml_text, midi_bytes):
+    def delayed_cas(*args, **kwargs):
         barrier.wait(timeout=5)
-        return original_write(job, json_text, musicxml_text, midi_bytes)
+        return original_cas(*args, **kwargs)
 
-    monkeypatch.setattr(app_main, "_write_edited_sidecars", delayed)
+    monkeypatch.setattr(db, "cas_update_job", delayed_cas)
     results: list[tuple] = []
+    errors: list[BaseException] = []
 
     def worker(pitch: int) -> None:
         notes = [dict(note) for note in model["notes"]]
@@ -314,6 +315,9 @@ def test_concurrent_saves_one_success_one_conflict(isolated_db, monkeypatch):
             results.append(("ok", pitch, payload))
         except HTTPException as exc:
             results.append(("err", pitch, exc.status_code))
+        except Exception as exc:
+            errors.append(exc)
+            results.append(("exc", pitch, type(exc).__name__))
 
     threads = [
         threading.Thread(target=worker, args=(61,)),
@@ -326,6 +330,7 @@ def test_concurrent_saves_one_success_one_conflict(isolated_db, monkeypatch):
 
     successes = [row for row in results if row[0] == "ok"]
     conflicts = [row for row in results if row[0] == "err" and row[2] == 409]
+    assert errors == []
     assert len(results) == 2
     assert len(successes) == 1
     assert len(conflicts) == 1
@@ -359,14 +364,15 @@ def test_save_versus_reset_is_exclusive(isolated_db, monkeypatch):
     )
     model = extract_from_musicxml(original)
     barrier = threading.Barrier(2)
-    original_write = app_main._write_edited_sidecars
+    original_cas = db.cas_update_job
 
-    def delayed(job, json_text, musicxml_text, midi_bytes):
+    def delayed_cas(*args, **kwargs):
         barrier.wait(timeout=5)
-        return original_write(job, json_text, musicxml_text, midi_bytes)
+        return original_cas(*args, **kwargs)
 
-    monkeypatch.setattr(app_main, "_write_edited_sidecars", delayed)
+    monkeypatch.setattr(db, "cas_update_job", delayed_cas)
     outcomes: list[str] = []
+    errors: list[BaseException] = []
 
     def save() -> None:
         notes = [dict(note) for note in model["notes"]]
@@ -382,14 +388,19 @@ def test_save_versus_reset_is_exclusive(isolated_db, monkeypatch):
             outcomes.append("save")
         except HTTPException as exc:
             outcomes.append(f"save-{exc.status_code}")
+        except Exception as exc:
+            errors.append(exc)
+            outcomes.append(f"save-exc:{type(exc).__name__}")
 
     def reset() -> None:
-        barrier.wait(timeout=5)
         try:
             app_main.score_edits_reset(job_id, authorization=None)
             outcomes.append("reset")
         except HTTPException as exc:
             outcomes.append(f"reset-{exc.status_code}")
+        except Exception as exc:
+            errors.append(exc)
+            outcomes.append(f"reset-exc:{type(exc).__name__}")
 
     threads = [threading.Thread(target=save), threading.Thread(target=reset)]
     for thread in threads:
@@ -398,13 +409,24 @@ def test_save_versus_reset_is_exclusive(isolated_db, monkeypatch):
         thread.join(timeout=30)
 
     job = db.get_job(job_id)
+    assert errors == []
     assert job["edit_revision"] == 1
     assert len(outcomes) == 2
     assert sum(item in {"save", "reset"} for item in outcomes) == 1
     assert sum("409" in item for item in outcomes) == 1
     if "save" in outcomes:
-        assert job["edited_result_storage_key"]
-        assert Path(job["edited_result_storage_key"]).is_file()
+        pointer = Path(job["edited_result_storage_key"])
+        assert pointer.is_file()
+        json_path = pointer.with_name(f"{job_id}.edits.json")
+        midi_path = pointer.with_name(f"{job_id}.edited.mid")
+        assert json_path.is_file()
+        assert midi_path.is_file()
+        saved = loads_edits(json_path.read_text(encoding="utf-8"))
+        xml_model = extract_from_musicxml(pointer.read_text(encoding="utf-8"))
+        midi_pitch = _first_midi_pitch(midi_path.read_bytes())
+        assert saved["notes"][0]["pitch"] == 72
+        assert xml_model["notes"][0]["pitch"] == 72
+        assert midi_pitch == 72
     else:
         assert job["edited_result_storage_key"] is None
         assert xml_path.read_text(encoding="utf-8") == original
