@@ -188,6 +188,19 @@ def musicxml_note_marks(xml_text: str) -> list[dict]:
     return rows
 
 
+def _mixed_chord_articulations(rows: list[dict]) -> bool:
+    """True when members of one MusicXML chord carry different marks."""
+    groups: list[list[tuple]] = []
+    current: list[tuple] | None = None
+    for row in rows:
+        if row["chord"] and current is not None:
+            current.append(row["articulations"])
+            continue
+        current = [row["articulations"]]
+        groups.append(current)
+    return any(len(set(group)) > 1 for group in groups if len(group) > 1)
+
+
 def inspect_xml(xml_text: str) -> dict:
     rows = musicxml_note_marks(xml_text)
     signatures = []
@@ -217,9 +230,7 @@ def inspect_xml(xml_text: str) -> dict:
         "tied_fragments": len([row for row in rows if row["tie"]]),
         "marked_notes": len([row for row in rows if row["articulations"]]),
         "tuplet_notes": len([row for row in rows if row["tuplet"]]),
-        "mixed_chord_marks": any(
-            row["chord"] and row["articulations"] for row in rows
-        ),
+        "mixed_chord_marks": _mixed_chord_articulations(rows),
         "shape": {
             "part_count": max(1, len(parts)),
             "time_signatures": signatures,

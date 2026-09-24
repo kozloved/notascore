@@ -59,7 +59,11 @@ writeFileSync(join(outDir, "osmd_config.used.json"), JSON.stringify(config, null
 console.log(`wrote ${htmlPath}`);
 
 try {
-  const { chromium } = await import("playwright");
+  const { createRequire } = await import("node:module");
+  const requireFromFrontend = createRequire(
+    resolve(here, "../../frontend/package.json")
+  );
+  const { chromium } = requireFromFrontend("playwright");
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1000, height: 1400 } });
   await page.goto(pathToFileURL(htmlPath).href, { waitUntil: "networkidle" });

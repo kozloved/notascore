@@ -29,3 +29,25 @@ def test_context_from_ingest_uses_6_8_and_tempo(tmp_path):
     inspected = inspect_xml(result.musicxml)
     assert "6/8" in inspected["shape"]["time_signatures"]
     assert inspected["shape"]["trailing_empty_measures"] >= 0
+
+
+def test_inspect_xml_sees_mixed_chord_marks():
+    xml = """<?xml version="1.0"?>
+    <score-partwise>
+      <part id="P1">
+        <measure number="1">
+          <note><pitch><step>C</step><octave>4</octave></pitch>
+            <duration>1</duration>
+            <notations><articulations><staccato/></articulations></notations>
+          </note>
+          <note><chord/><pitch><step>E</step><octave>4</octave></pitch>
+            <duration>1</duration>
+            <notations><articulations><tenuto/></articulations></notations>
+          </note>
+        </measure>
+      </part>
+    </score-partwise>
+    """
+    inspected = inspect_xml(xml)
+    assert inspected["marked_notes"] == 2
+    assert inspected["mixed_chord_marks"] is True
