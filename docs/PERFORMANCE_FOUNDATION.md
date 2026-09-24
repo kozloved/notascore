@@ -5,6 +5,9 @@ It does not claim to complete the entire audio-to-score rebuild. It establishes
 source preservation, an instrument-aware solo score path, and separate quality
 gates before model replacement or ensemble development.
 
+The living engine plan is [ENGINE_ROADMAP.md](ENGINE_ROADMAP.md). This file
+remains the performance-foundation gate record.
+
 ## What now flows through the engine
 
 1. Retain the original MIDI bytes returned by MT3 or supplied by the customer.

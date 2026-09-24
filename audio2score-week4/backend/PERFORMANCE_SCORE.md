@@ -5,6 +5,7 @@ performance-to-score rebuild. Explicit `adaptive` mode remains available.
 It targets solo piano and single-stream pitched instruments, and preserves
 source MIDI independently of notation. See `docs/PERFORMANCE_FOUNDATION.md`
 at repository root for the staged migration and remaining release gates.
+The living engine plan is `docs/ENGINE_ROADMAP.md`.
 
 ## Run
 

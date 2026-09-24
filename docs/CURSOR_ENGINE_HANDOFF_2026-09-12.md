@@ -1,6 +1,8 @@
 # Engine review and Cursor handoff
 
-> Historical review of `4536944`. The current review, fixes, and next three phases are in [CURSOR_NEXT_3_PHASES_2026-09-12.md](CURSOR_NEXT_3_PHASES_2026-09-12.md).
+> Historical review of `4536944`. Dated follow-ups stay in
+> [CURSOR_NEXT_3_PHASES_2026-09-12.md](CURSOR_NEXT_3_PHASES_2026-09-12.md).
+> The living engine plan is [ENGINE_ROADMAP.md](ENGINE_ROADMAP.md).
 
 Reviewed remote main: `4536944` (2026-09-12), including Cursor PR #60.
 Previous fidelity baseline: `b42d606`. Review checkout: `/tmp/notascore-review-4536944`.
