@@ -156,3 +156,17 @@ FIXTURES = {
     "mixed_release_chord": fixture_mixed_release_chord,
     "multibar_held_melody": fixture_multibar_held_melody,
 }
+
+FIXTURE_META = {
+    "humanized_quarters": {"meter": "4/4", "tempo": 120},
+    "short_rests_repeats": {"meter": "4/4", "tempo": 120},
+    "melody_over_bass": {"meter": "4/4", "tempo": 120},
+    "syncopation": {"meter": "4/4", "tempo": 120},
+    "meter_3_4": {"meter": "3/4", "tempo": 120},
+    "meter_6_8": {"meter": "6/8", "tempo": 90},
+    "mixed_tuplets": {"meter": "4/4", "tempo": 120},
+    "rubato_pickup": {"meter": "4/4", "tempo": 120},
+    "unison_crossing": {"meter": "4/4", "tempo": 120},
+    "mixed_release_chord": {"meter": "4/4", "tempo": 120},
+    "multibar_held_melody": {"meter": "4/4", "tempo": 120},
+}

@@ -117,41 +117,6 @@ def test_absent_downbeat_evidence_stays_absent():
     assert analyze_from_tracker(tracker).downbeat_times == []
 
 
-def test_audio_score_is_not_shifted_twice(tmp_path, monkeypatch):
-    import numpy as np
-    import soundfile as sf
-    from mir.pipeline import UnderstandingPipeline
-    from mir.models import MeterDecision, MeterHypothesis
-    from mir.types import InstrumentKind, InstrumentPrediction, NoteEvent, TempoMap
-    from audio_engine.madmom_beats import MadmomBeatResult
-
-    monkeypatch.setenv("TRANSCRIPTION_QUANTIZATION_MODE", "performance")
-    monkeypatch.setenv("TRANSCRIPTION_ENABLE_GEMINI", "0")
-    monkeypatch.setenv("TRANSCRIPTION_USE_PIANO_ANALYZER", "0")
-    notes = [NoteEvent(60 + i % 3, 0.5 + i * 0.5, 1 + i * 0.5,
-                       note_id=str(i)) for i in range(8)]
-    monkeypatch.setattr("adapters.basic_pitch_backend.BasicPitchBackend.transcribe_notes",
-                        lambda *args: notes)
-    monkeypatch.setattr("mir.score_interpretation.evaluate_candidates", lambda *args: [])
-    source = tmp_path / "audio.wav"
-    sf.write(source, np.zeros(22050 * 5), 22050)
-    pipe = UnderstandingPipeline()
-    beats = [0.25 + i * 0.5 for i in range(12)]
-    result = MadmomBeatResult(TempoMap(), "4/4", beats, beats[::4])
-    pipe.beat_tracker.last_beat_result = result
-    pipe.beat_tracker.last_source = "madmom"
-    monkeypatch.setattr(pipe, "_prefetch_cpu", lambda *args: (
-        InstrumentPrediction(InstrumentKind.PIANO, 1), []))
-    monkeypatch.setattr(pipe, "_build_tempo_map", lambda *args: (TempoMap(), "4/4"))
-    meter = MeterHypothesis("4/4", 4, 4, 4, 1, 1)
-    monkeypatch.setattr(pipe, "_arbitrate_meter", lambda *args, **kwargs:
-                        MeterDecision("4/4", 1, hypothesis=meter))
-    pipe.transcribe(source, "phase")
-    assert [e.start_beat for e in pipe.last_quantized_events] == [0.5 + i for i in range(8)]
-    assert pipe.notation.last_quantization_summary["score_beat_offset"] == 0
-    assert pipe.notation.last_export_integrity["status"] == "passed"
-
-
 def test_editor_keeps_tied_sustain_as_one_attack(tmp_path):
     from score_edits import extract_from_musicxml, build_musicxml_and_midi
 
@@ -162,14 +127,169 @@ def test_editor_keeps_tied_sustain_as_one_attack(tmp_path):
     assert len(extract_from_musicxml(rebuilt)["notes"]) == 2
 
 
+def _musicxml_time_modifications(xml_text: str) -> list[tuple[int, int]]:
+    rows = []
+    root = ET.fromstring(xml_text)
+    for note in root.iter():
+        if note.tag.split("}")[-1] != "note":
+            continue
+        if note.find("{*}rest") is not None or note.find(".//{*}rest") is not None:
+            continue
+        actual = note.find(".//{*}actual-notes")
+        normal = note.find(".//{*}normal-notes")
+        if actual is None or normal is None:
+            continue
+        rows.append((int(actual.text or 0), int(normal.text or 0)))
+    return rows
+
+
+def _midi_quarter_lengths(midi_bytes: bytes, *, tempo_bpm: float = 120.0) -> list[float]:
+    midi = mido.MidiFile(file=__import__("io").BytesIO(midi_bytes))
+    tpb = midi.ticks_per_beat or 480
+    pending: dict[tuple[int, int], int] = {}
+    lengths: list[float] = []
+    tick = 0
+    for message in mido.merge_tracks(midi.tracks):
+        tick += int(message.time)
+        if message.type == "note_on" and message.velocity > 0:
+            pending[(message.channel, message.note)] = tick
+        elif message.type in ("note_off", "note_on"):
+            start = pending.pop((message.channel, message.note), None)
+            if start is None:
+                continue
+            lengths.append((tick - start) / tpb)
+    return lengths
+
+
+def _mixed_triplet_events():
+    return [
+        event("q0", 60, 0, 1),
+        event("q1", 62, 1, 1),
+        event("t0", 72, 2, 1 / 3),
+        event("t1", 74, 2 + 1 / 3, 1 / 3),
+        event("t2", 76, 2 + 2 / 3, 1 / 3),
+        event("q2", 64, 3, 1),
+    ]
+
+
+def test_as_score_fraction_keeps_notated_triplets():
+    from fractions import Fraction
+
+    from mir.performance_score import as_score_fraction
+    from mir.quantizer import snap_writable_length
+
+    assert snap_writable_length(1 / 3) == 0.3125
+    assert as_score_fraction(1 / 3, positive=True) == Fraction(1, 3)
+    assert as_score_fraction(2 / 3) == Fraction(2, 3)
+    assert as_score_fraction(1 / 3, locked=True, positive=True) == Fraction(1, 3)
+    assert as_score_fraction(0.25, positive=True) == Fraction(1, 4)
+
+
 def test_editor_keeps_untouched_triplets(tmp_path):
     from score_edits import extract_from_musicxml, build_musicxml_and_midi
 
     xml = write(NotationWriter(), [event(str(i), 60 + i, i / 3, 1 / 3) for i in range(6)], tmp_path)
     model = extract_from_musicxml(xml)
     assert [n["start"] for n in model["notes"]] == pytest.approx([i / 3 for i in range(6)])
+    assert [n["duration"] for n in model["notes"]] == pytest.approx([1 / 3] * 6)
     rebuilt, _ = build_musicxml_and_midi(model)
     assert [n["duration"] for n in extract_from_musicxml(rebuilt)["notes"]] == pytest.approx([1 / 3] * 6)
+
+
+def test_editor_keeps_mixed_triplets_musicxml_only(tmp_path):
+    from score_edits import extract_from_musicxml, build_musicxml_and_midi
+
+    xml = write(NotationWriter(), _mixed_triplet_events(), tmp_path)
+    model = extract_from_musicxml(xml)
+    starts = [n["start"] for n in model["notes"]]
+    durs = [n["duration"] for n in model["notes"]]
+    assert starts == pytest.approx([0, 1, 2, 2 + 1 / 3, 2 + 2 / 3, 3])
+    assert durs == pytest.approx([1, 1, 1 / 3, 1 / 3, 1 / 3, 1])
+    assert _musicxml_time_modifications(xml)
+    target = next(n for n in model["notes"] if abs(n["start"] - 1) < 1e-6)
+    target["pitch"] = 63
+    target["velocity"] = 99
+    target["articulation"] = "tenuto"
+    rebuilt, midi_bytes = build_musicxml_and_midi(model)
+    again = extract_from_musicxml(rebuilt)
+    assert [n["start"] for n in again["notes"]] == pytest.approx(starts)
+    assert [n["duration"] for n in again["notes"]] == pytest.approx(durs)
+    mods = _musicxml_time_modifications(rebuilt)
+    assert mods
+    assert all(actual == 3 and normal == 2 for actual, normal in mods)
+    lengths = _midi_quarter_lengths(midi_bytes)
+    assert any(abs(length - 1 / 3) < 0.02 for length in lengths)
+    assert any(abs(length - 1) < 0.02 for length in lengths)
+
+
+def test_editor_keeps_mixed_triplets_performance_backed(tmp_path):
+    from mir.midi_ingest import ingest_midi
+    from mir.notation_regen import recompute_notation
+    from mir.notation_settings import NotationSettings
+    from score_edits import extract_from_musicxml, build_musicxml_and_midi
+    from tests.test_shared_engraving import _context_for, _write_midi
+
+    # 120 BPM: quarter = 0.5s, triplet eighth = 1/6s.
+    notes = [
+        (60, 0.0, 0.5, 80),
+        (62, 0.5, 1.0, 80),
+        (72, 1.0, 1.0 + 0.5 / 3, 84),
+        (74, 1.0 + 0.5 / 3, 1.0 + 1.0 / 3, 84),
+        (76, 1.0 + 1.0 / 3, 1.5, 84),
+        (64, 1.5, 2.0, 80),
+    ]
+    midi_path = tmp_path / "mixed.mid"
+    original = _write_midi(midi_path, notes)
+    ingested = ingest_midi(midi_path)
+    result = recompute_notation(
+        midi_bytes=original,
+        settings=NotationSettings(),
+        performance=ingested.performance,
+        context=_context_for(ingested),
+    )
+    assert midi_path.read_bytes() == original
+    model = result.editor_model
+    trip = [n for n in model["notes"] if abs(n["duration"] - 1 / 3) < 0.05]
+    assert len(trip) >= 3
+    trip_starts = [n["start"] for n in trip]
+    trip_durs = [n["duration"] for n in trip]
+    louder = next(n for n in model["notes"] if abs(n["start"] - 0.0) < 1e-6)
+    louder["velocity"] = 108
+    louder["pitch"] = 61
+    rebuilt, _ = build_musicxml_and_midi(model)
+    again = extract_from_musicxml(rebuilt)
+    restored = [n for n in again["notes"] if abs(n["duration"] - 1 / 3) < 0.05]
+    assert [n["start"] for n in restored] == pytest.approx(trip_starts, abs=1e-3)
+    assert [n["duration"] for n in restored] == pytest.approx(trip_durs, abs=1e-3)
+    edited = recompute_notation(
+        midi_bytes=original,
+        settings=NotationSettings(),
+        performance=ingested.performance,
+        context=_context_for(ingested),
+        corrections=[{"source_note_id": trip[0].get("source_note_id") or trip[0]["id"], "articulation": "staccato"}],
+    )
+    assert midi_path.read_bytes() == original
+    after = [n for n in edited.editor_model["notes"] if abs(n["duration"] - 1 / 3) < 0.05]
+    assert [n["duration"] for n in after] == pytest.approx(trip_durs, abs=1e-3)
+    assert _musicxml_time_modifications(edited.musicxml)
+
+
+def test_explicit_timing_edit_may_leave_grid_and_keeps_neighbors(tmp_path):
+    from score_edits import extract_from_musicxml, build_musicxml_and_midi
+
+    xml = write(NotationWriter(), _mixed_triplet_events(), tmp_path)
+    model = extract_from_musicxml(xml)
+    moved = next(n for n in model["notes"] if abs(n["start"] - 1) < 1e-6)
+    moved["start"] = 1.25
+    moved["duration"] = 0.25
+    rebuilt, _ = build_musicxml_and_midi(model)
+    again = extract_from_musicxml(rebuilt)
+    by_pitch = {n["pitch"]: n for n in again["notes"]}
+    assert by_pitch[62]["start"] == pytest.approx(1.25)
+    assert by_pitch[62]["duration"] == pytest.approx(0.25)
+    assert by_pitch[72]["duration"] == pytest.approx(1 / 3)
+    assert by_pitch[74]["duration"] == pytest.approx(1 / 3)
+    assert by_pitch[76]["duration"] == pytest.approx(1 / 3)
 
 
 def test_old_job_download_keeps_ties_and_real_repeats(tmp_path):

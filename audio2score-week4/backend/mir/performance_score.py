@@ -146,13 +146,35 @@ SCORE_FRACTION_LIMIT = 192
 SCORE_FRACTION_TOLERANCE = 1e-9
 
 
+def _already_notated_fraction(value, *, positive: bool = False) -> Fraction | None:
+    """Recover a binary or tuplet spelling already present in ``value``.
+
+    ``snap_writable_length`` rounds 1/3 onto the 64th grid (0.3125). Already
+    notated tuplets must not take that path.
+    """
+    frac = Fraction(value).limit_denominator(SCORE_FRACTION_LIMIT)
+    if abs(float(frac) - float(value)) > SCORE_FRACTION_TOLERANCE:
+        return None
+    if positive and frac <= 0:
+        return None
+    if frac < 0:
+        return None
+    den = frac.denominator
+    while den % 2 == 0:
+        den //= 2
+    if den not in (1, 3):
+        return None
+    return frac
+
+
 def as_score_fraction(value, *, positive: bool = False, previous: Fraction | None = None, locked: bool = False) -> Fraction:
     """Convert a score-beat value without inventing a simpler spelling.
 
     Locked (user-edited) values stay exact so the planner can reject an
     unspellable duration instead of silently rounding. Unlocked values, such
     as performance-mapped editor floats, use the 64th writable grid already
-    used by the quantizer.
+    used by the quantizer — unless the float is already a notated binary or
+    tuplet spelling.
     """
     if previous is not None and abs(float(previous) - float(value)) <= SCORE_FRACTION_TOLERANCE:
         return Fraction(previous)
@@ -163,6 +185,9 @@ def as_score_fraction(value, *, positive: bool = False, previous: Fraction | Non
         if frac < 0:
             raise ValueError(f"Edited onset {value} is negative")
         return frac
+    notated = _already_notated_fraction(value, positive=positive)
+    if notated is not None:
+        return notated
     from mir.quantizer import SMALLEST_WRITABLE, snap_writable_length
 
     if positive:

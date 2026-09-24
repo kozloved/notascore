@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import ListenPreview from "./ListenPreview";
 import { apiFetch } from "../lib/api-client";
 import { noteIdAtClientPoint, noteIdFromEvent, stampNoteIds } from "../lib/osmd-map";
+import { downloadScorePdfFromContainer } from "../lib/sheet-pdf";
 
 function triggerDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -15,41 +16,6 @@ function triggerDownload(blob, filename) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function loadImage(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = src;
-  });
-}
-
-async function svgToPng(svg, scale) {
-  const rect = svg.getBoundingClientRect();
-  const width = Math.ceil(rect.width) || svg.viewBox?.baseVal?.width || 800;
-  const height = Math.ceil(rect.height) || svg.viewBox?.baseVal?.height || 600;
-
-  const clone = svg.cloneNode(true);
-  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-  clone.setAttribute("width", String(width));
-  clone.setAttribute("height", String(height));
-
-  const xml = new XMLSerializer().serializeToString(clone);
-  const src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
-  const img = await loadImage(src);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(width * scale);
-  canvas.height = Math.round(height * scale);
-
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-  return { dataUrl: canvas.toDataURL("image/png"), w: canvas.width, h: canvas.height };
 }
 
 export default function SheetResult({
@@ -231,26 +197,8 @@ export default function SheetResult({
           if (interactive) stampNoteIds(osmdRef.current, notes, selectedNoteId);
         }
       }
-      const svgs = containerRef.current?.querySelectorAll("svg");
-      if (!svgs || svgs.length === 0) {
-        throw new Error("Sheet preview is not ready yet");
-      }
-
       const { jsPDF } = await import("jspdf");
-      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-
-      for (let index = 0; index < svgs.length; index += 1) {
-        const { dataUrl } = await svgToPng(svgs[index], 2);
-        if (index > 0) {
-          pdf.addPage("a4", "portrait");
-        }
-        // Each OSMD page is already A4-proportioned, so it fills the page.
-        pdf.addImage(dataUrl, "PNG", 0, 0, pageW, pageH);
-      }
-
-      pdf.save(`${stem}.pdf`);
+      await downloadScorePdfFromContainer(containerRef.current, `${stem}.pdf`, jsPDF);
       onExport?.("pdf");
     } catch {
       setMessage("We couldn’t download the PDF.");
