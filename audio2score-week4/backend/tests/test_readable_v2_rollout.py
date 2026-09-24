@@ -255,7 +255,8 @@ def test_rollout_run_writes_report_and_keeps_v2_opt_in(tmp_path):
         assert all(row["provenance"]["kind"] == "local_reference_midi" for row in report["reference_midi"])
     rec = recommend(report)
     assert rec["migrate_existing_jobs"] is False
-    assert rec["decision"] in {"continued_opt_in", "controlled_new_job_default"}
+    assert rec["decision"] == "continued_opt_in"
+    assert report["inventory"]["real_material"]["licensed_performances_available"] is False
     assert (tmp_path / "out" / "rollout_report.md").exists()
     assert (tmp_path / "out" / "B_short_notes_with_rests" / "v1.musicxml").exists()
     assert (tmp_path / "out" / "B_short_notes_with_rests" / "v2.musicxml").exists()
