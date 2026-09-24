@@ -22,6 +22,7 @@ from evaluation.notation_correctness_evidence import (
     _visual_record,
     expected_osmd_pages,
     inspect_xml,
+    measure_validity,
 )
 from evaluation.notation_fixtures import FIXTURE_META, FIXTURES
 from evaluation.readable_v2_cases import (
@@ -87,6 +88,7 @@ ROLLOUT_CASES = [
     ("unison_crossing", FIXTURES, "notation", FIXTURE_META["unison_crossing"], "synthetic_fixture", True),
     ("near_barline_short_release", HELDOUT_CASES, "readable_v2", HELDOUT_META["near_barline_short_release"], "synthetic_heldout", True),
     ("long_monophonic_phrase", HELDOUT_CASES, "readable_v2", HELDOUT_META["long_monophonic_phrase"], "synthetic_heldout", True),
+    ("grand_staff_pagination", HELDOUT_CASES, "readable_v2", HELDOUT_META["grand_staff_pagination"], "synthetic_heldout", True),
 ]
 
 RENDER_LABELS = frozenset(
@@ -99,7 +101,10 @@ RENDER_LABELS = frozenset(
         "near_barline_short_release",
         "independent_voices_mixed_release",
         "long_monophonic_phrase",
+        "grand_staff_pagination",
         "unison_crossing",
+        "short_rests_repeats",
+        "irregular_triplet_intervals",
     }
 )
 
@@ -114,16 +119,105 @@ CORPUS_FOCUS = (
 )
 
 
+def _note_identity(note: dict) -> str:
+    return str(note.get("source_note_id") or note.get("id") or "")
+
+
+def _note_staff(note: dict) -> int:
+    """Editor model staff is ``track`` (0=treble, 1=bass). ``hand`` is absent."""
+    if note.get("track") is not None:
+        return int(note["track"])
+    return 0
+
+
 def _assignments(result) -> dict:
-    notes = result.editor_model.get("notes") or []
+    notes = list(result.editor_model.get("notes") or [])
+    rows = []
+    for note in notes:
+        ident = _note_identity(note)
+        rows.append(
+            {
+                "id": ident,
+                "pitch": int(note["pitch"]),
+                "start": round(float(note["start"]), 4),
+                "duration": round(float(note["duration"]), 4),
+                "staff": _note_staff(note),
+                "voice": int(note.get("voice") or 0),
+            }
+        )
     return {
-        "count": len(notes),
-        "hands": sorted({str(n.get("hand") or "") for n in notes}),
-        "voices": sorted({int(n.get("voice") or 0) for n in notes}),
-        "source_ids": [n.get("source_note_id") or n.get("id") for n in notes],
-        "starts": [round(float(n["start"]), 4) for n in notes],
-        "durations": [round(float(n["duration"]), 4) for n in notes],
-        "pitches": [int(n["pitch"]) for n in notes],
+        "count": len(rows),
+        "notes": rows,
+        "source_ids": [row["id"] for row in rows],
+        "starts": [row["start"] for row in rows],
+        "durations": [row["duration"] for row in rows],
+        "pitches": [row["pitch"] for row in rows],
+        "staves": sorted({row["staff"] for row in rows}),
+        "voices": sorted({row["voice"] for row in rows}),
+    }
+
+
+def _canonical_voice_groups(notes: list[dict]) -> dict[int, list[frozenset[str]]]:
+    """Staff -> voice partitions, labels discarded.
+
+    Matches existing voice metrics: a global voice-number permutation on one
+    staff is the same grouping. A note moving staff or changing companions is not.
+    """
+    by_staff: dict[int, dict[int, list[str]]] = {}
+    for note in notes:
+        by_staff.setdefault(note["staff"], {}).setdefault(note["voice"], []).append(note["id"])
+    groups: dict[int, list[frozenset[str]]] = {}
+    for staff, voices in by_staff.items():
+        ordered = sorted(
+            (frozenset(members) for members in voices.values()),
+            key=lambda members: tuple(sorted(members)),
+        )
+        groups[staff] = ordered
+    return groups
+
+
+def compare_staff_voice(left: dict, right: dict) -> dict:
+    left_by = {row["id"]: row for row in left["notes"]}
+    right_by = {row["id"]: row for row in right["notes"]}
+    ids = sorted(set(left_by) | set(right_by))
+    staff_changes = []
+    voice_membership_changes = []
+    for ident in ids:
+        a = left_by.get(ident)
+        b = right_by.get(ident)
+        if a is None or b is None:
+            staff_changes.append({"id": ident, "v1": None if a is None else a["staff"], "v2": None if b is None else b["staff"]})
+            continue
+        if a["staff"] != b["staff"]:
+            staff_changes.append({"id": ident, "v1": a["staff"], "v2": b["staff"]})
+        if a["voice"] != b["voice"] and a["staff"] == b["staff"]:
+            # Label change only; grouping check decides if membership changed.
+            pass
+    left_groups = _canonical_voice_groups(left["notes"])
+    right_groups = _canonical_voice_groups(right["notes"])
+    grouping_equal = left_groups == right_groups
+    if not grouping_equal:
+        for staff in sorted(set(left_groups) | set(right_groups)):
+            if left_groups.get(staff) != right_groups.get(staff):
+                voice_membership_changes.append(
+                    {
+                        "staff": staff,
+                        "v1": [sorted(group) for group in left_groups.get(staff, [])],
+                        "v2": [sorted(group) for group in right_groups.get(staff, [])],
+                    }
+                )
+    staff_equal = not staff_changes
+    return {
+        "staff_equal": staff_equal,
+        "grouping_equal": grouping_equal,
+        "assignments_unchanged": staff_equal and grouping_equal,
+        "staff_changes": staff_changes,
+        "voice_membership_changes": voice_membership_changes,
+        "v1_staves": left["staves"],
+        "v2_staves": right["staves"],
+        "v1_voice_labels": left["voices"],
+        "v2_voice_labels": right["voices"],
+        "equal": staff_equal and grouping_equal,
     }
 
 
@@ -143,27 +237,40 @@ def _surface(xml_text: str) -> dict:
 
 
 def _timing_delta(left: dict, right: dict) -> dict:
+    left_by = {row["id"]: row for row in left["notes"]}
+    right_by = {row["id"]: row for row in right["notes"]}
+    ids = sorted(set(left_by) | set(right_by))
+    duration_changes = []
+    start_changes = []
+    for ident in ids:
+        a = left_by.get(ident)
+        b = right_by.get(ident)
+        if a is None or b is None or a["duration"] != b["duration"]:
+            duration_changes.append(
+                {
+                    "id": ident,
+                    "pitch": (a or b or {}).get("pitch"),
+                    "v1": None if a is None else a["duration"],
+                    "v2": None if b is None else b["duration"],
+                }
+            )
+        if a is None or b is None or a["start"] != b["start"]:
+            start_changes.append(
+                {
+                    "id": ident,
+                    "pitch": (a or b or {}).get("pitch"),
+                    "v1": None if a is None else a["start"],
+                    "v2": None if b is None else b["start"],
+                }
+            )
     return {
-        "starts_equal": left["starts"] == right["starts"],
-        "durations_equal": left["durations"] == right["durations"],
+        "starts_equal": not start_changes,
+        "durations_equal": not duration_changes,
         "pitches_equal": left["pitches"] == right["pitches"],
         "source_ids_equal": left["source_ids"] == right["source_ids"],
-        "hands_equal": left["hands"] == right["hands"],
-        "voices_equal": left["voices"] == right["voices"],
-        "duration_changes": [
-            {
-                "index": i,
-                "pitch": left["pitches"][i] if i < len(left["pitches"]) else None,
-                "v1": left["durations"][i] if i < len(left["durations"]) else None,
-                "v2": right["durations"][i] if i < len(right["durations"]) else None,
-            }
-            for i in range(max(len(left["durations"]), len(right["durations"])))
-            if (
-                i >= len(left["durations"])
-                or i >= len(right["durations"])
-                or left["durations"][i] != right["durations"][i]
-            )
-        ],
+        "matched_by": "source_note_id_or_editor_id",
+        "duration_changes": duration_changes,
+        "start_changes": start_changes,
     }
 
 
@@ -306,9 +413,11 @@ def inventory() -> dict:
         "local_reference_midi": real["nota_test_samples"],
         "corpus": corpus,
         "note": (
-            "All committed MIDI is generated. Do not describe these as real "
-            "performances. Real-audio transcription accuracy is a separate "
-            "evaluation and is not used for this rollout decision."
+            "Catalog and fixture MIDI is generated. Local NotaTestSamples are "
+            "development raw/quantized pairs with undocumented license; they are "
+            "not musician-reviewed ground truth. Do not claim real-performance "
+            "accuracy from synthetic fixtures. Real-audio transcription is a "
+            "separate evaluation."
         ),
     }
 
@@ -324,6 +433,9 @@ def _compare_pair(midi_path: Path, *, meter: str, tempo: float) -> dict:
     surface1 = _surface(v1.musicxml)
     surface2 = _surface(v2.musicxml)
     timing = _timing_delta(assign1, assign2)
+    staff_voice = compare_staff_voice(assign1, assign2)
+    valid1 = measure_validity(v1.musicxml)
+    valid2 = measure_validity(v2.musicxml)
     rest_delta = surface2["rest_count"] - surface1["rest_count"]
     tie_delta = surface2["tied_fragments"] - surface1["tied_fragments"]
     return {
@@ -345,19 +457,26 @@ def _compare_pair(midi_path: Path, *, meter: str, tempo: float) -> dict:
         },
         "timing": timing,
         "measure_integrity": {
-            "v1": surface1["time_signatures"],
-            "v2": surface2["time_signatures"],
-            "equal": surface1["time_signatures"] == surface2["time_signatures"]
+            "time_signatures": {
+                "v1": surface1["time_signatures"],
+                "v2": surface2["time_signatures"],
+            },
+            "measure_count": {
+                "v1": surface1["measure_count"],
+                "v2": surface2["measure_count"],
+            },
+            "structural_similar": surface1["time_signatures"] == surface2["time_signatures"]
             and surface1["measure_count"] == surface2["measure_count"],
+            "v1_musical_valid": valid1["musical_valid"],
+            "v2_musical_valid": valid2["musical_valid"],
+            "v1": valid1,
+            "v2": valid2,
+            "equal": surface1["time_signatures"] == surface2["time_signatures"]
+            and surface1["measure_count"] == surface2["measure_count"]
+            and valid1["musical_valid"]
+            and valid2["musical_valid"],
         },
-        "hand_voice": {
-            "v1_hands": assign1["hands"],
-            "v2_hands": assign2["hands"],
-            "v1_voices": assign1["voices"],
-            "v2_voices": assign2["voices"],
-            "equal": assign1["hands"] == assign2["hands"]
-            and assign1["voices"] == assign2["voices"],
-        },
+        "hand_voice": staff_voice,
         "rest_count": {"v1": surface1["rest_count"], "v2": surface2["rest_count"], "delta": rest_delta},
         "tie_count": {
             "v1": surface1["tied_fragments"],
@@ -369,7 +488,52 @@ def _compare_pair(midi_path: Path, *, meter: str, tempo: float) -> dict:
         "identical_written": timing["starts_equal"]
         and timing["durations_equal"]
         and surface1 == surface2,
+        "gap_fill": _gap_fill_analysis(assign1, assign2),
     }
+
+
+def _gap_fill_analysis(left: dict, right: dict) -> list[dict]:
+    """Explain per-note leftover vs the relative fill rule."""
+    left_by = {row["id"]: row for row in left["notes"]}
+    rows = []
+    ordered = sorted(left["notes"], key=lambda row: (row["staff"], row["start"], row["pitch"], row["id"]))
+    for index, note in enumerate(ordered):
+        later = [
+            other
+            for other in ordered[index + 1 :]
+            if other["staff"] == note["staff"]
+        ]
+        next_start = later[0]["start"] if later else None
+        raw = note["duration"]
+        if next_start is not None:
+            slot = next_start - note["start"]
+        else:
+            slot = None
+        remaining = None if slot is None else round(slot - raw, 4)
+        v2 = left_by and {row["id"]: row for row in right["notes"]}.get(note["id"])
+        rows.append(
+            {
+                "id": note["id"],
+                "pitch": note["pitch"],
+                "staff": note["staff"],
+                "v1": raw,
+                "v2": None if v2 is None else v2["duration"],
+                "next_start": next_start,
+                "remaining_to_next": remaining,
+                "remaining_ratio": None if not slot else round(remaining / slot, 4),
+                "filled": False if v2 is None else v2["duration"] > raw + 1e-6,
+                "why": (
+                    "filled leftover < sixteenth to next attack"
+                    if v2 is not None and v2["duration"] > raw + 1e-6
+                    else (
+                        "kept written duration; small leftover is not enough intent"
+                        if remaining is not None and 0 <= remaining < 0.25
+                        else "no small leftover to next attack"
+                    )
+                ),
+            }
+        )
+    return rows
 
 
 def _write_render(case_dir: Path, label: str, xml_text: str, version: str) -> dict:
@@ -472,25 +636,27 @@ def recommend(report: dict) -> dict:
         expected = (row.get("expected") or {}).get("release") or ""
         durations_changed = not row["timing"]["durations_equal"]
         if label == "final_short_then_silence" and durations_changed:
-            last_v2 = (row["v2"]["assignments"]["durations"] or [None])[-1]
-            last_v1 = (row["v1"]["assignments"]["durations"] or [None])[-1]
-            if last_v2 is not None and last_v1 is not None and last_v2 > last_v1 + 0.05:
+            last_v1 = (row["v1"]["assignments"]["notes"] or [{}])[-1]
+            last_v2 = (row["v2"]["assignments"]["notes"] or [{}])[-1]
+            if last_v1.get("id") == last_v2.get("id") and last_v2.get("duration", 0) > last_v1.get("duration", 0) + 0.05:
                 remaining.append(
                     {
                         "case": label,
                         "issue": "v2 lengthens the intentional final short note",
-                        "v1_last": last_v1,
-                        "v2_last": last_v2,
+                        "id": last_v1.get("id"),
+                        "v1_last": last_v1.get("duration"),
+                        "v2_last": last_v2.get("duration"),
                     }
                 )
         if label == "near_barline_short_release" and durations_changed:
-            last_v2 = (row["v2"]["assignments"]["durations"] or [None])[-1]
-            if last_v2 is not None and last_v2 >= 0.24:
+            last_v2 = (row["v2"]["assignments"]["notes"] or [{}])[-1]
+            if last_v2.get("duration") is not None and last_v2["duration"] >= 0.24:
                 remaining.append(
                     {
                         "case": label,
                         "issue": "v2 fills a short near-barline note to the bar",
-                        "v2_last": last_v2,
+                        "id": last_v2.get("id"),
+                        "v2_last": last_v2.get("duration"),
                     }
                 )
         if label == "irregular_triplet_intervals" and durations_changed:
@@ -525,15 +691,11 @@ def recommend(report: dict) -> dict:
             )
         if label == "independent_voices_mixed_release":
             bass_v1 = next(
-                (d for p, d in zip(row["v1"]["assignments"]["pitches"], row["v1"]["assignments"]["durations"]) if p == 48),
+                (n["duration"] for n in row["v1"]["assignments"]["notes"] if n["pitch"] == 48),
                 None,
             )
             bass_v2 = next(
-                (
-                    d
-                    for p, d in zip(row["v2"]["assignments"]["pitches"], row["v2"]["assignments"]["durations"])
-                    if p == 48
-                ),
+                (n["duration"] for n in row["v2"]["assignments"]["notes"] if n["pitch"] == 48),
                 None,
             )
             if bass_v1 and bass_v2 and bass_v2 + 1e-6 < bass_v1:
@@ -545,25 +707,17 @@ def recommend(report: dict) -> dict:
                         "v2_bass": bass_v2,
                     }
                 )
-    if report["inventory"]["real_material"]["gap"]:
-        remaining.append(
-            {
-                "case": "real_performances",
-                "issue": report["inventory"]["real_material"]["gap"],
-            }
-        )
     for render in report.get("renders") or []:
-        if render["label"] != "long_monophonic_phrase":
+        if render["label"] != "grand_staff_pagination":
             continue
         pages = render.get("pdf", {}).get("parsed_pages") or 0
         if pages < 2:
             remaining.append(
                 {
-                    "case": "long_monophonic_phrase",
+                    "case": "grand_staff_pagination",
                     "issue": (
-                        "Production OSMD compact A4 rendered the 41-bar phrase as "
-                        f"{pages or 1} page. Multi-page output did not occur. "
-                        "Reported only; renderer was not changed."
+                        f"Expected at least two real PDF pages, parsed {pages}. "
+                        "Whole-score shrinking or missing systems would be a defect."
                     ),
                 }
             )
@@ -646,13 +800,14 @@ def _markdown(report: dict) -> str:
         [
             "## Cases",
             "",
-            "| Case | Held-out | MIDI preserved | Written identical | Rests v1→v2 | Ties v1→v2 | Measures | Hands/voices |",
-            "|---|---|---|---|---|---|---|---|",
+            "| Case | Held-out | MIDI preserved | Written identical | Rests v1→v2 | Ties v1→v2 | Structural | Musical valid | Staff/voice |",
+            "|---|---|---|---|---|---|---|---|---|",
         ]
     )
     for row in report["cases"] + report.get("reference_midi", []) + report["corpus"]:
+        integrity = row["measure_integrity"]
         lines.append(
-            "| `{label}` | {held} | {midi} | {ident} | {r1}→{r2} | {t1}→{t2} | {meas} | {hv} |".format(
+            "| `{label}` | {held} | {midi} | {ident} | {r1}→{r2} | {t1}→{t2} | {struct} | {valid} | {hv} |".format(
                 label=row["label"],
                 held="yes" if row.get("provenance", {}).get("held_out_of_last_note_tune") else "no",
                 midi="yes" if row.get("source_midi_unchanged") else "NO",
@@ -661,8 +816,13 @@ def _markdown(report: dict) -> str:
                 r2=row["rest_count"]["v2"],
                 t1=row["tie_count"]["v1"],
                 t2=row["tie_count"]["v2"],
-                meas="ok" if row["measure_integrity"]["equal"] else "DIFF",
-                hv="ok" if row["hand_voice"]["equal"] else "DIFF",
+                struct="similar" if integrity.get("structural_similar") else "DIFF",
+                valid=(
+                    "ok"
+                    if integrity.get("v1_musical_valid") and integrity.get("v2_musical_valid")
+                    else "INVALID"
+                ),
+                hv="ok" if row["hand_voice"].get("assignments_unchanged", row["hand_voice"].get("equal")) else "DIFF",
             )
         )
     lines.extend(["", "## Duration changes (not an automatic improvement)", ""])
@@ -674,8 +834,9 @@ def _markdown(report: dict) -> str:
         if row.get("expected"):
             lines.append(f"- Expected release: {row['expected']['release']}")
         for change in changes[:12]:
+            ident = change.get("id") or change.get("index")
             lines.append(
-                f"- index {change['index']} pitch {change['pitch']}: "
+                f"- id `{ident}` pitch {change['pitch']}: "
                 f"v1={change['v1']} v2={change['v2']}"
             )
         lines.append("")
@@ -684,11 +845,10 @@ def _markdown(report: dict) -> str:
             [
                 "## Pagination",
                 "",
-                "Production OSMD (`pageFormat: A4_P`, `drawingParameters: compact`) "
-                "is the SheetResult path. The 41-bar held-out phrase rendered as one "
-                "page and six systems. The production PDF page count matched OSMD. "
-                "Multi-page output was requested and did not occur. This is a "
-                "renderer layout result, not a v2 duration change.",
+                "Bar count alone is not a pagination defect. "
+                "`grand_staff_pagination` is the representative score that must "
+                "exceed usable page height at normal staff size and produce at "
+                "least two real PDF pages without shrinking the whole score.",
                 "",
             ]
         )

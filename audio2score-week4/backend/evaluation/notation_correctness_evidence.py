@@ -8,8 +8,8 @@ sheet preview, then the production frontend PDF export script.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
-import re
 import subprocess
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -254,6 +254,107 @@ def inspect_xml(xml_text: str) -> dict:
     }
 
 
+class _TimelineEl:
+    def __init__(self, start_q, duration_q, *, pitches=None, tie=None):
+        self.start_q = float(start_q)
+        self.duration_q = float(duration_q)
+        self.pitches = list(pitches or [])
+        self.event_ids = []
+        self.tie = tie
+
+
+def measure_validity(xml_text: str) -> dict:
+    """Musical validity of a MusicXML score, not v1/v2 equality.
+
+    Reuses ``validate_voice_timeline`` for duration/overflow/overlap and
+    ``score_attacks`` for tie continuity. Chords stay one timeline event.
+    Pickup bars use the written measure length. Structural rests count.
+    """
+    from music21 import converter
+
+    from notation_engine.integrity import NotationIntegrityError, score_attacks
+    from notation_engine.plan import validate_voice_timeline
+
+    issues: list[dict] = []
+    score = converter.parse(xml_text, format="musicxml")
+    try:
+        score_attacks(score)
+        ties_ok = True
+    except NotationIntegrityError as exc:
+        ties_ok = False
+        issues.append({"reason": "tie_continuity", "detail": str(exc)})
+    for part in score.parts:
+        for measure in part.getElementsByClass("Measure"):
+            written_len = float(measure.duration.quarterLength or 0)
+            ts_len = None
+            if measure.timeSignature is not None:
+                try:
+                    ts_len = float(measure.timeSignature.barDuration.quarterLength)
+                except Exception:
+                    ts_len = None
+            try:
+                bar_len = float(measure.barDuration.quarterLength)
+            except Exception:
+                bar_len = written_len
+            # Pickup / incomplete bars are shorter than the prevailing meter.
+            if written_len and ts_len and written_len + 1e-6 < ts_len:
+                measure_len = written_len
+            else:
+                measure_len = ts_len or bar_len or written_len
+            voices: dict[str, list[_TimelineEl]] = {}
+            for el in measure.recurse().notesAndRests:
+                site = el.activeSite
+                if site is not None and site.__class__.__name__ == "Voice":
+                    vid = str(site.id)
+                else:
+                    vid = str(getattr(el, "voice", None) or "1")
+                members = list(el.notes) if el.isChord else [el]
+                pitches = [
+                    int(m.pitch.midi)
+                    for m in members
+                    if getattr(m, "pitch", None) is not None
+                ]
+                voices.setdefault(vid, []).append(
+                    _TimelineEl(
+                        float(el.offset),
+                        float(el.quarterLength),
+                        pitches=pitches,
+                        tie=getattr(getattr(el, "tie", None), "type", None),
+                    )
+                )
+            if not voices:
+                voices["1"] = []
+            for vid, elements in voices.items():
+                for issue in validate_voice_timeline(elements, measure_len):
+                    if issue.get("reason") == "gap":
+                        # Structural / pickup rests already appear as rest
+                        # elements. A leftover gap after those is still an issue.
+                        continue
+                    issues.append(
+                        {
+                            "measure": int(measure.number),
+                            "voice": vid,
+                            **issue,
+                        }
+                    )
+    fatal = {
+        "overlap",
+        "ends_after_measure",
+        "negative_duration",
+        "zero_duration",
+        "starts_before_zero",
+        "sum_mismatch",
+        "tie_continuity",
+    }
+    musical_valid = not any(issue.get("reason") in fatal for issue in issues)
+    return {
+        "musical_valid": musical_valid,
+        "ties_ok": ties_ok,
+        "issue_count": len(issues),
+        "issues": issues[:20],
+    }
+
+
 def _midi_from_pitch(note_el) -> int | None:
     pitch_el = note_el.find("{*}pitch")
     if pitch_el is None:
@@ -444,24 +545,61 @@ def compare_engraving(auto_xml: str, edited_xml: str, *, kind: str) -> dict:
 
 
 PDF_MAGIC = b"%PDF-"
-_PDF_PAGE_OBJECT = re.compile(rb"/Type\s*/Page(?![sA-Za-z])")
+
+
+def valid_pdf_bytes(*, pages: int = 1, compressed: bool = True) -> bytes:
+    """Build a structurally valid PDF through pypdf for regressions."""
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, NameObject
+
+    writer = PdfWriter()
+    for index in range(max(1, int(pages))):
+        page = writer.add_blank_page(width=612, height=792)
+        stream = DecodedStreamObject()
+        stream.set_data(f"BT /F1 12 Tf 72 720 Td (page {index + 1}) Tj ET".encode())
+        if compressed:
+            stream = stream.flate_encode()
+        page[NameObject("/Contents")] = writer._add_object(stream)
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
 
 
 def parse_pdf_page_count(data: bytes) -> dict:
-    """Parse a PDF enough to reject junk and count page objects.
+    """Parse a PDF with pypdf and count pages from the page tree.
 
-    stdout page claims and file existence are not enough. A text file that
-    happens to mention pages must fail. ``/Type /Pages`` is the tree node,
-    not a rendered page.
+    Marker-only files and structurally broken PDFs fail even if they contain
+    ``%PDF-``, ``/Type /Page``, or a stdout page claim. Compressed page trees
+    are read through the parser, not a regex over raw bytes.
     """
     if not data.startswith(PDF_MAGIC):
         return {"ok": False, "pages": None, "reason": "missing %PDF- header"}
-    if b"%%EOF" not in data:
-        return {"ok": False, "pages": None, "reason": "missing %%EOF trailer"}
-    pages = len(_PDF_PAGE_OBJECT.findall(data))
-    if pages < 1:
-        return {"ok": False, "pages": 0, "reason": "no /Type /Page objects"}
-    return {"ok": True, "pages": pages, "reason": None}
+    try:
+        from pypdf import PdfReader
+        from pypdf.errors import PdfReadError
+    except ImportError as exc:  # pragma: no cover - CI installs pypdf
+        return {"ok": False, "pages": None, "reason": f"pypdf unavailable: {exc}"}
+    try:
+        reader = PdfReader(io.BytesIO(data), strict=True)
+        root = reader.trailer.get("/Root") if reader.trailer else None
+        if root is None or root.get("/Pages") is None:
+            return {"ok": False, "pages": None, "reason": "missing page tree"}
+        pages = reader.pages
+        count = len(pages)
+        if count < 1:
+            return {"ok": False, "pages": 0, "reason": "page tree has no pages"}
+        # Force the page tree to resolve. A marker-only object is not a page.
+        for index, page in enumerate(pages):
+            box = page.mediabox
+            if box is None or float(box.width) <= 0 or float(box.height) <= 0:
+                return {
+                    "ok": False,
+                    "pages": None,
+                    "reason": f"page {index + 1} has no usable media box",
+                }
+        return {"ok": True, "pages": count, "reason": None}
+    except (PdfReadError, KeyError, TypeError, ValueError, AttributeError) as exc:
+        return {"ok": False, "pages": None, "reason": f"malformed PDF: {exc}"}
 
 
 def expected_osmd_pages(out_dir: Path) -> int | None:
