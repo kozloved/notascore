@@ -1802,8 +1802,20 @@ def _recompute_notation_revision(
             "missing_context",
             "Notation cache identity does not match the input interpretation.",
         )
+    from mir.runtime_identity import identify_runtime
+
     decisions_json = json_mod.dumps(
-        {"quantization_decisions": result.decisions, "quantization_summary": result.summary},
+        {
+            "quantization_decisions": result.decisions,
+            "quantization_summary": result.summary,
+            "runtime_identity": identify_runtime(
+                notation_settings=result.settings.to_dict(),
+                quantization_summary=result.summary,
+                interpretation_context=(
+                    result.context.to_dict() if result.context is not None else None
+                ),
+            ),
+        },
         indent=2,
         default=str,
     )

@@ -1052,6 +1052,19 @@ class UnderstandingPipeline:
         )
         extra["notation_settings"] = self.notation_settings.to_dict()
         extra["algorithm_version"] = self.notation_settings.algorithm_version
+        from mir.runtime_identity import identify_runtime
+
+        extra["runtime_identity"] = identify_runtime(
+            transcription=self.last_transcription_result,
+            debug=self.last_debug,
+            notation_settings=self.notation_settings.to_dict(),
+            quantization_summary=payload.get("quantization_summary") or {},
+            interpretation_context=(
+                extra.get("interpretation_choice")
+                if isinstance(extra.get("interpretation_choice"), dict)
+                else None
+            ),
+        )
         extra["gemini_enabled"] = bool(self.last_gemini_enabled)
         extra["gemini_applied"] = int(self.last_gemini_applied)
         extra["raw_note_count"] = (
