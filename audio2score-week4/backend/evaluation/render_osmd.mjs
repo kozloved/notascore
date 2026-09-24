@@ -48,6 +48,36 @@ const html = `<!doctype html>
       osmd.zoom = config.zoom;
       osmd.render();
       window.__osmdReady = true;
+      window.__osmdModel = (() => {
+        const sheet = osmd.Sheet || {};
+        const measures = (sheet.SourceMeasures || []).map((measure, index) => {
+          const ts = measure.ActiveTimeSignature || measure.activeTimeSignature || {};
+          return {
+            index,
+            number: measure.MeasureNumber ?? measure.measureNumber ?? index + 1,
+            numerator: ts.RhythmNumerator ?? ts.Numerator ?? ts.numerator ?? null,
+            denominator: ts.RhythmDenominator ?? ts.Denominator ?? ts.denominator ?? null,
+            rhythm: ts.Rhythm ? String(ts.Rhythm) : null,
+          };
+        });
+        const pages = (osmd.GraphicSheet && osmd.GraphicSheet.MusicPages) || [];
+        const systems = pages.flatMap((page, pageIndex) =>
+          (page.MusicSystems || []).map((system, systemIndex) => ({
+            page: pageIndex + 1,
+            system: systemIndex + 1,
+            measureCount: (system.StaffLines && system.StaffLines[0]
+              ? (system.StaffLines[0].Measures || []).length
+              : (system.GraphicalMeasures || []).length) || 0,
+          }))
+        );
+        return {
+          measureCount: measures.length,
+          timeSignatures: measures,
+          pageCount: pages.length,
+          systemCount: systems.length,
+          systems,
+        };
+      })();
     });
   </script>
 </body>
@@ -68,12 +98,60 @@ try {
   const page = await browser.newPage({ viewport: { width: 1000, height: 1400 } });
   await page.goto(pathToFileURL(htmlPath).href, { waitUntil: "networkidle" });
   await page.waitForFunction(() => window.__osmdReady === true, null, { timeout: 30000 });
-  const svg = await page.$eval("#osmd svg", (el) => el.outerHTML);
-  writeFileSync(join(outDir, "osmd.svg"), svg);
+  const model = await page.evaluate(() => window.__osmdModel || null);
+  writeFileSync(join(outDir, "osmd_model.json"), JSON.stringify(model, null, 2));
+  const pages = await page.$$eval("#osmd svg", (nodes) =>
+    nodes.map((svg, index) => ({
+      index,
+      markup: svg.outerHTML,
+      text: (svg.textContent || "").replace(/\s+/g, " ").trim(),
+    }))
+  );
+  if (!pages.length) {
+    throw new Error("OSMD produced no SVG pages");
+  }
+  writeFileSync(join(outDir, "osmd.svg"), pages[0].markup);
+  pages.forEach((pageSvg, index) => {
+    writeFileSync(join(outDir, `osmd-page-${index + 1}.svg`), pageSvg.markup);
+  });
   await page.screenshot({ path: join(outDir, "osmd.png"), fullPage: true });
+  for (let index = 0; index < pages.length; index += 1) {
+    const handle = (await page.$$("#osmd svg"))[index];
+    if (handle) {
+      await handle.screenshot({ path: join(outDir, `osmd-page-${index + 1}.png`) });
+    }
+  }
+  writeFileSync(
+    join(outDir, "visual_status.json"),
+    JSON.stringify(
+      {
+        status: "passed",
+        pages: pages.length,
+        svg: true,
+        png: true,
+        model: Boolean(model),
+      },
+      null,
+      2
+    )
+  );
   await browser.close();
-  console.log("wrote osmd.svg and osmd.png");
+  console.log(JSON.stringify({ pages: pages.length, svg: true, png: true, model: Boolean(model) }));
 } catch (err) {
-  console.log(`OSMD snapshot skipped: ${err.message}`);
+  writeFileSync(
+    join(outDir, "visual_status.json"),
+    JSON.stringify(
+      {
+        status: "skipped",
+        reason: err.message,
+        pages: 0,
+        svg: false,
+        png: false,
+      },
+      null,
+      2
+    )
+  );
+  console.error(`OSMD snapshot skipped: ${err.message}`);
   process.exit(0);
 }

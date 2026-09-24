@@ -35,6 +35,31 @@ def _quantize(path: Path, settings: NotationSettings):
     return out, decisions, ingested
 
 
+def test_v2_group_end_uses_triplet_pulse_not_the_beat():
+    from fractions import Fraction
+
+    from mir.performance_score import _readable_v2_fill_small_release_gap
+
+    kwargs = dict(release_reason="phrase_end", settings=V2)
+    # Last mixed-triplet note: raw ~0.28, pulse 1/3, leftover < sixteenth.
+    assert _readable_v2_fill_small_release_gap(
+        0.28, Fraction(17, 3), None, Fraction(7, 3), local_pulse=Fraction(1, 3), **kwargs
+    ) == Fraction(1, 3)
+    # Intentional short note: leftover to the pulse is a full sixteenth.
+    assert _readable_v2_fill_small_release_gap(
+        0.08, Fraction(2, 3), None, Fraction(10, 3), local_pulse=Fraction(1, 3), **kwargs
+    ) is None
+    # Do not fill past a closer next attack.
+    assert _readable_v2_fill_small_release_gap(
+        0.28, Fraction(0), Fraction(1, 6), Fraction(4), local_pulse=Fraction(1, 3), **kwargs
+    ) is None
+    # v1 never fills, even with a coherent pulse.
+    assert _readable_v2_fill_small_release_gap(
+        0.28, Fraction(17, 3), None, Fraction(7, 3),
+        release_reason="phrase_end", settings=V1, local_pulse=Fraction(1, 3),
+    ) is None
+
+
 def test_detached_regular_line_becomes_quarters_only_on_v2(tmp_path):
     source = tmp_path / "A.mid"
     READABLE_V2_CASES["A_detached_regular_line"](source)
@@ -142,6 +167,82 @@ def test_held_voice_on_same_staff_is_not_clipped(tmp_path):
     assert round(held.duration_beats, 4) == 4.0
     assert [round(e.start_beat, 4) for e in moving] == [0.0, 1.0, 2.0, 3.0]
     assert all(e.duration_beats <= 1.0 + 1e-9 for e in moving)
+
+
+def test_mixed_tuplets_v1_stays_sixteenths_v2_fills_last_triplet(tmp_path):
+    from evaluation.notation_fixtures import FIXTURES
+
+    source = tmp_path / "mixed_tuplets.mid"
+    FIXTURES["mixed_tuplets"](source)
+    original = source.read_bytes()
+    v1, dec1, _ = _quantize(source, V1)
+    v2, dec2, _ = _quantize(source, V2)
+    assert source.read_bytes() == original
+    treble1 = [e for e in v1 if e.pitch >= 72]
+    treble2 = [e for e in v2 if e.pitch >= 72]
+    assert [round(e.start_beat, 4) for e in treble1] == [round(4 + i / 3, 4) for i in range(6)]
+    assert [round(e.start_beat, 4) for e in treble2] == [round(4 + i / 3, 4) for i in range(6)]
+    assert [round(e.duration_beats, 4) for e in treble1] == [0.25] * 6
+    assert [round(e.duration_beats, 4) for e in treble2] == [round(1 / 3, 4)] * 6
+    assert dec2[-1]["release_reason"] == "phrase_end"
+    assert [round(e.duration_beats, 4) for e in v1 if e.pitch < 72] == [1.0] * 4
+    assert [round(e.duration_beats, 4) for e in v2 if e.pitch < 72] == [1.0] * 4
+    assert all(row["rhythm_family"] == "binary" for row in dec1 if row["raw_start"] < 4)
+    assert {row["rhythm_family"] for row in dec2 if row["raw_start"] >= 4} == {"triplet"}
+
+
+def test_detached_triplet_groups_fill_last_note_only_on_v2(tmp_path):
+    source = tmp_path / "I.mid"
+    READABLE_V2_CASES["I_detached_triplet_groups"](source)
+    original = source.read_bytes()
+    v1, _dec1, _ = _quantize(source, V1)
+    v2, _dec2, _ = _quantize(source, V2)
+    assert source.read_bytes() == original
+    starts = [0.0, 1 / 3, 2 / 3, 2.0, 7 / 3, 8 / 3]
+    assert [round(e.start_beat, 4) for e in v2] == [round(s, 4) for s in starts]
+    assert [round(e.duration_beats, 4) for e in v1] == [0.25] * 6
+    assert [round(e.duration_beats, 4) for e in v2] == [round(1 / 3, 4)] * 6
+
+
+def test_intentional_short_triplet_rests_keep_rests_on_both(tmp_path):
+    source = tmp_path / "J.mid"
+    READABLE_V2_CASES["J_intentional_short_triplet_rests"](source)
+    original = source.read_bytes()
+    v1, _dec1, _ = _quantize(source, V1)
+    v2, _dec2, _ = _quantize(source, V2)
+    assert source.read_bytes() == original
+    assert [round(e.start_beat, 4) for e in v2] == [0.0, round(1 / 3, 4), round(2 / 3, 4)]
+    assert all(e.duration_beats <= 0.125 + 1e-9 for e in v1)
+    assert all(e.duration_beats <= 0.125 + 1e-9 for e in v2)
+    assert [round(e.duration_beats, 4) for e in v1] == [round(e.duration_beats, 4) for e in v2]
+
+
+def test_repeated_triplet_pitches_last_note_matches_siblings_on_v2(tmp_path):
+    source = tmp_path / "K.mid"
+    READABLE_V2_CASES["K_repeated_triplet_pitches"](source)
+    original = source.read_bytes()
+    v1, _dec1, _ = _quantize(source, V1)
+    v2, _dec2, _ = _quantize(source, V2)
+    assert source.read_bytes() == original
+    assert [n.pitch for n in v2] == [72] * 6
+    assert [round(e.duration_beats, 4) for e in v1] == [0.25] * 6
+    assert [round(e.duration_beats, 4) for e in v2] == [round(1 / 3, 4)] * 6
+
+
+def test_held_voice_under_triplets_is_not_clipped(tmp_path):
+    source = tmp_path / "L.mid"
+    READABLE_V2_CASES["L_held_voice_under_triplets"](source)
+    original = source.read_bytes()
+    v1, _dec1, _ = _quantize(source, V1)
+    v2, _dec2, _ = _quantize(source, V2)
+    assert source.read_bytes() == original
+    bass1 = next(e for e in v1 if e.pitch == 48)
+    bass2 = next(e for e in v2 if e.pitch == 48)
+    assert round(bass1.duration_beats, 4) >= 1.75
+    assert round(bass2.duration_beats, 4) >= 1.75
+    treble2 = [e for e in v2 if e.pitch != 48]
+    assert [round(e.duration_beats, 4) for e in treble2] == [round(1 / 3, 4)] * 6
+    assert [round(e.duration_beats, 4) for e in v1 if e.pitch != 48][-1] == 0.25
 
 
 def test_foreign_track_pedal_does_not_lengthen_short_notes(tmp_path):

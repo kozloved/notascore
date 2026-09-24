@@ -115,6 +115,66 @@ def case_h_foreign_track_pedal(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def case_i_detached_triplet_groups(path: Path) -> str:
+    """I. Two detached regular triplet-eighth groups; last group before silence.
+
+    Expected: six written triplet eighths (1/3). The last note of each group,
+    including the final group before silence, is a triplet eighth — not a
+    sixteenth plus a tiny triplet rest. Performed 0.14s gaps are articulation.
+    """
+    notes = []
+    # 120 BPM: quarter = 0.5s, triplet eighth = 0.5/3 s.
+    pulse = 0.5 / 3.0
+    for start in (0.0, pulse, 2 * pulse, 1.0, 1.0 + pulse, 1.0 + 2 * pulse):
+        notes.append((72, start, start + 0.14, 84))
+    return _write(path, notes)
+
+
+def case_j_intentional_short_triplet_rests(path: Path) -> str:
+    """J. Triplet-spaced attacks that are intentionally short.
+
+    Expected: three short notes (32nds / shorter than a sixteenth) at 0, 1/3,
+    2/3 with visible rests through each triplet pulse. Remaining to the 1/3
+    pulse is a full sixteenth or more, so v2 must not fill — including the
+    last note before silence.
+    """
+    notes = []
+    pulse = 0.5 / 3.0
+    for i in range(3):
+        start = i * pulse
+        notes.append((76, start, start + 0.04, 88))
+    return _write(path, notes)
+
+
+def case_k_repeated_triplet_pitches(path: Path) -> str:
+    """K. Repeated same-pitch triplet eighths, last group before silence.
+
+    Expected: six C5 triplet eighths. Re-attacks stay separate. The last
+    note is 1/3, matching its siblings.
+    """
+    notes = []
+    pulse = 0.5 / 3.0
+    for i in range(6):
+        start = i * pulse
+        notes.append((72, start, start + 0.14, 82))
+    return _write(path, notes)
+
+
+def case_l_held_voice_under_triplets(path: Path) -> str:
+    """L. Held independent bass under a detached triplet line.
+
+    Expected: bass lasts the written span (a half note or tied equivalent).
+    Six treble triplet eighths, including the last before silence. The
+    moving attacks must not clip the hold.
+    """
+    notes = [(48, 0.0, 0.95, 70)]
+    pulse = 0.5 / 3.0
+    for i in range(6):
+        start = i * pulse
+        notes.append((72 + (i % 3), start, start + 0.14, 86))
+    return _write(path, notes)
+
+
 def case_d_independent_sustain(path: Path) -> str:
     """D. Sustained independent voice under moving notes.
 
@@ -137,6 +197,10 @@ READABLE_V2_CASES = {
     "F_overlapping_unisons": case_f_overlapping_unisons,
     "G_held_voice_same_staff": case_g_held_voice_same_staff,
     "H_foreign_track_pedal": case_h_foreign_track_pedal,
+    "I_detached_triplet_groups": case_i_detached_triplet_groups,
+    "J_intentional_short_triplet_rests": case_j_intentional_short_triplet_rests,
+    "K_repeated_triplet_pitches": case_k_repeated_triplet_pitches,
+    "L_held_voice_under_triplets": case_l_held_voice_under_triplets,
 }
 
 EXPECTED_NOTATION = {
@@ -179,5 +243,30 @@ EXPECTED_NOTATION = {
         "onset": "Four short treble attacks on track 0.",
         "release": "Sixteenths plus rests. Foreign-track CC64 does not lengthen them.",
         "engraving": "Do not fill to the next attack from another stream's pedal.",
+    },
+    "I_detached_triplet_groups": {
+        "onset": "Two groups of three attacks at triplet-eighth spacing, gap of a quarter.",
+        "release": "All six written as triplet eighths (1/3), including each group-ending note.",
+        "engraving": "No sixteenth plus tiny triplet rest on the last note before silence.",
+    },
+    "J_intentional_short_triplet_rests": {
+        "onset": "Three attacks at triplet-eighth spacing.",
+        "release": "Sounding 32nds (or shorter) with visible rests through each 1/3 pulse.",
+        "engraving": "Do not fill the last note. Remaining >= a sixteenth is a rest.",
+    },
+    "K_repeated_triplet_pitches": {
+        "onset": "Six repeated C5 attacks at triplet-eighth spacing.",
+        "release": "Six separate triplet eighths. Last note matches its siblings.",
+        "engraving": "Same-pitch re-attacks stay separate; last duration is 1/3.",
+    },
+    "L_held_voice_under_triplets": {
+        "onset": "One bass attack plus six treble triplet-eighth attacks.",
+        "release": "Bass lasts its span; treble last note is a triplet eighth.",
+        "engraving": "Two independent voices. Do not clip the hold.",
+    },
+    "mixed_tuplets": {
+        "onset": "Four quarters, then six triplet-eighth attacks starting at beat 4.",
+        "release": "v1: sixteenths at triplet onsets. v2: all six written 1/3, including the last.",
+        "engraving": "Keep the binary quarters. Do not invent a tiny triplet rest after the last eighth.",
     },
 }

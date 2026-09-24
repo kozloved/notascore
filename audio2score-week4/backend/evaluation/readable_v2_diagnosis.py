@@ -252,7 +252,7 @@ def run(out_dir: Path):
         "v2_only_branches": [
             "search family unification when path>=3 and a dominant non-integer family",
             "release pedal continuation when CC64, 0.20-2.05 gap, duration ratio, no pulsed-line evidence",
-            "duration: leftover release gap smaller than a sixteenth fills to the next attack or barline",
+            "duration: leftover release gap smaller than a sixteenth fills to the next attack, barline, or preceding triplet pulse at a group end",
         ],
     }
     (out_dir / "readable_v2_summary.json").write_text(json.dumps(summary, indent=2) + "\n")

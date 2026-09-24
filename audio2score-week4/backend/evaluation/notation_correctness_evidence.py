@@ -27,15 +27,22 @@ FRONTEND = HERE.parent.parent / "frontend"
 FRONTEND_SHEET = FRONTEND / "components" / "SheetResult.jsx"
 EXPORT_PDF = FRONTEND / "scripts" / "export-sheet-pdf.mjs"
 
+ARTICULATION_CHANGE_KINDS = frozenset({"marked_note", "mixed_chord"})
+
 CASES = [
     ("detached_vs_short", "A_detached_regular_line", READABLE_V2_CASES, "readable_v2", {"meter": "4/4", "tempo": 120}),
     ("intentional_short_rests", "B_short_notes_with_rests", READABLE_V2_CASES, "readable_v2", {"meter": "4/4", "tempo": 120}),
     ("repeated_under_pedal", "C_repeated_attacks_under_pedal", READABLE_V2_CASES, "readable_v2", {"meter": "4/4", "tempo": 120}),
     ("held_inner_voice", "G_held_voice_same_staff", READABLE_V2_CASES, "readable_v2", {"meter": "4/4", "tempo": 120}),
+    ("detached_triplet_groups", "I_detached_triplet_groups", READABLE_V2_CASES, "readable_v2", {"meter": "4/4", "tempo": 120}),
+    ("intentional_short_triplet_rests", "J_intentional_short_triplet_rests", READABLE_V2_CASES, "readable_v2", {"meter": "4/4", "tempo": 120}),
+    ("repeated_triplet_pitches", "K_repeated_triplet_pitches", READABLE_V2_CASES, "readable_v2", {"meter": "4/4", "tempo": 120}),
+    ("held_voice_under_triplets", "L_held_voice_under_triplets", READABLE_V2_CASES, "readable_v2", {"meter": "4/4", "tempo": 120}),
     ("mixed_release_chord", "mixed_release_chord", FIXTURES, "notation", FIXTURE_META["mixed_release_chord"]),
     ("crossing_hands", "unison_crossing", FIXTURES, "notation", FIXTURE_META["unison_crossing"]),
     ("syncopation", "syncopation", FIXTURES, "notation", FIXTURE_META["syncopation"]),
-    ("triplets", "mixed_tuplets", FIXTURES, "notation", FIXTURE_META["mixed_tuplets"]),
+    ("triplets_v1", "mixed_tuplets", FIXTURES, "notation", FIXTURE_META["mixed_tuplets"]),
+    ("triplets_v2", "mixed_tuplets", FIXTURES, "readable_v2", FIXTURE_META["mixed_tuplets"]),
     ("meter_6_8", "meter_6_8", FIXTURES, "notation", FIXTURE_META["meter_6_8"]),
     ("multibar_tie", "multibar_held_melody", FIXTURES, "notation", FIXTURE_META["multibar_held_melody"]),
     ("marked_note", "mixed_tuplets", FIXTURES, "marked_note", FIXTURE_META["mixed_tuplets"]),
@@ -240,6 +247,200 @@ def inspect_xml(xml_text: str) -> dict:
     }
 
 
+def engraving_structure(xml_text: str) -> dict:
+    """Normalized engraving used to compare automatic vs edited exports.
+
+    Includes pitches, onsets, durations, voices, ties, beams, tuplets, clefs,
+    meter and articulations. Velocity / dynamics are excluded so an unrelated
+    velocity edit can be shown to leave structure unchanged. Meter equality
+    alone is not a pass.
+    """
+    from music21 import converter
+
+    score = converter.parse(xml_text, format="musicxml")
+    parts = []
+    for part in score.parts:
+        inst = part.getInstrument()
+        part_row = {
+            "name": str(part.partName or ""),
+            "instrument": str(getattr(inst, "instrumentName", None) or ""),
+            "measures": [],
+        }
+        for measure in part.getElementsByClass("Measure"):
+            voices: dict[str, list] = {}
+            for el in measure.recurse().notesAndRests:
+                site = el.activeSite
+                if site is not None and site.__class__.__name__ == "Voice":
+                    vid = str(site.id)
+                else:
+                    vid = str(getattr(el, "voice", None) or "1")
+                members = list(el.notes) if el.isChord else [el]
+                pitches = [
+                    int(m.pitch.midi)
+                    for m in members
+                    if getattr(m, "pitch", None) is not None
+                ]
+                voices.setdefault(vid, []).append(
+                    {
+                        "offset": round(float(el.offset), 4),
+                        "ql": round(float(el.quarterLength), 4),
+                        "pitches": pitches,
+                        "is_rest": bool(el.isRest),
+                        "tie": getattr(getattr(el, "tie", None), "type", None),
+                        "beams": tuple(
+                            sorted(
+                                str(getattr(beam, "type", beam))
+                                for beam in (getattr(el, "beams", None) or [])
+                            )
+                        ),
+                        "tuplets": tuple(
+                            (
+                                int(getattr(tup, "numberNotesActual", 0) or 0),
+                                int(getattr(tup, "numberNotesNormal", 0) or 0),
+                            )
+                            for tup in (getattr(getattr(el, "duration", None), "tuplets", None) or [])
+                        ),
+                        "articulations": tuple(
+                            sorted(
+                                {
+                                    type(art).__name__
+                                    for obj in [el, *members]
+                                    for art in (getattr(obj, "articulations", None) or [])
+                                }
+                            )
+                        ),
+                    }
+                )
+            clef = None
+            if measure.clef is not None:
+                clef = str(getattr(measure.clef, "sign", None) or measure.clef)
+            part_row["measures"].append(
+                {
+                    "number": int(measure.number),
+                    "voices": [
+                        {"id": vid, "elements": voices[vid]} for vid in sorted(voices)
+                    ],
+                    "ts": getattr(measure.timeSignature, "ratioString", None),
+                    "clef": clef,
+                }
+            )
+        parts.append(part_row)
+    return {
+        "part_count": len(parts),
+        "parts": parts,
+        "time_signatures": [ts.ratioString for ts in score.flatten().getTimeSignatures()],
+    }
+
+
+def _drop_articulations(structure: dict) -> dict:
+    stripped = json.loads(json.dumps(structure, default=list))
+    for part in stripped.get("parts", []):
+        for measure in part.get("measures", []):
+            for voice in measure.get("voices", []):
+                for el in voice.get("elements", []):
+                    el.pop("articulations", None)
+    return stripped
+
+
+def compare_engraving(auto_xml: str, edited_xml: str, *, kind: str) -> dict:
+    automatic = engraving_structure(auto_xml)
+    edited = engraving_structure(edited_xml)
+    meter_only = automatic["time_signatures"] == edited["time_signatures"]
+    structure_equal = automatic == edited
+    without_arts = _drop_articulations(automatic) == _drop_articulations(edited)
+    articulation_change = kind in ARTICULATION_CHANGE_KINDS
+    if articulation_change:
+        ok = without_arts and not structure_equal
+        comparison = "articulation_change"
+    else:
+        ok = structure_equal
+        comparison = "unchanged_engraving"
+    return {
+        "comparison": comparison,
+        "meter_equal": meter_only,
+        "structure_equal": structure_equal,
+        "structure_equal_ignoring_articulations": without_arts,
+        "pass": ok,
+        "meter_only_insufficient": meter_only and not ok,
+    }
+
+
+def _visual_record(render: dict, out_dir: Path) -> dict:
+    status_path = out_dir / "visual_status.json"
+    payload = {}
+    if status_path.exists():
+        try:
+            payload = json.loads(status_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            payload = {}
+    skipped = bool(render.get("skipped"))
+    svg = bool(render.get("svg")) or bool(payload.get("svg"))
+    png = bool(render.get("png")) or bool(payload.get("png"))
+    pages = int(payload.get("pages") or 0)
+    if not pages:
+        pages = len(list(out_dir.glob("osmd-page-*.svg"))) if out_dir.exists() else 0
+    if skipped or render.get("returncode") not in (0, None):
+        status = "failed" if render.get("returncode") not in (0, None) and not skipped else "skipped"
+    elif svg and png and pages >= 1:
+        status = "passed"
+    elif svg or png:
+        status = "incomplete"
+    else:
+        status = "skipped"
+    reason = payload.get("reason") or (render.get("stderr") or "")[:400]
+    if status == "skipped" and not reason:
+        reason = "OSMD snapshot was not produced"
+    return {
+        "status": status,
+        "counts_as_success": status == "passed",
+        "svg": svg,
+        "png": png,
+        "pages_checked": pages,
+        "reason": reason or None,
+        "model": (out_dir / "osmd_model.json").exists() if out_dir.exists() else False,
+    }
+
+
+def _pdf_record(pdf: dict, pdf_path: Path) -> dict:
+    pages = None
+    for line in (pdf.get("stdout") or "").splitlines():
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if "pages" in payload:
+            pages = int(payload["pages"])
+            break
+    exists = bool(pdf.get("pdf")) and pdf_path.exists()
+    skipped = bool(pdf.get("skipped"))
+    if skipped:
+        status = "skipped"
+    elif pdf.get("returncode") not in (0, None) or not exists:
+        status = "failed"
+    elif pages is None:
+        status = "incomplete"
+    else:
+        status = "passed"
+    return {
+        "status": status,
+        "counts_as_success": status == "passed",
+        "pdf": exists,
+        "pages_checked": pages or 0,
+        "all_pages_checked": bool(pages and pages >= 1 and exists),
+        "reason": None if status == "passed" else (pdf.get("stderr") or pdf.get("stdout") or "PDF export missing")[:400],
+    }
+
+
+def _osmd_model(out_dir: Path) -> dict | None:
+    path = out_dir / "osmd_model.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"error": "invalid osmd_model.json"}
+
+
 def _corrections_for(kind: str, auto) -> list[dict] | None:
     notes = auto.editor_model["notes"]
     if kind == "marked_note":
@@ -329,6 +530,29 @@ def run(out_dir: Path) -> dict:
                 report["pdf_path_available"] = True
         auto_inspect = inspect_xml(auto.musicxml)
         edited_inspect = inspect_xml(edited.musicxml)
+        engraving = compare_engraving(auto.musicxml, edited.musicxml, kind=kind)
+        visual_auto = _visual_record(auto_render, case_dir / "automatic_osmd")
+        visual_edited = (
+            _visual_record(edited_render, case_dir / "edited_osmd")
+            if corrections
+            else {"status": "skipped", "counts_as_success": False, "reason": "no edit"}
+        )
+        pdf_auto_rec = _pdf_record(pdf_auto, case_dir / "automatic_sheetresult.pdf")
+        pdf_edited_rec = (
+            _pdf_record(pdf_edited, case_dir / "after_unrelated_edit_sheetresult.pdf")
+            if corrections
+            else {"status": "skipped", "counts_as_success": False, "reason": "no edit"}
+        )
+        for visual, where in ((visual_auto, "automatic"), (visual_edited, "edited")):
+            if visual.get("status") in {"skipped", "failed", "incomplete"} and visual.get("reason") != "no edit":
+                report["blocked"].append(
+                    {
+                        "case": label,
+                        "surface": where,
+                        "reason": f"Visual verification {visual.get('status')}",
+                        "detail": visual.get("reason"),
+                    }
+                )
         trailing = auto_inspect["shape"]["trailing_empty_measures"]
         if trailing:
             report.setdefault("trailing_empty_measures", []).append(
@@ -346,6 +570,11 @@ def run(out_dir: Path) -> dict:
                 "label": label,
                 "fixture": name,
                 "kind": kind,
+                "edit_class": (
+                    "articulation_change"
+                    if kind in ARTICULATION_CHANGE_KINDS
+                    else "unchanged_engraving"
+                ),
                 "expected_meter": meter,
                 "ingested_meter": ingested.time_sig_hint,
                 "exported_meter": auto_inspect["shape"]["time_signatures"],
@@ -357,6 +586,8 @@ def run(out_dir: Path) -> dict:
                 "edited": edited_inspect,
                 "edited_same_meter": auto_inspect["shape"]["time_signatures"]
                 == edited_inspect["shape"]["time_signatures"],
+                "engraving_comparison": engraving,
+                "osmd_model": _osmd_model(case_dir / "automatic_osmd"),
                 "osmd_automatic": {
                     key: auto_render[key]
                     for key in ("returncode", "html", "png", "svg")
@@ -366,16 +597,10 @@ def run(out_dir: Path) -> dict:
                     for key in ("returncode", "html", "png", "svg", "skipped")
                     if key in edited_render
                 },
-                "pdf_automatic": {
-                    key: pdf_auto.get(key)
-                    for key in ("returncode", "pdf", "skipped")
-                    if key in pdf_auto
-                },
-                "pdf_after_unrelated_edit": {
-                    key: pdf_edited.get(key)
-                    for key in ("returncode", "pdf", "skipped")
-                    if key in pdf_edited
-                },
+                "visual_automatic": visual_auto,
+                "visual_edited": visual_edited,
+                "pdf_automatic": pdf_auto_rec,
+                "pdf_after_unrelated_edit": pdf_edited_rec,
             }
         )
     (out_dir / "evidence_report.json").write_text(
