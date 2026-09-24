@@ -292,6 +292,7 @@ def test_explicit_timing_edit_may_leave_grid_and_keeps_neighbors(tmp_path):
     assert by_pitch[76]["duration"] == pytest.approx(1 / 3)
 
 
+@pytest.mark.app
 def test_old_job_download_keeps_ties_and_real_repeats(tmp_path):
     from io import BytesIO
     from main import _musicxml_to_midi_bytes
