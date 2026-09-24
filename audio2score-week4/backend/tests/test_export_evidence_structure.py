@@ -96,6 +96,19 @@ def test_pdf_skip_is_not_export_success(tmp_path):
     assert record["all_pages_checked"] is False
 
 
+def test_mixed_chord_mre_has_per_member_marks():
+    from pathlib import Path
+
+    xml = (
+        Path(__file__).resolve().parents[1]
+        / "evaluation"
+        / "osmd_mixed_chord_mre.musicxml"
+    ).read_text(encoding="utf-8")
+    inspected = inspect_xml(xml)
+    assert inspected["mixed_chord_marks"] is True
+    assert inspected["marked_notes"] == 2
+
+
 def test_meter_6_8_structure_keeps_compound_signature(tmp_path):
     path = tmp_path / "meter.mid"
     fixture_68(path)

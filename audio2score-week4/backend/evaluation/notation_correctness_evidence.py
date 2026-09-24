@@ -448,13 +448,14 @@ def _corrections_for(kind: str, auto) -> list[dict] | None:
         return [{"source_note_id": sid, "articulation": "tenuto"}] if sid else None
     if kind == "mixed_chord":
         by_pitch = {int(n["pitch"]): n for n in notes if abs(float(n["start"])) < 0.2}
-        c5 = by_pitch.get(60)
-        e5 = by_pitch.get(64)
-        if not c5 or not e5:
+        # E4/G4 are the MusicXML chord members. C4 is an independent hold.
+        e4 = by_pitch.get(64)
+        g4 = by_pitch.get(67)
+        if not e4 or not g4:
             return None
         return [
-            {"source_note_id": c5.get("source_note_id") or c5["id"], "articulation": "staccato"},
-            {"source_note_id": e5.get("source_note_id") or e5["id"], "articulation": "tenuto"},
+            {"source_note_id": e4.get("source_note_id") or e4["id"], "articulation": "staccato"},
+            {"source_note_id": g4.get("source_note_id") or g4["id"], "articulation": "tenuto"},
         ]
     sid = _sid_for(auto)
     return [{"source_note_id": sid, "velocity": 108}] if sid else None

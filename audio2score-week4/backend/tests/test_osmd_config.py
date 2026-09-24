@@ -35,3 +35,4 @@ def test_osmd_config_matches_sheet_result():
     assert "drawMeasureNumbersOnlyAtSystemStart: true" in jsx
     assert "osmd.zoom = 0.75" in jsx
     assert (BACKEND / "evaluation" / "render_osmd.mjs").is_file()
+    assert (BACKEND / "evaluation" / "osmd_mixed_chord_mre.musicxml").is_file()
