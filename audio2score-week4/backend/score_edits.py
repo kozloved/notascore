@@ -765,9 +765,6 @@ def events_from_editor_model(
                 start_time_sec=item.get("start_sec"),
                 end_time_sec=item.get("end_sec"),
                 articulation=item.get("articulation") or None,
-                # Editor-model times are already notated (or already displayed).
-                # Grid snapping belongs only on explicit move/resize/add edits.
-                score_timing_locked=True,
             )
         )
     return events
