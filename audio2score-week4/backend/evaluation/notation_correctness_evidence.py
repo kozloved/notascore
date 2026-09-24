@@ -139,6 +139,11 @@ def _frontend_pdf(html_path: Path, pdf_path: Path) -> dict:
             "stderr": f"missing {EXPORT_PDF}",
             "pdf": False,
         }
+    # The script cds to frontend/ for jspdf + Playwright. Relative HTML/PDF
+    # paths would resolve there and 404; keep the production script, pass
+    # absolute paths.
+    html_path = Path(html_path).resolve()
+    pdf_path = Path(pdf_path).resolve()
     proc = subprocess.run(
         ["node", str(EXPORT_PDF), str(html_path), str(pdf_path)],
         cwd=str(FRONTEND),

@@ -523,12 +523,16 @@ def _gap_fill_analysis(left: dict, right: dict) -> list[dict]:
                 "remaining_ratio": None if not slot else round(remaining / slot, 4),
                 "filled": False if v2 is None else v2["duration"] > raw + 1e-6,
                 "why": (
-                    "filled leftover < sixteenth to next attack"
+                    "v2 wrote a longer value through the leftover to the next attack or bar"
                     if v2 is not None and v2["duration"] > raw + 1e-6
                     else (
-                        "kept written duration; small leftover is not enough intent"
-                        if remaining is not None and 0 <= remaining < 0.25
-                        else "no small leftover to next attack"
+                        "kept written duration; leftover/slot >= 0.20 is not enough intent to fill"
+                        if remaining is not None and slot and 0 <= remaining < 0.25 and remaining / slot >= 0.20
+                        else (
+                            "kept written duration; leftover smaller than a sixteenth is not enough intent"
+                            if remaining is not None and 0 <= remaining < 0.25
+                            else "no small leftover to next attack"
+                        )
                     )
                 ),
             }
@@ -689,6 +693,18 @@ def recommend(report: dict) -> dict:
                     ),
                 }
             )
+        if not row.get("hand_voice", {}).get("assignments_unchanged", True):
+            remaining.append(
+                {
+                    "case": label,
+                    "issue": (
+                        "v2 changed per-note staff or voice grouping. "
+                        "Voice-number permutation alone is not this signal."
+                    ),
+                    "staff_changes": row["hand_voice"].get("staff_changes"),
+                    "voice_membership_changes": row["hand_voice"].get("voice_membership_changes"),
+                }
+            )
         if label == "independent_voices_mixed_release":
             bass_v1 = next(
                 (n["duration"] for n in row["v1"]["assignments"]["notes"] if n["pitch"] == 48),
@@ -725,19 +741,25 @@ def recommend(report: dict) -> dict:
     default_is_v1 = (
         report["inventory"]["default_algorithm_version"] == ALGORITHM_VERSION_CURRENT
     )
-    if remaining or not default_is_v1:
+    licensed = bool(
+        report["inventory"].get("real_material", {}).get("licensed_performances_available")
+    )
+    # Synthetic cleanliness is not enough to change the default. Keep v2
+    # opt-in; development MIDI is not musician-reviewed ground truth.
+    if remaining or not default_is_v1 or not licensed:
         decision = "continued_opt_in"
         rationale = (
-            "Keep performance-score-2 opt-in. Remaining regressions or missing "
-            "real-performance evidence are listed below. Do not migrate existing "
-            "jobs or change the default because synthetic tests pass."
+            "Keep performance-score-2 opt-in. Remaining regressions are listed "
+            "below when present. Synthetic fixtures and undocumented "
+            "development MIDI are not enough to migrate existing jobs or "
+            "change the default."
         )
     else:
         decision = "controlled_new_job_default"
         rationale = (
-            "Held-out synthetic comparison is clean. A reversible versioned "
-            "setting could default new jobs to performance-score-2. Existing "
-            "jobs stay on performance-score-1."
+            "Held-out comparison is clean and licensed reference material is "
+            "available. A reversible versioned setting could default new jobs "
+            "to performance-score-2. Existing jobs stay on performance-score-1."
         )
     return {
         "decision": decision,
