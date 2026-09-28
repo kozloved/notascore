@@ -54,6 +54,24 @@ REVIEW_FORM_TEMPLATE_NAME = "REVIEW_FORM.template.md"
 FINGERPRINT_NAME = "artifact_fingerprint.json"
 CASE_REPORT_NAME = "case_report.json"
 
+# Content hashes always recomputed from on-disk bytes during validation.
+CORE_ARTIFACT_FILES = {
+    "midi_sha256": ("input.mid", "bytes"),
+    "v1_musicxml_sha256": ("v1.musicxml", "musicxml"),
+    "v2_musicxml_sha256": ("v2.musicxml", "musicxml"),
+}
+PLAYBACK_ARTIFACT_FILES = {
+    "v1_score_midi_sha256": ("v1.score.mid", "bytes"),
+    "v2_score_midi_sha256": ("v2.score.mid", "bytes"),
+}
+CONTENT_HASH_FIELDS = tuple(CORE_ARTIFACT_FILES) + tuple(PLAYBACK_ARTIFACT_FILES)
+METADATA_BINDING_FIELDS = (
+    "v1_algorithm_version",
+    "v2_algorithm_version",
+    "settings_digest",
+)
+BINDING_FIELDS = CONTENT_HASH_FIELDS + METADATA_BINDING_FIELDS
+
 COMPLETION_CRITERIA = {
     "schema_version": SCHEMA_VERSION,
     "required_dimensions": list(REQUIRED_COMPLETION_DIMENSIONS),
@@ -64,17 +82,38 @@ COMPLETION_CRITERIA = {
     + ["unreviewed", "blocked", "automated_pending", "missing"],
     "attribution_required": ["reviewer", "reviewed_at"],
     "identity_fields": ["example_id", "composition_id", "performance_id", "split"],
-    "binding_fields": [
-        "midi_sha256",
-        "v1_musicxml_sha256",
-        "v2_musicxml_sha256",
-        "v1_algorithm_version",
-        "v2_algorithm_version",
-        "settings_digest",
-    ],
+    "binding_fields": list(BINDING_FIELDS),
+    "core_artifact_files": {
+        key: name for key, (name, _) in CORE_ARTIFACT_FILES.items()
+    },
+    "playback_artifact_files": {
+        key: name for key, (name, _) in PLAYBACK_ARTIFACT_FILES.items()
+    },
+    "playback_binding": {
+        "available": (
+            "When *.score.mid exists and is readable, artifact_binding must "
+            "equal its live SHA-256. A change to playback invalidates the review."
+        ),
+        "unavailable": (
+            "When a playback file is absent, the corresponding binding value "
+            "must be JSON null. Treating missing playback as matching an old "
+            "hash is not allowed."
+        ),
+        "migration": (
+            "Reviews saved before playback hashes were required binding fields "
+            "remain on disk unchanged, but are not review_complete until "
+            "artifact_binding includes current v1/v2_score_midi_sha256 "
+            "(null if that playback file was never packaged). Re-copy from a "
+            "freshly verified fingerprint after --package, or re-review."
+        ),
+    },
     "stale_rule": (
-        "A review is stale when any recorded binding hash/setting differs from "
-        "the current artifact fingerprint. Timestamps alone never invalidate."
+        "A review is stale when any binding hash/setting differs from the "
+        "live artifact bytes (and recorded fingerprint metadata), or when "
+        "required on-disk artifacts are missing/unreadable, or when "
+        "artifact_fingerprint.json disagrees with live files. Cached "
+        "case_report fingerprints are never used as evidence. Timestamps "
+        "alone never invalidate."
     ),
     "musical_acceptance_rule": (
         "review_complete AND musical_interpretation_accuracy.status == 'pass'. "
@@ -158,14 +197,146 @@ def build_fingerprint(
     }
 
 
-def fingerprint_from_case_dir(case_dir: Path) -> dict[str, Any] | None:
+def load_recorded_fingerprint(
+    case_dir: Path,
+) -> tuple[str, dict[str, Any] | None, str | None]:
+    """Load saved fingerprint JSON. Never treats case_report as evidence.
+
+    Returns (status, data, error) where status is missing|malformed|loaded.
+    """
     path = case_dir / FINGERPRINT_NAME
     if not path.is_file():
-        return None
+        return "missing", None, None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        return "malformed", None, f"{type(exc).__name__}: {exc}"
+    except json.JSONDecodeError as exc:
+        return "malformed", None, f"JSONDecodeError: {exc}"
+    if not isinstance(data, dict):
+        return "malformed", None, "artifact_fingerprint.json root must be an object"
+    return "loaded", data, None
+
+
+def fingerprint_from_case_dir(case_dir: Path) -> dict[str, Any] | None:
+    """Load recorded fingerprint JSON if present and well-formed.
+
+    Validation must not treat this alone as proof that artifacts are current;
+    use :func:`probe_case_artifacts` / :func:`validate_case_dir` instead.
+    """
+    status, data, _error = load_recorded_fingerprint(case_dir)
+    return data if status == "loaded" else None
+
+
+def _hash_artifact_file(
+    path: Path, *, kind: str
+) -> tuple[str | None, str | None]:
+    """Return (digest_or_none, error_token). error_token is missing|unreadable|…"""
+    if not path.is_file():
+        return None, "missing"
+    try:
+        if kind == "musicxml":
+            text = path.read_text(encoding="utf-8")
+            return stable_musicxml_digest(text), None
+        return sha256_bytes(path.read_bytes()), None
+    except (OSError, UnicodeDecodeError) as exc:
+        return None, f"unreadable:{type(exc).__name__}"
+
+
+def _filename_for_hash_field(field: str) -> str:
+    if field in CORE_ARTIFACT_FILES:
+        return CORE_ARTIFACT_FILES[field][0]
+    if field in PLAYBACK_ARTIFACT_FILES:
+        return PLAYBACK_ARTIFACT_FILES[field][0]
+    return field
+
+
+@dataclass
+class ArtifactProbe:
+    """Live vs recorded artifact evidence for a case directory."""
+
+    live_hashes: dict[str, str | None]
+    recorded: dict[str, Any] | None
+    recorded_status: str
+    recorded_error: str | None = None
+    missing_files: list[str] = field(default_factory=list)
+    unreadable_files: list[str] = field(default_factory=list)
+    changed_files: list[str] = field(default_factory=list)
+    playback_available: dict[str, bool] = field(default_factory=dict)
+    core_present: bool = False
+    artifacts_current: bool = False
+
+    def current_fingerprint(self) -> dict[str, Any] | None:
+        """Fingerprint used to judge bindings: live content + recorded metadata.
+
+        Returns None when required evidence is missing/unreadable/malformed so
+        a review cannot count as current.
+        """
+        if not self.core_present or self.unreadable_files:
+            return None
+        if self.recorded_status != "loaded" or not isinstance(self.recorded, dict):
+            return None
+        current: dict[str, Any] = dict(self.live_hashes)
+        for key in METADATA_BINDING_FIELDS:
+            current[key] = self.recorded.get(key)
+        for key in ("meter", "tempo", "musicxml_hash_normalized"):
+            if key in self.recorded:
+                current[key] = self.recorded[key]
+        return current
+
+
+def probe_case_artifacts(case_dir: Path) -> ArtifactProbe:
+    """Recompute hashes from actual source MIDI, MusicXML, and playback MIDI."""
+    live: dict[str, str | None] = {}
+    missing: list[str] = []
+    unreadable: list[str] = []
+    playback_available: dict[str, bool] = {}
+
+    for field_name, (filename, kind) in CORE_ARTIFACT_FILES.items():
+        digest, err = _hash_artifact_file(case_dir / filename, kind=kind)
+        live[field_name] = digest
+        if err == "missing":
+            missing.append(filename)
+        elif err:
+            unreadable.append(filename)
+
+    for field_name, (filename, kind) in PLAYBACK_ARTIFACT_FILES.items():
+        digest, err = _hash_artifact_file(case_dir / filename, kind=kind)
+        live[field_name] = digest
+        if err == "missing":
+            playback_available[field_name] = False
+        elif err:
+            unreadable.append(filename)
+            playback_available[field_name] = False
+        else:
+            playback_available[field_name] = True
+
+    recorded_status, recorded, recorded_error = load_recorded_fingerprint(case_dir)
+    changed: list[str] = []
+    if recorded_status == "loaded" and isinstance(recorded, dict):
+        for field_name in CONTENT_HASH_FIELDS:
+            if recorded.get(field_name) != live.get(field_name):
+                changed.append(_filename_for_hash_field(field_name))
+
+    core_present = all(live.get(k) for k in CORE_ARTIFACT_FILES) and not unreadable
+    artifacts_current = bool(
+        core_present
+        and recorded_status == "loaded"
+        and not changed
+        and not unreadable
+    )
+    return ArtifactProbe(
+        live_hashes=live,
+        recorded=recorded,
+        recorded_status=recorded_status,
+        recorded_error=recorded_error,
+        missing_files=missing,
+        unreadable_files=unreadable,
+        changed_files=changed,
+        playback_available=playback_available,
+        core_present=core_present,
+        artifacts_current=artifacts_current,
+    )
 
 
 def empty_review_template(
@@ -335,6 +506,13 @@ class ReviewValidation:
     binding_current: bool = False
     binding_stale: bool = False
     binding_missing: bool = False
+    artifacts_current: bool = False
+    artifacts_stale: bool = False
+    changed_files: list[str] = field(default_factory=list)
+    missing_files: list[str] = field(default_factory=list)
+    unreadable_files: list[str] = field(default_factory=list)
+    recorded_fingerprint_status: str | None = None
+    playback_available: dict[str, bool] = field(default_factory=dict)
     dimensions: dict[str, dict[str, Any]] = field(default_factory=dict)
     review_complete: bool = False
     musically_accepted: bool = False
@@ -354,6 +532,13 @@ class ReviewValidation:
             "binding_current": self.binding_current,
             "binding_stale": self.binding_stale,
             "binding_missing": self.binding_missing,
+            "artifacts_current": self.artifacts_current,
+            "artifacts_stale": self.artifacts_stale,
+            "changed_files": list(self.changed_files),
+            "missing_files": list(self.missing_files),
+            "unreadable_files": list(self.unreadable_files),
+            "recorded_fingerprint_status": self.recorded_fingerprint_status,
+            "playback_available": dict(self.playback_available),
             "dimensions": self.dimensions,
             "review_complete": self.review_complete,
             "musically_accepted": self.musically_accepted,
@@ -370,11 +555,43 @@ def validate_review(
     fingerprint: dict[str, Any] | None,
     load_status: str = "loaded",
     load_error: str | None = None,
+    artifact_probe: ArtifactProbe | None = None,
 ) -> ReviewValidation:
     example_id = expected.get("example_id") or ""
     result = ReviewValidation(
         example_id=example_id, load_status=load_status, valid=False
     )
+    if artifact_probe is not None:
+        result.artifacts_current = artifact_probe.artifacts_current
+        result.artifacts_stale = bool(artifact_probe.changed_files)
+        result.changed_files = list(artifact_probe.changed_files)
+        result.missing_files = list(artifact_probe.missing_files)
+        result.unreadable_files = list(artifact_probe.unreadable_files)
+        result.recorded_fingerprint_status = artifact_probe.recorded_status
+        result.playback_available = dict(artifact_probe.playback_available)
+        if artifact_probe.recorded_status == "missing":
+            result.errors.append("artifact_fingerprint.json missing")
+        elif artifact_probe.recorded_status == "malformed":
+            result.errors.append(
+                "artifact_fingerprint.json malformed: "
+                + (artifact_probe.recorded_error or "invalid")
+            )
+        if artifact_probe.missing_files:
+            result.errors.append(
+                "required artifacts missing: "
+                + ", ".join(artifact_probe.missing_files)
+            )
+        if artifact_probe.unreadable_files:
+            result.errors.append(
+                "required artifacts unreadable: "
+                + ", ".join(artifact_probe.unreadable_files)
+            )
+        if artifact_probe.changed_files:
+            result.errors.append(
+                "live artifacts disagree with artifact_fingerprint.json: "
+                + ", ".join(artifact_probe.changed_files)
+            )
+
     if load_status == "missing":
         result.errors.append("review.json missing")
         return result
@@ -424,29 +641,48 @@ def validate_review(
         binding = {}
     elif fingerprint is None:
         result.warnings.append(
-            "no current fingerprint available for binding check"
+            "no verified live fingerprint available for binding check"
         )
         result.binding_missing = True
+        if artifact_probe is not None and artifact_probe.changed_files:
+            result.binding_stale = True
     else:
         missing_keys: list[str] = []
         stale_keys: list[str] = []
         for key in COMPLETION_CRITERIA["binding_fields"]:
+            if key not in binding:
+                missing_keys.append(key)
+                continue
             got = binding.get(key)
             want = fingerprint.get(key)
+            # Playback may be legitimately null when unavailable.
+            if key in PLAYBACK_ARTIFACT_FILES:
+                if got != want:
+                    stale_keys.append(key)
+                continue
             if got in (None, ""):
                 missing_keys.append(key)
             elif want is not None and got != want:
                 stale_keys.append(key)
+            elif want is None and got not in (None, ""):
+                stale_keys.append(key)
         if stale_keys:
             result.binding_stale = True
             result.errors.append(
-                "artifact_binding stale vs current fingerprint: "
+                "artifact_binding stale vs live artifacts: "
                 + ", ".join(stale_keys)
             )
         elif missing_keys:
             result.binding_missing = True
             result.errors.append(
                 "artifact_binding incomplete: " + ", ".join(missing_keys)
+            )
+        elif artifact_probe is not None and not artifact_probe.artifacts_current:
+            # Binding matches live hashes, but recorded fingerprint or files
+            # are not a consistent current set.
+            result.binding_stale = True
+            result.errors.append(
+                "artifacts not current (fingerprint/file mismatch or incomplete)"
             )
         else:
             result.binding_current = True
@@ -534,6 +770,8 @@ def validate_review(
             "invalid" in e
             or "mismatch" in e
             or "must be" in e
+            or "disagree" in e
+            or "unreadable" in e
             or "malformed" in e.lower()
             or e.endswith("not an object")
             or "missing or not an object" in e
@@ -547,12 +785,14 @@ def validate_review(
         (parsed_dims.get(name) or {}).get("counts_as_rated")
         for name in REQUIRED_COMPLETION_DIMENSIONS
     )
+    artifacts_ok = artifact_probe is None or artifact_probe.artifacts_current
     result.review_complete = bool(
         result.valid
         and result.identity_ok
         and result.attribution_ok
         and result.binding_current
         and not result.binding_stale
+        and artifacts_ok
         and required_ok
     )
     interp = (parsed_dims.get("musical_interpretation_accuracy") or {}).get(
@@ -570,18 +810,24 @@ def validate_case_dir(
     expected: dict[str, str],
     fingerprint: dict[str, Any] | None = None,
 ) -> ReviewValidation:
+    """Validate review against **live** artifact bytes.
+
+    Always recomputes hashes from ``input.mid``, ``v1/v2.musicxml``, and
+    ``v1/v2.score.mid``. The optional ``fingerprint`` argument is ignored for
+    content hashes (kept only so call sites need not change); cached
+    ``case_report.json`` fingerprints are never used.
+    """
+    del fingerprint  # live probe is authoritative; do not trust callers/cache
     loaded = load_review(case_dir)
-    fp = (
-        fingerprint
-        if fingerprint is not None
-        else fingerprint_from_case_dir(case_dir)
-    )
+    probe = probe_case_artifacts(case_dir)
+    current = probe.current_fingerprint()
     return validate_review(
         loaded.data,
         expected=expected,
-        fingerprint=fp,
+        fingerprint=current,
         load_status=loaded.status,
         load_error=loaded.error,
+        artifact_probe=probe,
     )
 
 
@@ -656,7 +902,9 @@ def aggregate_reviews(validations: list[ReviewValidation]) -> dict[str, Any]:
     complete = [v for v in validations if v.review_complete]
     accepted = [v for v in validations if v.musically_accepted]
     failing_complete = [v for v in complete if not v.musically_accepted]
-    stale = [v for v in validations if v.binding_stale]
+    stale = [
+        v for v in validations if v.binding_stale or v.artifacts_stale
+    ]
     malformed = [v for v in validations if v.load_status == "malformed"]
     invalid = [
         v
@@ -670,6 +918,7 @@ def aggregate_reviews(validations: list[ReviewValidation]) -> dict[str, Any]:
         and v.valid
         and not v.review_complete
         and not v.binding_stale
+        and not v.artifacts_stale
     ]
     return {
         "criteria": COMPLETION_CRITERIA,
@@ -688,6 +937,8 @@ def aggregate_reviews(validations: list[ReviewValidation]) -> dict[str, Any]:
         "malformed_example_ids": [v.example_id for v in malformed],
         "note": (
             "review_complete_count is not musical acceptance and is not "
-            "production readiness. Acoustic accuracy is tracked separately."
+            "production readiness. Acoustic accuracy is tracked separately. "
+            "Completion requires live artifact verification, not cached "
+            "case_report fingerprints."
         ),
     }
