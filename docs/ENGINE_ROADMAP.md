@@ -4,8 +4,8 @@ Canonical development plan for reliable, editable solo-instrument and piano
 scores. Historical reviews stay in dated `docs/` files. New engine work is
 scheduled here.
 
-Reviewed remote baseline for this plan: `4ba0659` / PR #81 (P1 live
-artifact verification and playback binding).
+Reviewed remote baseline for this plan: `2ad36b7` / PR #82 (P0 timing /
+fallback / review-binding fixes on top of PR #81 artifact verification).
 
 This is a plan, not a claim that musical quality is solved. Synthetic tests,
 valid MusicXML, and successful PDF export are not proof of musical quality.
@@ -150,7 +150,8 @@ gates prove preservation, structure, and export plumbing.
 6. Live artifact verification + playback binding (close the cached-
    fingerprint gap). **Done in code; human ratings still missing.**
 7. Collect attributed musician reviews and suitable audio for acoustic
-   accuracy. **Remaining — next milestone.**
+   accuracy. **Remaining — next milestone.** Package regenerated and
+   prepared for review on `2ad36b7`; human ratings still absent.
 
 **Acceptance criteria.**
 
@@ -161,18 +162,22 @@ gates prove preservation, structure, and export plumbing.
 - Rebuilds must not erase human reviews; completion criteria documented.
 - Validation must verify live artifact bytes, not cached fingerprints.
 
-**Status.** Implemented but unverified as a reviewed baseline.
-Review-collection machinery is safe, bound to live artifacts, and
-reportable (`musician_reviewed_complete=0`, `musically_accepted_count=0`).
-**Do not mark P1 complete** without attributed current interpretation and
-correction-effort reviews. Do not start P2 heuristics without reviewed
-counterexamples. Synthetic coverage does not prove acoustic accuracy or
-production readiness.
+**Status.** Package prepared for musician review — **not P1 complete.**
+Fifteen development+held-out cases regenerated against engine `2ad36b7`
+with source MIDI, v1/v2 MusicXML, playback MIDI, note indexes, live
+fingerprints, OSMD renders, `REVIEW_INDEX.html`, and
+`FIRST_SESSION.md`. Report-only validation still shows
+`musician_reviewed_complete=0`, `musically_accepted_count=0`,
+`stale_count=0`, `p1_complete=false`. Prepared for review ≠ reviewed.
+Automated visual inspection is not musician sign-off. Synthetic examples
+can assess notation quality but cannot establish acoustic transcription
+accuracy. **Do not start P2 heuristics** without reviewed counterexamples.
 
 **Remaining gaps (exact).**
 
 1. Attributed musician reviews for interpretation + correction effort on
-   the 15 packaged cases (follow `REVIEW_INSTRUCTIONS.md`).
+   the 15 packaged cases (start with `FIRST_SESSION.md`; schema in
+   `REVIEW_INSTRUCTIONS.md`). Entry point: `REVIEW_INDEX.html`.
 2. Documented permitted use / license for NotaTestSamples before any
    acoustic claim on those takes.
 3. Held-out / real-world / paired-corpus / production-smoke audio still
@@ -357,9 +362,10 @@ independently validated.
 
 ## Suggested next milestone
 
-Backend suite is green for the formerly failing timing / review / fallback
-cases. **Next:** collect attributed P1 musician reviews via
-`evaluation/musical_baseline/review_package/REVIEW_INSTRUCTIONS.md`
-(synthetic fixtures must not be used as musician evidence). Only after
-real attributed reviews: **P2 musical interpretation improvements** using
-reviewed counterexamples. Do not retune heuristics without them.
+Review handoff package is ready on engine `2ad36b7` (portable bundle under
+`evaluation/musical_baseline/handoff/`). **Next:** a musician fills
+attributed reviews via `REVIEW_INDEX.html` / `FIRST_SESSION.md` (3–5
+development cases first). Do not invent ratings. Synthetic fixtures are
+notation-review material only — not acoustic-accuracy evidence. Only after
+real attributed reviews exist: **P2 musical interpretation improvements**
+using reviewed counterexamples. Do not retune heuristics without them.

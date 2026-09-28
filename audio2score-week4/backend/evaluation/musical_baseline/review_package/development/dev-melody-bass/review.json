@@ -14,6 +14,8 @@
     "midi_sha256": "c9620066dfc02d0ec64b6212e2663a418d1a09e3f29b16ad8a1a063782b6383f",
     "v1_musicxml_sha256": "f412d54ed8dd8154ae2e9cdbf20aaacac6031d76bd6633d9b5b2c80c845da391",
     "v2_musicxml_sha256": "f412d54ed8dd8154ae2e9cdbf20aaacac6031d76bd6633d9b5b2c80c845da391",
+    "v1_score_midi_sha256": "8921623bf145678b30458a97cacb989c4800f09f31719658c736b6386608eaa4",
+    "v2_score_midi_sha256": "8921623bf145678b30458a97cacb989c4800f09f31719658c736b6386608eaa4",
     "v1_algorithm_version": "performance-score-1",
     "v2_algorithm_version": "performance-score-2",
     "settings_digest": "8bda60b6c2777563cf58b82b0563a66c9b53b9b135407f6c8cd7fbe52438e91d"

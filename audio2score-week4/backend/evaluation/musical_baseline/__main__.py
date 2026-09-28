@@ -11,8 +11,11 @@ from evaluation.musical_baseline.catalog import asset_inventory
 from evaluation.musical_baseline.package import (
     DEFAULT_OUT,
     build_package,
+    export_portable_bundle,
     inventory_markdown,
     report_reviews,
+    write_first_session_guide,
+    write_review_index,
 )
 
 
@@ -53,6 +56,30 @@ def main(argv: list[str] | None = None) -> int:
             "or modifying human-owned review files"
         ),
     )
+    parser.add_argument(
+        "--write-index",
+        type=Path,
+        nargs="?",
+        const=DEFAULT_OUT,
+        default=None,
+        help="Write REVIEW_INDEX.html + FIRST_SESSION.md for an existing package",
+    )
+    parser.add_argument(
+        "--bundle",
+        type=Path,
+        nargs="?",
+        const=DEFAULT_OUT,
+        default=None,
+        help=(
+            "Export a portable .tar.gz including MIDI and OSMD renders "
+            "(normally gitignored) under evaluation/musical_baseline/handoff/"
+        ),
+    )
+    parser.add_argument(
+        "--engine-commit",
+        default=None,
+        help="Optional git commit recorded in the portable handoff manifest",
+    )
     args = parser.parse_args(argv)
 
     if (
@@ -60,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
         and args.package is None
         and args.inventory_md is None
         and args.report_reviews is None
+        and args.write_index is None
+        and args.bundle is None
     ):
         parser.print_help()
         return 2
@@ -111,6 +140,22 @@ def main(argv: list[str] | None = None) -> int:
                 indent=2,
             )
         )
+
+    if args.write_index is not None:
+        index = write_review_index(args.write_index)
+        guide = write_first_session_guide(args.write_index)
+        print(
+            json.dumps(
+                {"review_index": str(index), "first_session": str(guide)},
+                indent=2,
+            )
+        )
+
+    if args.bundle is not None:
+        archive = export_portable_bundle(
+            args.bundle, engine_commit=args.engine_commit
+        )
+        print(json.dumps({"bundle": str(archive)}, indent=2))
     return 0
 
 

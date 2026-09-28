@@ -4,3 +4,6 @@ out/
 *_osmd/
 *.pdf
 export_gate/
+# Portable handoff archives are intentionally kept (contain MIDI/renders).
+!handoff/
+!handoff/*.tar.gz

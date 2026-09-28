@@ -1,7 +1,7 @@
 # P1 musical baseline review package
 
-- Generated: `2026-09-28T14:25:08.433537+00:00`
-- Mode: `package`
+- Generated: `2026-09-28T18:40:13.704934+00:00`
+- Mode: `report_only`
 - Cases packaged: **15** (development 9, held-out 6)
 - Default algorithm: `performance-score-1`
 - Opt-in algorithm: `performance-score-2`
@@ -64,8 +64,9 @@
 ```bash
 cd audio2score-week4/backend
 python -m evaluation.musical_baseline --inventory
-python -m evaluation.musical_baseline --package evaluation/musical_baseline/review_package
 python -m evaluation.musical_baseline --package evaluation/musical_baseline/review_package --render
 python -m evaluation.musical_baseline --report-reviews evaluation/musical_baseline/review_package
+python -m evaluation.musical_baseline --write-index evaluation/musical_baseline/review_package
+python -m evaluation.musical_baseline --bundle evaluation/musical_baseline/review_package
 python -m pytest -q tests/test_musical_baseline.py
 ```

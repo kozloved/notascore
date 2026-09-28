@@ -15,7 +15,7 @@ Identify notes by **source_note_id** in `note_index.json` (not printed lane numb
 
 Default engine is `performance-score-1`. Opt-in `performance-score-2` artifacts are for comparison only. Export success is not musical quality.
 
-**Human-owned files:** edit `review.json` (authoritative) and optionally `REVIEW_FORM.md`. Package rebuilds never overwrite filled reviews. Copy hashes from `artifact_fingerprint.json` into `review.json` → `artifact_binding` before submitting.
+**Human-owned files:** edit `review.json` (authoritative) and optionally `REVIEW_FORM.md`. Package rebuilds never overwrite filled reviews. Copy hashes from `artifact_fingerprint.json` into `review.json` → `artifact_binding` before submitting (include playback `v1/v2_score_midi_sha256`; use null if a playback file is absent).
 
 Valid dimension statuses: `pass` | `fail` | `needs_work` | `not_reviewed` | `not_applicable`. Optional per-version fields: `versions.v1` / `versions.v2`.
 

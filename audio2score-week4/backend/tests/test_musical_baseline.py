@@ -705,3 +705,31 @@ def test_report_only_cli_detects_musicxml_drift(tmp_path: Path):
     assert (case_dir / REVIEW_JSON_NAME).read_bytes() == review
     assert (case_dir / FINGERPRINT_NAME).read_bytes() == fingerprint
     assert (case_dir / "input.mid").read_bytes() == input_midi
+
+
+def test_review_index_and_first_session_guide_link_cases(tmp_path: Path):
+    from evaluation.musical_baseline.package import (
+        FIRST_SESSION_CASES,
+        write_first_session_guide,
+        write_review_index,
+    )
+
+    out = tmp_path / "pkg"
+    # Minimal tree: one first-session case + one held-out stand-in via rebuild.
+    build_case(_candidate("dev-intentional-rests"), out)
+    build_case(_candidate("dev-pickup"), out)
+    index = write_review_index(out)
+    guide = write_first_session_guide(out)
+    html = index.read_text(encoding="utf-8")
+    assert "dev-intentional-rests" in html
+    assert "development" in html
+    assert "held_out" in html
+    assert "REVIEW_FORM.md" in html or "review.json" in html
+    text = guide.read_text(encoding="utf-8")
+    for example_id in FIRST_SESSION_CASES:
+        assert f"`{example_id}`" in text
+    assert "not_applicable" in text
+    assert "source_note_id" in text
+    # Guides must not invent human ratings.
+    assert _SYNTH_REVIEWER not in text
+    assert _SYNTH_REVIEWER not in html

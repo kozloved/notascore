@@ -18,21 +18,21 @@
     </scaling>
   </defaults>
   <part-list>
-    <score-part id="P1cbc995af1e071e24ac64f68d900365a">
+    <score-part id="Pbae93a92be3f92768a5b79e3915efd32">
       <part-name>Piano</part-name>
       <part-abbreviation>Pno</part-abbreviation>
-      <score-instrument id="I868005b384df916b68653b72cac9612d">
+      <score-instrument id="Ifa17077c748225fe19bae82ca9a90613">
         <instrument-name>Piano</instrument-name>
         <instrument-abbreviation>Pno</instrument-abbreviation>
       </score-instrument>
-      <midi-instrument id="I868005b384df916b68653b72cac9612d">
+      <midi-instrument id="Ifa17077c748225fe19bae82ca9a90613">
         <midi-channel>1</midi-channel>
         <midi-program>1</midi-program>
       </midi-instrument>
     </score-part>
   </part-list>
   
-  <part id="P1cbc995af1e071e24ac64f68d900365a">
+  <part id="Pbae93a92be3f92768a5b79e3915efd32">
     
     <measure implicit="no" number="1">
       <attributes>
