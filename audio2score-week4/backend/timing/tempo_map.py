@@ -156,6 +156,17 @@ class MusicalTimeMap:
         )
 
     def interval_bpms(self) -> list[tuple[float, float]]:
+        """Return ``(beat, bpm)`` segments for tempo curves.
+
+        Prefer exact tempo knots (including changes inside a beat) when
+        present so playback preserves performed rubato. Fall back to the
+        integer-beat diagnostic grid only when no exact map exists.
+        """
+        if self.exact_points:
+            return [
+                (float(beat), float(bpm))
+                for _second, beat, bpm in self.exact_points
+            ]
         times = self.beat_times
         rows: list[tuple[float, float]] = []
         for i, (a, b) in enumerate(zip(times, times[1:])):

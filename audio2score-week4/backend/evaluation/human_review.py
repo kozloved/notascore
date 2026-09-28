@@ -26,12 +26,16 @@ TRACKS = ("acoustic", "readability", "export")
 
 
 def _empty_track(name: str, *, status: str, reason: str = "") -> dict[str, Any]:
-    return {
+    track = {
         "track": name,
         "status": status,
         "reason": reason,
         "passed": None if status != "passed" and status != "failed" else status == "passed",
     }
+    if name == "readability":
+        # Readability always needs a musician; missing plan is not a pass.
+        track["human_rating_required"] = True
+    return track
 
 
 def evaluate_acoustic(predicted, reference) -> dict[str, Any]:
@@ -46,10 +50,13 @@ def evaluate_acoustic(predicted, reference) -> dict[str, Any]:
     }
 
 
-def evaluate_readability(plan) -> dict[str, Any]:
+def evaluate_readability(
+    plan, *, unavailable_reason: str | None = None
+) -> dict[str, Any]:
     metrics = notation_metrics(plan)
     if metrics.get("status") != "evaluated":
-        return _empty_track("readability", status="not_evaluated", reason="no notation plan")
+        reason = unavailable_reason or "no notation plan"
+        return _empty_track("readability", status="not_evaluated", reason=reason)
     # Heuristic flags only — never treated as a musician engraving score.
     flags: list[str] = []
     if int(metrics.get("rest_count") or 0) > int(metrics.get("note_count") or 0) * 3:
@@ -131,7 +138,12 @@ def evaluate_case(case_dir: Path, out_dir: Path) -> dict[str, Any]:
     if plan is None and getattr(pipe, "job", None) is not None:
         notation = getattr(pipe.job, "notation", None)
         plan = getattr(notation, "plan", None)
-    report["tracks"]["readability"] = evaluate_readability(plan)
+    unavailable = None
+    if plan is None and export_error:
+        unavailable = f"notation unavailable ({export_error})"
+    report["tracks"]["readability"] = evaluate_readability(
+        plan, unavailable_reason=unavailable
+    )
 
     if export_error:
         report["tracks"]["export"] = {
