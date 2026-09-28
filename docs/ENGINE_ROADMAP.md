@@ -4,8 +4,8 @@ Canonical development plan for reliable, editable solo-instrument and piano
 scores. Historical reviews stay in dated `docs/` files. New engine work is
 scheduled here.
 
-Reviewed remote baseline for this plan: `8ea76d4` / PR #80 (P1 review
-safety: preserve, validate, bind, report-only).
+Reviewed remote baseline for this plan: `4ba0659` / PR #81 (P1 live
+artifact verification and playback binding).
 
 This is a plan, not a claim that musical quality is solved. Synthetic tests,
 valid MusicXML, and successful PDF export are not proof of musical quality.
@@ -98,7 +98,7 @@ gates prove preservation, structure, and export plumbing.
   CLI `python -m evaluation.musical_baseline`). Written inventory:
   `evaluation/musical_baseline/INVENTORY.md`. Generated package:
   `evaluation/musical_baseline/review_package/`.
-- Reviewed remote baseline before this increment: `8ea76d4` / PR #80.
+- Reviewed remote baseline before this increment: `4ba0659` / PR #81.
 - Candidate set: **15** short synthetic examples (9 development /
   6 held-out). Compositions are disjoint; TUNING_SET members stay
   development-only. Required families covered.
@@ -184,15 +184,28 @@ production readiness.
 
 - Focused: `python -m pytest -q tests/test_musical_baseline.py`
   → **25 passed**.
-- Supported backend suite:
+- Supported backend suite (branch `cursor/engine-p0-timing-fallback`,
+  base `4ba0659` / PR #81):
   `python -m pytest -m 'not integration and not pm2s' -q`
-  → **1001 passed, 4 deselected, 3 failed**. The three failures
-  (`test_tracks_are_independent`,
-  `test_midi_subbeat_tempo_changes_survive_pipeline_and_export`,
-  `test_fallback_engine_uses_legacy_on_failure`) reproduce on clean
-  `8ea76d4` and are unrelated to this artifact-verification change.
-- Tested from branch `cursor/engine-p1-artifact-verify` (base `8ea76d4` /
-  PR #80). Record the landing commit SHA when this increment merges.
+  → **1009 passed, 4 deselected, 0 failed**.
+- Prior three reproducible failures on clean `4ba0659` are resolved:
+  1. **Sub-beat tempo fidelity** — root cause: `MusicalTimeMap.interval_bpms()`
+     sampled only integer beat grid, so `playback_tempo` averaged mid-beat
+     changes (onset 0.125s exported as 0.150s). Fix: prefer exact tempo
+     knots for playback curves; keep printed tempo sparse. Tolerances derived
+     from MIDI tick resolution at the slowest tempo.
+  2. **Human-review readability** — root cause: `meter_changes` correctly
+     has no notation plan (changing meter unsupported), but
+     `not_evaluated` omitted `human_rating_required`. Fix: readability
+     always requires human rating; never treat missing plan as pass.
+  3. **FallbackEngine** — root cause: obsolete test expected legacy
+     MusicXML when AMT returns no notes under production performance mode.
+     Production correctly refuses silent legacy fallback. Tests now assert
+     performance refusal and adaptive-mode fallback separately.
+- Remaining limitation: changing meter still rejected by the solo planner
+  (`meter_changes` export fails by design). Printed tempo stays sparse;
+  playback carries the full curve. Real attributed P1 musician reviews
+  remain outstanding.
 
 ## P2 — Musical interpretation improvements
 
@@ -344,8 +357,8 @@ independently validated.
 
 ## Suggested next milestone
 
-Live artifact verification and playback binding are in place. **Next:**
-collect attributed P1 musician reviews via
+Backend suite is green for the formerly failing timing / review / fallback
+cases. **Next:** collect attributed P1 musician reviews via
 `evaluation/musical_baseline/review_package/REVIEW_INSTRUCTIONS.md`
 (synthetic fixtures must not be used as musician evidence). Only after
 real attributed reviews: **P2 musical interpretation improvements** using

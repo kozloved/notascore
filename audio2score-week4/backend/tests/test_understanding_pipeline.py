@@ -91,7 +91,21 @@ def test_understanding_piano_analysis_does_not_rewrite_notes(
 
 
 @patch("adapters.basic_pitch_backend.BasicPitchBackend.transcribe_notes")
-def test_fallback_engine_uses_legacy_on_failure(mock_transcribe, tmp_path, monkeypatch):
+def test_fallback_engine_refuses_legacy_in_performance_mode(
+    mock_transcribe, tmp_path, monkeypatch
+):
+    """Production performance mode must not silently fall back to legacy.
+
+    Empty AMT is a hard failure: keep the provider error and provenance, do
+    not substitute BasicPitchEngine MusicXML.
+    """
+    from dataclasses import replace
+
+    import pytest
+
+    from mir.pipeline_config import QuantizationMode, load_pipeline_config
+    from transcription import TranscriptionError
+
     mock_transcribe.return_value = []
 
     audio = tmp_path / "fail.wav"
@@ -100,6 +114,11 @@ def test_fallback_engine_uses_legacy_on_failure(mock_transcribe, tmp_path, monke
     sf.write(str(audio), 0.1 * np.sin(2 * np.pi * 440 * t), sr)
 
     primary = UnderstandingPipeline()
+    # Mirror production: performance quantization (conftest maps off→performance).
+    primary.config = replace(
+        load_pipeline_config(backend="basic_pitch", mode="solo"),
+        quantization_mode=QuantizationMode.PERFORMANCE,
+    )
     fallback = BasicPitchEngine()
     engine = FallbackEngine(primary, fallback)
 
@@ -108,9 +127,41 @@ def test_fallback_engine_uses_legacy_on_failure(mock_transcribe, tmp_path, monke
         "transcribe",
         return_value='<?xml version="1.0"?><score-partwise></score-partwise>',
     ) as mock_legacy:
-        xml = engine.transcribe(audio, "fallback-test")
-        mock_legacy.assert_called_once()
-        assert "score-partwise" in xml.lower()
+        with pytest.raises(TranscriptionError, match="No notes detected"):
+            engine.transcribe(audio, "fallback-perf")
+        mock_legacy.assert_not_called()
+
+
+def test_fallback_engine_uses_legacy_on_non_performance_failure(tmp_path):
+    """Comparison engines may still use the explicit legacy fallback path."""
+    from dataclasses import replace
+
+    from mir.pipeline_config import QuantizationMode, load_pipeline_config
+
+    audio = tmp_path / "fail.wav"
+    sr = 22050
+    t = np.linspace(0, 1, sr)
+    sf.write(str(audio), 0.1 * np.sin(2 * np.pi * 440 * t), sr)
+
+    primary = UnderstandingPipeline()
+    primary.config = replace(
+        load_pipeline_config(backend="basic_pitch", mode="solo"),
+        quantization_mode=QuantizationMode.ADAPTIVE,
+    )
+    fallback = BasicPitchEngine()
+    engine = FallbackEngine(primary, fallback)
+
+    with patch.object(
+        primary, "transcribe", side_effect=RuntimeError("amt failed")
+    ):
+        with patch.object(
+            fallback,
+            "transcribe",
+            return_value='<?xml version="1.0"?><score-partwise></score-partwise>',
+        ) as mock_legacy:
+            xml = engine.transcribe(audio, "fallback-adaptive")
+            mock_legacy.assert_called_once()
+            assert "score-partwise" in xml.lower()
 
 
 @patch("adapters.basic_pitch_backend.BasicPitchBackend.transcribe_notes")
