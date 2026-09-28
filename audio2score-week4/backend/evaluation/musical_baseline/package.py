@@ -581,11 +581,327 @@ def _package_commands() -> list[str]:
     return [
         "cd audio2score-week4/backend",
         "python -m evaluation.musical_baseline --inventory",
-        "python -m evaluation.musical_baseline --package evaluation/musical_baseline/review_package",
         "python -m evaluation.musical_baseline --package evaluation/musical_baseline/review_package --render",
         "python -m evaluation.musical_baseline --report-reviews evaluation/musical_baseline/review_package",
+        "python -m evaluation.musical_baseline --write-index evaluation/musical_baseline/review_package",
+        "python -m evaluation.musical_baseline --bundle evaluation/musical_baseline/review_package",
         "python -m pytest -q tests/test_musical_baseline.py",
     ]
+
+
+FIRST_SESSION_CASES = (
+    "dev-intentional-rests",
+    "dev-independent-voices",
+    "dev-detached-triplets",
+    "dev-pickup",
+)
+
+
+def _rel(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root)).replace("\\", "/")
+    except ValueError:
+        return str(path)
+
+
+def write_review_index(out_dir: Path | None = None) -> Path:
+    """Write a lightweight local HTML index linking renders and review files."""
+    dest = Path(out_dir) if out_dir is not None else DEFAULT_OUT
+    if not dest.is_dir():
+        raise FileNotFoundError(f"review package not found: {dest}")
+    rows: list[dict[str, Any]] = []
+    for candidate in candidates(eligible_only=True):
+        case_dir = dest / candidate.split / candidate.example_id
+        renders = {}
+        for version in ("v1", "v2"):
+            osmd = case_dir / f"{version}_osmd"
+            png = osmd / "osmd.png"
+            html = osmd / "osmd_preview.html"
+            status_path = osmd / "visual_status.json"
+            status = None
+            if status_path.is_file():
+                try:
+                    status = json.loads(status_path.read_text(encoding="utf-8")).get(
+                        "status"
+                    )
+                except (OSError, json.JSONDecodeError):
+                    status = "unreadable"
+            renders[version] = {
+                "png": _rel(png, dest) if png.is_file() else None,
+                "html": _rel(html, dest) if html.is_file() else None,
+                "status": status,
+            }
+        rows.append(
+            {
+                "example_id": candidate.example_id,
+                "split": candidate.split,
+                "title": candidate.title,
+                "families": list(candidate.families),
+                "meter": candidate.meter,
+                "first_session": candidate.example_id in FIRST_SESSION_CASES,
+                "input_midi": _rel(case_dir / "input.mid", dest)
+                if (case_dir / "input.mid").is_file()
+                else None,
+                "v1_score_midi": _rel(case_dir / "v1.score.mid", dest)
+                if (case_dir / "v1.score.mid").is_file()
+                else None,
+                "v2_score_midi": _rel(case_dir / "v2.score.mid", dest)
+                if (case_dir / "v2.score.mid").is_file()
+                else None,
+                "v1_musicxml": _rel(case_dir / "v1.musicxml", dest)
+                if (case_dir / "v1.musicxml").is_file()
+                else None,
+                "v2_musicxml": _rel(case_dir / "v2.musicxml", dest)
+                if (case_dir / "v2.musicxml").is_file()
+                else None,
+                "review_json": _rel(case_dir / REVIEW_JSON_NAME, dest)
+                if (case_dir / REVIEW_JSON_NAME).is_file()
+                else None,
+                "review_form": _rel(case_dir / REVIEW_FORM_NAME, dest)
+                if (case_dir / REVIEW_FORM_NAME).is_file()
+                else None,
+                "fingerprint": _rel(case_dir / FINGERPRINT_NAME, dest)
+                if (case_dir / FINGERPRINT_NAME).is_file()
+                else None,
+                "note_index": _rel(case_dir / "note_index.json", dest)
+                if (case_dir / "note_index.json").is_file()
+                else None,
+                "renders": renders,
+            }
+        )
+
+    def section(split: str) -> str:
+        parts = [f"<h2>{split}</h2>"]
+        for row in rows:
+            if row["split"] != split:
+                continue
+            badge = (
+                ' <span class="badge">first session</span>'
+                if row["first_session"]
+                else ""
+            )
+            fam = ", ".join(row["families"])
+            v1p = row["renders"]["v1"]["png"]
+            v2p = row["renders"]["v2"]["png"]
+            thumbs = ""
+            if v1p:
+                thumbs += (
+                    f'<a href="{v1p}"><img src="{v1p}" alt="v1 render" '
+                    f'class="thumb" /></a>'
+                )
+            if v2p:
+                thumbs += (
+                    f'<a href="{v2p}"><img src="{v2p}" alt="v2 render" '
+                    f'class="thumb" /></a>'
+                )
+            links = []
+            for label, key in (
+                ("input.mid", "input_midi"),
+                ("v1.score.mid", "v1_score_midi"),
+                ("v2.score.mid", "v2_score_midi"),
+                ("v1.musicxml", "v1_musicxml"),
+                ("v2.musicxml", "v2_musicxml"),
+                ("review.json", "review_json"),
+                ("REVIEW_FORM.md", "review_form"),
+                ("note_index.json", "note_index"),
+                ("fingerprint", "fingerprint"),
+            ):
+                href = row.get(key)
+                if href:
+                    links.append(f'<a href="{href}">{label}</a>')
+            for ver in ("v1", "v2"):
+                html = row["renders"][ver]["html"]
+                if html:
+                    links.append(f'<a href="{html}">{ver} OSMD HTML</a>')
+            parts.append(
+                f'<section class="case" id="{row["example_id"]}">'
+                f"<h3><code>{row['example_id']}</code>{badge}</h3>"
+                f"<p>{row['title']} · meter {row['meter']} · {fam}</p>"
+                f'<div class="thumbs">{thumbs}</div>'
+                f'<p class="links">{" · ".join(links)}</p>'
+                "</section>"
+            )
+        return "\n".join(parts)
+
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>P1 musical baseline — review index</title>
+  <style>
+    body {{ font-family: Georgia, serif; margin: 2rem; max-width: 1100px;
+           background: #f7f4ee; color: #1a1a1a; }}
+    h1, h2 {{ font-family: system-ui, sans-serif; }}
+    .badge {{ background: #264653; color: #fff; font-size: 0.75rem;
+              padding: 0.15rem 0.45rem; border-radius: 4px; margin-left: 0.4rem; }}
+    .case {{ border-top: 1px solid #ccc; padding: 1rem 0; }}
+    .thumbs {{ display: flex; gap: 1rem; flex-wrap: wrap; margin: 0.75rem 0; }}
+    .thumb {{ width: 280px; height: auto; border: 1px solid #bbb;
+              background: #fff; }}
+    .links a {{ margin-right: 0.25rem; }}
+    .note {{ background: #fff; border-left: 4px solid #264653; padding: 0.75rem 1rem; }}
+  </style>
+</head>
+<body>
+  <h1>P1 musical baseline — review index</h1>
+  <p class="note">
+    Open this file locally (file://). Development and held-out cases are
+    separated. Default engine is <code>performance-score-1</code> (v1);
+    <code>performance-score-2</code> (v2) is opt-in comparison only.
+    Synthetic examples can assess notation; they cannot establish acoustic
+    transcription accuracy. Do not invent reviewer names or ratings here —
+    fill <code>review.json</code> / <code>REVIEW_FORM.md</code> in each case.
+  </p>
+  <p>
+    First session guide: <a href="FIRST_SESSION.md">FIRST_SESSION.md</a> ·
+    Instructions: <a href="REVIEW_INSTRUCTIONS.md">REVIEW_INSTRUCTIONS.md</a> ·
+    Package report: <a href="package_report.md">package_report.md</a>
+  </p>
+  {section("development")}
+  {section("held_out")}
+</body>
+</html>
+"""
+    path = dest / "REVIEW_INDEX.html"
+    path.write_text(html, encoding="utf-8")
+    return path
+
+
+def write_first_session_guide(out_dir: Path | None = None) -> Path:
+    """Write concise steps for the first 4 development review cases."""
+    dest = Path(out_dir) if out_dir is not None else DEFAULT_OUT
+    by_id = {c.example_id: c for c in candidates(eligible_only=True)}
+    lines = [
+        "# First musician review session (development only)",
+        "",
+        "Engine default remains `performance-score-1` (v1). `performance-score-2`",
+        "(v2) is opt-in for side-by-side comparison. Do **not** invent ratings",
+        "or reviewer names. Automated OSMD images are not musician sign-off.",
+        "These synthetic cases can assess **notation / interpretation /",
+        "correction effort**; they cannot prove acoustic transcription accuracy.",
+        "",
+        "Open `REVIEW_INDEX.html` for thumbnails and file links.",
+        "",
+        "## Cases (4)",
+        "",
+    ]
+    prompts = {
+        "dev-intentional-rests": (
+            "Listen for intentional silence between short attacks. Check whether "
+            "rests look deliberate (not fragmented junk) on both staves."
+        ),
+        "dev-independent-voices": (
+            "Check whether a sustained voice stays readable under moving notes "
+            "on the same staff. Compare staff vs musical-voice vs printed lane."
+        ),
+        "dev-detached-triplets": (
+            "Confirm triplet grouping is readable and detached attacks stay "
+            "separate. Compare v1 vs v2 spelling if they differ."
+        ),
+        "dev-pickup": (
+            "Confirm the pickup/rubato opening is playable: downbeat location, "
+            "tempo marks for listening, and whether the first written beat feels right."
+        ),
+    }
+    for example_id in FIRST_SESSION_CASES:
+        cand = by_id[example_id]
+        lines.extend(
+            [
+                f"### `{example_id}` — {cand.title}",
+                "",
+                f"- Families: {', '.join(cand.families)}",
+                f"- Meter / tempo: {cand.meter} @ {cand.tempo}",
+                f"- Folder: `development/{example_id}/`",
+                f"- Focus: {prompts[example_id]}",
+                "",
+                "**Steps**",
+                "",
+                f"1. Open v1 and v2 renders (`v1_osmd/osmd.png`, `v2_osmd/osmd.png`) "
+                f"or HTML previews.",
+                f"2. Play `v1.score.mid` then `v2.score.mid` (source: `input.mid`).",
+                f"3. Use `note_index.json` / `phrases/` and cite `source_note_id` "
+                f"for concrete notes.",
+                f"4. Edit `review.json` (authoritative):",
+                f"   - `attribution.reviewer`, `attribution.reviewed_at` (ISO date)",
+                f"   - copy current hashes from `artifact_fingerprint.json` into "
+                f"`artifact_binding` (include playback SHA fields)",
+                f"   - `dimensions.musical_interpretation_accuracy.status` "
+                f"(`pass`/`fail`/`needs_work`) and optional `versions.v1` / `versions.v2`",
+                f"   - `dimensions.human_correction_effort.status` plus notes "
+                f"(minutes / top edits by `source_note_id`)",
+                f"   - leave `acoustic_accuracy` as `not_applicable` unless real "
+                f"audio+labels exist",
+                f"5. Optionally mirror notes in `REVIEW_FORM.md`.",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "## After the session",
+            "",
+            "Ask an engineer to run report-only (does not rebuild scores):",
+            "",
+            "```bash",
+            "cd audio2score-week4/backend",
+            "python -m evaluation.musical_baseline --report-reviews "
+            "evaluation/musical_baseline/review_package",
+            "```",
+            "",
+            "Confirm your cases appear under review_complete / musically_accepted",
+            "in `package_report.md` only when bindings match **live** artifacts.",
+            "",
+            "Held-out cases are **out of scope** for this first session.",
+            "",
+        ]
+    )
+    path = dest / "FIRST_SESSION.md"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+def export_portable_bundle(
+    out_dir: Path | None = None,
+    *,
+    bundle_path: Path | None = None,
+    engine_commit: str | None = None,
+) -> Path:
+    """Copy the review package (including gitignored MIDI/renders) into a tarball."""
+    import tarfile
+
+    dest = Path(out_dir) if out_dir is not None else DEFAULT_OUT
+    if not dest.is_dir():
+        raise FileNotFoundError(f"review package not found: {dest}")
+    write_review_index(dest)
+    write_first_session_guide(dest)
+    handoff = HERE / "handoff"
+    handoff.mkdir(parents=True, exist_ok=True)
+    commit = (engine_commit or "local").strip() or "local"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    archive = (
+        Path(bundle_path)
+        if bundle_path is not None
+        else handoff / f"p1-review-handoff-{commit[:12]}-{stamp}.tar.gz"
+    )
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "engine_commit": commit,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "package_dir": str(dest),
+        "includes_midi": True,
+        "includes_osmd_renders": True,
+        "first_session_cases": list(FIRST_SESSION_CASES),
+        "commands": _package_commands(),
+        "note": (
+            "Portable musician-review handoff. Prepared for review does not "
+            "mean P1 is complete. No fabricated ratings."
+        ),
+    }
+    (dest / "HANDOFF_MANIFEST.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(dest, arcname="review_package")
+    return archive
 
 
 def _assemble_package_report(
@@ -682,6 +998,8 @@ def build_package(
     )
     (dest / "package_report.md").write_text(_markdown_report(report), encoding="utf-8")
     (dest / "REVIEW_INSTRUCTIONS.md").write_text(_instructions(), encoding="utf-8")
+    write_review_index(dest)
+    write_first_session_guide(dest)
     return report
 
 

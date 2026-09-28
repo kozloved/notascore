@@ -201,7 +201,7 @@
       "mechanical": true,
       "score": null,
       "reviewer": "automated_export_integrity",
-      "reviewed_at": "2026-09-28T14:25:07.789466+00:00",
+      "reviewed_at": "2026-09-28T18:36:53.266298+00:00",
       "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
       "human_status": "not_reviewed",
       "human_versions": {
@@ -252,6 +252,16 @@
       "binding_current": true,
       "binding_stale": false,
       "binding_missing": false,
+      "artifacts_current": true,
+      "artifacts_stale": false,
+      "changed_files": [],
+      "missing_files": [],
+      "unreadable_files": [],
+      "recorded_fingerprint_status": "loaded",
+      "playback_available": {
+        "v1_score_midi_sha256": true,
+        "v2_score_midi_sha256": true
+      },
       "dimensions": {
         "acoustic_accuracy": {
           "status": "not_applicable",
@@ -335,11 +345,27 @@
           "midi_sha256",
           "v1_musicxml_sha256",
           "v2_musicxml_sha256",
+          "v1_score_midi_sha256",
+          "v2_score_midi_sha256",
           "v1_algorithm_version",
           "v2_algorithm_version",
           "settings_digest"
         ],
-        "stale_rule": "A review is stale when any recorded binding hash/setting differs from the current artifact fingerprint. Timestamps alone never invalidate.",
+        "core_artifact_files": {
+          "midi_sha256": "input.mid",
+          "v1_musicxml_sha256": "v1.musicxml",
+          "v2_musicxml_sha256": "v2.musicxml"
+        },
+        "playback_artifact_files": {
+          "v1_score_midi_sha256": "v1.score.mid",
+          "v2_score_midi_sha256": "v2.score.mid"
+        },
+        "playback_binding": {
+          "available": "When *.score.mid exists and is readable, artifact_binding must equal its live SHA-256. A change to playback invalidates the review.",
+          "unavailable": "When a playback file is absent, the corresponding binding value must be JSON null. Treating missing playback as matching an old hash is not allowed.",
+          "migration": "Reviews saved before playback hashes were required binding fields remain on disk unchanged, but are not review_complete until artifact_binding includes current v1/v2_score_midi_sha256 (null if that playback file was never packaged). Re-copy from a freshly verified fingerprint after --package, or re-review."
+        },
+        "stale_rule": "A review is stale when any binding hash/setting differs from the live artifact bytes (and recorded fingerprint metadata), or when required on-disk artifacts are missing/unreadable, or when artifact_fingerprint.json disagrees with live files. Cached case_report fingerprints are never used as evidence. Timestamps alone never invalidate.",
         "musical_acceptance_rule": "review_complete AND musical_interpretation_accuracy.status == 'pass'. fail/needs_work on interpretation yields review_complete but not accepted.",
         "acoustic_note": "Acoustic not_applicable or missing never counts toward P1 completion. Synthetic coverage does not prove acoustic accuracy."
       }
@@ -365,7 +391,26 @@
     "phrases": "development/dev-meter-3-4/phrases",
     "case_report": "development/dev-meter-3-4/case_report.json"
   },
-  "renders": [],
+  "renders": [
+    {
+      "version": "v1",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      }
+    },
+    {
+      "version": "v2",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": true,
+        "svg": true
+      }
+    }
+  ],
   "contracts": {
     "performance_score_1_default": true,
     "performance_score_2_opt_in": true,

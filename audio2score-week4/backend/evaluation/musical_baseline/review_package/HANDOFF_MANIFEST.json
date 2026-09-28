@@ -1,0 +1,23 @@
+{
+  "engine_commit": "2ad36b7",
+  "generated_at": "2026-09-28T18:40:12.567503+00:00",
+  "package_dir": "evaluation/musical_baseline/review_package",
+  "includes_midi": true,
+  "includes_osmd_renders": true,
+  "first_session_cases": [
+    "dev-intentional-rests",
+    "dev-independent-voices",
+    "dev-detached-triplets",
+    "dev-pickup"
+  ],
+  "commands": [
+    "cd audio2score-week4/backend",
+    "python -m evaluation.musical_baseline --inventory",
+    "python -m evaluation.musical_baseline --package evaluation/musical_baseline/review_package --render",
+    "python -m evaluation.musical_baseline --report-reviews evaluation/musical_baseline/review_package",
+    "python -m evaluation.musical_baseline --write-index evaluation/musical_baseline/review_package",
+    "python -m evaluation.musical_baseline --bundle evaluation/musical_baseline/review_package",
+    "python -m pytest -q tests/test_musical_baseline.py"
+  ],
+  "note": "Portable musician-review handoff. Prepared for review does not mean P1 is complete. No fabricated ratings."
+}
