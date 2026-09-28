@@ -1,0 +1,51 @@
+{
+  "measure_numbers": [
+    1
+  ],
+  "source_note_ids": [
+    "track:0:note:0",
+    "track:0:note:1",
+    "track:0:note:2",
+    "track:0:note:3"
+  ],
+  "score_context": {
+    "clefs": [
+      {
+        "number": "1",
+        "sign": "G",
+        "line": "2"
+      },
+      {
+        "number": "2",
+        "sign": "F",
+        "line": "4"
+      }
+    ],
+    "keys": [
+      {
+        "fifths": "0",
+        "mode": "major"
+      }
+    ],
+    "meters": [
+      "4/4"
+    ],
+    "staff_count": 2
+  },
+  "v1": {
+    "path": "evaluation/musical_baseline/review_package/development/dev-intentional-rests/phrases/v1_phrase.musicxml",
+    "measures_kept": 1,
+    "measure_numbers": [
+      1
+    ]
+  },
+  "v2": {
+    "path": "evaluation/musical_baseline/review_package/development/dev-intentional-rests/phrases/v2_phrase.musicxml",
+    "measures_kept": 1,
+    "measure_numbers": [
+      1
+    ]
+  },
+  "context_preserved": true,
+  "note": "Phrase extracts copy selected measures without rewriting clef, key, or meter attributes."
+}

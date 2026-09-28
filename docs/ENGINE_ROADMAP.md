@@ -4,8 +4,8 @@ Canonical development plan for reliable, editable solo-instrument and piano
 scores. Historical reviews stay in dated `docs/` files. New engine work is
 scheduled here.
 
-Reviewed baseline for this plan: `a05664c` / PR #77. No newer `origin/main`
-commits were present when this file was written.
+Reviewed remote baseline for this plan: `51d6972` / PR #78 (P0 publish checks
+and voice diagnostics). This P1 increment starts from that tip.
 
 This is a plan, not a claim that musical quality is solved. Synthetic tests,
 valid MusicXML, and successful PDF export are not proof of musical quality.
@@ -93,22 +93,35 @@ gates prove preservation, structure, and export plumbing.
 
 **Current implementation and evidence.**
 
-- Evaluation already exists: `evaluation/notation_fixtures.py`,
-  `evaluation/readable_v2_cases.py`, `evaluation/readable_v2_rollout.py`,
-  `benchmark/fixtures/catalog.py`, stage gates in
-  `docs/PERFORMANCE_FOUNDATION.md`.
-- Inventory on `a05664c`: synthetic fixtures and catalog MIDI; three local
-  NotaTestSamples raw/quantized/audio pairs
-  (`evaluation/development/NotaTestSamples`) with undocumented license,
-  not musician-reviewed. `benchmark/realworld/local` empty.
-  `evaluation/paired_corpus` empty. No licensed commercial recordings.
-- Families already covered synthetically: solo detached line, short rests,
-  independent voices, pedal/repeats, triplets, syncopation, pickup
-  (`rubato_pickup`), 3/4, 6/8, mixed release, crossing hands.
-- Missing: musician review labels, held-out vs development composition
-  split for a 10–15 example reviewed set, acoustic-accuracy labels.
+- Inventory + candidate set + review package live under
+  `evaluation/musical_baseline/` (`catalog.py`, `package.py`, CLI
+  `python -m evaluation.musical_baseline`). Written inventory:
+  `evaluation/musical_baseline/INVENTORY.md`. Generated package:
+  `evaluation/musical_baseline/review_package/`.
+- P0 re-verified on `51d6972` before packaging: publish fencing, runtime
+  identity, voice-identity regressions, readable-v2 cases/rollout —
+  55 passed.
+- Candidate set: **15** short synthetic examples (9 development /
+  6 held-out). Compositions are disjoint; TUNING_SET members stay
+  development-only. Required families covered: solo line, piano
+  accompaniment, independent voices, pedal/repeated notes, intentional
+  rests, detached articulation, triplets, syncopation, pickup, 3/4, 6/8.
+- Each packaged case has matched v1/v2 MusicXML, score MIDI playback,
+  phrase extracts preserving clef/key/meter/staff, `source_note_id`
+  index, and a musician review form with attribution fields.
+- Four dimensions are reported separately. On this package run:
+  acoustic = `not_applicable` (no suitable audio/labels on synthetics);
+  interpretation + correction effort = `unreviewed`; export integrity =
+  mechanical pass/fail on the shared planner (not musical quality).
+- Still present and **not** claimed as licensed/reviewed: three
+  NotaTestSamples (`evaluation/development/NotaTestSamples`) with
+  undocumented license. `paired_corpus`, `evaluation/holdout` audio,
+  `real_world`, `benchmark/realworld/local`, and production-smoke WAVs
+  remain empty/missing.
 
-**Modules.** `evaluation/*`, `benchmark/*`, `docs/PRODUCTION_SCORE_QA.md`,
+**Modules.** `evaluation/musical_baseline/*`, `evaluation/notation_fixtures.py`,
+`evaluation/readable_v2_cases.py`, `evaluation/readable_v2_rollout.py`,
+`benchmark/fixtures/catalog.py`, `docs/PRODUCTION_SCORE_QA.md`,
 `docs/MUSICAL_INTERPRETATION.md`.
 
 **Dependencies.** P0 metrics so voice scores are not printed-lane noise.
@@ -116,15 +129,14 @@ gates prove preservation, structure, and export plumbing.
 **Implementation tasks.**
 
 1. Inventory available assets in-repo. Mark missing audio, labels, reviews,
-   and licenses explicitly. Never fabricate them.
-2. Select 10–15 short examples covering solo lines, piano accompaniment,
-   independent voices, pedal/repeats, intentional rests, detached
-   articulation, triplets, syncopation, pickups, 3/4, 6/8.
-3. Keep compositions disjoint between development and held-out splits.
-4. Score four tracks separately: acoustic accuracy, interpretation
-   accuracy, export integrity, correction effort.
-5. User-recorded performances are valid. Commercial recordings are not
-   required.
+   and licenses explicitly. Never fabricate them. **Done (automated).**
+2. Select 10–15 short examples covering required families. **Done
+   (synthetic subset; see gap list).**
+3. Keep compositions disjoint between development and held-out. **Done.**
+4. Score four tracks separately; keep unreviewed explicit. **Done in
+   package forms; human ratings still missing.**
+5. Collect attributed musician reviews and (where possible) licensed or
+   self-performed audio for acoustic accuracy. **Remaining.**
 
 **Acceptance criteria.**
 
@@ -133,7 +145,23 @@ gates prove preservation, structure, and export plumbing.
 - Development and held-out compositions do not overlap.
 - Reviews, if present, are attributed. No invented quality scores.
 
-**Status.** Missing. Infrastructure is present; the reviewed set is not.
+**Status.** Implemented but unverified as a reviewed baseline.
+Infrastructure, inventory, disjoint 15-example candidate set, and
+reproducible review package are in place (`musician_reviewed_complete=0`).
+**Do not mark P1 complete** until attributed interpretation and
+correction-effort reviews exist. Acoustic accuracy remains blocked on
+missing suitable audio/labels/licenses.
+
+**Remaining gaps (exact).**
+
+1. Attributed musician reviews for interpretation + correction effort on
+   the 15 packaged cases (`review.json` attribution still null).
+2. Documented permitted use / license for NotaTestSamples before any
+   acoustic claim on those takes.
+3. Held-out / real-world / paired-corpus / production-smoke audio still
+   missing (self-performed recordings are enough; commercial not required).
+4. Acoustic-accuracy labels: missing on every candidate.
+5. Optional OSMD `--render` HTML/PNG not required for package completeness.
 
 ## P2 — Musical interpretation improvements
 
@@ -285,5 +313,7 @@ independently validated.
 
 ## Suggested next milestone
 
-After P0 is verified: **P1 reviewed musical baseline**. Inventory is honest
-enough to start selection; reviews and held-out labels are the gap.
+After attributed P1 reviews exist on the packaged set: **P2 musical
+interpretation improvements**, using reviewed counterexamples. Until then,
+collect musician ratings via
+`evaluation/musical_baseline/review_package/REVIEW_INSTRUCTIONS.md`.

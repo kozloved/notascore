@@ -1,0 +1,6 @@
+# Generated review package artifacts
+out/
+*.mid
+*_osmd/
+*.pdf
+export_gate/
