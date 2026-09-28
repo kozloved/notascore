@@ -1,0 +1,3342 @@
+{
+  "generated_at": "2026-09-28T13:15:29.541017+00:00",
+  "out_dir": "evaluation/musical_baseline/review_package",
+  "default_algorithm_version": "performance-score-1",
+  "opt_in_algorithm_version": "performance-score-2",
+  "candidate_count": 15,
+  "development_count": 9,
+  "held_out_count": 6,
+  "family_coverage": {
+    "required_families": [
+      "solo_line",
+      "piano_accompaniment",
+      "independent_voices",
+      "pedal_repeated_notes",
+      "intentional_rests",
+      "detached_articulation",
+      "triplets",
+      "syncopation",
+      "pickup",
+      "meter_3_4",
+      "meter_6_8"
+    ],
+    "covered": {
+      "solo_line": [
+        "dev-solo-detached",
+        "dev-intentional-rests",
+        "dev-meter-3-4",
+        "hold-final-short"
+      ],
+      "piano_accompaniment": [
+        "dev-melody-bass",
+        "hold-catalog-melody-bass"
+      ],
+      "independent_voices": [
+        "dev-independent-voices",
+        "hold-independent-mixed"
+      ],
+      "pedal_repeated_notes": [
+        "dev-melody-bass",
+        "dev-pedal-repeats",
+        "hold-repeats-no-pedal"
+      ],
+      "intentional_rests": [
+        "dev-intentional-rests",
+        "hold-independent-mixed",
+        "hold-final-short"
+      ],
+      "detached_articulation": [
+        "dev-solo-detached",
+        "dev-detached-triplets"
+      ],
+      "triplets": [
+        "dev-detached-triplets",
+        "hold-catalog-triplets"
+      ],
+      "syncopation": [
+        "dev-syncopation"
+      ],
+      "pickup": [
+        "dev-pickup"
+      ],
+      "meter_3_4": [
+        "dev-meter-3-4"
+      ],
+      "meter_6_8": [
+        "hold-meter-6-8"
+      ]
+    },
+    "missing_families": [],
+    "complete": true
+  },
+  "split_leakage": [],
+  "splits_disjoint": true,
+  "musician_reviewed_complete": 0,
+  "p1_complete": false,
+  "p1_complete_reason": "0/15 cases have attributed interpretation and correction-effort reviews. Do not mark P1 complete without them.",
+  "inventory_summary": {
+    "gaps": [
+      {
+        "id": "paired_corpus_recordings",
+        "location": "evaluation/paired_corpus",
+        "status": "missing",
+        "detail": "Slot templates exist; complete_slots=0; no audio/MIDI/score."
+      },
+      {
+        "id": "evaluation_holdout_cases",
+        "location": "evaluation/holdout",
+        "status": "missing",
+        "detail": "Directory present; no case assets committed."
+      },
+      {
+        "id": "evaluation_real_world_cases",
+        "location": "evaluation/real_world",
+        "status": "missing",
+        "detail": "Directory present; no case assets committed."
+      },
+      {
+        "id": "benchmark_realworld_local",
+        "location": "benchmark/realworld/local",
+        "status": "missing",
+        "detail": "Ad-hoc local audio slot; empty or gitignored."
+      },
+      {
+        "id": "human_reviewed_ratings",
+        "location": "evaluation/human_reviewed",
+        "status": "missing",
+        "detail": "Generators and rubric exist; no attributed musician ratings."
+      },
+      {
+        "id": "production_smoke_audio",
+        "location": "evaluation/production_smoke",
+        "status": "missing",
+        "detail": "cases.json names expected WAVs; audio not committed."
+      },
+      {
+        "id": "nota_test_sample_licenses",
+        "location": "evaluation/development/NotaTestSamples",
+        "status": "undocumented",
+        "detail": "3 local raw/quantized/audio pairs present; license and composition identity not documented; not musician-reviewed."
+      },
+      {
+        "id": "acoustic_accuracy_labels",
+        "location": "n/a",
+        "status": "missing",
+        "detail": "No reviewed acoustic-accuracy labels on any asset."
+      },
+      {
+        "id": "correction_effort_labels",
+        "location": "n/a",
+        "status": "missing",
+        "detail": "No human correction-effort ratings on any asset."
+      }
+    ],
+    "candidate_counts": {
+      "total": 15,
+      "package_eligible": 15,
+      "development": 9,
+      "held_out": 6,
+      "musician_reviewed": 0
+    },
+    "nota_test_samples": 3
+  },
+  "cases": [
+    {
+      "example_id": "dev-solo-detached",
+      "composition_id": "p1-comp-detached-line",
+      "performance_id": "p1-perf-detached-line-synth",
+      "split": "development",
+      "source_kind": "readable_v2",
+      "source_id": "A_detached_regular_line",
+      "title": "Detached regular solo line",
+      "families": [
+        "solo_line",
+        "detached_articulation"
+      ],
+      "instrument": "piano",
+      "meter": "4/4",
+      "tempo": 120.0,
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "midi_sha256": "5a0e0be8f784321bb92ceb573a405cc1f15c9b582e5e9631dc1211a438ca89da",
+      "performance_sha256": "5a0e0be8f784321bb92ceb573a405cc1f15c9b582e5e9631dc1211a438ca89da",
+      "source_midi_unchanged": true,
+      "default_algorithm_version": "performance-score-1",
+      "opt_in_algorithm_version": "performance-score-2",
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "surface": {
+        "v1": {
+          "printed_notes": 8,
+          "rest_count": 10,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        },
+        "v2": {
+          "printed_notes": 8,
+          "rest_count": 2,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "measure_validity": {
+        "v1": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        },
+        "v2": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "staff_voice": {
+        "staff_equal": true,
+        "grouping_equal": true,
+        "musical_grouping_equal": true,
+        "printed_grouping_equal": true,
+        "printed_lane_adjustment": false,
+        "assignments_unchanged": true,
+        "kind": "unchanged",
+        "staff_changes": [],
+        "voice_membership_changes": [],
+        "printed_membership_changes": [],
+        "v1_staves": [
+          0
+        ],
+        "v2_staves": [
+          0
+        ],
+        "v1_voice_labels": [
+          0
+        ],
+        "v2_voice_labels": [
+          0
+        ],
+        "equal": true
+      },
+      "score_context": {
+        "clefs": [
+          {
+            "number": "1",
+            "sign": "G",
+            "line": "2"
+          },
+          {
+            "number": "2",
+            "sign": "F",
+            "line": "4"
+          }
+        ],
+        "keys": [
+          {
+            "fifths": "0",
+            "mode": "major"
+          }
+        ],
+        "meters": [
+          "4/4"
+        ],
+        "staff_count": 2
+      },
+      "phrase_extract": {
+        "measure_numbers": [
+          1,
+          2
+        ],
+        "source_note_id_count": 8
+      },
+      "dimensions": {
+        "acoustic_accuracy": {
+          "dimension": "acoustic_accuracy",
+          "status": "not_applicable",
+          "reason": "No suitable audio/reference labels for acoustic accuracy",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "musical_interpretation_accuracy": {
+          "dimension": "musical_interpretation_accuracy",
+          "status": "unreviewed",
+          "reason": "Musician interpretation rating required; export success is not a substitute",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "export_integrity": {
+          "dimension": "export_integrity",
+          "status": "passed",
+          "passed": true,
+          "checks": {
+            "source_bytes_unchanged": true,
+            "v1_musicxml_nonempty": true,
+            "v2_musicxml_nonempty": true,
+            "v1_score_midi_present": true,
+            "v2_score_midi_present": true,
+            "v1_musical_valid": true,
+            "v2_musical_valid": true,
+            "source_note_ids_nonempty": true,
+            "source_note_ids_stable_across_versions": true,
+            "v1_default_algorithm": true,
+            "v2_opt_in_algorithm": true
+          },
+          "measure_validity": {
+            "v1": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            },
+            "v2": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            }
+          },
+          "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
+          "mechanical": true,
+          "score": null,
+          "reviewer": "automated_export_integrity",
+          "reviewed_at": "2026-09-28T13:15:28.177028+00:00",
+          "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+        },
+        "human_correction_effort": {
+          "dimension": "human_correction_effort",
+          "status": "unreviewed",
+          "reason": "Musician correction-effort estimate required",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        }
+      },
+      "artifacts": {
+        "input_midi": "development/dev-solo-detached/input.mid",
+        "v1_musicxml": "development/dev-solo-detached/v1.musicxml",
+        "v2_musicxml": "development/dev-solo-detached/v2.musicxml",
+        "v1_score_midi": "development/dev-solo-detached/v1.score.mid",
+        "v2_score_midi": "development/dev-solo-detached/v2.score.mid",
+        "note_index": "development/dev-solo-detached/note_index.json",
+        "review_form": "development/dev-solo-detached/REVIEW_FORM.md",
+        "review_json": "development/dev-solo-detached/review.json",
+        "phrases": "development/dev-solo-detached/phrases"
+      },
+      "renders": [],
+      "contracts": {
+        "performance_score_1_default": true,
+        "performance_score_2_opt_in": true,
+        "original_midi_preserved": true,
+        "notes_identified_by_source_note_id": true,
+        "staff_musical_printed_compared_separately": true,
+        "export_success_is_not_musical_quality": true
+      }
+    },
+    {
+      "example_id": "dev-intentional-rests",
+      "composition_id": "p1-comp-short-rests",
+      "performance_id": "p1-perf-short-rests-synth",
+      "split": "development",
+      "source_kind": "readable_v2",
+      "source_id": "B_short_notes_with_rests",
+      "title": "Short notes with intentional rests",
+      "families": [
+        "intentional_rests",
+        "solo_line"
+      ],
+      "instrument": "piano",
+      "meter": "4/4",
+      "tempo": 120.0,
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "midi_sha256": "bbe76c96da15f3d45f206115a112afbf0b0b70b5b3dee09a3313476d20d08996",
+      "performance_sha256": "bbe76c96da15f3d45f206115a112afbf0b0b70b5b3dee09a3313476d20d08996",
+      "source_midi_unchanged": true,
+      "default_algorithm_version": "performance-score-1",
+      "opt_in_algorithm_version": "performance-score-2",
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "surface": {
+        "v1": {
+          "printed_notes": 4,
+          "rest_count": 9,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        },
+        "v2": {
+          "printed_notes": 4,
+          "rest_count": 9,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "measure_validity": {
+        "v1": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        },
+        "v2": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "staff_voice": {
+        "staff_equal": true,
+        "grouping_equal": true,
+        "musical_grouping_equal": true,
+        "printed_grouping_equal": true,
+        "printed_lane_adjustment": false,
+        "assignments_unchanged": true,
+        "kind": "unchanged",
+        "staff_changes": [],
+        "voice_membership_changes": [],
+        "printed_membership_changes": [],
+        "v1_staves": [
+          0
+        ],
+        "v2_staves": [
+          0
+        ],
+        "v1_voice_labels": [
+          0
+        ],
+        "v2_voice_labels": [
+          0
+        ],
+        "equal": true
+      },
+      "score_context": {
+        "clefs": [
+          {
+            "number": "1",
+            "sign": "G",
+            "line": "2"
+          },
+          {
+            "number": "2",
+            "sign": "F",
+            "line": "4"
+          }
+        ],
+        "keys": [
+          {
+            "fifths": "0",
+            "mode": "major"
+          }
+        ],
+        "meters": [
+          "4/4"
+        ],
+        "staff_count": 2
+      },
+      "phrase_extract": {
+        "measure_numbers": [
+          1
+        ],
+        "source_note_id_count": 4
+      },
+      "dimensions": {
+        "acoustic_accuracy": {
+          "dimension": "acoustic_accuracy",
+          "status": "not_applicable",
+          "reason": "No suitable audio/reference labels for acoustic accuracy",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "musical_interpretation_accuracy": {
+          "dimension": "musical_interpretation_accuracy",
+          "status": "unreviewed",
+          "reason": "Musician interpretation rating required; export success is not a substitute",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "export_integrity": {
+          "dimension": "export_integrity",
+          "status": "passed",
+          "passed": true,
+          "checks": {
+            "source_bytes_unchanged": true,
+            "v1_musicxml_nonempty": true,
+            "v2_musicxml_nonempty": true,
+            "v1_score_midi_present": true,
+            "v2_score_midi_present": true,
+            "v1_musical_valid": true,
+            "v2_musical_valid": true,
+            "source_note_ids_nonempty": true,
+            "source_note_ids_stable_across_versions": true,
+            "v1_default_algorithm": true,
+            "v2_opt_in_algorithm": true
+          },
+          "measure_validity": {
+            "v1": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            },
+            "v2": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            }
+          },
+          "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
+          "mechanical": true,
+          "score": null,
+          "reviewer": "automated_export_integrity",
+          "reviewed_at": "2026-09-28T13:15:28.264523+00:00",
+          "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+        },
+        "human_correction_effort": {
+          "dimension": "human_correction_effort",
+          "status": "unreviewed",
+          "reason": "Musician correction-effort estimate required",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        }
+      },
+      "artifacts": {
+        "input_midi": "development/dev-intentional-rests/input.mid",
+        "v1_musicxml": "development/dev-intentional-rests/v1.musicxml",
+        "v2_musicxml": "development/dev-intentional-rests/v2.musicxml",
+        "v1_score_midi": "development/dev-intentional-rests/v1.score.mid",
+        "v2_score_midi": "development/dev-intentional-rests/v2.score.mid",
+        "note_index": "development/dev-intentional-rests/note_index.json",
+        "review_form": "development/dev-intentional-rests/REVIEW_FORM.md",
+        "review_json": "development/dev-intentional-rests/review.json",
+        "phrases": "development/dev-intentional-rests/phrases"
+      },
+      "renders": [],
+      "contracts": {
+        "performance_score_1_default": true,
+        "performance_score_2_opt_in": true,
+        "original_midi_preserved": true,
+        "notes_identified_by_source_note_id": true,
+        "staff_musical_printed_compared_separately": true,
+        "export_success_is_not_musical_quality": true
+      }
+    },
+    {
+      "example_id": "dev-melody-bass",
+      "composition_id": "p1-comp-melody-over-bass",
+      "performance_id": "p1-perf-melody-over-bass-synth",
+      "split": "development",
+      "source_kind": "notation_fixture",
+      "source_id": "melody_over_bass",
+      "title": "Melody over bass with pedal",
+      "families": [
+        "piano_accompaniment",
+        "pedal_repeated_notes"
+      ],
+      "instrument": "piano",
+      "meter": "4/4",
+      "tempo": 120.0,
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "midi_sha256": "c9620066dfc02d0ec64b6212e2663a418d1a09e3f29b16ad8a1a063782b6383f",
+      "performance_sha256": "c9620066dfc02d0ec64b6212e2663a418d1a09e3f29b16ad8a1a063782b6383f",
+      "source_midi_unchanged": true,
+      "default_algorithm_version": "performance-score-1",
+      "opt_in_algorithm_version": "performance-score-2",
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "surface": {
+        "v1": {
+          "printed_notes": 12,
+          "rest_count": 8,
+          "tied_fragments": 4,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        },
+        "v2": {
+          "printed_notes": 12,
+          "rest_count": 8,
+          "tied_fragments": 4,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "measure_validity": {
+        "v1": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        },
+        "v2": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "staff_voice": {
+        "staff_equal": true,
+        "grouping_equal": true,
+        "musical_grouping_equal": true,
+        "printed_grouping_equal": true,
+        "printed_lane_adjustment": false,
+        "assignments_unchanged": true,
+        "kind": "unchanged",
+        "staff_changes": [],
+        "voice_membership_changes": [],
+        "printed_membership_changes": [],
+        "v1_staves": [
+          0,
+          1
+        ],
+        "v2_staves": [
+          0,
+          1
+        ],
+        "v1_voice_labels": [
+          0
+        ],
+        "v2_voice_labels": [
+          0
+        ],
+        "equal": true
+      },
+      "score_context": {
+        "clefs": [
+          {
+            "number": "1",
+            "sign": "G",
+            "line": "2"
+          },
+          {
+            "number": "2",
+            "sign": "F",
+            "line": "4"
+          }
+        ],
+        "keys": [
+          {
+            "fifths": "0",
+            "mode": "major"
+          }
+        ],
+        "meters": [
+          "4/4"
+        ],
+        "staff_count": 2
+      },
+      "phrase_extract": {
+        "measure_numbers": [
+          1,
+          2
+        ],
+        "source_note_id_count": 10
+      },
+      "dimensions": {
+        "acoustic_accuracy": {
+          "dimension": "acoustic_accuracy",
+          "status": "not_applicable",
+          "reason": "No suitable audio/reference labels for acoustic accuracy",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "musical_interpretation_accuracy": {
+          "dimension": "musical_interpretation_accuracy",
+          "status": "unreviewed",
+          "reason": "Musician interpretation rating required; export success is not a substitute",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "export_integrity": {
+          "dimension": "export_integrity",
+          "status": "passed",
+          "passed": true,
+          "checks": {
+            "source_bytes_unchanged": true,
+            "v1_musicxml_nonempty": true,
+            "v2_musicxml_nonempty": true,
+            "v1_score_midi_present": true,
+            "v2_score_midi_present": true,
+            "v1_musical_valid": true,
+            "v2_musical_valid": true,
+            "source_note_ids_nonempty": true,
+            "source_note_ids_stable_across_versions": true,
+            "v1_default_algorithm": true,
+            "v2_opt_in_algorithm": true
+          },
+          "measure_validity": {
+            "v1": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            },
+            "v2": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            }
+          },
+          "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
+          "mechanical": true,
+          "score": null,
+          "reviewer": "automated_export_integrity",
+          "reviewed_at": "2026-09-28T13:15:28.436459+00:00",
+          "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+        },
+        "human_correction_effort": {
+          "dimension": "human_correction_effort",
+          "status": "unreviewed",
+          "reason": "Musician correction-effort estimate required",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        }
+      },
+      "artifacts": {
+        "input_midi": "development/dev-melody-bass/input.mid",
+        "v1_musicxml": "development/dev-melody-bass/v1.musicxml",
+        "v2_musicxml": "development/dev-melody-bass/v2.musicxml",
+        "v1_score_midi": "development/dev-melody-bass/v1.score.mid",
+        "v2_score_midi": "development/dev-melody-bass/v2.score.mid",
+        "note_index": "development/dev-melody-bass/note_index.json",
+        "review_form": "development/dev-melody-bass/REVIEW_FORM.md",
+        "review_json": "development/dev-melody-bass/review.json",
+        "phrases": "development/dev-melody-bass/phrases"
+      },
+      "renders": [],
+      "contracts": {
+        "performance_score_1_default": true,
+        "performance_score_2_opt_in": true,
+        "original_midi_preserved": true,
+        "notes_identified_by_source_note_id": true,
+        "staff_musical_printed_compared_separately": true,
+        "export_success_is_not_musical_quality": true
+      }
+    },
+    {
+      "example_id": "dev-pedal-repeats",
+      "composition_id": "p1-comp-pedal-repeats",
+      "performance_id": "p1-perf-pedal-repeats-synth",
+      "split": "development",
+      "source_kind": "readable_v2",
+      "source_id": "C_repeated_attacks_under_pedal",
+      "title": "Repeated attacks under sustain pedal",
+      "families": [
+        "pedal_repeated_notes"
+      ],
+      "instrument": "piano",
+      "meter": "4/4",
+      "tempo": 120.0,
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "midi_sha256": "a7404c045eefcd53af6f47844174778e65410a9aefc1a6b4d92353283a0c7561",
+      "performance_sha256": "a7404c045eefcd53af6f47844174778e65410a9aefc1a6b4d92353283a0c7561",
+      "source_midi_unchanged": true,
+      "default_algorithm_version": "performance-score-1",
+      "opt_in_algorithm_version": "performance-score-2",
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "surface": {
+        "v1": {
+          "printed_notes": 4,
+          "rest_count": 1,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        },
+        "v2": {
+          "printed_notes": 4,
+          "rest_count": 1,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "measure_validity": {
+        "v1": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        },
+        "v2": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "staff_voice": {
+        "staff_equal": true,
+        "grouping_equal": true,
+        "musical_grouping_equal": true,
+        "printed_grouping_equal": true,
+        "printed_lane_adjustment": false,
+        "assignments_unchanged": true,
+        "kind": "unchanged",
+        "staff_changes": [],
+        "voice_membership_changes": [],
+        "printed_membership_changes": [],
+        "v1_staves": [
+          0
+        ],
+        "v2_staves": [
+          0
+        ],
+        "v1_voice_labels": [
+          0
+        ],
+        "v2_voice_labels": [
+          0
+        ],
+        "equal": true
+      },
+      "score_context": {
+        "clefs": [
+          {
+            "number": "1",
+            "sign": "G",
+            "line": "2"
+          },
+          {
+            "number": "2",
+            "sign": "F",
+            "line": "4"
+          }
+        ],
+        "keys": [
+          {
+            "fifths": "0",
+            "mode": "major"
+          }
+        ],
+        "meters": [
+          "4/4"
+        ],
+        "staff_count": 2
+      },
+      "phrase_extract": {
+        "measure_numbers": [
+          1
+        ],
+        "source_note_id_count": 4
+      },
+      "dimensions": {
+        "acoustic_accuracy": {
+          "dimension": "acoustic_accuracy",
+          "status": "not_applicable",
+          "reason": "No suitable audio/reference labels for acoustic accuracy",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "musical_interpretation_accuracy": {
+          "dimension": "musical_interpretation_accuracy",
+          "status": "unreviewed",
+          "reason": "Musician interpretation rating required; export success is not a substitute",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "export_integrity": {
+          "dimension": "export_integrity",
+          "status": "passed",
+          "passed": true,
+          "checks": {
+            "source_bytes_unchanged": true,
+            "v1_musicxml_nonempty": true,
+            "v2_musicxml_nonempty": true,
+            "v1_score_midi_present": true,
+            "v2_score_midi_present": true,
+            "v1_musical_valid": true,
+            "v2_musical_valid": true,
+            "source_note_ids_nonempty": true,
+            "source_note_ids_stable_across_versions": true,
+            "v1_default_algorithm": true,
+            "v2_opt_in_algorithm": true
+          },
+          "measure_validity": {
+            "v1": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            },
+            "v2": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            }
+          },
+          "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
+          "mechanical": true,
+          "score": null,
+          "reviewer": "automated_export_integrity",
+          "reviewed_at": "2026-09-28T13:15:28.512024+00:00",
+          "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+        },
+        "human_correction_effort": {
+          "dimension": "human_correction_effort",
+          "status": "unreviewed",
+          "reason": "Musician correction-effort estimate required",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        }
+      },
+      "artifacts": {
+        "input_midi": "development/dev-pedal-repeats/input.mid",
+        "v1_musicxml": "development/dev-pedal-repeats/v1.musicxml",
+        "v2_musicxml": "development/dev-pedal-repeats/v2.musicxml",
+        "v1_score_midi": "development/dev-pedal-repeats/v1.score.mid",
+        "v2_score_midi": "development/dev-pedal-repeats/v2.score.mid",
+        "note_index": "development/dev-pedal-repeats/note_index.json",
+        "review_form": "development/dev-pedal-repeats/REVIEW_FORM.md",
+        "review_json": "development/dev-pedal-repeats/review.json",
+        "phrases": "development/dev-pedal-repeats/phrases"
+      },
+      "renders": [],
+      "contracts": {
+        "performance_score_1_default": true,
+        "performance_score_2_opt_in": true,
+        "original_midi_preserved": true,
+        "notes_identified_by_source_note_id": true,
+        "staff_musical_printed_compared_separately": true,
+        "export_success_is_not_musical_quality": true
+      }
+    },
+    {
+      "example_id": "dev-independent-voices",
+      "composition_id": "p1-comp-held-voice-same-staff",
+      "performance_id": "p1-perf-held-voice-same-staff-synth",
+      "split": "development",
+      "source_kind": "readable_v2",
+      "source_id": "G_held_voice_same_staff",
+      "title": "Held voice under moving notes (same staff)",
+      "families": [
+        "independent_voices"
+      ],
+      "instrument": "piano",
+      "meter": "4/4",
+      "tempo": 120.0,
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "midi_sha256": "5f03280a7237a808bd4a90641ba780e38233902df9926b9cfc993d76d63837f8",
+      "performance_sha256": "5f03280a7237a808bd4a90641ba780e38233902df9926b9cfc993d76d63837f8",
+      "source_midi_unchanged": true,
+      "default_algorithm_version": "performance-score-1",
+      "opt_in_algorithm_version": "performance-score-2",
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "surface": {
+        "v1": {
+          "printed_notes": 5,
+          "rest_count": 4,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        },
+        "v2": {
+          "printed_notes": 5,
+          "rest_count": 0,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "measure_validity": {
+        "v1": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        },
+        "v2": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "staff_voice": {
+        "staff_equal": true,
+        "grouping_equal": true,
+        "musical_grouping_equal": true,
+        "printed_grouping_equal": true,
+        "printed_lane_adjustment": false,
+        "assignments_unchanged": true,
+        "kind": "unchanged",
+        "staff_changes": [],
+        "voice_membership_changes": [],
+        "printed_membership_changes": [],
+        "v1_staves": [
+          0,
+          1
+        ],
+        "v2_staves": [
+          0,
+          1
+        ],
+        "v1_voice_labels": [
+          0
+        ],
+        "v2_voice_labels": [
+          0
+        ],
+        "equal": true
+      },
+      "score_context": {
+        "clefs": [
+          {
+            "number": "1",
+            "sign": "G",
+            "line": "2"
+          },
+          {
+            "number": "2",
+            "sign": "F",
+            "line": "4"
+          }
+        ],
+        "keys": [
+          {
+            "fifths": "0",
+            "mode": "major"
+          }
+        ],
+        "meters": [
+          "4/4"
+        ],
+        "staff_count": 2
+      },
+      "phrase_extract": {
+        "measure_numbers": [
+          1
+        ],
+        "source_note_id_count": 5
+      },
+      "dimensions": {
+        "acoustic_accuracy": {
+          "dimension": "acoustic_accuracy",
+          "status": "not_applicable",
+          "reason": "No suitable audio/reference labels for acoustic accuracy",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "musical_interpretation_accuracy": {
+          "dimension": "musical_interpretation_accuracy",
+          "status": "unreviewed",
+          "reason": "Musician interpretation rating required; export success is not a substitute",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "export_integrity": {
+          "dimension": "export_integrity",
+          "status": "passed",
+          "passed": true,
+          "checks": {
+            "source_bytes_unchanged": true,
+            "v1_musicxml_nonempty": true,
+            "v2_musicxml_nonempty": true,
+            "v1_score_midi_present": true,
+            "v2_score_midi_present": true,
+            "v1_musical_valid": true,
+            "v2_musical_valid": true,
+            "source_note_ids_nonempty": true,
+            "source_note_ids_stable_across_versions": true,
+            "v1_default_algorithm": true,
+            "v2_opt_in_algorithm": true
+          },
+          "measure_validity": {
+            "v1": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            },
+            "v2": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            }
+          },
+          "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
+          "mechanical": true,
+          "score": null,
+          "reviewer": "automated_export_integrity",
+          "reviewed_at": "2026-09-28T13:15:28.586789+00:00",
+          "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+        },
+        "human_correction_effort": {
+          "dimension": "human_correction_effort",
+          "status": "unreviewed",
+          "reason": "Musician correction-effort estimate required",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        }
+      },
+      "artifacts": {
+        "input_midi": "development/dev-independent-voices/input.mid",
+        "v1_musicxml": "development/dev-independent-voices/v1.musicxml",
+        "v2_musicxml": "development/dev-independent-voices/v2.musicxml",
+        "v1_score_midi": "development/dev-independent-voices/v1.score.mid",
+        "v2_score_midi": "development/dev-independent-voices/v2.score.mid",
+        "note_index": "development/dev-independent-voices/note_index.json",
+        "review_form": "development/dev-independent-voices/REVIEW_FORM.md",
+        "review_json": "development/dev-independent-voices/review.json",
+        "phrases": "development/dev-independent-voices/phrases"
+      },
+      "renders": [],
+      "contracts": {
+        "performance_score_1_default": true,
+        "performance_score_2_opt_in": true,
+        "original_midi_preserved": true,
+        "notes_identified_by_source_note_id": true,
+        "staff_musical_printed_compared_separately": true,
+        "export_success_is_not_musical_quality": true
+      }
+    },
+    {
+      "example_id": "dev-detached-triplets",
+      "composition_id": "p1-comp-detached-triplets",
+      "performance_id": "p1-perf-detached-triplets-synth",
+      "split": "development",
+      "source_kind": "readable_v2",
+      "source_id": "I_detached_triplet_groups",
+      "title": "Detached triplet groups (last-note-tune development)",
+      "families": [
+        "triplets",
+        "detached_articulation"
+      ],
+      "instrument": "piano",
+      "meter": "4/4",
+      "tempo": 120.0,
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "midi_sha256": "0da7a1f61f0f8453e472ee7a576c30176b3da738b46bed28897084dc53e36894",
+      "performance_sha256": "0da7a1f61f0f8453e472ee7a576c30176b3da738b46bed28897084dc53e36894",
+      "source_midi_unchanged": true,
+      "default_algorithm_version": "performance-score-1",
+      "opt_in_algorithm_version": "performance-score-2",
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "surface": {
+        "v1": {
+          "printed_notes": 6,
+          "rest_count": 9,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        },
+        "v2": {
+          "printed_notes": 6,
+          "rest_count": 3,
+          "tied_fragments": 0,
+          "tuplet_notes": 6,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "measure_validity": {
+        "v1": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        },
+        "v2": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "staff_voice": {
+        "staff_equal": true,
+        "grouping_equal": true,
+        "musical_grouping_equal": true,
+        "printed_grouping_equal": true,
+        "printed_lane_adjustment": false,
+        "assignments_unchanged": true,
+        "kind": "unchanged",
+        "staff_changes": [],
+        "voice_membership_changes": [],
+        "printed_membership_changes": [],
+        "v1_staves": [
+          0
+        ],
+        "v2_staves": [
+          0
+        ],
+        "v1_voice_labels": [
+          0
+        ],
+        "v2_voice_labels": [
+          0
+        ],
+        "equal": true
+      },
+      "score_context": {
+        "clefs": [
+          {
+            "number": "1",
+            "sign": "G",
+            "line": "2"
+          },
+          {
+            "number": "2",
+            "sign": "F",
+            "line": "4"
+          }
+        ],
+        "keys": [
+          {
+            "fifths": "0",
+            "mode": "major"
+          }
+        ],
+        "meters": [
+          "4/4"
+        ],
+        "staff_count": 2
+      },
+      "phrase_extract": {
+        "measure_numbers": [
+          1
+        ],
+        "source_note_id_count": 6
+      },
+      "dimensions": {
+        "acoustic_accuracy": {
+          "dimension": "acoustic_accuracy",
+          "status": "not_applicable",
+          "reason": "No suitable audio/reference labels for acoustic accuracy",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "musical_interpretation_accuracy": {
+          "dimension": "musical_interpretation_accuracy",
+          "status": "unreviewed",
+          "reason": "Musician interpretation rating required; export success is not a substitute",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "export_integrity": {
+          "dimension": "export_integrity",
+          "status": "passed",
+          "passed": true,
+          "checks": {
+            "source_bytes_unchanged": true,
+            "v1_musicxml_nonempty": true,
+            "v2_musicxml_nonempty": true,
+            "v1_score_midi_present": true,
+            "v2_score_midi_present": true,
+            "v1_musical_valid": true,
+            "v2_musical_valid": true,
+            "source_note_ids_nonempty": true,
+            "source_note_ids_stable_across_versions": true,
+            "v1_default_algorithm": true,
+            "v2_opt_in_algorithm": true
+          },
+          "measure_validity": {
+            "v1": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            },
+            "v2": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            }
+          },
+          "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
+          "mechanical": true,
+          "score": null,
+          "reviewer": "automated_export_integrity",
+          "reviewed_at": "2026-09-28T13:15:28.707802+00:00",
+          "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+        },
+        "human_correction_effort": {
+          "dimension": "human_correction_effort",
+          "status": "unreviewed",
+          "reason": "Musician correction-effort estimate required",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        }
+      },
+      "artifacts": {
+        "input_midi": "development/dev-detached-triplets/input.mid",
+        "v1_musicxml": "development/dev-detached-triplets/v1.musicxml",
+        "v2_musicxml": "development/dev-detached-triplets/v2.musicxml",
+        "v1_score_midi": "development/dev-detached-triplets/v1.score.mid",
+        "v2_score_midi": "development/dev-detached-triplets/v2.score.mid",
+        "note_index": "development/dev-detached-triplets/note_index.json",
+        "review_form": "development/dev-detached-triplets/REVIEW_FORM.md",
+        "review_json": "development/dev-detached-triplets/review.json",
+        "phrases": "development/dev-detached-triplets/phrases"
+      },
+      "renders": [],
+      "contracts": {
+        "performance_score_1_default": true,
+        "performance_score_2_opt_in": true,
+        "original_midi_preserved": true,
+        "notes_identified_by_source_note_id": true,
+        "staff_musical_printed_compared_separately": true,
+        "export_success_is_not_musical_quality": true
+      }
+    },
+    {
+      "example_id": "dev-syncopation",
+      "composition_id": "p1-comp-syncopation",
+      "performance_id": "p1-perf-syncopation-synth",
+      "split": "development",
+      "source_kind": "notation_fixture",
+      "source_id": "syncopation",
+      "title": "Off-beat syncopation with barline sustain",
+      "families": [
+        "syncopation"
+      ],
+      "instrument": "piano",
+      "meter": "4/4",
+      "tempo": 120.0,
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "midi_sha256": "f8238162c47ed24b5ce0326175d2b6d94ca74ddc17f8ad2339a6a712091d6a3a",
+      "performance_sha256": "f8238162c47ed24b5ce0326175d2b6d94ca74ddc17f8ad2339a6a712091d6a3a",
+      "source_midi_unchanged": true,
+      "default_algorithm_version": "performance-score-1",
+      "opt_in_algorithm_version": "performance-score-2",
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "surface": {
+        "v1": {
+          "printed_notes": 7,
+          "rest_count": 5,
+          "tied_fragments": 4,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 3,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        },
+        "v2": {
+          "printed_notes": 7,
+          "rest_count": 5,
+          "tied_fragments": 4,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 3,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "measure_validity": {
+        "v1": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        },
+        "v2": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "staff_voice": {
+        "staff_equal": true,
+        "grouping_equal": true,
+        "musical_grouping_equal": true,
+        "printed_grouping_equal": true,
+        "printed_lane_adjustment": false,
+        "assignments_unchanged": true,
+        "kind": "unchanged",
+        "staff_changes": [],
+        "voice_membership_changes": [],
+        "printed_membership_changes": [],
+        "v1_staves": [
+          0
+        ],
+        "v2_staves": [
+          0
+        ],
+        "v1_voice_labels": [
+          0
+        ],
+        "v2_voice_labels": [
+          0
+        ],
+        "equal": true
+      },
+      "score_context": {
+        "clefs": [
+          {
+            "number": "1",
+            "sign": "G",
+            "line": "2"
+          },
+          {
+            "number": "2",
+            "sign": "F",
+            "line": "4"
+          }
+        ],
+        "keys": [
+          {
+            "fifths": "0",
+            "mode": "major"
+          }
+        ],
+        "meters": [
+          "4/4"
+        ],
+        "staff_count": 2
+      },
+      "phrase_extract": {
+        "measure_numbers": [
+          1,
+          2,
+          3
+        ],
+        "source_note_id_count": 5
+      },
+      "dimensions": {
+        "acoustic_accuracy": {
+          "dimension": "acoustic_accuracy",
+          "status": "not_applicable",
+          "reason": "No suitable audio/reference labels for acoustic accuracy",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "musical_interpretation_accuracy": {
+          "dimension": "musical_interpretation_accuracy",
+          "status": "unreviewed",
+          "reason": "Musician interpretation rating required; export success is not a substitute",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "export_integrity": {
+          "dimension": "export_integrity",
+          "status": "passed",
+          "passed": true,
+          "checks": {
+            "source_bytes_unchanged": true,
+            "v1_musicxml_nonempty": true,
+            "v2_musicxml_nonempty": true,
+            "v1_score_midi_present": true,
+            "v2_score_midi_present": true,
+            "v1_musical_valid": true,
+            "v2_musical_valid": true,
+            "source_note_ids_nonempty": true,
+            "source_note_ids_stable_across_versions": true,
+            "v1_default_algorithm": true,
+            "v2_opt_in_algorithm": true
+          },
+          "measure_validity": {
+            "v1": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            },
+            "v2": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            }
+          },
+          "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
+          "mechanical": true,
+          "score": null,
+          "reviewer": "automated_export_integrity",
+          "reviewed_at": "2026-09-28T13:15:28.810158+00:00",
+          "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+        },
+        "human_correction_effort": {
+          "dimension": "human_correction_effort",
+          "status": "unreviewed",
+          "reason": "Musician correction-effort estimate required",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        }
+      },
+      "artifacts": {
+        "input_midi": "development/dev-syncopation/input.mid",
+        "v1_musicxml": "development/dev-syncopation/v1.musicxml",
+        "v2_musicxml": "development/dev-syncopation/v2.musicxml",
+        "v1_score_midi": "development/dev-syncopation/v1.score.mid",
+        "v2_score_midi": "development/dev-syncopation/v2.score.mid",
+        "note_index": "development/dev-syncopation/note_index.json",
+        "review_form": "development/dev-syncopation/REVIEW_FORM.md",
+        "review_json": "development/dev-syncopation/review.json",
+        "phrases": "development/dev-syncopation/phrases"
+      },
+      "renders": [],
+      "contracts": {
+        "performance_score_1_default": true,
+        "performance_score_2_opt_in": true,
+        "original_midi_preserved": true,
+        "notes_identified_by_source_note_id": true,
+        "staff_musical_printed_compared_separately": true,
+        "export_success_is_not_musical_quality": true
+      }
+    },
+    {
+      "example_id": "dev-pickup",
+      "composition_id": "p1-comp-rubato-pickup",
+      "performance_id": "p1-perf-rubato-pickup-synth",
+      "split": "development",
+      "source_kind": "notation_fixture",
+      "source_id": "rubato_pickup",
+      "title": "Pickup eighth with rubato tempo map",
+      "families": [
+        "pickup"
+      ],
+      "instrument": "piano",
+      "meter": "4/4",
+      "tempo": 120.0,
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "midi_sha256": "6a6e795e7eb8c00dc7a6bada808ac1dfe538a91bdbcb4ffa3c8a3b158c4e9cd5",
+      "performance_sha256": "6a6e795e7eb8c00dc7a6bada808ac1dfe538a91bdbcb4ffa3c8a3b158c4e9cd5",
+      "source_midi_unchanged": true,
+      "default_algorithm_version": "performance-score-1",
+      "opt_in_algorithm_version": "performance-score-2",
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "surface": {
+        "v1": {
+          "printed_notes": 8,
+          "rest_count": 10,
+          "tied_fragments": 2,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        },
+        "v2": {
+          "printed_notes": 8,
+          "rest_count": 10,
+          "tied_fragments": 2,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "measure_validity": {
+        "v1": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        },
+        "v2": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "staff_voice": {
+        "staff_equal": true,
+        "grouping_equal": true,
+        "musical_grouping_equal": true,
+        "printed_grouping_equal": true,
+        "printed_lane_adjustment": false,
+        "assignments_unchanged": true,
+        "kind": "unchanged",
+        "staff_changes": [],
+        "voice_membership_changes": [],
+        "printed_membership_changes": [],
+        "v1_staves": [
+          0
+        ],
+        "v2_staves": [
+          0
+        ],
+        "v1_voice_labels": [
+          0
+        ],
+        "v2_voice_labels": [
+          0
+        ],
+        "equal": true
+      },
+      "score_context": {
+        "clefs": [
+          {
+            "number": "1",
+            "sign": "G",
+            "line": "2"
+          },
+          {
+            "number": "2",
+            "sign": "F",
+            "line": "4"
+          }
+        ],
+        "keys": [
+          {
+            "fifths": "0",
+            "mode": "major"
+          }
+        ],
+        "meters": [
+          "4/4"
+        ],
+        "staff_count": 2
+      },
+      "phrase_extract": {
+        "measure_numbers": [
+          1,
+          2
+        ],
+        "source_note_id_count": 7
+      },
+      "dimensions": {
+        "acoustic_accuracy": {
+          "dimension": "acoustic_accuracy",
+          "status": "not_applicable",
+          "reason": "No suitable audio/reference labels for acoustic accuracy",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "musical_interpretation_accuracy": {
+          "dimension": "musical_interpretation_accuracy",
+          "status": "unreviewed",
+          "reason": "Musician interpretation rating required; export success is not a substitute",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "export_integrity": {
+          "dimension": "export_integrity",
+          "status": "passed",
+          "passed": true,
+          "checks": {
+            "source_bytes_unchanged": true,
+            "v1_musicxml_nonempty": true,
+            "v2_musicxml_nonempty": true,
+            "v1_score_midi_present": true,
+            "v2_score_midi_present": true,
+            "v1_musical_valid": true,
+            "v2_musical_valid": true,
+            "source_note_ids_nonempty": true,
+            "source_note_ids_stable_across_versions": true,
+            "v1_default_algorithm": true,
+            "v2_opt_in_algorithm": true
+          },
+          "measure_validity": {
+            "v1": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            },
+            "v2": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            }
+          },
+          "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
+          "mechanical": true,
+          "score": null,
+          "reviewer": "automated_export_integrity",
+          "reviewed_at": "2026-09-28T13:15:28.933879+00:00",
+          "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+        },
+        "human_correction_effort": {
+          "dimension": "human_correction_effort",
+          "status": "unreviewed",
+          "reason": "Musician correction-effort estimate required",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        }
+      },
+      "artifacts": {
+        "input_midi": "development/dev-pickup/input.mid",
+        "v1_musicxml": "development/dev-pickup/v1.musicxml",
+        "v2_musicxml": "development/dev-pickup/v2.musicxml",
+        "v1_score_midi": "development/dev-pickup/v1.score.mid",
+        "v2_score_midi": "development/dev-pickup/v2.score.mid",
+        "note_index": "development/dev-pickup/note_index.json",
+        "review_form": "development/dev-pickup/REVIEW_FORM.md",
+        "review_json": "development/dev-pickup/review.json",
+        "phrases": "development/dev-pickup/phrases"
+      },
+      "renders": [],
+      "contracts": {
+        "performance_score_1_default": true,
+        "performance_score_2_opt_in": true,
+        "original_midi_preserved": true,
+        "notes_identified_by_source_note_id": true,
+        "staff_musical_printed_compared_separately": true,
+        "export_success_is_not_musical_quality": true
+      }
+    },
+    {
+      "example_id": "dev-meter-3-4",
+      "composition_id": "p1-comp-meter-3-4",
+      "performance_id": "p1-perf-meter-3-4-synth",
+      "split": "development",
+      "source_kind": "notation_fixture",
+      "source_id": "meter_3_4",
+      "title": "Simple 3/4 line",
+      "families": [
+        "meter_3_4",
+        "solo_line"
+      ],
+      "instrument": "piano",
+      "meter": "3/4",
+      "tempo": 120.0,
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "midi_sha256": "8dd452bdd808a23f54fe9829beeb44d206b31d7b5850ebef2a0b8202336c50f0",
+      "performance_sha256": "8dd452bdd808a23f54fe9829beeb44d206b31d7b5850ebef2a0b8202336c50f0",
+      "source_midi_unchanged": true,
+      "default_algorithm_version": "performance-score-1",
+      "opt_in_algorithm_version": "performance-score-2",
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "surface": {
+        "v1": {
+          "printed_notes": 6,
+          "rest_count": 2,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "3/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        },
+        "v2": {
+          "printed_notes": 6,
+          "rest_count": 2,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "3/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "measure_validity": {
+        "v1": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        },
+        "v2": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "staff_voice": {
+        "staff_equal": true,
+        "grouping_equal": true,
+        "musical_grouping_equal": true,
+        "printed_grouping_equal": true,
+        "printed_lane_adjustment": false,
+        "assignments_unchanged": true,
+        "kind": "unchanged",
+        "staff_changes": [],
+        "voice_membership_changes": [],
+        "printed_membership_changes": [],
+        "v1_staves": [
+          0
+        ],
+        "v2_staves": [
+          0
+        ],
+        "v1_voice_labels": [
+          0
+        ],
+        "v2_voice_labels": [
+          0
+        ],
+        "equal": true
+      },
+      "score_context": {
+        "clefs": [
+          {
+            "number": "1",
+            "sign": "G",
+            "line": "2"
+          },
+          {
+            "number": "2",
+            "sign": "F",
+            "line": "4"
+          }
+        ],
+        "keys": [
+          {
+            "fifths": "0",
+            "mode": "major"
+          }
+        ],
+        "meters": [
+          "3/4"
+        ],
+        "staff_count": 2
+      },
+      "phrase_extract": {
+        "measure_numbers": [
+          1,
+          2
+        ],
+        "source_note_id_count": 6
+      },
+      "dimensions": {
+        "acoustic_accuracy": {
+          "dimension": "acoustic_accuracy",
+          "status": "not_applicable",
+          "reason": "No suitable audio/reference labels for acoustic accuracy",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "musical_interpretation_accuracy": {
+          "dimension": "musical_interpretation_accuracy",
+          "status": "unreviewed",
+          "reason": "Musician interpretation rating required; export success is not a substitute",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "export_integrity": {
+          "dimension": "export_integrity",
+          "status": "passed",
+          "passed": true,
+          "checks": {
+            "source_bytes_unchanged": true,
+            "v1_musicxml_nonempty": true,
+            "v2_musicxml_nonempty": true,
+            "v1_score_midi_present": true,
+            "v2_score_midi_present": true,
+            "v1_musical_valid": true,
+            "v2_musical_valid": true,
+            "source_note_ids_nonempty": true,
+            "source_note_ids_stable_across_versions": true,
+            "v1_default_algorithm": true,
+            "v2_opt_in_algorithm": true
+          },
+          "measure_validity": {
+            "v1": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            },
+            "v2": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            }
+          },
+          "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
+          "mechanical": true,
+          "score": null,
+          "reviewer": "automated_export_integrity",
+          "reviewed_at": "2026-09-28T13:15:29.030825+00:00",
+          "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+        },
+        "human_correction_effort": {
+          "dimension": "human_correction_effort",
+          "status": "unreviewed",
+          "reason": "Musician correction-effort estimate required",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        }
+      },
+      "artifacts": {
+        "input_midi": "development/dev-meter-3-4/input.mid",
+        "v1_musicxml": "development/dev-meter-3-4/v1.musicxml",
+        "v2_musicxml": "development/dev-meter-3-4/v2.musicxml",
+        "v1_score_midi": "development/dev-meter-3-4/v1.score.mid",
+        "v2_score_midi": "development/dev-meter-3-4/v2.score.mid",
+        "note_index": "development/dev-meter-3-4/note_index.json",
+        "review_form": "development/dev-meter-3-4/REVIEW_FORM.md",
+        "review_json": "development/dev-meter-3-4/review.json",
+        "phrases": "development/dev-meter-3-4/phrases"
+      },
+      "renders": [],
+      "contracts": {
+        "performance_score_1_default": true,
+        "performance_score_2_opt_in": true,
+        "original_midi_preserved": true,
+        "notes_identified_by_source_note_id": true,
+        "staff_musical_printed_compared_separately": true,
+        "export_success_is_not_musical_quality": true
+      }
+    },
+    {
+      "example_id": "hold-repeats-no-pedal",
+      "composition_id": "p1-comp-repeats-no-pedal",
+      "performance_id": "p1-perf-repeats-no-pedal-synth",
+      "split": "held_out",
+      "source_kind": "readable_v2",
+      "source_id": "E_repeated_attacks_no_pedal",
+      "title": "Repeated attacks without pedal",
+      "families": [
+        "pedal_repeated_notes"
+      ],
+      "instrument": "piano",
+      "meter": "4/4",
+      "tempo": 120.0,
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "midi_sha256": "f0fb516b4a1ab8016d5d5b57289e5d760ad5c4b4f8cb7f307c1b54b26f49868d",
+      "performance_sha256": "f0fb516b4a1ab8016d5d5b57289e5d760ad5c4b4f8cb7f307c1b54b26f49868d",
+      "source_midi_unchanged": true,
+      "default_algorithm_version": "performance-score-1",
+      "opt_in_algorithm_version": "performance-score-2",
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "surface": {
+        "v1": {
+          "printed_notes": 4,
+          "rest_count": 1,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        },
+        "v2": {
+          "printed_notes": 4,
+          "rest_count": 1,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "measure_validity": {
+        "v1": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        },
+        "v2": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "staff_voice": {
+        "staff_equal": true,
+        "grouping_equal": true,
+        "musical_grouping_equal": true,
+        "printed_grouping_equal": true,
+        "printed_lane_adjustment": false,
+        "assignments_unchanged": true,
+        "kind": "unchanged",
+        "staff_changes": [],
+        "voice_membership_changes": [],
+        "printed_membership_changes": [],
+        "v1_staves": [
+          0
+        ],
+        "v2_staves": [
+          0
+        ],
+        "v1_voice_labels": [
+          0
+        ],
+        "v2_voice_labels": [
+          0
+        ],
+        "equal": true
+      },
+      "score_context": {
+        "clefs": [
+          {
+            "number": "1",
+            "sign": "G",
+            "line": "2"
+          },
+          {
+            "number": "2",
+            "sign": "F",
+            "line": "4"
+          }
+        ],
+        "keys": [
+          {
+            "fifths": "0",
+            "mode": "major"
+          }
+        ],
+        "meters": [
+          "4/4"
+        ],
+        "staff_count": 2
+      },
+      "phrase_extract": {
+        "measure_numbers": [
+          1
+        ],
+        "source_note_id_count": 4
+      },
+      "dimensions": {
+        "acoustic_accuracy": {
+          "dimension": "acoustic_accuracy",
+          "status": "not_applicable",
+          "reason": "No suitable audio/reference labels for acoustic accuracy",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "musical_interpretation_accuracy": {
+          "dimension": "musical_interpretation_accuracy",
+          "status": "unreviewed",
+          "reason": "Musician interpretation rating required; export success is not a substitute",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "export_integrity": {
+          "dimension": "export_integrity",
+          "status": "passed",
+          "passed": true,
+          "checks": {
+            "source_bytes_unchanged": true,
+            "v1_musicxml_nonempty": true,
+            "v2_musicxml_nonempty": true,
+            "v1_score_midi_present": true,
+            "v2_score_midi_present": true,
+            "v1_musical_valid": true,
+            "v2_musical_valid": true,
+            "source_note_ids_nonempty": true,
+            "source_note_ids_stable_across_versions": true,
+            "v1_default_algorithm": true,
+            "v2_opt_in_algorithm": true
+          },
+          "measure_validity": {
+            "v1": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            },
+            "v2": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            }
+          },
+          "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
+          "mechanical": true,
+          "score": null,
+          "reviewer": "automated_export_integrity",
+          "reviewed_at": "2026-09-28T13:15:29.102031+00:00",
+          "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+        },
+        "human_correction_effort": {
+          "dimension": "human_correction_effort",
+          "status": "unreviewed",
+          "reason": "Musician correction-effort estimate required",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        }
+      },
+      "artifacts": {
+        "input_midi": "held_out/hold-repeats-no-pedal/input.mid",
+        "v1_musicxml": "held_out/hold-repeats-no-pedal/v1.musicxml",
+        "v2_musicxml": "held_out/hold-repeats-no-pedal/v2.musicxml",
+        "v1_score_midi": "held_out/hold-repeats-no-pedal/v1.score.mid",
+        "v2_score_midi": "held_out/hold-repeats-no-pedal/v2.score.mid",
+        "note_index": "held_out/hold-repeats-no-pedal/note_index.json",
+        "review_form": "held_out/hold-repeats-no-pedal/REVIEW_FORM.md",
+        "review_json": "held_out/hold-repeats-no-pedal/review.json",
+        "phrases": "held_out/hold-repeats-no-pedal/phrases"
+      },
+      "renders": [],
+      "contracts": {
+        "performance_score_1_default": true,
+        "performance_score_2_opt_in": true,
+        "original_midi_preserved": true,
+        "notes_identified_by_source_note_id": true,
+        "staff_musical_printed_compared_separately": true,
+        "export_success_is_not_musical_quality": true
+      }
+    },
+    {
+      "example_id": "hold-independent-mixed",
+      "composition_id": "p1-comp-independent-mixed-release",
+      "performance_id": "p1-perf-independent-mixed-release-synth",
+      "split": "held_out",
+      "source_kind": "readable_v2_heldout",
+      "source_id": "independent_voices_mixed_release",
+      "title": "Independent voices with mixed releases",
+      "families": [
+        "independent_voices",
+        "intentional_rests"
+      ],
+      "instrument": "piano",
+      "meter": "4/4",
+      "tempo": 120.0,
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "midi_sha256": "4bffd38e7355626f9f464380dc2da5f233cbef2d7ee75615ecfeb4772aff1959",
+      "performance_sha256": "4bffd38e7355626f9f464380dc2da5f233cbef2d7ee75615ecfeb4772aff1959",
+      "source_midi_unchanged": true,
+      "default_algorithm_version": "performance-score-1",
+      "opt_in_algorithm_version": "performance-score-2",
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "surface": {
+        "v1": {
+          "printed_notes": 6,
+          "rest_count": 6,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        },
+        "v2": {
+          "printed_notes": 6,
+          "rest_count": 6,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "measure_validity": {
+        "v1": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        },
+        "v2": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "staff_voice": {
+        "staff_equal": true,
+        "grouping_equal": true,
+        "musical_grouping_equal": true,
+        "printed_grouping_equal": true,
+        "printed_lane_adjustment": false,
+        "assignments_unchanged": true,
+        "kind": "unchanged",
+        "staff_changes": [],
+        "voice_membership_changes": [],
+        "printed_membership_changes": [],
+        "v1_staves": [
+          0,
+          1
+        ],
+        "v2_staves": [
+          0,
+          1
+        ],
+        "v1_voice_labels": [
+          0,
+          1
+        ],
+        "v2_voice_labels": [
+          0,
+          1
+        ],
+        "equal": true
+      },
+      "score_context": {
+        "clefs": [
+          {
+            "number": "1",
+            "sign": "G",
+            "line": "2"
+          },
+          {
+            "number": "2",
+            "sign": "F",
+            "line": "4"
+          }
+        ],
+        "keys": [
+          {
+            "fifths": "0",
+            "mode": "major"
+          }
+        ],
+        "meters": [
+          "4/4"
+        ],
+        "staff_count": 2
+      },
+      "phrase_extract": {
+        "measure_numbers": [
+          1
+        ],
+        "source_note_id_count": 6
+      },
+      "dimensions": {
+        "acoustic_accuracy": {
+          "dimension": "acoustic_accuracy",
+          "status": "not_applicable",
+          "reason": "No suitable audio/reference labels for acoustic accuracy",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "musical_interpretation_accuracy": {
+          "dimension": "musical_interpretation_accuracy",
+          "status": "unreviewed",
+          "reason": "Musician interpretation rating required; export success is not a substitute",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "export_integrity": {
+          "dimension": "export_integrity",
+          "status": "passed",
+          "passed": true,
+          "checks": {
+            "source_bytes_unchanged": true,
+            "v1_musicxml_nonempty": true,
+            "v2_musicxml_nonempty": true,
+            "v1_score_midi_present": true,
+            "v2_score_midi_present": true,
+            "v1_musical_valid": true,
+            "v2_musical_valid": true,
+            "source_note_ids_nonempty": true,
+            "source_note_ids_stable_across_versions": true,
+            "v1_default_algorithm": true,
+            "v2_opt_in_algorithm": true
+          },
+          "measure_validity": {
+            "v1": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            },
+            "v2": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            }
+          },
+          "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
+          "mechanical": true,
+          "score": null,
+          "reviewer": "automated_export_integrity",
+          "reviewed_at": "2026-09-28T13:15:29.195059+00:00",
+          "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+        },
+        "human_correction_effort": {
+          "dimension": "human_correction_effort",
+          "status": "unreviewed",
+          "reason": "Musician correction-effort estimate required",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        }
+      },
+      "artifacts": {
+        "input_midi": "held_out/hold-independent-mixed/input.mid",
+        "v1_musicxml": "held_out/hold-independent-mixed/v1.musicxml",
+        "v2_musicxml": "held_out/hold-independent-mixed/v2.musicxml",
+        "v1_score_midi": "held_out/hold-independent-mixed/v1.score.mid",
+        "v2_score_midi": "held_out/hold-independent-mixed/v2.score.mid",
+        "note_index": "held_out/hold-independent-mixed/note_index.json",
+        "review_form": "held_out/hold-independent-mixed/REVIEW_FORM.md",
+        "review_json": "held_out/hold-independent-mixed/review.json",
+        "phrases": "held_out/hold-independent-mixed/phrases"
+      },
+      "renders": [],
+      "contracts": {
+        "performance_score_1_default": true,
+        "performance_score_2_opt_in": true,
+        "original_midi_preserved": true,
+        "notes_identified_by_source_note_id": true,
+        "staff_musical_printed_compared_separately": true,
+        "export_success_is_not_musical_quality": true
+      }
+    },
+    {
+      "example_id": "hold-meter-6-8",
+      "composition_id": "p1-comp-meter-6-8",
+      "performance_id": "p1-perf-meter-6-8-synth",
+      "split": "held_out",
+      "source_kind": "notation_fixture",
+      "source_id": "meter_6_8",
+      "title": "Compound 6/8 pulse",
+      "families": [
+        "meter_6_8"
+      ],
+      "instrument": "piano",
+      "meter": "6/8",
+      "tempo": 90.0,
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "midi_sha256": "233c65001861637080a624a01fa74393f073de7e4b8c55940f547b8cc338d62a",
+      "performance_sha256": "233c65001861637080a624a01fa74393f073de7e4b8c55940f547b8cc338d62a",
+      "source_midi_unchanged": true,
+      "default_algorithm_version": "performance-score-1",
+      "opt_in_algorithm_version": "performance-score-2",
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "surface": {
+        "v1": {
+          "printed_notes": 4,
+          "rest_count": 2,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "6/8"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        },
+        "v2": {
+          "printed_notes": 4,
+          "rest_count": 2,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "6/8"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "measure_validity": {
+        "v1": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        },
+        "v2": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "staff_voice": {
+        "staff_equal": true,
+        "grouping_equal": true,
+        "musical_grouping_equal": true,
+        "printed_grouping_equal": true,
+        "printed_lane_adjustment": false,
+        "assignments_unchanged": true,
+        "kind": "unchanged",
+        "staff_changes": [],
+        "voice_membership_changes": [],
+        "printed_membership_changes": [],
+        "v1_staves": [
+          0
+        ],
+        "v2_staves": [
+          0
+        ],
+        "v1_voice_labels": [
+          0
+        ],
+        "v2_voice_labels": [
+          0
+        ],
+        "equal": true
+      },
+      "score_context": {
+        "clefs": [
+          {
+            "number": "1",
+            "sign": "G",
+            "line": "2"
+          },
+          {
+            "number": "2",
+            "sign": "F",
+            "line": "4"
+          }
+        ],
+        "keys": [
+          {
+            "fifths": "0",
+            "mode": "major"
+          }
+        ],
+        "meters": [
+          "6/8"
+        ],
+        "staff_count": 2
+      },
+      "phrase_extract": {
+        "measure_numbers": [
+          1,
+          2
+        ],
+        "source_note_id_count": 4
+      },
+      "dimensions": {
+        "acoustic_accuracy": {
+          "dimension": "acoustic_accuracy",
+          "status": "not_applicable",
+          "reason": "No suitable audio/reference labels for acoustic accuracy",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "musical_interpretation_accuracy": {
+          "dimension": "musical_interpretation_accuracy",
+          "status": "unreviewed",
+          "reason": "Musician interpretation rating required; export success is not a substitute",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "export_integrity": {
+          "dimension": "export_integrity",
+          "status": "passed",
+          "passed": true,
+          "checks": {
+            "source_bytes_unchanged": true,
+            "v1_musicxml_nonempty": true,
+            "v2_musicxml_nonempty": true,
+            "v1_score_midi_present": true,
+            "v2_score_midi_present": true,
+            "v1_musical_valid": true,
+            "v2_musical_valid": true,
+            "source_note_ids_nonempty": true,
+            "source_note_ids_stable_across_versions": true,
+            "v1_default_algorithm": true,
+            "v2_opt_in_algorithm": true
+          },
+          "measure_validity": {
+            "v1": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            },
+            "v2": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            }
+          },
+          "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
+          "mechanical": true,
+          "score": null,
+          "reviewer": "automated_export_integrity",
+          "reviewed_at": "2026-09-28T13:15:29.266830+00:00",
+          "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+        },
+        "human_correction_effort": {
+          "dimension": "human_correction_effort",
+          "status": "unreviewed",
+          "reason": "Musician correction-effort estimate required",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        }
+      },
+      "artifacts": {
+        "input_midi": "held_out/hold-meter-6-8/input.mid",
+        "v1_musicxml": "held_out/hold-meter-6-8/v1.musicxml",
+        "v2_musicxml": "held_out/hold-meter-6-8/v2.musicxml",
+        "v1_score_midi": "held_out/hold-meter-6-8/v1.score.mid",
+        "v2_score_midi": "held_out/hold-meter-6-8/v2.score.mid",
+        "note_index": "held_out/hold-meter-6-8/note_index.json",
+        "review_form": "held_out/hold-meter-6-8/REVIEW_FORM.md",
+        "review_json": "held_out/hold-meter-6-8/review.json",
+        "phrases": "held_out/hold-meter-6-8/phrases"
+      },
+      "renders": [],
+      "contracts": {
+        "performance_score_1_default": true,
+        "performance_score_2_opt_in": true,
+        "original_midi_preserved": true,
+        "notes_identified_by_source_note_id": true,
+        "staff_musical_printed_compared_separately": true,
+        "export_success_is_not_musical_quality": true
+      }
+    },
+    {
+      "example_id": "hold-final-short",
+      "composition_id": "p1-comp-final-short-silence",
+      "performance_id": "p1-perf-final-short-silence-synth",
+      "split": "held_out",
+      "source_kind": "readable_v2_heldout",
+      "source_id": "final_short_then_silence",
+      "title": "Final short note then silence",
+      "families": [
+        "intentional_rests",
+        "solo_line"
+      ],
+      "instrument": "piano",
+      "meter": "4/4",
+      "tempo": 120.0,
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "midi_sha256": "61b3e9bc28227a6645e414f07101bde19a99b25a1ae238423bc0ef2d968d1df5",
+      "performance_sha256": "61b3e9bc28227a6645e414f07101bde19a99b25a1ae238423bc0ef2d968d1df5",
+      "source_midi_unchanged": true,
+      "default_algorithm_version": "performance-score-1",
+      "opt_in_algorithm_version": "performance-score-2",
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "surface": {
+        "v1": {
+          "printed_notes": 5,
+          "rest_count": 5,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        },
+        "v2": {
+          "printed_notes": 5,
+          "rest_count": 5,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 2,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "measure_validity": {
+        "v1": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        },
+        "v2": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "staff_voice": {
+        "staff_equal": true,
+        "grouping_equal": true,
+        "musical_grouping_equal": true,
+        "printed_grouping_equal": true,
+        "printed_lane_adjustment": false,
+        "assignments_unchanged": true,
+        "kind": "unchanged",
+        "staff_changes": [],
+        "voice_membership_changes": [],
+        "printed_membership_changes": [],
+        "v1_staves": [
+          0
+        ],
+        "v2_staves": [
+          0
+        ],
+        "v1_voice_labels": [
+          0
+        ],
+        "v2_voice_labels": [
+          0
+        ],
+        "equal": true
+      },
+      "score_context": {
+        "clefs": [
+          {
+            "number": "1",
+            "sign": "G",
+            "line": "2"
+          },
+          {
+            "number": "2",
+            "sign": "F",
+            "line": "4"
+          }
+        ],
+        "keys": [
+          {
+            "fifths": "0",
+            "mode": "major"
+          }
+        ],
+        "meters": [
+          "4/4"
+        ],
+        "staff_count": 2
+      },
+      "phrase_extract": {
+        "measure_numbers": [
+          1,
+          2
+        ],
+        "source_note_id_count": 5
+      },
+      "dimensions": {
+        "acoustic_accuracy": {
+          "dimension": "acoustic_accuracy",
+          "status": "not_applicable",
+          "reason": "No suitable audio/reference labels for acoustic accuracy",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "musical_interpretation_accuracy": {
+          "dimension": "musical_interpretation_accuracy",
+          "status": "unreviewed",
+          "reason": "Musician interpretation rating required; export success is not a substitute",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "export_integrity": {
+          "dimension": "export_integrity",
+          "status": "passed",
+          "passed": true,
+          "checks": {
+            "source_bytes_unchanged": true,
+            "v1_musicxml_nonempty": true,
+            "v2_musicxml_nonempty": true,
+            "v1_score_midi_present": true,
+            "v2_score_midi_present": true,
+            "v1_musical_valid": true,
+            "v2_musical_valid": true,
+            "source_note_ids_nonempty": true,
+            "source_note_ids_stable_across_versions": true,
+            "v1_default_algorithm": true,
+            "v2_opt_in_algorithm": true
+          },
+          "measure_validity": {
+            "v1": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            },
+            "v2": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            }
+          },
+          "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
+          "mechanical": true,
+          "score": null,
+          "reviewer": "automated_export_integrity",
+          "reviewed_at": "2026-09-28T13:15:29.353698+00:00",
+          "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+        },
+        "human_correction_effort": {
+          "dimension": "human_correction_effort",
+          "status": "unreviewed",
+          "reason": "Musician correction-effort estimate required",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        }
+      },
+      "artifacts": {
+        "input_midi": "held_out/hold-final-short/input.mid",
+        "v1_musicxml": "held_out/hold-final-short/v1.musicxml",
+        "v2_musicxml": "held_out/hold-final-short/v2.musicxml",
+        "v1_score_midi": "held_out/hold-final-short/v1.score.mid",
+        "v2_score_midi": "held_out/hold-final-short/v2.score.mid",
+        "note_index": "held_out/hold-final-short/note_index.json",
+        "review_form": "held_out/hold-final-short/REVIEW_FORM.md",
+        "review_json": "held_out/hold-final-short/review.json",
+        "phrases": "held_out/hold-final-short/phrases"
+      },
+      "renders": [],
+      "contracts": {
+        "performance_score_1_default": true,
+        "performance_score_2_opt_in": true,
+        "original_midi_preserved": true,
+        "notes_identified_by_source_note_id": true,
+        "staff_musical_printed_compared_separately": true,
+        "export_success_is_not_musical_quality": true
+      }
+    },
+    {
+      "example_id": "hold-catalog-triplets",
+      "composition_id": "p1-comp-catalog-triplets",
+      "performance_id": "p1-perf-catalog-triplets-synth",
+      "split": "held_out",
+      "source_kind": "benchmark_catalog",
+      "source_id": "triplets",
+      "title": "Catalog eighth-note triplets",
+      "families": [
+        "triplets"
+      ],
+      "instrument": "piano",
+      "meter": "4/4",
+      "tempo": 120.0,
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "midi_sha256": "edda21b1206e6c680cce5e737bd4349af9b80b8d6125a9071f06acb4ca1c9448",
+      "performance_sha256": "edda21b1206e6c680cce5e737bd4349af9b80b8d6125a9071f06acb4ca1c9448",
+      "source_midi_unchanged": true,
+      "default_algorithm_version": "performance-score-1",
+      "opt_in_algorithm_version": "performance-score-2",
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "surface": {
+        "v1": {
+          "printed_notes": 8,
+          "rest_count": 1,
+          "tied_fragments": 0,
+          "tuplet_notes": 6,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        },
+        "v2": {
+          "printed_notes": 8,
+          "rest_count": 1,
+          "tied_fragments": 0,
+          "tuplet_notes": 6,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "measure_validity": {
+        "v1": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        },
+        "v2": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "staff_voice": {
+        "staff_equal": true,
+        "grouping_equal": true,
+        "musical_grouping_equal": true,
+        "printed_grouping_equal": true,
+        "printed_lane_adjustment": false,
+        "assignments_unchanged": true,
+        "kind": "unchanged",
+        "staff_changes": [],
+        "voice_membership_changes": [],
+        "printed_membership_changes": [],
+        "v1_staves": [
+          0
+        ],
+        "v2_staves": [
+          0
+        ],
+        "v1_voice_labels": [
+          0
+        ],
+        "v2_voice_labels": [
+          0
+        ],
+        "equal": true
+      },
+      "score_context": {
+        "clefs": [
+          {
+            "number": "1",
+            "sign": "G",
+            "line": "2"
+          },
+          {
+            "number": "2",
+            "sign": "F",
+            "line": "4"
+          }
+        ],
+        "keys": [
+          {
+            "fifths": "0",
+            "mode": "major"
+          }
+        ],
+        "meters": [
+          "4/4"
+        ],
+        "staff_count": 2
+      },
+      "phrase_extract": {
+        "measure_numbers": [
+          1
+        ],
+        "source_note_id_count": 8
+      },
+      "dimensions": {
+        "acoustic_accuracy": {
+          "dimension": "acoustic_accuracy",
+          "status": "not_applicable",
+          "reason": "No suitable audio/reference labels for acoustic accuracy",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "musical_interpretation_accuracy": {
+          "dimension": "musical_interpretation_accuracy",
+          "status": "unreviewed",
+          "reason": "Musician interpretation rating required; export success is not a substitute",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "export_integrity": {
+          "dimension": "export_integrity",
+          "status": "passed",
+          "passed": true,
+          "checks": {
+            "source_bytes_unchanged": true,
+            "v1_musicxml_nonempty": true,
+            "v2_musicxml_nonempty": true,
+            "v1_score_midi_present": true,
+            "v2_score_midi_present": true,
+            "v1_musical_valid": true,
+            "v2_musical_valid": true,
+            "source_note_ids_nonempty": true,
+            "source_note_ids_stable_across_versions": true,
+            "v1_default_algorithm": true,
+            "v2_opt_in_algorithm": true
+          },
+          "measure_validity": {
+            "v1": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            },
+            "v2": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            }
+          },
+          "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
+          "mechanical": true,
+          "score": null,
+          "reviewer": "automated_export_integrity",
+          "reviewed_at": "2026-09-28T13:15:29.455501+00:00",
+          "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+        },
+        "human_correction_effort": {
+          "dimension": "human_correction_effort",
+          "status": "unreviewed",
+          "reason": "Musician correction-effort estimate required",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        }
+      },
+      "artifacts": {
+        "input_midi": "held_out/hold-catalog-triplets/input.mid",
+        "v1_musicxml": "held_out/hold-catalog-triplets/v1.musicxml",
+        "v2_musicxml": "held_out/hold-catalog-triplets/v2.musicxml",
+        "v1_score_midi": "held_out/hold-catalog-triplets/v1.score.mid",
+        "v2_score_midi": "held_out/hold-catalog-triplets/v2.score.mid",
+        "note_index": "held_out/hold-catalog-triplets/note_index.json",
+        "review_form": "held_out/hold-catalog-triplets/REVIEW_FORM.md",
+        "review_json": "held_out/hold-catalog-triplets/review.json",
+        "phrases": "held_out/hold-catalog-triplets/phrases"
+      },
+      "renders": [],
+      "contracts": {
+        "performance_score_1_default": true,
+        "performance_score_2_opt_in": true,
+        "original_midi_preserved": true,
+        "notes_identified_by_source_note_id": true,
+        "staff_musical_printed_compared_separately": true,
+        "export_success_is_not_musical_quality": true
+      }
+    },
+    {
+      "example_id": "hold-catalog-melody-bass",
+      "composition_id": "p1-comp-catalog-melody-bass",
+      "performance_id": "p1-perf-catalog-melody-bass-synth",
+      "split": "held_out",
+      "source_kind": "benchmark_catalog",
+      "source_id": "melody_and_bass",
+      "title": "Catalog RH melody over LH bass",
+      "families": [
+        "piano_accompaniment"
+      ],
+      "instrument": "piano",
+      "meter": "4/4",
+      "tempo": 120.0,
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "midi_sha256": "de76aa46964aa820df7b2825dfb61cfde11c0385e9acb70ffee78764c11e30f4",
+      "performance_sha256": "de76aa46964aa820df7b2825dfb61cfde11c0385e9acb70ffee78764c11e30f4",
+      "source_midi_unchanged": true,
+      "default_algorithm_version": "performance-score-1",
+      "opt_in_algorithm_version": "performance-score-2",
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "surface": {
+        "v1": {
+          "printed_notes": 5,
+          "rest_count": 0,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        },
+        "v2": {
+          "printed_notes": 5,
+          "rest_count": 0,
+          "tied_fragments": 0,
+          "tuplet_notes": 0,
+          "mixed_chord_marks": false,
+          "measure_count": 1,
+          "time_signatures": [
+            "4/4"
+          ],
+          "trailing_empty_measures": 0,
+          "part_count": 1
+        }
+      },
+      "measure_validity": {
+        "v1": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        },
+        "v2": {
+          "musical_valid": true,
+          "ties_ok": true,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "staff_voice": {
+        "staff_equal": true,
+        "grouping_equal": true,
+        "musical_grouping_equal": true,
+        "printed_grouping_equal": true,
+        "printed_lane_adjustment": false,
+        "assignments_unchanged": true,
+        "kind": "unchanged",
+        "staff_changes": [],
+        "voice_membership_changes": [],
+        "printed_membership_changes": [],
+        "v1_staves": [
+          0,
+          1
+        ],
+        "v2_staves": [
+          0,
+          1
+        ],
+        "v1_voice_labels": [
+          0
+        ],
+        "v2_voice_labels": [
+          0
+        ],
+        "equal": true
+      },
+      "score_context": {
+        "clefs": [
+          {
+            "number": "1",
+            "sign": "G",
+            "line": "2"
+          },
+          {
+            "number": "2",
+            "sign": "F",
+            "line": "4"
+          }
+        ],
+        "keys": [
+          {
+            "fifths": "0",
+            "mode": "major"
+          }
+        ],
+        "meters": [
+          "4/4"
+        ],
+        "staff_count": 2
+      },
+      "phrase_extract": {
+        "measure_numbers": [
+          1
+        ],
+        "source_note_id_count": 5
+      },
+      "dimensions": {
+        "acoustic_accuracy": {
+          "dimension": "acoustic_accuracy",
+          "status": "not_applicable",
+          "reason": "No suitable audio/reference labels for acoustic accuracy",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "musical_interpretation_accuracy": {
+          "dimension": "musical_interpretation_accuracy",
+          "status": "unreviewed",
+          "reason": "Musician interpretation rating required; export success is not a substitute",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        },
+        "export_integrity": {
+          "dimension": "export_integrity",
+          "status": "passed",
+          "passed": true,
+          "checks": {
+            "source_bytes_unchanged": true,
+            "v1_musicxml_nonempty": true,
+            "v2_musicxml_nonempty": true,
+            "v1_score_midi_present": true,
+            "v2_score_midi_present": true,
+            "v1_musical_valid": true,
+            "v2_musical_valid": true,
+            "source_note_ids_nonempty": true,
+            "source_note_ids_stable_across_versions": true,
+            "v1_default_algorithm": true,
+            "v2_opt_in_algorithm": true
+          },
+          "measure_validity": {
+            "v1": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            },
+            "v2": {
+              "musical_valid": true,
+              "ties_ok": true,
+              "issue_count": 0,
+              "issues": []
+            }
+          },
+          "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
+          "mechanical": true,
+          "score": null,
+          "reviewer": "automated_export_integrity",
+          "reviewed_at": "2026-09-28T13:15:29.538629+00:00",
+          "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+        },
+        "human_correction_effort": {
+          "dimension": "human_correction_effort",
+          "status": "unreviewed",
+          "reason": "Musician correction-effort estimate required",
+          "score": null,
+          "reviewer": null,
+          "reviewed_at": null,
+          "notes": ""
+        }
+      },
+      "artifacts": {
+        "input_midi": "held_out/hold-catalog-melody-bass/input.mid",
+        "v1_musicxml": "held_out/hold-catalog-melody-bass/v1.musicxml",
+        "v2_musicxml": "held_out/hold-catalog-melody-bass/v2.musicxml",
+        "v1_score_midi": "held_out/hold-catalog-melody-bass/v1.score.mid",
+        "v2_score_midi": "held_out/hold-catalog-melody-bass/v2.score.mid",
+        "note_index": "held_out/hold-catalog-melody-bass/note_index.json",
+        "review_form": "held_out/hold-catalog-melody-bass/REVIEW_FORM.md",
+        "review_json": "held_out/hold-catalog-melody-bass/review.json",
+        "phrases": "held_out/hold-catalog-melody-bass/phrases"
+      },
+      "renders": [],
+      "contracts": {
+        "performance_score_1_default": true,
+        "performance_score_2_opt_in": true,
+        "original_midi_preserved": true,
+        "notes_identified_by_source_note_id": true,
+        "staff_musical_printed_compared_separately": true,
+        "export_success_is_not_musical_quality": true
+      }
+    }
+  ],
+  "commands": [
+    "cd audio2score-week4/backend",
+    "python -m evaluation.musical_baseline --inventory",
+    "python -m evaluation.musical_baseline --package evaluation/musical_baseline/review_package",
+    "python -m evaluation.musical_baseline --package evaluation/musical_baseline/review_package --render",
+    "python -m pytest -q tests/test_musical_baseline.py"
+  ]
+}

@@ -1,0 +1,1715 @@
+{
+  "baseline_sha_hint": "origin/main at generation time",
+  "default_algorithm_version": "performance-score-1",
+  "opt_in_algorithm_version": "performance-score-2",
+  "evidence_rules": {
+    "no_invented_licenses": true,
+    "no_invented_reviews": true,
+    "no_invented_quality_scores": true,
+    "export_success_is_not_musical_quality": true,
+    "printed_lanes_are_not_musical_voices": true
+  },
+  "candidates": [
+    {
+      "example_id": "dev-solo-detached",
+      "composition_id": "p1-comp-detached-line",
+      "performance_id": "p1-perf-detached-line-synth",
+      "split": "development",
+      "source_kind": "readable_v2",
+      "source_id": "A_detached_regular_line",
+      "instrument": "piano",
+      "families": [
+        "solo_line",
+        "detached_articulation"
+      ],
+      "meter": "4/4",
+      "tempo": 120.0,
+      "title": "Detached regular solo line",
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "package_eligible": true,
+      "acoustic_labels_available": false,
+      "reference_score_available": false,
+      "audio_available": false,
+      "notes": "Synthetic. Acoustic accuracy not applicable.",
+      "expected_notation": {
+        "onset": "Eight attacks on successive quarter beats.",
+        "release": "Written as quarters; 80ms gaps are articulation, not rests.",
+        "engraving": "Single-voice quarter line. Staccato marks optional."
+      }
+    },
+    {
+      "example_id": "dev-intentional-rests",
+      "composition_id": "p1-comp-short-rests",
+      "performance_id": "p1-perf-short-rests-synth",
+      "split": "development",
+      "source_kind": "readable_v2",
+      "source_id": "B_short_notes_with_rests",
+      "instrument": "piano",
+      "families": [
+        "intentional_rests",
+        "solo_line"
+      ],
+      "meter": "4/4",
+      "tempo": 120.0,
+      "title": "Short notes with intentional rests",
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "package_eligible": true,
+      "acoustic_labels_available": false,
+      "reference_score_available": false,
+      "audio_available": false,
+      "notes": "",
+      "expected_notation": {
+        "onset": "Four attacks on successive quarter beats.",
+        "release": "Sounding sixteenths with visible rests through each quarter.",
+        "engraving": "Do not fill to the next attack. The rest is the music."
+      }
+    },
+    {
+      "example_id": "dev-melody-bass",
+      "composition_id": "p1-comp-melody-over-bass",
+      "performance_id": "p1-perf-melody-over-bass-synth",
+      "split": "development",
+      "source_kind": "notation_fixture",
+      "source_id": "melody_over_bass",
+      "instrument": "piano",
+      "families": [
+        "piano_accompaniment",
+        "pedal_repeated_notes"
+      ],
+      "meter": "4/4",
+      "tempo": 120.0,
+      "title": "Melody over bass with pedal",
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "package_eligible": true,
+      "acoustic_labels_available": false,
+      "reference_score_available": false,
+      "audio_available": false,
+      "notes": "",
+      "expected_notation": null
+    },
+    {
+      "example_id": "dev-pedal-repeats",
+      "composition_id": "p1-comp-pedal-repeats",
+      "performance_id": "p1-perf-pedal-repeats-synth",
+      "split": "development",
+      "source_kind": "readable_v2",
+      "source_id": "C_repeated_attacks_under_pedal",
+      "instrument": "piano",
+      "families": [
+        "pedal_repeated_notes"
+      ],
+      "meter": "4/4",
+      "tempo": 120.0,
+      "title": "Repeated attacks under sustain pedal",
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "package_eligible": true,
+      "acoustic_labels_available": false,
+      "reference_score_available": false,
+      "audio_available": false,
+      "notes": "",
+      "expected_notation": {
+        "onset": "Four repeated G4 attacks, one per quarter.",
+        "release": "Repeated quarters, not one tied note. Pedal is performance.",
+        "engraving": "Same pitch re-attacks stay separate under CC64."
+      }
+    },
+    {
+      "example_id": "dev-independent-voices",
+      "composition_id": "p1-comp-held-voice-same-staff",
+      "performance_id": "p1-perf-held-voice-same-staff-synth",
+      "split": "development",
+      "source_kind": "readable_v2",
+      "source_id": "G_held_voice_same_staff",
+      "instrument": "piano",
+      "families": [
+        "independent_voices"
+      ],
+      "meter": "4/4",
+      "tempo": 120.0,
+      "title": "Held voice under moving notes (same staff)",
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "package_eligible": true,
+      "acoustic_labels_available": false,
+      "reference_score_available": false,
+      "audio_available": false,
+      "notes": "",
+      "expected_notation": {
+        "onset": "Held G4 plus four upper-quarter attacks on one staff.",
+        "release": "The hold lasts the bar; moving notes keep their releases.",
+        "engraving": "Two independent voices on the same staff."
+      }
+    },
+    {
+      "example_id": "dev-detached-triplets",
+      "composition_id": "p1-comp-detached-triplets",
+      "performance_id": "p1-perf-detached-triplets-synth",
+      "split": "development",
+      "source_kind": "readable_v2",
+      "source_id": "I_detached_triplet_groups",
+      "instrument": "piano",
+      "families": [
+        "triplets",
+        "detached_articulation"
+      ],
+      "meter": "4/4",
+      "tempo": 120.0,
+      "title": "Detached triplet groups (last-note-tune development)",
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "package_eligible": true,
+      "acoustic_labels_available": false,
+      "reference_score_available": false,
+      "audio_available": false,
+      "notes": "TUNING_SET member; must remain development-only.",
+      "expected_notation": {
+        "onset": "Two groups of three attacks at triplet-eighth spacing, gap of a quarter.",
+        "release": "All six written as triplet eighths (1/3), including each group-ending note.",
+        "engraving": "No sixteenth plus tiny triplet rest on the last note before silence."
+      }
+    },
+    {
+      "example_id": "dev-syncopation",
+      "composition_id": "p1-comp-syncopation",
+      "performance_id": "p1-perf-syncopation-synth",
+      "split": "development",
+      "source_kind": "notation_fixture",
+      "source_id": "syncopation",
+      "instrument": "piano",
+      "families": [
+        "syncopation"
+      ],
+      "meter": "4/4",
+      "tempo": 120.0,
+      "title": "Off-beat syncopation with barline sustain",
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "package_eligible": true,
+      "acoustic_labels_available": false,
+      "reference_score_available": false,
+      "audio_available": false,
+      "notes": "",
+      "expected_notation": null
+    },
+    {
+      "example_id": "dev-pickup",
+      "composition_id": "p1-comp-rubato-pickup",
+      "performance_id": "p1-perf-rubato-pickup-synth",
+      "split": "development",
+      "source_kind": "notation_fixture",
+      "source_id": "rubato_pickup",
+      "instrument": "piano",
+      "families": [
+        "pickup"
+      ],
+      "meter": "4/4",
+      "tempo": 120.0,
+      "title": "Pickup eighth with rubato tempo map",
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "package_eligible": true,
+      "acoustic_labels_available": false,
+      "reference_score_available": false,
+      "audio_available": false,
+      "notes": "",
+      "expected_notation": null
+    },
+    {
+      "example_id": "dev-meter-3-4",
+      "composition_id": "p1-comp-meter-3-4",
+      "performance_id": "p1-perf-meter-3-4-synth",
+      "split": "development",
+      "source_kind": "notation_fixture",
+      "source_id": "meter_3_4",
+      "instrument": "piano",
+      "families": [
+        "meter_3_4",
+        "solo_line"
+      ],
+      "meter": "3/4",
+      "tempo": 120.0,
+      "title": "Simple 3/4 line",
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "package_eligible": true,
+      "acoustic_labels_available": false,
+      "reference_score_available": false,
+      "audio_available": false,
+      "notes": "",
+      "expected_notation": null
+    },
+    {
+      "example_id": "hold-repeats-no-pedal",
+      "composition_id": "p1-comp-repeats-no-pedal",
+      "performance_id": "p1-perf-repeats-no-pedal-synth",
+      "split": "held_out",
+      "source_kind": "readable_v2",
+      "source_id": "E_repeated_attacks_no_pedal",
+      "instrument": "piano",
+      "families": [
+        "pedal_repeated_notes"
+      ],
+      "meter": "4/4",
+      "tempo": 120.0,
+      "title": "Repeated attacks without pedal",
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "package_eligible": true,
+      "acoustic_labels_available": false,
+      "reference_score_available": false,
+      "audio_available": false,
+      "notes": "",
+      "expected_notation": {
+        "onset": "Four repeated G4 attacks, one per quarter, no CC64.",
+        "release": "Repeated quarters. Legato MIDI overlap is not a tie.",
+        "engraving": "Re-attacks stay separate without pedal evidence."
+      }
+    },
+    {
+      "example_id": "hold-independent-mixed",
+      "composition_id": "p1-comp-independent-mixed-release",
+      "performance_id": "p1-perf-independent-mixed-release-synth",
+      "split": "held_out",
+      "source_kind": "readable_v2_heldout",
+      "source_id": "independent_voices_mixed_release",
+      "instrument": "piano",
+      "families": [
+        "independent_voices",
+        "intentional_rests"
+      ],
+      "meter": "4/4",
+      "tempo": 120.0,
+      "title": "Independent voices with mixed releases",
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "package_eligible": true,
+      "acoustic_labels_available": false,
+      "reference_score_available": false,
+      "audio_available": false,
+      "notes": "",
+      "expected_notation": {
+        "onset": "Held bass plus a short inner C3 and four short treble attacks.",
+        "release": "Bass lasts the bar. Treble keeps rests. Voices stay independent.",
+        "engraving": "Do not clip the hold or fill moving notes from the other voice."
+      }
+    },
+    {
+      "example_id": "hold-meter-6-8",
+      "composition_id": "p1-comp-meter-6-8",
+      "performance_id": "p1-perf-meter-6-8-synth",
+      "split": "held_out",
+      "source_kind": "notation_fixture",
+      "source_id": "meter_6_8",
+      "instrument": "piano",
+      "families": [
+        "meter_6_8"
+      ],
+      "meter": "6/8",
+      "tempo": 90.0,
+      "title": "Compound 6/8 pulse",
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "package_eligible": true,
+      "acoustic_labels_available": false,
+      "reference_score_available": false,
+      "audio_available": false,
+      "notes": "",
+      "expected_notation": null
+    },
+    {
+      "example_id": "hold-final-short",
+      "composition_id": "p1-comp-final-short-silence",
+      "performance_id": "p1-perf-final-short-silence-synth",
+      "split": "held_out",
+      "source_kind": "readable_v2_heldout",
+      "source_id": "final_short_then_silence",
+      "instrument": "piano",
+      "families": [
+        "intentional_rests",
+        "solo_line"
+      ],
+      "meter": "4/4",
+      "tempo": 120.0,
+      "title": "Final short note then silence",
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "package_eligible": true,
+      "acoustic_labels_available": false,
+      "reference_score_available": false,
+      "audio_available": false,
+      "notes": "",
+      "expected_notation": {
+        "onset": "Four quarter attacks, then one short attack on the next beat.",
+        "release": "Last note stays short. The following silence is a rest, not leftover articulation.",
+        "engraving": "Do not fill the last note to the barline."
+      }
+    },
+    {
+      "example_id": "hold-catalog-triplets",
+      "composition_id": "p1-comp-catalog-triplets",
+      "performance_id": "p1-perf-catalog-triplets-synth",
+      "split": "held_out",
+      "source_kind": "benchmark_catalog",
+      "source_id": "triplets",
+      "instrument": "piano",
+      "families": [
+        "triplets"
+      ],
+      "meter": "4/4",
+      "tempo": 120.0,
+      "title": "Catalog eighth-note triplets",
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "package_eligible": true,
+      "acoustic_labels_available": false,
+      "reference_score_available": false,
+      "audio_available": false,
+      "notes": "Held-out of last-note-tune; not a TUNING_SET member.",
+      "expected_notation": null
+    },
+    {
+      "example_id": "hold-catalog-melody-bass",
+      "composition_id": "p1-comp-catalog-melody-bass",
+      "performance_id": "p1-perf-catalog-melody-bass-synth",
+      "split": "held_out",
+      "source_kind": "benchmark_catalog",
+      "source_id": "melody_and_bass",
+      "instrument": "piano",
+      "families": [
+        "piano_accompaniment"
+      ],
+      "meter": "4/4",
+      "tempo": 120.0,
+      "title": "Catalog RH melody over LH bass",
+      "permitted_use": "synthetic_repo_fixture",
+      "copyrighted": false,
+      "musician_reviewed": false,
+      "package_eligible": true,
+      "acoustic_labels_available": false,
+      "reference_score_available": false,
+      "audio_available": false,
+      "notes": "Disjoint from development melody_over_bass composition.",
+      "expected_notation": null
+    }
+  ],
+  "candidate_counts": {
+    "total": 15,
+    "package_eligible": 15,
+    "development": 9,
+    "held_out": 6,
+    "musician_reviewed": 0
+  },
+  "family_coverage": {
+    "required_families": [
+      "solo_line",
+      "piano_accompaniment",
+      "independent_voices",
+      "pedal_repeated_notes",
+      "intentional_rests",
+      "detached_articulation",
+      "triplets",
+      "syncopation",
+      "pickup",
+      "meter_3_4",
+      "meter_6_8"
+    ],
+    "covered": {
+      "solo_line": [
+        "dev-solo-detached",
+        "dev-intentional-rests",
+        "dev-meter-3-4",
+        "hold-final-short"
+      ],
+      "piano_accompaniment": [
+        "dev-melody-bass",
+        "hold-catalog-melody-bass"
+      ],
+      "independent_voices": [
+        "dev-independent-voices",
+        "hold-independent-mixed"
+      ],
+      "pedal_repeated_notes": [
+        "dev-melody-bass",
+        "dev-pedal-repeats",
+        "hold-repeats-no-pedal"
+      ],
+      "intentional_rests": [
+        "dev-intentional-rests",
+        "hold-independent-mixed",
+        "hold-final-short"
+      ],
+      "detached_articulation": [
+        "dev-solo-detached",
+        "dev-detached-triplets"
+      ],
+      "triplets": [
+        "dev-detached-triplets",
+        "hold-catalog-triplets"
+      ],
+      "syncopation": [
+        "dev-syncopation"
+      ],
+      "pickup": [
+        "dev-pickup"
+      ],
+      "meter_3_4": [
+        "dev-meter-3-4"
+      ],
+      "meter_6_8": [
+        "hold-meter-6-8"
+      ]
+    },
+    "missing_families": [],
+    "complete": true
+  },
+  "split_leakage": [],
+  "splits_disjoint": true,
+  "assets": {
+    "nota_test_samples": [
+      {
+        "id": "160_f_melody_piano",
+        "kind": "local_reference_midi",
+        "source": "evaluation/development/NotaTestSamples",
+        "performance": "development_raw_quantized_pair",
+        "held_out_of_last_note_tune": true,
+        "raw_midi": "evaluation/development/NotaTestSamples/Case1/160_f_melody_piano_raw.mid",
+        "quantized_midi": "evaluation/development/NotaTestSamples/Case1/160_f_melody_piano_q.mid",
+        "audio": "evaluation/development/NotaTestSamples/Case1/160_f_melody_piano_audio.wav",
+        "license": "undocumented_in_repo",
+        "musician_reviewed": false,
+        "note": "Development raw/quantized pair with matching audio. Not documented as a licensed commercial recording and not musician-reviewed score ground truth. Used only as performed-MIDI input to the shared planner.",
+        "composition_id": "not_documented",
+        "instrument": "piano_from_filename_only",
+        "reference_score": "missing",
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "permitted_use": "undocumented_in_repo"
+      },
+      {
+        "id": "138_\u0441_chords_piano",
+        "kind": "local_reference_midi",
+        "source": "evaluation/development/NotaTestSamples",
+        "performance": "development_raw_quantized_pair",
+        "held_out_of_last_note_tune": true,
+        "raw_midi": "evaluation/development/NotaTestSamples/Case2/138_\u0441_chords_piano_raw.mid",
+        "quantized_midi": "evaluation/development/NotaTestSamples/Case2/138_\u0441_chords_piano_q.mid",
+        "audio": "evaluation/development/NotaTestSamples/Case2/138_\u0441_chords_piano_audio.wav",
+        "license": "undocumented_in_repo",
+        "musician_reviewed": false,
+        "note": "Development raw/quantized pair with matching audio. Not documented as a licensed commercial recording and not musician-reviewed score ground truth. Used only as performed-MIDI input to the shared planner.",
+        "composition_id": "not_documented",
+        "instrument": "piano_from_filename_only",
+        "reference_score": "missing",
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "permitted_use": "undocumented_in_repo"
+      },
+      {
+        "id": "88_D_waltz_th_piano",
+        "kind": "local_reference_midi",
+        "source": "evaluation/development/NotaTestSamples",
+        "performance": "development_raw_quantized_pair",
+        "held_out_of_last_note_tune": true,
+        "raw_midi": "evaluation/development/NotaTestSamples/Case3/88_D_waltz_th_piano_raw.mid",
+        "quantized_midi": "evaluation/development/NotaTestSamples/Case3/88_D_waltz_th_piano_q.mid",
+        "audio": "evaluation/development/NotaTestSamples/Case3/88_D_waltz_th_piano_audio.wav",
+        "license": "undocumented_in_repo",
+        "musician_reviewed": false,
+        "note": "Development raw/quantized pair with matching audio. Not documented as a licensed commercial recording and not musician-reviewed score ground truth. Used only as performed-MIDI input to the shared planner.",
+        "composition_id": "not_documented",
+        "instrument": "piano_from_filename_only",
+        "reference_score": "missing",
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "permitted_use": "undocumented_in_repo"
+      }
+    ],
+    "notation_fixtures": [
+      {
+        "id": "humanized_quarters",
+        "location": "evaluation.notation_fixtures",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.notation_fixtures",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "short_rests_repeats",
+        "location": "evaluation.notation_fixtures",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.notation_fixtures",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "melody_over_bass",
+        "location": "evaluation.notation_fixtures",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.notation_fixtures",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "syncopation",
+        "location": "evaluation.notation_fixtures",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.notation_fixtures",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "meter_3_4",
+        "location": "evaluation.notation_fixtures",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.notation_fixtures",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "3/4",
+        "tempo": 120
+      },
+      {
+        "id": "meter_6_8",
+        "location": "evaluation.notation_fixtures",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.notation_fixtures",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "6/8",
+        "tempo": 90
+      },
+      {
+        "id": "mixed_tuplets",
+        "location": "evaluation.notation_fixtures",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.notation_fixtures",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "rubato_pickup",
+        "location": "evaluation.notation_fixtures",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.notation_fixtures",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "unison_crossing",
+        "location": "evaluation.notation_fixtures",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.notation_fixtures",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "mixed_release_chord",
+        "location": "evaluation.notation_fixtures",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.notation_fixtures",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "multibar_held_melody",
+        "location": "evaluation.notation_fixtures",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.notation_fixtures",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      }
+    ],
+    "readable_v2_cases": [
+      {
+        "id": "A_detached_regular_line",
+        "location": "evaluation.readable_v2_cases",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.readable_v2_cases",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "tuning_set": false
+      },
+      {
+        "id": "B_short_notes_with_rests",
+        "location": "evaluation.readable_v2_cases",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.readable_v2_cases",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "tuning_set": false
+      },
+      {
+        "id": "C_repeated_attacks_under_pedal",
+        "location": "evaluation.readable_v2_cases",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.readable_v2_cases",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "tuning_set": false
+      },
+      {
+        "id": "D_independent_sustain",
+        "location": "evaluation.readable_v2_cases",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.readable_v2_cases",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "tuning_set": false
+      },
+      {
+        "id": "E_repeated_attacks_no_pedal",
+        "location": "evaluation.readable_v2_cases",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.readable_v2_cases",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "tuning_set": false
+      },
+      {
+        "id": "F_overlapping_unisons",
+        "location": "evaluation.readable_v2_cases",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.readable_v2_cases",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "tuning_set": false
+      },
+      {
+        "id": "G_held_voice_same_staff",
+        "location": "evaluation.readable_v2_cases",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.readable_v2_cases",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "tuning_set": false
+      },
+      {
+        "id": "H_foreign_track_pedal",
+        "location": "evaluation.readable_v2_cases",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.readable_v2_cases",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "tuning_set": false
+      },
+      {
+        "id": "I_detached_triplet_groups",
+        "location": "evaluation.readable_v2_cases",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.readable_v2_cases",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "tuning_set": true
+      },
+      {
+        "id": "J_intentional_short_triplet_rests",
+        "location": "evaluation.readable_v2_cases",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.readable_v2_cases",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "tuning_set": true
+      },
+      {
+        "id": "K_repeated_triplet_pitches",
+        "location": "evaluation.readable_v2_cases",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.readable_v2_cases",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "tuning_set": true
+      },
+      {
+        "id": "L_held_voice_under_triplets",
+        "location": "evaluation.readable_v2_cases",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "evaluation.readable_v2_cases",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "tuning_set": true
+      }
+    ],
+    "readable_v2_heldout": [
+      {
+        "id": "final_short_then_silence",
+        "location": "evaluation.readable_v2_cases.HELDOUT_CASES",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "synthetic_heldout_of_last_note_tune",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "irregular_triplet_intervals",
+        "location": "evaluation.readable_v2_cases.HELDOUT_CASES",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "synthetic_heldout_of_last_note_tune",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "mixed_families_after_bar",
+        "location": "evaluation.readable_v2_cases.HELDOUT_CASES",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "synthetic_heldout_of_last_note_tune",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "near_barline_short_release",
+        "location": "evaluation.readable_v2_cases.HELDOUT_CASES",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "synthetic_heldout_of_last_note_tune",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "independent_voices_mixed_release",
+        "location": "evaluation.readable_v2_cases.HELDOUT_CASES",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "synthetic_heldout_of_last_note_tune",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "long_monophonic_phrase",
+        "location": "evaluation.readable_v2_cases.HELDOUT_CASES",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "synthetic_heldout_of_last_note_tune",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "grand_staff_pagination",
+        "location": "evaluation.readable_v2_cases.HELDOUT_CASES",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing",
+        "midi": "generated_on_demand",
+        "reference_score": "missing",
+        "provenance": "synthetic_heldout_of_last_note_tune",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "meter": "4/4",
+        "tempo": 120
+      }
+    ],
+    "benchmark_catalog": [
+      {
+        "id": "c_major_quarters",
+        "location": "benchmark/corpus/melody_simple/c_major_quarters/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "melody_simple",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "g_major_eighths",
+        "location": "benchmark/corpus/melody_simple/g_major_eighths/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "melody_simple",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "melody_and_bass",
+        "location": "benchmark/corpus/piano_simple/melody_and_bass/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "piano_simple",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "c_major_block_chords",
+        "location": "benchmark/corpus/piano_chords/c_major_block_chords/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "piano_chords",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "octave_doubling",
+        "location": "benchmark/corpus/piano_chords/octave_doubling/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "piano_chords",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "two_hand_scale",
+        "location": "benchmark/corpus/piano_two_hands/two_hand_scale/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "piano_two_hands",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "middle_register",
+        "location": "benchmark/corpus/piano_two_hands/middle_register/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "piano_two_hands",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "hand_crossing",
+        "location": "benchmark/corpus/piano_two_hands/hand_crossing/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "piano_two_hands",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "polyphonic_rh",
+        "location": "benchmark/corpus/piano_two_hands/polyphonic_rh/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "piano_two_hands",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "quarters",
+        "location": "benchmark/corpus/rhythm/quarters/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "rhythm",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "eighths",
+        "location": "benchmark/corpus/rhythm/eighths/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "rhythm",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "sixteenths",
+        "location": "benchmark/corpus/rhythm/sixteenths/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "rhythm",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "dotted",
+        "location": "benchmark/corpus/rhythm/dotted/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "rhythm",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "triplets",
+        "location": "benchmark/corpus/rhythm/triplets/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "rhythm",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "syncopation",
+        "location": "benchmark/corpus/rhythm/syncopation/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "rhythm",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "waltz_3_4",
+        "location": "benchmark/corpus/rhythm/waltz_3_4/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "rhythm",
+        "meter": "3/4",
+        "tempo": 90
+      },
+      {
+        "id": "compound_6_8",
+        "location": "benchmark/corpus/rhythm/compound_6_8/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "rhythm",
+        "meter": "6/8",
+        "tempo": 120
+      },
+      {
+        "id": "midi_rh_lh_tracks",
+        "location": "benchmark/corpus/midi_ingest/midi_rh_lh_tracks/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "midi_ingest",
+        "meter": "4/4",
+        "tempo": 120
+      },
+      {
+        "id": "midi_3_4",
+        "location": "benchmark/corpus/midi_ingest/midi_3_4/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "midi_ingest",
+        "meter": "3/4",
+        "tempo": 96
+      },
+      {
+        "id": "midi_6_8",
+        "location": "benchmark/corpus/midi_ingest/midi_6_8/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "midi_ingest",
+        "meter": "6/8",
+        "tempo": 120
+      },
+      {
+        "id": "midi_chords_and_melody",
+        "location": "benchmark/corpus/midi_ingest/midi_chords_and_melody/",
+        "kind": "synthetic_midi",
+        "instrument": "piano",
+        "audio": "missing_unless_generated",
+        "midi": "input.mid+reference.mid",
+        "reference_score": "reference.json_only",
+        "provenance": "benchmark.fixtures.catalog",
+        "permitted_use": "synthetic_repo_fixture",
+        "copyrighted": false,
+        "labels": {
+          "acoustic_accuracy": "missing",
+          "musical_interpretation_accuracy": "missing",
+          "export_integrity": "missing",
+          "human_correction_effort": "missing"
+        },
+        "review_status": "not_musician_reviewed",
+        "category": "midi_ingest",
+        "meter": "4/4",
+        "tempo": 120
+      }
+    ],
+    "paired_corpus": {
+      "complete_slots": 0,
+      "location": "evaluation/paired_corpus"
+    },
+    "human_reviewed": {
+      "location": "evaluation/human_reviewed",
+      "attributed_reviews": 0
+    }
+  },
+  "gaps": [
+    {
+      "id": "paired_corpus_recordings",
+      "location": "evaluation/paired_corpus",
+      "status": "missing",
+      "detail": "Slot templates exist; complete_slots=0; no audio/MIDI/score."
+    },
+    {
+      "id": "evaluation_holdout_cases",
+      "location": "evaluation/holdout",
+      "status": "missing",
+      "detail": "Directory present; no case assets committed."
+    },
+    {
+      "id": "evaluation_real_world_cases",
+      "location": "evaluation/real_world",
+      "status": "missing",
+      "detail": "Directory present; no case assets committed."
+    },
+    {
+      "id": "benchmark_realworld_local",
+      "location": "benchmark/realworld/local",
+      "status": "missing",
+      "detail": "Ad-hoc local audio slot; empty or gitignored."
+    },
+    {
+      "id": "human_reviewed_ratings",
+      "location": "evaluation/human_reviewed",
+      "status": "missing",
+      "detail": "Generators and rubric exist; no attributed musician ratings."
+    },
+    {
+      "id": "production_smoke_audio",
+      "location": "evaluation/production_smoke",
+      "status": "missing",
+      "detail": "cases.json names expected WAVs; audio not committed."
+    },
+    {
+      "id": "nota_test_sample_licenses",
+      "location": "evaluation/development/NotaTestSamples",
+      "status": "undocumented",
+      "detail": "3 local raw/quantized/audio pairs present; license and composition identity not documented; not musician-reviewed."
+    },
+    {
+      "id": "acoustic_accuracy_labels",
+      "location": "n/a",
+      "status": "missing",
+      "detail": "No reviewed acoustic-accuracy labels on any asset."
+    },
+    {
+      "id": "correction_effort_labels",
+      "location": "n/a",
+      "status": "missing",
+      "detail": "No human correction-effort ratings on any asset."
+    }
+  ],
+  "p1_complete": false,
+  "p1_complete_reason": "Candidate inventory and review package infrastructure exist, but musician_reviewed=0. P1 acceptance requires attributed reviews; do not mark complete without them."
+}

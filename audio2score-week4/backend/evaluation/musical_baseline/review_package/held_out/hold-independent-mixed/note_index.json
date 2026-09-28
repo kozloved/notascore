@@ -1,0 +1,66 @@
+{
+  "matched_by": "source_note_id",
+  "notes": [
+    {
+      "source_note_id": "track:0:note:0",
+      "pitch": 72,
+      "start": 0.0,
+      "duration": 0.25,
+      "staff": 0,
+      "musical_voice": 0,
+      "printed_voice": 0,
+      "voice_provenance": "inferred"
+    },
+    {
+      "source_note_id": "track:0:note:5",
+      "pitch": 48,
+      "start": 0.0,
+      "duration": 4.0,
+      "staff": 1,
+      "musical_voice": 1,
+      "printed_voice": 0,
+      "voice_provenance": "inferred"
+    },
+    {
+      "source_note_id": "track:0:note:1",
+      "pitch": 50,
+      "start": 0.0,
+      "duration": 0.75,
+      "staff": 1,
+      "musical_voice": 0,
+      "printed_voice": 1,
+      "voice_provenance": "inferred"
+    },
+    {
+      "source_note_id": "track:0:note:2",
+      "pitch": 73,
+      "start": 1.0,
+      "duration": 0.25,
+      "staff": 0,
+      "musical_voice": 0,
+      "printed_voice": 0,
+      "voice_provenance": "inferred"
+    },
+    {
+      "source_note_id": "track:0:note:3",
+      "pitch": 74,
+      "start": 2.0,
+      "duration": 0.25,
+      "staff": 0,
+      "musical_voice": 0,
+      "printed_voice": 0,
+      "voice_provenance": "inferred"
+    },
+    {
+      "source_note_id": "track:0:note:4",
+      "pitch": 75,
+      "start": 3.0,
+      "duration": 0.25,
+      "staff": 0,
+      "musical_voice": 0,
+      "printed_voice": 0,
+      "voice_provenance": "inferred"
+    }
+  ],
+  "staff_musical_printed_compared_separately": true
+}
