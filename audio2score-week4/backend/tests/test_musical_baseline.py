@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -485,3 +486,222 @@ def test_real_review_package_has_no_fabricated_reviewers():
         assert _SYNTH_REVIEWER not in text
         data = json.loads(text)
         assert data.get("attribution", {}).get("reviewer") in (None, "")
+
+
+def _expected(candidate) -> dict[str, str]:
+    return {
+        "example_id": candidate.example_id,
+        "composition_id": candidate.composition_id,
+        "performance_id": candidate.performance_id,
+        "split": candidate.split,
+    }
+
+
+def _bump_first_octave(musicxml_path: Path) -> None:
+    """Change a MusicXML pitch without rebuilding (reproduces the P1 gap)."""
+    text = musicxml_path.read_text(encoding="utf-8")
+    assert "<octave>" in text
+
+    def _flip(match: re.Match[str]) -> str:
+        digit = int(match.group(1))
+        return f"<octave>{(digit + 1) % 10}</octave>"
+
+    updated = re.sub(r"<octave>(\d)</octave>", _flip, text, count=1)
+    assert updated != text
+    musicxml_path.write_text(updated, encoding="utf-8")
+
+
+def test_musicxml_pitch_change_without_rebuild_invalidates_review(tmp_path: Path):
+    """Confirmed gap: editing v1.musicxml must not leave review_complete=True."""
+    candidate = _candidate("dev-solo-detached")
+    out = tmp_path / "pkg"
+    build_case(candidate, out)
+    case_dir = out / candidate.split / candidate.example_id
+    _fill_complete_review(case_dir, interpretation="pass", correction="pass")
+    before = validate_case_dir(case_dir, expected=_expected(candidate))
+    assert before.review_complete is True
+    assert before.binding_stale is False
+    assert before.artifacts_current is True
+
+    review_bytes = (case_dir / REVIEW_JSON_NAME).read_bytes()
+    fp_bytes = (case_dir / FINGERPRINT_NAME).read_bytes()
+    _bump_first_octave(case_dir / "v1.musicxml")
+
+    after = validate_case_dir(case_dir, expected=_expected(candidate))
+    assert after.review_complete is False
+    assert after.binding_stale is True or after.artifacts_stale is True
+    assert after.artifacts_current is False
+    assert "v1.musicxml" in after.changed_files
+    # Non-destructive: review + recorded fingerprint untouched.
+    assert (case_dir / REVIEW_JSON_NAME).read_bytes() == review_bytes
+    assert (case_dir / FINGERPRINT_NAME).read_bytes() == fp_bytes
+
+
+def test_source_midi_change_invalidates_review(tmp_path: Path):
+    candidate = _candidate()
+    out = tmp_path / "pkg"
+    build_case(candidate, out)
+    case_dir = out / candidate.split / candidate.example_id
+    _fill_complete_review(case_dir, interpretation="pass", correction="pass")
+    midi_path = case_dir / "input.mid"
+    original = midi_path.read_bytes()
+    midi_path.write_bytes(original + b"\x00")
+    validation = validate_case_dir(case_dir, expected=_expected(candidate))
+    assert validation.review_complete is False
+    assert validation.artifacts_current is False
+    assert "input.mid" in validation.changed_files
+    assert _SYNTH_REVIEWER in (case_dir / REVIEW_JSON_NAME).read_text(encoding="utf-8")
+
+
+def test_playback_midi_change_invalidates_review(tmp_path: Path):
+    candidate = _candidate()
+    out = tmp_path / "pkg"
+    build_case(candidate, out)
+    case_dir = out / candidate.split / candidate.example_id
+    _fill_complete_review(case_dir, interpretation="pass", correction="pass")
+    assert "v1_score_midi_sha256" in COMPLETION_CRITERIA["binding_fields"]
+    playback = case_dir / "v1.score.mid"
+    playback.write_bytes(playback.read_bytes() + b"\xff")
+    validation = validate_case_dir(case_dir, expected=_expected(candidate))
+    assert validation.review_complete is False
+    assert validation.artifacts_current is False
+    assert "v1.score.mid" in validation.changed_files
+    assert validation.playback_available["v1_score_midi_sha256"] is True
+
+
+def test_deleted_required_artifact_prevents_complete(tmp_path: Path):
+    candidate = _candidate()
+    out = tmp_path / "pkg"
+    build_case(candidate, out)
+    case_dir = out / candidate.split / candidate.example_id
+    _fill_complete_review(case_dir, interpretation="pass", correction="pass")
+    (case_dir / "v2.musicxml").unlink()
+    validation = validate_case_dir(case_dir, expected=_expected(candidate))
+    assert validation.review_complete is False
+    assert validation.artifacts_current is False
+    assert "v2.musicxml" in validation.missing_files
+
+
+def test_malformed_fingerprint_prevents_complete(tmp_path: Path):
+    candidate = _candidate()
+    out = tmp_path / "pkg"
+    build_case(candidate, out)
+    case_dir = out / candidate.split / candidate.example_id
+    _fill_complete_review(case_dir, interpretation="pass", correction="pass")
+    (case_dir / FINGERPRINT_NAME).write_text("{not-json", encoding="utf-8")
+    validation = validate_case_dir(case_dir, expected=_expected(candidate))
+    assert validation.review_complete is False
+    assert validation.recorded_fingerprint_status == "malformed"
+    assert validation.artifacts_current is False
+
+
+def test_stale_case_report_fingerprint_is_ignored(tmp_path: Path):
+    """Report-only must not trust case_report's embedded fingerprint cache."""
+    out = tmp_path / "pkg"
+    build_package(out, render=False)
+    candidate = _candidate("dev-solo-detached")
+    case_dir = out / candidate.split / candidate.example_id
+    _fill_complete_review(case_dir, interpretation="pass", correction="pass")
+
+    report_path = case_dir / "case_report.json"
+    cached = json.loads(report_path.read_text(encoding="utf-8"))
+    cached["artifact_fingerprint"] = {
+        **(cached.get("artifact_fingerprint") or {}),
+        "v1_musicxml_sha256": "b" * 64,
+        "midi_sha256": "c" * 64,
+    }
+    report_path.write_text(json.dumps(cached, indent=2) + "\n", encoding="utf-8")
+
+    # Live files + binding still agree → complete despite poisoned case_report.
+    direct = validate_case_dir(case_dir, expected=_expected(candidate))
+    assert direct.review_complete is True
+    assert direct.artifacts_current is True
+
+    report = report_reviews(out)
+    assert report["mode"] == "report_only"
+    assert report["musician_reviewed_complete"] >= 1
+    case_row = next(
+        r for r in report["cases"] if r["example_id"] == candidate.example_id
+    )
+    assert case_row["review"]["review_complete"] is True
+
+    # After a real MusicXML edit, poisoned case_report must not keep it complete.
+    _bump_first_octave(case_dir / "v1.musicxml")
+    report2 = report_reviews(out)
+    case_row2 = next(
+        r for r in report2["cases"] if r["example_id"] == candidate.example_id
+    )
+    assert case_row2["review"]["review_complete"] is False
+    # Report-only did not rewrite the human review or fingerprint to hide it.
+    assert _SYNTH_REVIEWER in (case_dir / REVIEW_JSON_NAME).read_text(encoding="utf-8")
+    assert (case_dir / FINGERPRINT_NAME).is_file()
+
+
+def test_unchanged_artifacts_remain_valid_with_playback_binding(tmp_path: Path):
+    candidate = _candidate()
+    out = tmp_path / "pkg"
+    build_case(candidate, out)
+    case_dir = out / candidate.split / candidate.example_id
+    data = _fill_complete_review(case_dir, interpretation="pass", correction="pass")
+    assert data["artifact_binding"]["v1_score_midi_sha256"]
+    assert data["artifact_binding"]["v2_score_midi_sha256"]
+    validation = validate_case_dir(case_dir, expected=_expected(candidate))
+    assert validation.review_complete is True
+    assert validation.binding_current is True
+    assert validation.artifacts_current is True
+    assert validation.playback_available["v1_score_midi_sha256"] is True
+    assert validation.playback_available["v2_score_midi_sha256"] is True
+
+
+def test_playback_unavailable_requires_null_binding(tmp_path: Path):
+    candidate = _candidate()
+    out = tmp_path / "pkg"
+    build_case(candidate, out)
+    case_dir = out / candidate.split / candidate.example_id
+    (case_dir / "v1.score.mid").unlink()
+    (case_dir / "v2.score.mid").unlink()
+    # Keep fingerprint in sync with unavailable playback (as a rebuild would).
+    fp = json.loads((case_dir / FINGERPRINT_NAME).read_text(encoding="utf-8"))
+    fp["v1_score_midi_sha256"] = None
+    fp["v2_score_midi_sha256"] = None
+    (case_dir / FINGERPRINT_NAME).write_text(
+        json.dumps(fp, indent=2) + "\n", encoding="utf-8"
+    )
+    _fill_complete_review(case_dir, interpretation="pass", correction="pass")
+    ok = validate_case_dir(case_dir, expected=_expected(candidate))
+    assert ok.review_complete is True
+    assert ok.playback_available["v1_score_midi_sha256"] is False
+
+    # Legacy binding that still stores an old playback hash must re-review.
+    _fill_complete_review(
+        case_dir,
+        mutate_binding={"v1_score_midi_sha256": "d" * 64},
+    )
+    stale = validate_case_dir(case_dir, expected=_expected(candidate))
+    assert stale.review_complete is False
+    assert stale.binding_stale is True
+
+
+def test_report_only_cli_detects_musicxml_drift(tmp_path: Path):
+    out = tmp_path / "pkg"
+    build_package(out, render=False)
+    candidate = _candidate("dev-solo-detached")
+    case_dir = out / candidate.split / candidate.example_id
+    _fill_complete_review(case_dir, interpretation="pass", correction="pass")
+    musicxml = (case_dir / "v1.musicxml").read_bytes()
+    review = (case_dir / REVIEW_JSON_NAME).read_bytes()
+    fingerprint = (case_dir / FINGERPRINT_NAME).read_bytes()
+    input_midi = (case_dir / "input.mid").read_bytes()
+
+    _bump_first_octave(case_dir / "v1.musicxml")
+    report = report_reviews(out)
+    row = next(r for r in report["cases"] if r["example_id"] == candidate.example_id)
+    assert row["review"]["review_complete"] is False
+    assert row["review"]["validation"]["artifacts_current"] is False
+    assert "v1.musicxml" in row["review"]["validation"]["changed_files"]
+
+    # Non-destructive except generated package reports / instructions.
+    assert (case_dir / "v1.musicxml").read_bytes() != musicxml  # edit remains
+    assert (case_dir / REVIEW_JSON_NAME).read_bytes() == review
+    assert (case_dir / FINGERPRINT_NAME).read_bytes() == fingerprint
+    assert (case_dir / "input.mid").read_bytes() == input_midi

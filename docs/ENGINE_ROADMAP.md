@@ -4,8 +4,8 @@ Canonical development plan for reliable, editable solo-instrument and piano
 scores. Historical reviews stay in dated `docs/` files. New engine work is
 scheduled here.
 
-Reviewed remote baseline for this plan: `e32af8f` / PR #79 (P1 musical
-baseline inventory and review package).
+Reviewed remote baseline for this plan: `8ea76d4` / PR #80 (P1 review
+safety: preserve, validate, bind, report-only).
 
 This is a plan, not a claim that musical quality is solved. Synthetic tests,
 valid MusicXML, and successful PDF export are not proof of musical quality.
@@ -98,17 +98,27 @@ gates prove preservation, structure, and export plumbing.
   CLI `python -m evaluation.musical_baseline`). Written inventory:
   `evaluation/musical_baseline/INVENTORY.md`. Generated package:
   `evaluation/musical_baseline/review_package/`.
-- Reviewed remote baseline for this increment: `e32af8f` / PR #79.
+- Reviewed remote baseline before this increment: `8ea76d4` / PR #80.
 - Candidate set: **15** short synthetic examples (9 development /
   6 held-out). Compositions are disjoint; TUNING_SET members stay
   development-only. Required families covered.
-- Review safety (this increment):
+- Review safety + live artifact verification (this increment):
   - Human-owned `review.json` / `REVIEW_FORM.md` are not overwritten on
     `--package` / `--render`. Malformed reviews are preserved.
   - Empty scaffolds may refresh `artifact_binding` to match
     `artifact_fingerprint.json`; human-touched files never do.
   - MusicXML hashes normalize volatile music21 part IDs so unchanged
     rebuilds keep binding current (timestamps alone never invalidate).
+  - Validation **recomputes** SHA-256 from live `input.mid`,
+    `v1/v2.musicxml`, and `v1/v2.score.mid`. Cached fingerprints inside
+    `case_report.json` are never used as evidence. Missing, unreadable,
+    malformed, or changed required artifacts prevent `review_complete`.
+  - Playback hashes are required binding fields (`null` when a score-MIDI
+    file is absent). Playback changes invalidate dependent reviews; older
+    reviews that omit these fields remain on disk but need migration /
+    re-review before counting as complete.
+  - Report-only updates generated reports only; it never rewrites reviews,
+    scores, source MIDI, or fingerprints to hide mismatches.
   - Validation/aggregation distinguishes `review_complete` vs
     `musically_accepted` (complete + interpretation `pass`). Stale,
     partial, invalid, mismatched, and `not_applicable` ratings do not
@@ -137,8 +147,10 @@ gates prove preservation, structure, and export plumbing.
 4. Score four tracks separately; keep unreviewed explicit. **Done.**
 5. Safe review collection (preserve, validate, bind, report-only). **Done
    in code; human ratings still missing.**
-6. Collect attributed musician reviews and suitable audio for acoustic
-   accuracy. **Remaining.**
+6. Live artifact verification + playback binding (close the cached-
+   fingerprint gap). **Done in code; human ratings still missing.**
+7. Collect attributed musician reviews and suitable audio for acoustic
+   accuracy. **Remaining — next milestone.**
 
 **Acceptance criteria.**
 
@@ -147,10 +159,11 @@ gates prove preservation, structure, and export plumbing.
 - Development and held-out compositions do not overlap.
 - Reviews, if present, are attributed. No invented quality scores.
 - Rebuilds must not erase human reviews; completion criteria documented.
+- Validation must verify live artifact bytes, not cached fingerprints.
 
 **Status.** Implemented but unverified as a reviewed baseline.
-Review-collection machinery is safe and reportable
-(`musician_reviewed_complete=0`, `musically_accepted_count=0`).
+Review-collection machinery is safe, bound to live artifacts, and
+reportable (`musician_reviewed_complete=0`, `musically_accepted_count=0`).
 **Do not mark P1 complete** without attributed current interpretation and
 correction-effort reviews. Do not start P2 heuristics without reviewed
 counterexamples. Synthetic coverage does not prove acoustic accuracy or
@@ -166,6 +179,20 @@ production readiness.
    missing (self-performed recordings are enough).
 4. Acoustic-accuracy labels: missing on every candidate.
 5. Optional OSMD `--render` HTML/PNG not required for package completeness.
+
+**Validation evidence (this increment).**
+
+- Focused: `python -m pytest -q tests/test_musical_baseline.py`
+  → **25 passed**.
+- Supported backend suite:
+  `python -m pytest -m 'not integration and not pm2s' -q`
+  → **1001 passed, 4 deselected, 3 failed**. The three failures
+  (`test_tracks_are_independent`,
+  `test_midi_subbeat_tempo_changes_survive_pipeline_and_export`,
+  `test_fallback_engine_uses_legacy_on_failure`) reproduce on clean
+  `8ea76d4` and are unrelated to this artifact-verification change.
+- Tested from branch `cursor/engine-p1-artifact-verify` (base `8ea76d4` /
+  PR #80). Record the landing commit SHA when this increment merges.
 
 ## P2 — Musical interpretation improvements
 
@@ -317,7 +344,9 @@ independently validated.
 
 ## Suggested next milestone
 
-Collect attributed P1 reviews via
-`evaluation/musical_baseline/review_package/REVIEW_INSTRUCTIONS.md`, then
-**P2 musical interpretation improvements** using reviewed counterexamples
-only. Do not retune heuristics without them.
+Live artifact verification and playback binding are in place. **Next:**
+collect attributed P1 musician reviews via
+`evaluation/musical_baseline/review_package/REVIEW_INSTRUCTIONS.md`
+(synthetic fixtures must not be used as musician evidence). Only after
+real attributed reviews: **P2 musical interpretation improvements** using
+reviewed counterexamples. Do not retune heuristics without them.

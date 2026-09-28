@@ -33,7 +33,6 @@ from evaluation.musical_baseline.reviews import (
     aggregate_reviews,
     build_fingerprint,
     empty_review_template,
-    fingerprint_from_case_dir,
     validate_case_dir,
     write_review_form_if_absent,
     write_review_if_absent,
@@ -140,7 +139,9 @@ def _review_form_markdown(candidate: CandidateExample, dimensions: dict[str, dic
         "**Human-owned files:** edit `review.json` (authoritative) and optionally "
         f"`{REVIEW_FORM_NAME}`. Package rebuilds never overwrite filled reviews. "
         "Copy hashes from `artifact_fingerprint.json` into "
-        "`review.json` → `artifact_binding` before submitting.",
+        "`review.json` → `artifact_binding` before submitting "
+        "(include playback `v1/v2_score_midi_sha256`; use null if a "
+        "playback file is absent).",
         "",
         "Valid dimension statuses: `pass` | `fail` | `needs_work` | "
         "`not_reviewed` | `not_applicable`. Optional per-version fields: "
@@ -444,7 +445,7 @@ def build_case(
         "split": candidate.split,
     }
     review_validation = validate_case_dir(
-        case_dir, expected=expected_identity, fingerprint=fingerprint
+        case_dir, expected=expected_identity
     )
     report_dimensions = dict(dimensions)
     # Overlay human ratings into the report when structurally valid / loadable.
@@ -598,12 +599,12 @@ def _assemble_package_report(
     validations = []
     for row in case_rows:
         case_dir = dest / row["split"] / row["example_id"]
-        fp = row.get("artifact_fingerprint") or fingerprint_from_case_dir(case_dir)
+        # Always validate against live artifact bytes. Never trust a cached
+        # case_report / row fingerprint as proof that scores are current.
         validations.append(
             validate_case_dir(
                 case_dir,
                 expected=_case_identity_from_row(row),
-                fingerprint=fp,
             )
         )
         # Refresh embedded validation on rows for report-only freshness.
@@ -687,8 +688,10 @@ def build_package(
 def report_reviews(out_dir: Path | None = None) -> dict[str, Any]:
     """Validate and summarize existing reviews without rebuilding scores.
 
-    Does not modify human-owned ``review.json`` / ``REVIEW_FORM.md`` or
-    score artifacts (MusicXML/MIDI). Regenerates package_report.* only.
+    Does not modify human-owned ``review.json`` / ``REVIEW_FORM.md``, score
+    artifacts (MusicXML/MIDI), or ``artifact_fingerprint.json``. Regenerates
+    package_report.* only. Validation recomputes live file hashes and never
+    trusts a cached ``case_report.json`` fingerprint as evidence.
     """
     dest = Path(out_dir) if out_dir is not None else DEFAULT_OUT
     if not dest.is_dir():
@@ -721,9 +724,9 @@ def report_reviews(out_dir: Path | None = None) -> dict[str, Any]:
                 "meter": candidate.meter,
                 "dimensions": dimension_status_for(candidate),
             }
-        fp = fingerprint_from_case_dir(case_dir)
-        if fp:
-            row["artifact_fingerprint"] = fp
+        # Drop any cached fingerprint embedded in case_report so assembly
+        # cannot accidentally treat it as current evidence.
+        row.pop("artifact_fingerprint", None)
         case_rows.append(row)
 
     report = _assemble_package_report(
@@ -768,8 +771,17 @@ Documented in code as `COMPLETION_CRITERIA` (`evaluation/musical_baseline/review
 
 - **review_complete** requires: valid `review.json`, matching case identity,
   attribution (`reviewer` + ISO `reviewed_at`), **current** `artifact_binding`
-  matching `artifact_fingerprint.json`, and both interpretation + correction
-  effort rated `pass`/`fail`/`needs_work`.
+  matching **live** artifact bytes (source MIDI, v1/v2 MusicXML, and playback
+  MIDI when present), agreement with `artifact_fingerprint.json`, and both
+  interpretation + correction effort rated `pass`/`fail`/`needs_work`.
+- Playback hashes (`v1_score_midi_sha256`, `v2_score_midi_sha256`) are required
+  binding fields. If a `*.score.mid` file is absent, bind `null`. Changing
+  playback invalidates reviews that depend on it. Older reviews that omit
+  these fields stay on disk but are not complete until migrated (re-copy from
+  a verified fingerprint after `--package`, or re-review).
+- Validation **recomputes** hashes from files on disk. Cached fingerprints
+  inside `case_report.json` are never used as evidence. Missing, unreadable,
+  malformed, or changed required artifacts prevent completion.
 - `not_reviewed` / `not_applicable` / missing ratings do **not** count.
 - Stale bindings (artifact hashes changed) retain feedback on disk but are
   **excluded** from completion counts until re-reviewed against new hashes.
@@ -784,25 +796,29 @@ Documented in code as `COMPLETION_CRITERIA` (`evaluation/musical_baseline/review
 3. Play `v1.score.mid` / `v2.score.mid`; open `v1.musicxml` / `v2.musicxml`.
 4. Use `note_index.json` and `phrases/`; cite `source_note_id`.
 5. Copy binding hashes from `artifact_fingerprint.json` into `review.json`
-   → `artifact_binding` (template already includes them when first created;
-   if you started from an older file, refresh these fields from the fingerprint).
+   → `artifact_binding` (include playback SHA-256 fields; template already
+   includes them when first created; if you started from an older file,
+   refresh these fields from the fingerprint after `--package`).
 6. Fill `review.json` (authoritative):
    - `attribution.reviewer`, `attribution.reviewed_at` (ISO date)
    - `dimensions.musical_interpretation_accuracy.status`
    - `dimensions.human_correction_effort.status`
    - optional acoustic / export / notes / per-version ratings
 7. Optionally annotate `REVIEW_FORM.md` (human-owned; rebuilds preserve it).
-8. Ask an engineer (or yourself) to run **report-only** (does not rebuild scores
-   or touch your review files):
+8. Ask an engineer (or yourself) to run **report-only** (does not rebuild scores,
+   rewrite fingerprints, or touch your review files):
    `python -m evaluation.musical_baseline --report-reviews evaluation/musical_baseline/review_package`
 9. Confirm your case appears under `review_complete` / `musically_accepted` in
-   `package_report.md` as appropriate.
+   `package_report.md` as appropriate. If validation lists `changed_files` /
+   `missing_files`, the scores on disk no longer match the review binding.
 
 ## Rebuild safety
 
 - `python -m evaluation.musical_baseline --package …` and `--render` regenerate
   scores and `artifact_fingerprint.json` but **never overwrite** existing
   `review.json` or filled `REVIEW_FORM.md` (including malformed files).
+- `--report-reviews` updates generated reports only; it never rewrites reviews,
+  scores, source MIDI, or fingerprints to hide mismatches.
 - Fresh blank templates are written only when those files are absent.
 - `REVIEW_FORM.template.md` is always refreshed as a generated reference.
 
