@@ -13,6 +13,7 @@ from evaluation.musical_baseline.package import (
     DEFAULT_OUT,
     build_package,
     inventory_markdown,
+    report_reviews,
 )
 
 __all__ = [
@@ -25,5 +26,6 @@ __all__ = [
     "candidates",
     "family_coverage",
     "inventory_markdown",
+    "report_reviews",
     "split_leakage",
 ]

@@ -14,10 +14,22 @@
   "tempo": 120.0,
   "permitted_use": "synthetic_repo_fixture",
   "copyrighted": false,
-  "musician_reviewed": false,
   "midi_sha256": "a7404c045eefcd53af6f47844174778e65410a9aefc1a6b4d92353283a0c7561",
   "performance_sha256": "a7404c045eefcd53af6f47844174778e65410a9aefc1a6b4d92353283a0c7561",
   "source_midi_unchanged": true,
+  "artifact_fingerprint": {
+    "midi_sha256": "a7404c045eefcd53af6f47844174778e65410a9aefc1a6b4d92353283a0c7561",
+    "v1_musicxml_sha256": "dd4e68b61a1aafedd5f5fcad2b8b3429fec0fb56bf9dd6cbcccd8075aa0d56cd",
+    "v2_musicxml_sha256": "dd4e68b61a1aafedd5f5fcad2b8b3429fec0fb56bf9dd6cbcccd8075aa0d56cd",
+    "v1_score_midi_sha256": "ed937af24efafe16be4c8f41da1b1ed2957e114815daa18c5db3ff4f5bef621f",
+    "v2_score_midi_sha256": "ed937af24efafe16be4c8f41da1b1ed2957e114815daa18c5db3ff4f5bef621f",
+    "v1_algorithm_version": "performance-score-1",
+    "v2_algorithm_version": "performance-score-2",
+    "settings_digest": "a5294ad57450637a1f43c63fbe7409d58f3450c116428fa91790fad9f37b0f45",
+    "meter": "4/4",
+    "tempo": 120.0,
+    "musicxml_hash_normalized": true
+  },
   "default_algorithm_version": "performance-score-1",
   "opt_in_algorithm_version": "performance-score-2",
   "algorithms": {
@@ -125,20 +137,32 @@
     "acoustic_accuracy": {
       "dimension": "acoustic_accuracy",
       "status": "not_applicable",
-      "reason": "No suitable audio/reference labels for acoustic accuracy",
+      "versions": {
+        "v1": null,
+        "v2": null
+      },
       "score": null,
+      "notes": "",
       "reviewer": null,
       "reviewed_at": null,
-      "notes": ""
+      "reason": "human review field present but not a completed rating",
+      "stale": false,
+      "counts_as_rated": false
     },
     "musical_interpretation_accuracy": {
       "dimension": "musical_interpretation_accuracy",
-      "status": "unreviewed",
-      "reason": "Musician interpretation rating required; export success is not a substitute",
+      "status": "not_reviewed",
+      "versions": {
+        "v1": null,
+        "v2": null
+      },
       "score": null,
+      "notes": "",
       "reviewer": null,
       "reviewed_at": null,
-      "notes": ""
+      "reason": "human review field present but not a completed rating",
+      "stale": false,
+      "counts_as_rated": false
     },
     "export_integrity": {
       "dimension": "export_integrity",
@@ -175,18 +199,156 @@
       "mechanical": true,
       "score": null,
       "reviewer": "automated_export_integrity",
-      "reviewed_at": "2026-09-28T13:15:28.512024+00:00",
-      "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+      "reviewed_at": "2026-09-28T14:25:07.032506+00:00",
+      "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
+      "human_status": "not_reviewed",
+      "human_versions": {
+        "v1": null,
+        "v2": null
+      },
+      "human_notes": "",
+      "human_score": null
     },
     "human_correction_effort": {
       "dimension": "human_correction_effort",
-      "status": "unreviewed",
-      "reason": "Musician correction-effort estimate required",
+      "status": "not_reviewed",
+      "versions": {
+        "v1": null,
+        "v2": null
+      },
       "score": null,
+      "notes": "",
       "reviewer": null,
       "reviewed_at": null,
-      "notes": ""
+      "reason": "human review field present but not a completed rating",
+      "stale": false,
+      "counts_as_rated": false
     }
+  },
+  "review": {
+    "write": {
+      "action": "refreshed_empty_template",
+      "load_status": "refreshed",
+      "path": "evaluation/musical_baseline/review_package/development/dev-pedal-repeats/review.json"
+    },
+    "form_write": {
+      "action": "preserved",
+      "path": "evaluation/musical_baseline/review_package/development/dev-pedal-repeats/REVIEW_FORM.md",
+      "template": "evaluation/musical_baseline/review_package/development/dev-pedal-repeats/REVIEW_FORM.template.md"
+    },
+    "validation": {
+      "example_id": "dev-pedal-repeats",
+      "load_status": "loaded",
+      "valid": true,
+      "errors": [
+        "attribution.reviewer required for a completed review",
+        "attribution.reviewed_at required for a completed review"
+      ],
+      "warnings": [],
+      "identity_ok": true,
+      "attribution_ok": false,
+      "binding_current": true,
+      "binding_stale": false,
+      "binding_missing": false,
+      "dimensions": {
+        "acoustic_accuracy": {
+          "status": "not_applicable",
+          "versions": {
+            "v1": null,
+            "v2": null
+          },
+          "score": null,
+          "notes": "",
+          "valid": true,
+          "counts_as_rated": false
+        },
+        "musical_interpretation_accuracy": {
+          "status": "not_reviewed",
+          "versions": {
+            "v1": null,
+            "v2": null
+          },
+          "score": null,
+          "notes": "",
+          "valid": true,
+          "counts_as_rated": false
+        },
+        "export_integrity": {
+          "status": "not_reviewed",
+          "versions": {
+            "v1": null,
+            "v2": null
+          },
+          "score": null,
+          "notes": "",
+          "valid": true,
+          "counts_as_rated": false
+        },
+        "human_correction_effort": {
+          "status": "not_reviewed",
+          "versions": {
+            "v1": null,
+            "v2": null
+          },
+          "score": null,
+          "notes": "",
+          "valid": true,
+          "counts_as_rated": false
+        }
+      },
+      "review_complete": false,
+      "musically_accepted": false,
+      "reviewer": null,
+      "reviewed_at": null,
+      "completion_criteria": {
+        "schema_version": 1,
+        "required_dimensions": [
+          "musical_interpretation_accuracy",
+          "human_correction_effort"
+        ],
+        "completed_rating_statuses": [
+          "fail",
+          "needs_work",
+          "pass"
+        ],
+        "not_counted_as_complete": [
+          "not_applicable",
+          "not_reviewed",
+          "unreviewed",
+          "blocked",
+          "automated_pending",
+          "missing"
+        ],
+        "attribution_required": [
+          "reviewer",
+          "reviewed_at"
+        ],
+        "identity_fields": [
+          "example_id",
+          "composition_id",
+          "performance_id",
+          "split"
+        ],
+        "binding_fields": [
+          "midi_sha256",
+          "v1_musicxml_sha256",
+          "v2_musicxml_sha256",
+          "v1_algorithm_version",
+          "v2_algorithm_version",
+          "settings_digest"
+        ],
+        "stale_rule": "A review is stale when any recorded binding hash/setting differs from the current artifact fingerprint. Timestamps alone never invalidate.",
+        "musical_acceptance_rule": "review_complete AND musical_interpretation_accuracy.status == 'pass'. fail/needs_work on interpretation yields review_complete but not accepted.",
+        "acoustic_note": "Acoustic not_applicable or missing never counts toward P1 completion. Synthetic coverage does not prove acoustic accuracy."
+      }
+    },
+    "review_complete": false,
+    "musically_accepted": false,
+    "human_owned_files": [
+      "review.json",
+      "REVIEW_FORM.md"
+    ],
+    "generated_template": "REVIEW_FORM.template.md"
   },
   "artifacts": {
     "input_midi": "development/dev-pedal-repeats/input.mid",
@@ -195,9 +357,11 @@
     "v1_score_midi": "development/dev-pedal-repeats/v1.score.mid",
     "v2_score_midi": "development/dev-pedal-repeats/v2.score.mid",
     "note_index": "development/dev-pedal-repeats/note_index.json",
+    "artifact_fingerprint": "development/dev-pedal-repeats/artifact_fingerprint.json",
     "review_form": "development/dev-pedal-repeats/REVIEW_FORM.md",
     "review_json": "development/dev-pedal-repeats/review.json",
-    "phrases": "development/dev-pedal-repeats/phrases"
+    "phrases": "development/dev-pedal-repeats/phrases",
+    "case_report": "development/dev-pedal-repeats/case_report.json"
   },
   "renders": [],
   "contracts": {
@@ -206,6 +370,7 @@
     "original_midi_preserved": true,
     "notes_identified_by_source_note_id": true,
     "staff_musical_printed_compared_separately": true,
-    "export_success_is_not_musical_quality": true
+    "export_success_is_not_musical_quality": true,
+    "human_reviews_preserved_on_rebuild": true
   }
 }
