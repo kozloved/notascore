@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "example_id": "hold-repeats-no-pedal",
   "composition_id": "p1-comp-repeats-no-pedal",
   "performance_id": "p1-perf-repeats-no-pedal-synth",
@@ -9,73 +10,53 @@
     "reviewed_at": null,
     "contact": null
   },
+  "artifact_binding": {
+    "midi_sha256": "f0fb516b4a1ab8016d5d5b57289e5d760ad5c4b4f8cb7f307c1b54b26f49868d",
+    "v1_musicxml_sha256": "dd4e68b61a1aafedd5f5fcad2b8b3429fec0fb56bf9dd6cbcccd8075aa0d56cd",
+    "v2_musicxml_sha256": "dd4e68b61a1aafedd5f5fcad2b8b3429fec0fb56bf9dd6cbcccd8075aa0d56cd",
+    "v1_algorithm_version": "performance-score-1",
+    "v2_algorithm_version": "performance-score-2",
+    "settings_digest": "675616a5e5ed72e35d1c0e16e23e219179a95f30a3292ea7ca26868b963e39b6"
+  },
   "dimensions": {
     "acoustic_accuracy": {
-      "dimension": "acoustic_accuracy",
       "status": "not_applicable",
-      "reason": "No suitable audio/reference labels for acoustic accuracy",
+      "versions": {
+        "v1": null,
+        "v2": null
+      },
       "score": null,
-      "reviewer": null,
-      "reviewed_at": null,
       "notes": ""
     },
     "musical_interpretation_accuracy": {
-      "dimension": "musical_interpretation_accuracy",
-      "status": "unreviewed",
-      "reason": "Musician interpretation rating required; export success is not a substitute",
+      "status": "not_reviewed",
+      "versions": {
+        "v1": null,
+        "v2": null
+      },
       "score": null,
-      "reviewer": null,
-      "reviewed_at": null,
       "notes": ""
     },
     "export_integrity": {
-      "dimension": "export_integrity",
-      "status": "passed",
-      "passed": true,
-      "checks": {
-        "source_bytes_unchanged": true,
-        "v1_musicxml_nonempty": true,
-        "v2_musicxml_nonempty": true,
-        "v1_score_midi_present": true,
-        "v2_score_midi_present": true,
-        "v1_musical_valid": true,
-        "v2_musical_valid": true,
-        "source_note_ids_nonempty": true,
-        "source_note_ids_stable_across_versions": true,
-        "v1_default_algorithm": true,
-        "v2_opt_in_algorithm": true
+      "status": "not_reviewed",
+      "versions": {
+        "v1": null,
+        "v2": null
       },
-      "measure_validity": {
-        "v1": {
-          "musical_valid": true,
-          "ties_ok": true,
-          "issue_count": 0,
-          "issues": []
-        },
-        "v2": {
-          "musical_valid": true,
-          "ties_ok": true,
-          "issue_count": 0,
-          "issues": []
-        }
-      },
-      "reason": "mechanical MusicXML/MIDI integrity on the shared planner (not acoustic quality; not musician readability)",
-      "mechanical": true,
       "score": null,
-      "reviewer": "automated_export_integrity",
-      "reviewed_at": "2026-09-28T13:15:29.102031+00:00",
-      "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here."
+      "notes": ""
     },
     "human_correction_effort": {
-      "dimension": "human_correction_effort",
-      "status": "unreviewed",
-      "reason": "Musician correction-effort estimate required",
+      "status": "not_reviewed",
+      "versions": {
+        "v1": null,
+        "v2": null
+      },
       "score": null,
-      "reviewer": null,
-      "reviewed_at": null,
       "notes": ""
     }
   },
-  "musician_reviewed": false,
-  "invented_scores_forbidden": true
+  "musical_acceptance": "not_assessed",
+  "invented_scores_forbidden": true,
+  "human_owned": true
 }

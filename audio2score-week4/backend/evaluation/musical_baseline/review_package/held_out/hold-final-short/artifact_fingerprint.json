@@ -1,0 +1,13 @@
+{
+  "midi_sha256": "61b3e9bc28227a6645e414f07101bde19a99b25a1ae238423bc0ef2d968d1df5",
+  "v1_musicxml_sha256": "40ec379f2f669155ba1f53ae6caebf4163e2ae4ffe38d6ccfbb7ba0e71cbed08",
+  "v2_musicxml_sha256": "40ec379f2f669155ba1f53ae6caebf4163e2ae4ffe38d6ccfbb7ba0e71cbed08",
+  "v1_score_midi_sha256": "f59830bf45afd00b25a14baa59aa12cf7dd4ebfa53b7ee4ccb8dbbfd769cdb09",
+  "v2_score_midi_sha256": "f59830bf45afd00b25a14baa59aa12cf7dd4ebfa53b7ee4ccb8dbbfd769cdb09",
+  "v1_algorithm_version": "performance-score-1",
+  "v2_algorithm_version": "performance-score-2",
+  "settings_digest": "61be5cc43434578d67afda432e8aa2bed9582c18592b06504b9cdf8bace4c0ec",
+  "meter": "4/4",
+  "tempo": 120.0,
+  "musicxml_hash_normalized": true
+}

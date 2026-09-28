@@ -12,6 +12,7 @@ from evaluation.musical_baseline.package import (
     DEFAULT_OUT,
     build_package,
     inventory_markdown,
+    report_reviews,
 )
 
 
@@ -41,9 +42,25 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Also attempt OSMD HTML/PNG renders when packaging",
     )
+    parser.add_argument(
+        "--report-reviews",
+        type=Path,
+        nargs="?",
+        const=DEFAULT_OUT,
+        default=None,
+        help=(
+            "Validate/summarize existing reviews without rebuilding scores "
+            "or modifying human-owned review files"
+        ),
+    )
     args = parser.parse_args(argv)
 
-    if not args.inventory and args.package is None and args.inventory_md is None:
+    if (
+        not args.inventory
+        and args.package is None
+        and args.inventory_md is None
+        and args.report_reviews is None
+    ):
         parser.print_help()
         return 2
 
@@ -62,8 +79,32 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(
                 {
                     "out_dir": report["out_dir"],
+                    "mode": report.get("mode"),
                     "candidate_count": report["candidate_count"],
                     "musician_reviewed_complete": report["musician_reviewed_complete"],
+                    "musically_accepted_count": report.get("musically_accepted_count"),
+                    "p1_complete": report["p1_complete"],
+                    "package_report": str(Path(report["out_dir"]) / "package_report.md"),
+                },
+                indent=2,
+            )
+        )
+
+    if args.report_reviews is not None:
+        report = report_reviews(args.report_reviews)
+        print(
+            json.dumps(
+                {
+                    "out_dir": report["out_dir"],
+                    "mode": report.get("mode"),
+                    "musician_reviewed_complete": report["musician_reviewed_complete"],
+                    "musically_accepted_count": report.get("musically_accepted_count"),
+                    "reviewed_but_not_accepted_count": report.get(
+                        "reviewed_but_not_accepted_count"
+                    ),
+                    "stale_count": (report.get("review_summary") or {}).get(
+                        "stale_count"
+                    ),
                     "p1_complete": report["p1_complete"],
                     "package_report": str(Path(report["out_dir"]) / "package_report.md"),
                 },

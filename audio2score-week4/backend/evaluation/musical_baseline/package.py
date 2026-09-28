@@ -24,6 +24,20 @@ from evaluation.musical_baseline.catalog import (
     resolve_midi_writer,
     split_leakage,
 )
+from evaluation.musical_baseline.reviews import (
+    CASE_REPORT_NAME,
+    COMPLETION_CRITERIA,
+    FINGERPRINT_NAME,
+    REVIEW_FORM_NAME,
+    REVIEW_JSON_NAME,
+    aggregate_reviews,
+    build_fingerprint,
+    empty_review_template,
+    fingerprint_from_case_dir,
+    validate_case_dir,
+    write_review_form_if_absent,
+    write_review_if_absent,
+)
 from evaluation.notation_correctness_evidence import _build, _render_osmd, measure_validity
 from evaluation.readable_v2_rollout import _assignments, _surface, compare_staff_voice
 from mir.notation_settings import (
@@ -123,6 +137,15 @@ def _review_form_markdown(candidate: CandidateExample, dimensions: dict[str, dic
         "Default engine is `performance-score-1`. Opt-in `performance-score-2` "
         "artifacts are for comparison only. Export success is not musical quality.",
         "",
+        "**Human-owned files:** edit `review.json` (authoritative) and optionally "
+        f"`{REVIEW_FORM_NAME}`. Package rebuilds never overwrite filled reviews. "
+        "Copy hashes from `artifact_fingerprint.json` into "
+        "`review.json` → `artifact_binding` before submitting.",
+        "",
+        "Valid dimension statuses: `pass` | `fail` | `needs_work` | "
+        "`not_reviewed` | `not_applicable`. Optional per-version fields: "
+        "`versions.v1` / `versions.v2`.",
+        "",
         "## Attribution",
         "",
         "- Reviewer name: _______________________________",
@@ -160,7 +183,9 @@ def _review_form_markdown(candidate: CandidateExample, dimensions: dict[str, dic
                 f"- Status in package: `{dim['status']}`",
                 f"- Reason: {dim['reason']}",
                 f"- Prompt: {prompts[name]}",
-                "- Rating (pass / fail / needs_work / not_reviewed): ________",
+                "- Rating (pass / fail / needs_work / not_reviewed / not_applicable): ________",
+                "- v1 rating (optional): ________",
+                "- v2 rating (optional): ________",
                 "- Score (optional 1–5; leave blank if unreviewed): ________",
                 "- Notes:",
                 "",
@@ -381,27 +406,82 @@ def build_case(
                 }
             )
 
-    (case_dir / "REVIEW_FORM.md").write_text(
-        _review_form_markdown(candidate, dimensions), encoding="utf-8"
+    fingerprint = build_fingerprint(
+        midi_sha256=midi_sha,
+        v1_musicxml=v1.musicxml,
+        v2_musicxml=v2.musicxml,
+        meter=writer.meter,
+        tempo=writer.tempo,
+        example_id=candidate.example_id,
+        source_id=candidate.source_id,
+        v1_score_midi=v1.score_midi or None,
+        v2_score_midi=v2.score_midi or None,
     )
-    review_json = {
+    (case_dir / FINGERPRINT_NAME).write_text(
+        json.dumps(fingerprint, indent=2) + "\n", encoding="utf-8"
+    )
+
+    form_md = _review_form_markdown(candidate, dimensions)
+    form_write = write_review_form_if_absent(case_dir, form_md)
+    review_template = empty_review_template(
+        example_id=candidate.example_id,
+        composition_id=candidate.composition_id,
+        performance_id=candidate.performance_id,
+        split=candidate.split,
+        fingerprint=fingerprint,
+        acoustic_default=(
+            "not_applicable"
+            if dimensions["acoustic_accuracy"]["status"] == "not_applicable"
+            else "not_reviewed"
+        ),
+    )
+    review_write = write_review_if_absent(case_dir, review_template)
+
+    expected_identity = {
         "example_id": candidate.example_id,
         "composition_id": candidate.composition_id,
         "performance_id": candidate.performance_id,
         "split": candidate.split,
-        "attribution": {
-            "reviewer": None,
-            "role": None,
-            "reviewed_at": None,
-            "contact": None,
-        },
-        "dimensions": dimensions,
-        "musician_reviewed": False,
-        "invented_scores_forbidden": True,
     }
-    (case_dir / "review.json").write_text(
-        json.dumps(review_json, indent=2) + "\n", encoding="utf-8"
+    review_validation = validate_case_dir(
+        case_dir, expected=expected_identity, fingerprint=fingerprint
     )
+    report_dimensions = dict(dimensions)
+    # Overlay human ratings into the report when structurally valid / loadable.
+    if review_validation.load_status == "loaded" and review_validation.dimensions:
+        for name, human_dim in review_validation.dimensions.items():
+            if name == "export_integrity":
+                # Keep mechanical export check; attach human overlay separately.
+                report_dimensions[name] = {
+                    **dimensions["export_integrity"],
+                    "human_status": human_dim.get("status"),
+                    "human_versions": human_dim.get("versions"),
+                    "human_notes": human_dim.get("notes"),
+                    "human_score": human_dim.get("score"),
+                }
+            else:
+                report_dimensions[name] = {
+                    "dimension": name,
+                    "status": human_dim.get("status"),
+                    "versions": human_dim.get("versions"),
+                    "score": human_dim.get("score"),
+                    "notes": human_dim.get("notes"),
+                    "reviewer": review_validation.reviewer,
+                    "reviewed_at": review_validation.reviewed_at,
+                    "reason": (
+                        "human review (stale; excluded from completion)"
+                        if review_validation.binding_stale
+                        else (
+                            "human review"
+                            if human_dim.get("counts_as_rated")
+                            else "human review field present but not a completed rating"
+                        )
+                    ),
+                    "stale": review_validation.binding_stale,
+                    "counts_as_rated": bool(human_dim.get("counts_as_rated"))
+                    and review_validation.binding_current
+                    and not review_validation.binding_stale,
+                }
 
     row = {
         "example_id": candidate.example_id,
@@ -417,10 +497,10 @@ def build_case(
         "tempo": writer.tempo,
         "permitted_use": candidate.permitted_use,
         "copyrighted": candidate.copyrighted,
-        "musician_reviewed": False,
         "midi_sha256": midi_sha,
         "performance_sha256": ingested.performance.midi_sha256,
         "source_midi_unchanged": midi_path.read_bytes() == original,
+        "artifact_fingerprint": fingerprint,
         "default_algorithm_version": ALGORITHM_VERSION_CURRENT,
         "opt_in_algorithm_version": ALGORITHM_VERSION_READABLE,
         "algorithms": {
@@ -435,7 +515,16 @@ def build_case(
             "measure_numbers": phrase["measure_numbers"],
             "source_note_id_count": len(phrase["source_note_ids"]),
         },
-        "dimensions": dimensions,
+        "dimensions": report_dimensions,
+        "review": {
+            "write": review_write,
+            "form_write": form_write,
+            "validation": review_validation.to_dict(),
+            "review_complete": review_validation.review_complete,
+            "musically_accepted": review_validation.musically_accepted,
+            "human_owned_files": [REVIEW_JSON_NAME, REVIEW_FORM_NAME],
+            "generated_template": "REVIEW_FORM.template.md",
+        },
         "artifacts": {
             "input_midi": str((case_dir / "input.mid").relative_to(out_dir)),
             "v1_musicxml": str((case_dir / "v1.musicxml").relative_to(out_dir)),
@@ -451,9 +540,13 @@ def build_case(
                 else None
             ),
             "note_index": str((case_dir / "note_index.json").relative_to(out_dir)),
-            "review_form": str((case_dir / "REVIEW_FORM.md").relative_to(out_dir)),
-            "review_json": str((case_dir / "review.json").relative_to(out_dir)),
+            "artifact_fingerprint": str(
+                (case_dir / FINGERPRINT_NAME).relative_to(out_dir)
+            ),
+            "review_form": str((case_dir / REVIEW_FORM_NAME).relative_to(out_dir)),
+            "review_json": str((case_dir / REVIEW_JSON_NAME).relative_to(out_dir)),
             "phrases": str((case_dir / "phrases").relative_to(out_dir)),
+            "case_report": str((case_dir / CASE_REPORT_NAME).relative_to(out_dir)),
         },
         "renders": renders,
         "contracts": {
@@ -465,12 +558,99 @@ def build_case(
             "notes_identified_by_source_note_id": True,
             "staff_musical_printed_compared_separately": True,
             "export_success_is_not_musical_quality": True,
+            "human_reviews_preserved_on_rebuild": True,
         },
     }
-    (case_dir / "case_report.json").write_text(
+    (case_dir / CASE_REPORT_NAME).write_text(
         json.dumps(row, indent=2) + "\n", encoding="utf-8"
     )
     return row
+
+
+def _case_identity_from_row(row: dict[str, Any]) -> dict[str, str]:
+    return {
+        "example_id": row["example_id"],
+        "composition_id": row["composition_id"],
+        "performance_id": row["performance_id"],
+        "split": row["split"],
+    }
+
+
+def _package_commands() -> list[str]:
+    return [
+        "cd audio2score-week4/backend",
+        "python -m evaluation.musical_baseline --inventory",
+        "python -m evaluation.musical_baseline --package evaluation/musical_baseline/review_package",
+        "python -m evaluation.musical_baseline --package evaluation/musical_baseline/review_package --render",
+        "python -m evaluation.musical_baseline --report-reviews evaluation/musical_baseline/review_package",
+        "python -m pytest -q tests/test_musical_baseline.py",
+    ]
+
+
+def _assemble_package_report(
+    dest: Path,
+    case_rows: list[dict[str, Any]],
+    *,
+    inventory: dict[str, Any],
+    generated_at: str | None = None,
+    mode: str = "package",
+) -> dict[str, Any]:
+    validations = []
+    for row in case_rows:
+        case_dir = dest / row["split"] / row["example_id"]
+        fp = row.get("artifact_fingerprint") or fingerprint_from_case_dir(case_dir)
+        validations.append(
+            validate_case_dir(
+                case_dir,
+                expected=_case_identity_from_row(row),
+                fingerprint=fp,
+            )
+        )
+        # Refresh embedded validation on rows for report-only freshness.
+        row["review"] = {
+            **(row.get("review") or {}),
+            "validation": validations[-1].to_dict(),
+            "review_complete": validations[-1].review_complete,
+            "musically_accepted": validations[-1].musically_accepted,
+        }
+    summary = aggregate_reviews(validations)
+    human_complete = summary["review_complete_count"]
+    accepted = summary["musically_accepted_count"]
+    report = {
+        "generated_at": generated_at or datetime.now(timezone.utc).isoformat(),
+        "mode": mode,
+        "out_dir": str(dest),
+        "default_algorithm_version": ALGORITHM_VERSION_CURRENT,
+        "opt_in_algorithm_version": ALGORITHM_VERSION_READABLE,
+        "candidate_count": len(case_rows),
+        "development_count": sum(1 for r in case_rows if r["split"] == "development"),
+        "held_out_count": sum(1 for r in case_rows if r["split"] == "held_out"),
+        "family_coverage": family_coverage(),
+        "split_leakage": [],
+        "splits_disjoint": True,
+        "completion_criteria": COMPLETION_CRITERIA,
+        "review_summary": summary,
+        "musician_reviewed_complete": human_complete,
+        "musically_accepted_count": accepted,
+        "reviewed_but_not_accepted_count": summary[
+            "reviewed_but_not_accepted_count"
+        ],
+        "p1_complete": False,
+        "p1_complete_reason": (
+            f"{human_complete}/{len(case_rows)} cases meet review_complete criteria; "
+            f"{accepted}/{len(case_rows)} musically accepted (interpretation pass). "
+            "Do not mark P1 complete without attributed current reviews. "
+            "Completion is not production readiness."
+        ),
+        "inventory_summary": {
+            "gaps": inventory["gaps"],
+            "candidate_counts": inventory["candidate_counts"],
+            "nota_test_samples": len(inventory["assets"]["nota_test_samples"]),
+        },
+        "cases": case_rows,
+        "commands": _package_commands(),
+    }
+    return report
 
 
 def build_package(
@@ -490,50 +670,9 @@ def build_package(
     for candidate in candidates(eligible_only=eligible_only):
         case_rows.append(build_case(candidate, dest, render=render))
 
-    # Interpretation + correction must be human-attributed for P1 completion.
-    human_complete = 0
-    for row in case_rows:
-        interp = row["dimensions"]["musical_interpretation_accuracy"]
-        effort = row["dimensions"]["human_correction_effort"]
-        if (
-            interp.get("reviewer")
-            and effort.get("reviewer")
-            and interp.get("status") not in {"unreviewed", "automated_pending"}
-            and effort.get("status") not in {"unreviewed", "automated_pending"}
-        ):
-            human_complete += 1
-
-    report = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "out_dir": str(dest),
-        "default_algorithm_version": ALGORITHM_VERSION_CURRENT,
-        "opt_in_algorithm_version": ALGORITHM_VERSION_READABLE,
-        "candidate_count": len(case_rows),
-        "development_count": sum(1 for r in case_rows if r["split"] == "development"),
-        "held_out_count": sum(1 for r in case_rows if r["split"] == "held_out"),
-        "family_coverage": family_coverage(),
-        "split_leakage": [],
-        "splits_disjoint": True,
-        "musician_reviewed_complete": human_complete,
-        "p1_complete": False,
-        "p1_complete_reason": (
-            f"{human_complete}/{len(case_rows)} cases have attributed interpretation "
-            "and correction-effort reviews. Do not mark P1 complete without them."
-        ),
-        "inventory_summary": {
-            "gaps": inventory["gaps"],
-            "candidate_counts": inventory["candidate_counts"],
-            "nota_test_samples": len(inventory["assets"]["nota_test_samples"]),
-        },
-        "cases": case_rows,
-        "commands": [
-            "cd audio2score-week4/backend",
-            "python -m evaluation.musical_baseline --inventory",
-            "python -m evaluation.musical_baseline --package evaluation/musical_baseline/review_package",
-            "python -m evaluation.musical_baseline --package evaluation/musical_baseline/review_package --render",
-            "python -m pytest -q tests/test_musical_baseline.py",
-        ],
-    }
+    report = _assemble_package_report(
+        dest, case_rows, inventory=inventory, mode="package"
+    )
     (dest / "inventory.json").write_text(
         json.dumps(inventory, indent=2) + "\n", encoding="utf-8"
     )
@@ -545,32 +684,127 @@ def build_package(
     return report
 
 
+def report_reviews(out_dir: Path | None = None) -> dict[str, Any]:
+    """Validate and summarize existing reviews without rebuilding scores.
+
+    Does not modify human-owned ``review.json`` / ``REVIEW_FORM.md`` or
+    score artifacts (MusicXML/MIDI). Regenerates package_report.* only.
+    """
+    dest = Path(out_dir) if out_dir is not None else DEFAULT_OUT
+    if not dest.is_dir():
+        raise FileNotFoundError(f"review package not found: {dest}")
+    inventory = asset_inventory()
+    case_rows: list[dict[str, Any]] = []
+    for candidate in candidates(eligible_only=True):
+        case_dir = dest / candidate.split / candidate.example_id
+        report_path = case_dir / CASE_REPORT_NAME
+        if report_path.is_file():
+            try:
+                row = json.loads(report_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                row = {
+                    "example_id": candidate.example_id,
+                    "composition_id": candidate.composition_id,
+                    "performance_id": candidate.performance_id,
+                    "split": candidate.split,
+                    "source_id": candidate.source_id,
+                    "meter": candidate.meter,
+                    "dimensions": dimension_status_for(candidate),
+                }
+        else:
+            row = {
+                "example_id": candidate.example_id,
+                "composition_id": candidate.composition_id,
+                "performance_id": candidate.performance_id,
+                "split": candidate.split,
+                "source_id": candidate.source_id,
+                "meter": candidate.meter,
+                "dimensions": dimension_status_for(candidate),
+            }
+        fp = fingerprint_from_case_dir(case_dir)
+        if fp:
+            row["artifact_fingerprint"] = fp
+        case_rows.append(row)
+
+    report = _assemble_package_report(
+        dest, case_rows, inventory=inventory, mode="report_only"
+    )
+    (dest / "package_report.json").write_text(
+        json.dumps(report, indent=2) + "\n", encoding="utf-8"
+    )
+    (dest / "package_report.md").write_text(_markdown_report(report), encoding="utf-8")
+    # Refresh instructions (generated doc), not human reviews.
+    (dest / "REVIEW_INSTRUCTIONS.md").write_text(_instructions(), encoding="utf-8")
+    return report
+
+
 def _instructions() -> str:
     return """# P1 musical baseline — review instructions
 
 ## Purpose
 
 Assess short examples on **four independent dimensions**. Do not collapse them
-into one pass/fail. Export success is not musical quality.
+into one pass/fail. Export success is not musical quality. Synthetic fixtures
+do not prove acoustic accuracy or production readiness.
 
-## Dimensions
+## Dimensions (keep separate)
 
 1. **Acoustic accuracy** — only when suitable audio and reference labels exist.
-   Most synthetic package cases mark this `not_applicable`.
+   Most synthetic package cases are `not_applicable` and never count toward
+   P1 completion.
 2. **Musical interpretation accuracy** — meter, pickup, voices, rests,
-   articulation, duration spelling.
-3. **Export integrity** — mechanical MusicXML/MIDI identity (may be pre-filled).
+   articulation, duration spelling. Required for review completion.
+3. **Export integrity** — mechanical MusicXML/MIDI identity (package fills
+   automated checks). Optional human overlay.
 4. **Human correction effort** — minutes/edits to make the score usable.
+   Required for review completion.
 
-Unreviewed dimensions must stay unreviewed. Do not invent scores.
+Valid statuses: `pass` | `fail` | `needs_work` | `not_reviewed` | `not_applicable`.
+Optional per-version ratings: `dimensions.<name>.versions.v1` / `.v2`.
 
-## How to review
+## Completion vs acceptance
 
-1. Open each case under `development/` or `held_out/`.
-2. Play `v1.score.mid` / `v2.score.mid` when present.
-3. Open `v1.musicxml` / `v2.musicxml` (and OSMD HTML if generated with `--render`).
-4. Use `note_index.json` and phrase extracts; cite `source_note_id`.
-5. Fill `REVIEW_FORM.md` and copy attribution + ratings into `review.json`.
+Documented in code as `COMPLETION_CRITERIA` (`evaluation/musical_baseline/reviews.py`):
+
+- **review_complete** requires: valid `review.json`, matching case identity,
+  attribution (`reviewer` + ISO `reviewed_at`), **current** `artifact_binding`
+  matching `artifact_fingerprint.json`, and both interpretation + correction
+  effort rated `pass`/`fail`/`needs_work`.
+- `not_reviewed` / `not_applicable` / missing ratings do **not** count.
+- Stale bindings (artifact hashes changed) retain feedback on disk but are
+  **excluded** from completion counts until re-reviewed against new hashes.
+- **musically_accepted** = review_complete AND interpretation `pass`.
+  A complete review may still fail musically.
+
+## Exact musician workflow (first real review)
+
+1. Ensure the package exists (engineer may run `--package` once):
+   `python -m evaluation.musical_baseline --package evaluation/musical_baseline/review_package`
+2. Open one case, e.g. `development/dev-solo-detached/`.
+3. Play `v1.score.mid` / `v2.score.mid`; open `v1.musicxml` / `v2.musicxml`.
+4. Use `note_index.json` and `phrases/`; cite `source_note_id`.
+5. Copy binding hashes from `artifact_fingerprint.json` into `review.json`
+   → `artifact_binding` (template already includes them when first created;
+   if you started from an older file, refresh these fields from the fingerprint).
+6. Fill `review.json` (authoritative):
+   - `attribution.reviewer`, `attribution.reviewed_at` (ISO date)
+   - `dimensions.musical_interpretation_accuracy.status`
+   - `dimensions.human_correction_effort.status`
+   - optional acoustic / export / notes / per-version ratings
+7. Optionally annotate `REVIEW_FORM.md` (human-owned; rebuilds preserve it).
+8. Ask an engineer (or yourself) to run **report-only** (does not rebuild scores
+   or touch your review files):
+   `python -m evaluation.musical_baseline --report-reviews evaluation/musical_baseline/review_package`
+9. Confirm your case appears under `review_complete` / `musically_accepted` in
+   `package_report.md` as appropriate.
+
+## Rebuild safety
+
+- `python -m evaluation.musical_baseline --package …` and `--render` regenerate
+  scores and `artifact_fingerprint.json` but **never overwrite** existing
+  `review.json` or filled `REVIEW_FORM.md` (including malformed files).
+- Fresh blank templates are written only when those files are absent.
+- `REVIEW_FORM.template.md` is always refreshed as a generated reference.
 
 ## Contracts
 
@@ -579,26 +813,26 @@ Unreviewed dimensions must stay unreviewed. Do not invent scores.
   ties, accepted corrections, and user locks.
 - Compare staff, musical-voice grouping, and printed lanes separately.
 - Do not retune the engine merely because case 138 printed lanes move.
-
-## Attribution required
-
-Every completed review needs reviewer name, date, and which dimensions were
-actually assessed. Gaps stay listed in `inventory.json`.
 """
 
 
 def _markdown_report(report: dict[str, Any]) -> str:
+    summary = report.get("review_summary") or {}
     lines = [
         "# P1 musical baseline review package",
         "",
         f"- Generated: `{report['generated_at']}`",
+        f"- Mode: `{report.get('mode', 'package')}`",
         f"- Cases packaged: **{report['candidate_count']}** "
         f"(development {report['development_count']}, "
         f"held-out {report['held_out_count']})",
         f"- Default algorithm: `{report['default_algorithm_version']}`",
         f"- Opt-in algorithm: `{report['opt_in_algorithm_version']}`",
         f"- Splits disjoint: `{report['splits_disjoint']}`",
-        f"- Musician-reviewed complete: **{report['musician_reviewed_complete']}**",
+        f"- Review complete: **{report['musician_reviewed_complete']}**",
+        f"- Musically accepted: **{report.get('musically_accepted_count', 0)}**",
+        f"- Reviewed but not accepted: **{report.get('reviewed_but_not_accepted_count', 0)}**",
+        f"- Stale reviews: **{summary.get('stale_count', 0)}**",
         f"- P1 complete: **{report['p1_complete']}**",
         f"- Reason: {report['p1_complete_reason']}",
         "",
@@ -608,24 +842,32 @@ def _markdown_report(report: dict[str, Any]) -> str:
     coverage = report["family_coverage"]
     for family, ids in coverage["covered"].items():
         mark = "ok" if ids else "MISSING"
-        lines.append(f"- `{family}`: {mark} ({', '.join(f'`{i}`' for i in ids) or '—'})")
+        lines.append(
+            f"- `{family}`: {mark} ({', '.join(f'`{i}`' for i in ids) or '—'})"
+        )
     lines.extend(["", "## Cases", ""])
     lines.append(
-        "| Example | Split | Source | Meter | Interp | Export | Correction | Acoustic |"
+        "| Example | Split | Complete | Accepted | Stale | Interp | Export | Correction | Acoustic |"
     )
-    lines.append("|---|---|---|---|---|---|---|---|")
+    lines.append("|---|---|---|---|---|---|---|---|---|")
     for row in report["cases"]:
-        dims = row["dimensions"]
+        dims = row.get("dimensions") or {}
+        review = row.get("review") or {}
+        validation = review.get("validation") or {}
         lines.append(
-            "| `{eid}` | `{split}` | `{src}` | {meter} | `{interp}` | `{export}` | `{corr}` | `{ac}` |".format(
+            "| `{eid}` | `{split}` | `{complete}` | `{accepted}` | `{stale}` | "
+            "`{interp}` | `{export}` | `{corr}` | `{ac}` |".format(
                 eid=row["example_id"],
                 split=row["split"],
-                src=row["source_id"],
-                meter=row["meter"],
-                interp=dims["musical_interpretation_accuracy"]["status"],
-                export=dims["export_integrity"]["status"],
-                corr=dims["human_correction_effort"]["status"],
-                ac=dims["acoustic_accuracy"]["status"],
+                complete=review.get("review_complete"),
+                accepted=review.get("musically_accepted"),
+                stale=validation.get("binding_stale"),
+                interp=(dims.get("musical_interpretation_accuracy") or {}).get(
+                    "status"
+                ),
+                export=(dims.get("export_integrity") or {}).get("status"),
+                corr=(dims.get("human_correction_effort") or {}).get("status"),
+                ac=(dims.get("acoustic_accuracy") or {}).get("status"),
             )
         )
     lines.extend(["", "## Gaps", ""])
@@ -694,4 +936,5 @@ __all__ = [
     "build_case",
     "build_package",
     "inventory_markdown",
+    "report_reviews",
 ]
