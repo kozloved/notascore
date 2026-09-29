@@ -273,8 +273,135 @@ def _assert_expected_partitions(assign: dict, expected_groups: list[set[str]]):
     assert len(set(labels)) == len(labels), parts
 
 
+def _tick_tol_sec(tempo: float = 120.0, ticks_per_beat: int = 480, ticks: float = 1.5) -> float:
+    """MIDI tick tolerance at constant tempo (seconds)."""
+    return max(0.001, (60.0 / tempo) / float(ticks_per_beat) * ticks)
+
+
+def _musicxml_attack_spans(xml_text: str, path: Path):
+    """Independent MusicXML decode via notation_engine.integrity.score_attacks."""
+    from tests.test_performance_score import _musicxml_attack_spans as _spans
+
+    path.write_text(xml_text, encoding="utf-8")
+    return _spans(path)
+
+
+def _decode_score_midi(midi_bytes: bytes, path: Path):
+    path.write_bytes(midi_bytes)
+    pm = pretty_midi.PrettyMIDI(str(path))
+    return sorted(
+        (
+            int(n.pitch),
+            float(n.start),
+            float(n.end),
+            int(n.velocity),
+        )
+        for inst in pm.instruments
+        for n in inst.notes
+    )
+
+
+def _assert_score_midi_matches(midi_bytes: bytes, path: Path, intended, *, tempo: float = 120.0):
+    """Compare exported score MIDI to independently specified (pitch,start,end,vel)."""
+    rows = [(int(r[0]), float(r[1]), float(r[2]), int(r[3])) for r in intended]
+    decoded = _decode_score_midi(midi_bytes, path)
+    expected = sorted(rows)
+    assert len(decoded) == len(expected), (decoded, expected)
+    tol = _tick_tol_sec(tempo)
+    for actual, want in zip(decoded, expected):
+        assert actual[0] == want[0]
+        assert actual[3] == want[3]
+        assert actual[1] == pytest.approx(want[1], abs=tol)
+        assert actual[2] == pytest.approx(want[2], abs=tol)
+
+
+def _assert_musicxml_attacks_match(
+    xml_text: str,
+    path: Path,
+    intended_sec,
+    *,
+    tempo: float = 120.0,
+):
+    """Assert MusicXML attack multiplicity/pitch/onset/release in beats.
+
+    ``intended_sec`` rows are (pitch, start_sec, end_sec, velocity[, channel]).
+    Sustained notes must keep full release; interrupters stay distinct attacks.
+    Ties may join written pieces of one source note only — collapsed spans must
+    still match the intended attack inventory one-for-one.
+    """
+    beat = 60.0 / tempo
+    expected = sorted(
+        (
+            int(r[0]),
+            float(r[1]) / beat,
+            float(r[2]) / beat,
+        )
+        for r in intended_sec
+    )
+    spans = _musicxml_attack_spans(xml_text, path)
+    decoded = sorted((int(s[0]), float(s[1]), float(s[1]) + float(s[2])) for s in spans)
+    assert len(decoded) == len(expected), (decoded, expected, spans)
+    for actual, want in zip(decoded, expected):
+        assert actual[0] == want[0]
+        assert actual[1] == pytest.approx(want[1], abs=1e-6)
+        assert actual[2] == pytest.approx(want[2], abs=1e-6)
+    # Repeated same-pitch attacks remain distinct (no silent merge).
+    assert len(spans) == len(intended_sec)
+    # Ties, if any, only join pieces within one collapsed attack — never absorb
+    # an independent interrupter into the sustained span.
+    for span in spans:
+        _pitch, onset, dur, pieces, tied, *_ = span
+        if tied or pieces > 1:
+            # Tied chain must still equal exactly one intended release.
+            end = onset + dur
+            matches = [
+                row
+                for row in expected
+                if row[0] == int(_pitch)
+                and abs(row[1] - onset) < 1e-6
+                and abs(row[2] - end) < 1e-6
+            ]
+            assert len(matches) == 1, (span, expected)
+
+
+def _editor_velocity_by_id(result) -> dict[str, int]:
+    out = {}
+    for row in result.editor_model["notes"]:
+        sid = row.get("source_note_id") or row["id"]
+        out[sid] = int(row["velocity"])
+    return out
+
+
+def _assert_exports_against_fixture(
+    result,
+    *,
+    tmp_path: Path,
+    label: str,
+    intended,
+    expected_groups: list[set[str]],
+    tempo: float = 120.0,
+):
+    """Decode MusicXML + score MIDI and compare both to fixture expectations."""
+    assign = _assignments(result)
+    assert assign["count"] == len(intended)
+    _assert_expected_partitions(assign, expected_groups)
+    _assert_score_midi_matches(
+        result.score_midi,
+        tmp_path / f"{label}.score.mid",
+        intended,
+        tempo=tempo,
+    )
+    _assert_musicxml_attacks_match(
+        result.musicxml,
+        tmp_path / f"{label}.musicxml",
+        intended,
+        tempo=tempo,
+    )
+    return assign
+
+
 def test_sustained_resume_e2e_partitions_survive_regen_and_edit(tmp_path, monkeypatch):
-    """E2E: multi-channel hold/interrupter/resume with expected partitions."""
+    """E2E: multi-channel hold/interrupter/resume with expected partitions + exports."""
     monkeypatch.setenv("TRANSCRIPTION_QUANTIZATION_MODE", "performance")
     source = tmp_path / "sustained_resume.mid"
     # At 120 bpm, 1 beat = 0.5 s. Hold 0–2 beats; shorts at 0.5 and 1.5; resume at 2.
@@ -294,33 +421,57 @@ def test_sustained_resume_e2e_partitions_survive_regen_and_edit(tmp_path, monkey
         context=_context_for(ingested),
     )
     assert source.read_bytes() == original
-    assign = _assignments(auto)
-    assert assign["count"] == 4
-    by_start = sorted(assign["notes"], key=lambda r: (r["start"], -r.get("duration", 0)))
-    ids = [row["id"] for row in by_start]
-    # Order: s0, t0, t1, s1
-    s0, t0, t1, s1 = ids
-    _assert_expected_partitions(assign, [{s0, s1}, {t0, t1}])
-    assert assign["notes"][0]["duration"] >= 1.9  # independent hold release (~2 beats)
+    by_start = sorted(
+        _assignments(auto)["notes"],
+        key=lambda r: (r["start"], -r.get("duration", 0)),
+    )
+    s0, t0, t1, s1 = [row["id"] for row in by_start]
+    groups = [{s0, s1}, {t0, t1}]
+    assign = _assert_exports_against_fixture(
+        auto,
+        tmp_path=tmp_path,
+        label="sustained_auto",
+        intended=intended,
+        expected_groups=groups,
+    )
+    hold_row = next(row for row in assign["notes"] if row["id"] == s0)
+    assert hold_row["duration"] == pytest.approx(2.0, abs=1e-6)
 
-    sid = s0
     edited = recompute_notation(
         midi_bytes=original,
         settings=NotationSettings(),
         performance=ingested.performance,
         context=_context_for(ingested),
-        corrections=[{"source_note_id": sid, "velocity": 105}],
+        corrections=[{"source_note_id": s0, "velocity": 105}],
     )
     assert source.read_bytes() == original
-    edit_assign = _assignments(edited)
-    _assert_expected_partitions(edit_assign, [{s0, s1}, {t0, t1}])
+    edited_intended = [
+        (60, 0.0, 1.0, 105, 0),
+        (60, 0.25, 0.5, 70, 1),
+        (60, 0.75, 1.0, 70, 1),
+        (60, 1.0, 1.5, 80, 0),
+    ]
+    edit_assign = _assert_exports_against_fixture(
+        edited,
+        tmp_path=tmp_path,
+        label="sustained_edited",
+        intended=edited_intended,
+        expected_groups=groups,
+    )
     compared = compare_staff_voice(assign, edit_assign)
     assert compared["musical_grouping_equal"] is True
     assert compared["kind"] in {"unchanged", "printed_lane_adjustment"}
 
+    auto_vel = _editor_velocity_by_id(auto)
+    edit_vel = _editor_velocity_by_id(edited)
+    assert edit_vel[s0] == 105
+    for sid in (t0, t1, s1):
+        assert edit_vel[sid] == auto_vel[sid]
 
-def test_short_line_e2e_partitions_survive_regen(tmp_path):
-    """E2E: short repeating line continues after hold ends — by source_note_id."""
+
+def test_short_line_e2e_partitions_survive_regen(tmp_path, monkeypatch):
+    """E2E: short repeating line continues after hold ends — exports + partitions."""
+    monkeypatch.setenv("TRANSCRIPTION_QUANTIZATION_MODE", "performance")
     source = tmp_path / "short_line.mid"
     intended = [
         (60, 0.0, 1.0, 80, 0),    # hold 0–2 beats
@@ -338,13 +489,51 @@ def test_short_line_e2e_partitions_survive_regen(tmp_path):
         context=_context_for(ingested),
     )
     assert source.read_bytes() == original
-    assign = _assignments(auto)
-    assert assign["count"] == 5
-    by_start = sorted(assign["notes"], key=lambda r: r["start"])
+    by_start = sorted(_assignments(auto)["notes"], key=lambda r: r["start"])
     hold_id = by_start[0]["id"]
     short_ids = [row["id"] for row in by_start[1:]]
-    _assert_expected_partitions(assign, [{hold_id}, set(short_ids)])
+    groups = [{hold_id}, set(short_ids)]
+    assign = _assert_exports_against_fixture(
+        auto,
+        tmp_path=tmp_path,
+        label="short_auto",
+        intended=intended,
+        expected_groups=groups,
+    )
     assert len(assign["musical_voices"]) >= 2
+
+    # Velocity-only edit on the first short note — compare both runs to fixture.
+    st0 = short_ids[0]
+    edited = recompute_notation(
+        midi_bytes=original,
+        settings=NotationSettings(),
+        performance=ingested.performance,
+        context=_context_for(ingested),
+        corrections=[{"source_note_id": st0, "velocity": 111}],
+    )
+    assert source.read_bytes() == original
+    edited_intended = [
+        (60, 0.0, 1.0, 80, 0),
+        (60, 0.25, 0.5, 111, 1),
+        (60, 0.5, 0.75, 70, 1),
+        (60, 0.75, 1.0, 70, 1),
+        (60, 1.0, 1.25, 70, 1),
+    ]
+    edit_assign = _assert_exports_against_fixture(
+        edited,
+        tmp_path=tmp_path,
+        label="short_edited",
+        intended=edited_intended,
+        expected_groups=groups,
+    )
+    compared = compare_staff_voice(assign, edit_assign)
+    assert compared["musical_grouping_equal"] is True
+    assert compared["kind"] in {"unchanged", "printed_lane_adjustment"}
+    auto_vel = _editor_velocity_by_id(auto)
+    edit_vel = _editor_velocity_by_id(edited)
+    assert edit_vel[st0] == 111
+    for sid in [hold_id, *short_ids[1:]]:
+        assert edit_vel[sid] == auto_vel[sid]
 
 
 def test_held_bass_and_melody_split_by_staff_not_musical_voice(tmp_path):

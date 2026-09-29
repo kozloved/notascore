@@ -1,0 +1,48 @@
+{
+  "example_id": "synth-short-line-continues",
+  "title": "Short repeating line continues after sustained hold ends",
+  "label": "synthetic_construction_pair",
+  "permitted_use": "synthetic_repo_fixture",
+  "package_role": "supplemental_p2b_export_evidence",
+  "not_in_p1_candidate_set": true,
+  "held_out_unchanged": true,
+  "midi_sha256": "8e1c6fa31de4fa5972395b4b30aca82c7b8c88bf4f9beeeec0ddac2cb5d071ff",
+  "source_midi_unchanged": true,
+  "algorithms": {
+    "v1": "performance-score-1",
+    "v2": "performance-score-2"
+  },
+  "note_count": 5,
+  "musical_voices": [
+    0,
+    1
+  ],
+  "renders": [
+    {
+      "version": "v1",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": false,
+        "svg": false
+      }
+    },
+    {
+      "version": "v2",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": false,
+        "svg": false
+      }
+    }
+  ],
+  "artifacts": {
+    "input_midi": "supplemental_p2b/synth-short-line-continues/input.mid",
+    "v1_musicxml": "supplemental_p2b/synth-short-line-continues/v1.musicxml",
+    "v2_musicxml": "supplemental_p2b/synth-short-line-continues/v2.musicxml",
+    "v1_score_midi": "supplemental_p2b/synth-short-line-continues/v1.score.mid",
+    "v2_score_midi": "supplemental_p2b/synth-short-line-continues/v2.score.mid"
+  },
+  "note": "Synthetic construction pair for voice continuity / export verification. Not a P1 completion case; not musician-reviewed."
+}

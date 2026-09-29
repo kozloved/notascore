@@ -85,3 +85,14 @@ Documented in code as `COMPLETION_CRITERIA` (`evaluation/musical_baseline/review
   ties, accepted corrections, and user locks.
 - Compare staff, musical-voice grouping, and printed lanes separately.
 - Do not retune the engine merely because case 138 printed lanes move.
+
+## Supplemental + real samples
+
+- `supplemental_p2b/` holds synthetic corrected voice pairs (sustained
+  resume, short-line continues) with matched renders/playback. Not part of
+  the 15-candidate set; not musician-validated.
+- `dev-pickup` (and related tempo cases in the package) remain the pickup /
+  tempo review examples.
+- For live jobs, use `REAL_SAMPLE_REVIEW_CHECKLIST.md` (job ID, engine
+  evidence, audio, unedited/corrected outputs, timestamp/measure, edits,
+  correction time).
