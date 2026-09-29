@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   conflictMessage,
@@ -10,10 +10,9 @@ import {
   type PolicyException,
 } from "../../lib/jobs";
 import {
-  READABLE_GAP_OPTIONS,
-  patchForReadableGapStyle,
-  readableGapStyle,
-  type ReadableGapStyle,
+  ALGORITHM_VERSION_CURRENT,
+  ALGORITHM_VERSION_READABLE_V2,
+  type AlgorithmVersionChoice,
 } from "../../lib/notation-style";
 import Button from "../ui/Button";
 import SegmentedControl from "../ui/SegmentedControl";
@@ -23,6 +22,8 @@ type NotationInterpretationPanelProps = {
   revision: number;
   timeSignature?: string;
   provenance?: string | null;
+  dirty?: boolean;
+  flushSave?: () => Promise<{ revision: number } | null | undefined>;
   onApplied: () => Promise<void> | void;
 };
 
@@ -33,11 +34,19 @@ const GRID_OPTIONS = [
   { value: "thirty-second", label: "32" },
 ] as const;
 
+function asAlgorithmChoice(version: string | undefined): AlgorithmVersionChoice {
+  return version === ALGORITHM_VERSION_READABLE_V2
+    ? ALGORITHM_VERSION_READABLE_V2
+    : ALGORITHM_VERSION_CURRENT;
+}
+
 export default function NotationInterpretationPanel({
   jobId,
   revision,
   timeSignature,
   provenance,
+  dirty = false,
+  flushSave,
   onApplied,
 }: NotationInterpretationPanelProps) {
   const [settings, setSettings] = useState<NotationSettings | null>(null);
@@ -47,6 +56,11 @@ export default function NotationInterpretationPanel({
   const [busy, setBusy] = useState(false);
   const [fallback, setFallback] = useState<string | null>(null);
   const [exceptions, setExceptions] = useState<PolicyException[]>([]);
+  const [regenAvailable, setRegenAvailable] = useState(true);
+  const [regenReason, setRegenReason] = useState<string | null>(null);
+  const requestGen = useRef(0);
+  const revisionRef = useRef(revision);
+  revisionRef.current = revision;
 
   useEffect(() => {
     let cancelled = false;
@@ -62,6 +76,8 @@ export default function NotationInterpretationPanel({
         );
         setFallback(payload.fallback || null);
         setExceptions(payload.policy_exceptions || []);
+        setRegenAvailable(payload.regeneration_available !== false);
+        setRegenReason(payload.regeneration_unavailable_reason || null);
       })
       .catch(() => {
         if (!cancelled) setStatus("Could not load notation settings.");
@@ -72,13 +88,25 @@ export default function NotationInterpretationPanel({
   }, [jobId, revision, timeSignature]);
 
   const apply = async (body: Partial<NotationSettings> & { reset?: boolean }) => {
+    const gen = ++requestGen.current;
+    const prior = settings;
     setBusy(true);
-    setStatus("");
+    setStatus("Updating notation…");
     try {
+      let baseRevision = revisionRef.current;
+      if (dirty && flushSave) {
+        const flushed = await flushSave();
+        if (gen !== requestGen.current) return;
+        if (flushed?.revision != null) {
+          baseRevision = flushed.revision;
+          revisionRef.current = flushed.revision;
+        }
+      }
       const saved = await saveNotationSettings(jobId, {
         ...body,
-        revision,
+        revision: baseRevision,
       });
+      if (gen !== requestGen.current) return;
       setSettings(saved.notation_settings);
       setMeter(saved.notation_settings.meter || timeSignature || "4/4");
       setPickup(
@@ -88,12 +116,24 @@ export default function NotationInterpretationPanel({
       );
       setFallback(saved.fallback || null);
       setExceptions(saved.policy_exceptions || []);
+      if (saved.edit_revision != null) {
+        revisionRef.current = saved.edit_revision;
+      }
+      setRegenAvailable(saved.regeneration_available !== false);
+      setRegenReason(saved.regeneration_unavailable_reason || null);
       await onApplied();
-      setStatus(saved.transcribed ? "Updated." : "Score updated from the original performance.");
+      if (gen !== requestGen.current) return;
+      setStatus(
+        saved.transcribed
+          ? "Updated."
+          : "Score updated from the original performance."
+      );
     } catch (err) {
+      if (gen !== requestGen.current) return;
+      if (prior) setSettings(prior);
       setStatus(conflictMessage(err));
     } finally {
-      setBusy(false);
+      if (gen === requestGen.current) setBusy(false);
     }
   };
 
@@ -105,14 +145,52 @@ export default function NotationInterpretationPanel({
     ) : null;
   }
 
+  const algorithmValue = asAlgorithmChoice(settings.algorithm_version);
+  const selectorDisabled = busy || !regenAvailable;
+
   return (
     <section className="ns-notation-panel" aria-label="Notation interpretation">
       <div className="ns-notation-row">
+        <div className="ns-notation-version">
+          <SegmentedControl
+            compact
+            label="Notation version"
+            value={algorithmValue}
+            disabled={selectorDisabled}
+            onChange={(algorithm_version: AlgorithmVersionChoice) => {
+              if (algorithm_version === algorithmValue) return;
+              void apply({
+                ...settings,
+                algorithm_version,
+              });
+            }}
+            options={[
+              {
+                value: ALGORITHM_VERSION_CURRENT,
+                label: "Standard",
+              },
+              {
+                value: ALGORITHM_VERSION_READABLE_V2,
+                label: "Experimental",
+              },
+            ]}
+          />
+          <p className="ns-notation-note ns-notation-version-help">
+            Changes how notes and rests are written. Uses the same
+            transcription. Experimental is opt-in and not claimed to be better.
+          </p>
+          {!regenAvailable ? (
+            <p className="ns-notation-note" role="status">
+              {regenReason ||
+                "Notation version switching is unavailable for this score."}
+            </p>
+          ) : null}
+        </div>
         <SegmentedControl
           compact
           label="Notation interpretation"
           value={settings.interpretation}
-          disabled={busy}
+          disabled={busy || !regenAvailable}
           onChange={(interpretation) =>
             void apply({
               ...settings,
@@ -125,26 +203,11 @@ export default function NotationInterpretationPanel({
             { value: "literal", label: "Literal" },
           ]}
         />
-        {settings.interpretation === "readable" ? (
-          <SegmentedControl
-            compact
-            label="Tiny release gaps"
-            value={readableGapStyle(settings)}
-            disabled={busy}
-            onChange={(style: ReadableGapStyle) =>
-              void apply({
-                ...settings,
-                ...patchForReadableGapStyle(style),
-              })
-            }
-            options={[...READABLE_GAP_OPTIONS]}
-          />
-        ) : null}
         <SegmentedControl
           compact
           label="Display grid"
           value={settings.display_grid}
-          disabled={busy}
+          disabled={busy || !regenAvailable}
           onChange={(display_grid) =>
             void apply({
               ...settings,
@@ -160,7 +223,7 @@ export default function NotationInterpretationPanel({
           <input
             value={meter}
             onChange={(event) => setMeter(event.target.value)}
-            disabled={busy}
+            disabled={busy || !regenAvailable}
             aria-label="Time signature"
           />
         </label>
@@ -169,7 +232,7 @@ export default function NotationInterpretationPanel({
           <input
             value={pickup}
             onChange={(event) => setPickup(event.target.value)}
-            disabled={busy}
+            disabled={busy || !regenAvailable}
             inputMode="decimal"
             placeholder="0"
             aria-label="Pickup beats"
@@ -178,7 +241,7 @@ export default function NotationInterpretationPanel({
         <Button
           variant="secondary"
           size="sm"
-          disabled={busy}
+          disabled={busy || !regenAvailable}
           onClick={() =>
             void apply({
               ...settings,
@@ -192,7 +255,7 @@ export default function NotationInterpretationPanel({
         <Button
           variant="ghost"
           size="sm"
-          disabled={busy}
+          disabled={busy || !regenAvailable}
           onClick={() => void apply({ reset: true })}
         >
           Reset interpretation
@@ -200,8 +263,7 @@ export default function NotationInterpretationPanel({
       </div>
       <p className="ns-notation-note">
         These controls rewrite the derived score only. Original performance MIDI
-        and playback stay unchanged. Existing scores stay on Keep tiny gaps
-        until you choose Fill tiny gaps.
+        and playback stay unchanged.
         {provenance ? ` ${provenance}` : ""}
       </p>
       {fallback ? (
@@ -221,8 +283,25 @@ export default function NotationInterpretationPanel({
         </ul>
       ) : null}
       {status ? (
-        <p className="ns-editor-save" role="status">
+        <p className="ns-editor-save" role="status" aria-live="polite">
           {status}
+          {!busy &&
+          status !== "Updating notation…" &&
+          !status.startsWith("Score updated") &&
+          status !== "Updated." ? (
+            <button
+              type="button"
+              className="ns-text-link"
+              onClick={() =>
+                void apply({
+                  ...settings,
+                  algorithm_version: settings.algorithm_version,
+                })
+              }
+            >
+              Retry
+            </button>
+          ) : null}
         </p>
       ) : null}
     </section>

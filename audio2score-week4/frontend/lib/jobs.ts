@@ -237,6 +237,8 @@ export type NotationSettingsPayload = {
   has_edits?: boolean;
   fallback?: string | null;
   policy_exceptions?: PolicyException[];
+  regeneration_available?: boolean;
+  regeneration_unavailable_reason?: string | null;
 };
 
 export async function getNotationSettings(id: string): Promise<NotationSettingsPayload> {

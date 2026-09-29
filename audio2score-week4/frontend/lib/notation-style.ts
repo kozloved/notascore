@@ -1,6 +1,15 @@
 export const ALGORITHM_VERSION_CURRENT = "performance-score-1";
 export const ALGORITHM_VERSION_READABLE_V2 = "performance-score-2";
 
+export type AlgorithmVersionChoice =
+  | typeof ALGORITHM_VERSION_CURRENT
+  | typeof ALGORITHM_VERSION_READABLE_V2;
+
+export function algorithmVersionLabel(version: string): string {
+  if (version === ALGORITHM_VERSION_READABLE_V2) return "Experimental";
+  return "Standard";
+}
+
 export type ReadableGapStyle = "current" | "fill_tiny_gaps";
 
 export const READABLE_GAP_OPTIONS = [

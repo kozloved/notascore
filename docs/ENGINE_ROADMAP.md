@@ -229,6 +229,11 @@ voice continuity make a score unusable even when export is valid.
   `notation_engine/plan.py`. Readable-v2 is opt-in
   (`performance-score-2`). Last-note triplet pulse and relative leftover
   fill are tested. Independent holds are not clipped on synthetic cases.
+- Editor **Notation version** control (Standard = `performance-score-1`,
+  Experimental = `performance-score-2`) regenerates from existing
+  performance MIDI via `/jobs/{id}/notation-settings` — no retranscription
+  and no extra transcription credit. v2 remains opt-in; the control does
+  not make v2 the default.
 - 138: musical voice unchanged; printed lanes move after duration fill.
   Not a P2 musical-line bug. Residual duration spelling on that
   development file is unverified musically.

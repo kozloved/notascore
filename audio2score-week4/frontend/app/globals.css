@@ -662,10 +662,23 @@ body::before {
   box-shadow: var(--ns-shadow);
 }
 
-.ns-segment-option:disabled,
-.mode-option:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
+.ns-segment-option:focus-visible,
+.theme-option:focus-visible,
+.mode-option:focus-visible {
+  outline: 2px solid var(--ns-accent);
+  outline-offset: 2px;
+}
+
+.ns-notation-version {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: min(100%, 280px);
+}
+
+.ns-notation-version-help {
+  margin: 0;
+  max-width: 28rem;
 }
 
 .ns-segment-copy {

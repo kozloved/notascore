@@ -68,9 +68,11 @@ export function useScoreEditor(scoreId: string | null) {
     }
   };
 
-  const persist = useCallback(async () => {
+  const persist = useCallback(async (): Promise<{ revision: number } | null> => {
     const id = scoreIdRef.current;
-    if (!id || !dirtyRef.current) return;
+    if (!id || !dirtyRef.current) {
+      return id ? { revision: revisionRef.current } : null;
+    }
     const openGeneration = openGenerationRef.current;
     const submittedGeneration = generationRef.current;
     const submittedRevision = revisionRef.current;
@@ -93,9 +95,10 @@ export function useScoreEditor(scoreId: string | null) {
         scoreIdRef.current !== id ||
         openGenerationRef.current !== openGeneration
       ) {
-        return;
+        return null;
       }
       setRevision(saved.revision);
+      revisionRef.current = saved.revision;
       setHasEdits(saved.has_edits);
       setRenderKey((value) => value + 1);
       if (generationRef.current === submittedGeneration) {
@@ -110,9 +113,10 @@ export function useScoreEditor(scoreId: string | null) {
         }, SAVE_DELAY_MS);
       }
       track("edit_saved");
+      return { revision: saved.revision };
     } catch (err) {
       if (scoreIdRef.current !== id || openGenerationRef.current !== openGeneration) {
-        return;
+        return null;
       }
       if (err instanceof ApiRequestError && err.status === 409) {
         dirtyRef.current = true;
@@ -124,12 +128,13 @@ export function useScoreEditor(scoreId: string | null) {
           )
         );
         track("edit_save_failed");
-        return;
+        throw err;
       }
       dirtyRef.current = true;
       setStatus("error");
       setError("Changes couldn't be saved.");
       track("edit_save_failed");
+      throw err;
     } finally {
       if (savingGenerationRef.current === submittedGeneration) {
         savingGenerationRef.current = null;
@@ -355,7 +360,7 @@ export function useScoreEditor(scoreId: string | null) {
 
   const flushSave = useCallback(async () => {
     clearTimer();
-    await persist();
+    return persist();
   }, [persist]);
 
   const dirty = !notesEqual(notes, originalRef.current) || hasEdits;
