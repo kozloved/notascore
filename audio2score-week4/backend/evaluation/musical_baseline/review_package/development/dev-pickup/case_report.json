@@ -19,8 +19,8 @@
   "source_midi_unchanged": true,
   "artifact_fingerprint": {
     "midi_sha256": "6a6e795e7eb8c00dc7a6bada808ac1dfe538a91bdbcb4ffa3c8a3b158c4e9cd5",
-    "v1_musicxml_sha256": "7a4fbe80cd13bc094ef3d3a136c71c8acf66e5ae24bbfe4c027e910bd388d367",
-    "v2_musicxml_sha256": "7a4fbe80cd13bc094ef3d3a136c71c8acf66e5ae24bbfe4c027e910bd388d367",
+    "v1_musicxml_sha256": "4a5af1d79e47a2a170974a0c40713bb8231a2b797c44d54882581f166aa0b536",
+    "v2_musicxml_sha256": "4a5af1d79e47a2a170974a0c40713bb8231a2b797c44d54882581f166aa0b536",
     "v1_score_midi_sha256": "18a69372d51b831cbf2e96166e2615ee161651171cf5f3209b2a1c126f65b90f",
     "v2_score_midi_sha256": "18a69372d51b831cbf2e96166e2615ee161651171cf5f3209b2a1c126f65b90f",
     "v1_algorithm_version": "performance-score-1",
@@ -200,7 +200,7 @@
       "mechanical": true,
       "score": null,
       "reviewer": "automated_export_integrity",
-      "reviewed_at": "2026-09-28T18:36:50.766421+00:00",
+      "reviewed_at": "2026-09-29T11:36:16.684317+00:00",
       "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
       "human_status": "not_reviewed",
       "human_versions": {
@@ -396,8 +396,8 @@
       "osmd": {
         "returncode": 0,
         "html": true,
-        "png": true,
-        "svg": true
+        "png": false,
+        "svg": false
       }
     },
     {
@@ -405,8 +405,8 @@
       "osmd": {
         "returncode": 0,
         "html": true,
-        "png": true,
-        "svg": true
+        "png": false,
+        "svg": false
       }
     }
   ],

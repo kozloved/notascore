@@ -883,17 +883,25 @@ def export_portable_bundle(
         else handoff / f"p1-review-handoff-{commit[:12]}-{stamp}.tar.gz"
     )
     archive.parent.mkdir(parents=True, exist_ok=True)
+    supplemental = dest / "supplemental_p2b"
     manifest = {
         "engine_commit": commit,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "package_dir": str(dest),
         "includes_midi": True,
         "includes_osmd_renders": True,
+        "includes_supplemental_p2b": supplemental.is_dir(),
+        "includes_real_sample_checklist": (
+            dest / "REAL_SAMPLE_REVIEW_CHECKLIST.md"
+        ).is_file(),
         "first_session_cases": list(FIRST_SESSION_CASES),
+        "pickup_tempo_examples": ["dev-pickup"],
         "commands": _package_commands(),
         "note": (
             "Portable musician-review handoff. Prepared for review does not "
-            "mean P1 is complete. No fabricated ratings."
+            "mean P1 is complete. No fabricated ratings. Supplemental P2b "
+            "voice pairs are synthetic construction evidence only. Old "
+            "handoff archives under handoff/ are preserved separately."
         ),
     }
     (dest / "HANDOFF_MANIFEST.json").write_text(
@@ -970,6 +978,242 @@ def _assemble_package_report(
     return report
 
 
+def _write_multichannel_midi(path: Path, notes, *, tempo: float = 120.0) -> None:
+    """Write (pitch, start, end, velocity, channel) rows; keep overlapping unisons."""
+    import mido
+
+    mid = mido.MidiFile(ticks_per_beat=480)
+    track = mido.MidiTrack()
+    mid.tracks.append(track)
+    track.append(mido.MetaMessage("set_tempo", tempo=int(60_000_000 / tempo), time=0))
+    track.append(mido.MetaMessage("time_signature", numerator=4, denominator=4, time=0))
+    events = []
+    for pitch, start, end, velocity, channel in notes:
+        events.append((float(start), 0, "on", int(pitch), int(velocity), int(channel)))
+        events.append((float(end), 1, "off", int(pitch), 0, int(channel)))
+    events.sort()
+    last_tick = 0
+    ticks_per_sec = (tempo / 60.0) * 480
+    for time_sec, _order, kind, pitch, velocity, channel in events:
+        tick = int(round(time_sec * ticks_per_sec))
+        delta = max(0, tick - last_tick)
+        last_tick = tick
+        msg_type = "note_on" if kind == "on" else "note_off"
+        track.append(
+            mido.Message(
+                msg_type,
+                note=pitch,
+                velocity=velocity,
+                channel=channel,
+                time=delta,
+            )
+        )
+    mid.save(str(path))
+
+
+# Synthetic P2b export-evidence pairs. Not part of the 15-candidate P1 set /
+# held-out split; labeled for construction review only.
+P2B_EXPORT_EVIDENCE = (
+    {
+        "example_id": "synth-sustained-resume",
+        "title": "Same-pitch sustained line resumes after short interruptions",
+        "label": "synthetic_construction_pair",
+        "notes": [
+            (60, 0.0, 1.0, 80, 0),
+            (60, 0.25, 0.5, 70, 1),
+            (60, 0.75, 1.0, 70, 1),
+            (60, 1.0, 1.5, 80, 0),
+        ],
+    },
+    {
+        "example_id": "synth-short-line-continues",
+        "title": "Short repeating line continues after sustained hold ends",
+        "label": "synthetic_construction_pair",
+        "notes": [
+            (60, 0.0, 1.0, 80, 0),
+            (60, 0.25, 0.5, 70, 1),
+            (60, 0.5, 0.75, 70, 1),
+            (60, 0.75, 1.0, 70, 1),
+            (60, 1.0, 1.25, 70, 1),
+        ],
+    },
+)
+
+
+def write_supplemental_p2b_evidence(
+    out_dir: Path,
+    *,
+    render: bool = False,
+) -> list[dict[str, Any]]:
+    """Write matched v1/v2 renders for corrected voice pairs (not P1 candidates).
+
+    Preserves the 15-example development/held-out splits unchanged. These
+    folders are explicitly synthetic construction evidence for export/voice
+    continuity review preparation — not musician-validated quality claims.
+    """
+    dest = Path(out_dir) / "supplemental_p2b"
+    dest.mkdir(parents=True, exist_ok=True)
+    rows: list[dict[str, Any]] = []
+    for spec in P2B_EXPORT_EVIDENCE:
+        case_dir = dest / spec["example_id"]
+        case_dir.mkdir(parents=True, exist_ok=True)
+        midi_path = case_dir / "input.mid"
+        _write_multichannel_midi(midi_path, spec["notes"], tempo=120.0)
+        original = midi_path.read_bytes()
+        v1, _ingested = _build(
+            midi_path, NotationSettings(), meter="4/4", tempo=120.0
+        )
+        assert midi_path.read_bytes() == original
+        v2, _ = _build(
+            midi_path,
+            NotationSettings.readable_opt_in(),
+            meter="4/4",
+            tempo=120.0,
+        )
+        assert midi_path.read_bytes() == original
+        (case_dir / "v1.musicxml").write_text(v1.musicxml, encoding="utf-8")
+        (case_dir / "v2.musicxml").write_text(v2.musicxml, encoding="utf-8")
+        if v1.score_midi:
+            (case_dir / "v1.score.mid").write_bytes(v1.score_midi)
+        if v2.score_midi:
+            (case_dir / "v2.score.mid").write_bytes(v2.score_midi)
+        assign1 = _assignments(v1)
+        (case_dir / "note_index.json").write_text(
+            json.dumps(
+                {
+                    "matched_by": "source_note_id",
+                    "synthetic": True,
+                    "label": spec["label"],
+                    "notes": _note_index(assign1),
+                    "staff_musical_printed_compared_separately": True,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        renders: list[dict[str, Any]] = []
+        if render:
+            for version, xml in (("v1", v1.musicxml), ("v2", v2.musicxml)):
+                xml_path = case_dir / f"{version}.musicxml"
+                osmd = _render_osmd(xml_path, case_dir / f"{version}_osmd")
+                renders.append(
+                    {
+                        "version": version,
+                        "osmd": {
+                            key: osmd.get(key)
+                            for key in ("returncode", "html", "png", "svg")
+                        },
+                    }
+                )
+        row = {
+            "example_id": spec["example_id"],
+            "title": spec["title"],
+            "label": spec["label"],
+            "permitted_use": "synthetic_repo_fixture",
+            "package_role": "supplemental_p2b_export_evidence",
+            "not_in_p1_candidate_set": True,
+            "held_out_unchanged": True,
+            "midi_sha256": hashlib.sha256(original).hexdigest(),
+            "source_midi_unchanged": midi_path.read_bytes() == original,
+            "algorithms": {
+                "v1": v1.settings.algorithm_version,
+                "v2": v2.settings.algorithm_version,
+            },
+            "note_count": assign1["count"],
+            "musical_voices": assign1.get("musical_voices"),
+            "renders": renders,
+            "artifacts": {
+                "input_midi": str(midi_path.relative_to(out_dir)),
+                "v1_musicxml": str((case_dir / "v1.musicxml").relative_to(out_dir)),
+                "v2_musicxml": str((case_dir / "v2.musicxml").relative_to(out_dir)),
+                "v1_score_midi": (
+                    str((case_dir / "v1.score.mid").relative_to(out_dir))
+                    if (case_dir / "v1.score.mid").exists()
+                    else None
+                ),
+                "v2_score_midi": (
+                    str((case_dir / "v2.score.mid").relative_to(out_dir))
+                    if (case_dir / "v2.score.mid").exists()
+                    else None
+                ),
+            },
+            "note": (
+                "Synthetic construction pair for voice continuity / export "
+                "verification. Not a P1 completion case; not musician-reviewed."
+            ),
+        }
+        (case_dir / "case_report.json").write_text(
+            json.dumps(row, indent=2) + "\n", encoding="utf-8"
+        )
+        rows.append(row)
+    (dest / "README.md").write_text(
+        "\n".join(
+            [
+                "# Supplemental P2b export evidence (synthetic)",
+                "",
+                "Corrected multi-channel voice-continuity pairs with matched",
+                "v1/v2 MusicXML, score MIDI, and optional OSMD renders.",
+                "",
+                "- **Not** part of the 15-example P1 candidate set.",
+                "- Held-out splits are unchanged.",
+                "- Explicitly synthetic — construction-labeled, not musician quality.",
+                "",
+                "Cases:",
+                *[f"- `{r['example_id']}` — {r['title']}" for r in rows],
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (dest / "index.json").write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
+    return rows
+
+
+def _real_sample_checklist() -> str:
+    return """# Real-sample review checklist
+
+Use this for **live job** evidence destined for musician review. Reuses the
+existing evaluation package / `review.json` structures — no new review app.
+
+Keep synthetic package cases labeled `synthetic_repo_fixture`. Do not bind
+older reviews to rebuilt artifact hashes without re-review.
+
+## Per sample
+
+| Field | Value |
+|---|---|
+| Job ID | |
+| Engine commit / version evidence | |
+| Algorithm (`performance-score-1` / `performance-score-2`) | |
+| Original audio (path or storage key) | |
+| Unedited output (MusicXML + score MIDI + playback) | |
+| Corrected output (after edits; same IDs) | |
+| Timestamp / measure cited | |
+| Edits applied (`source_note_id` + fields) | |
+| Correction time (minutes) | |
+| Reviewer + `reviewed_at` (ISO) | |
+
+## Workflow
+
+1. Record engine SHA and job ID before exporting artifacts.
+2. Save unedited MusicXML, score MIDI, and original audio alongside the job.
+3. Apply corrections; save corrected exports without rewriting source MIDI.
+4. Cite measure/timestamp and list each edit by `source_note_id`.
+5. Fill `review.json` attribution + interpretation + correction-effort
+   dimensions (same schema as the synthetic package).
+6. Run report-only validation against live hashes:
+   `python -m evaluation.musical_baseline --report-reviews …`
+7. Mark acoustic accuracy only when audio + reference labels exist.
+
+## Limits
+
+- Synthetic fixtures do not prove acoustic accuracy or P1 completion.
+- P1 remains incomplete until attributed real reviews exist.
+- Default remains v1; v2 stays opt-in.
+"""
+
+
 def build_package(
     out_dir: Path | None = None,
     *,
@@ -987,9 +1231,12 @@ def build_package(
     for candidate in candidates(eligible_only=eligible_only):
         case_rows.append(build_case(candidate, dest, render=render))
 
+    supplemental = write_supplemental_p2b_evidence(dest, render=render)
+
     report = _assemble_package_report(
         dest, case_rows, inventory=inventory, mode="package"
     )
+    report["supplemental_p2b"] = supplemental
     (dest / "inventory.json").write_text(
         json.dumps(inventory, indent=2) + "\n", encoding="utf-8"
     )
@@ -998,6 +1245,9 @@ def build_package(
     )
     (dest / "package_report.md").write_text(_markdown_report(report), encoding="utf-8")
     (dest / "REVIEW_INSTRUCTIONS.md").write_text(_instructions(), encoding="utf-8")
+    (dest / "REAL_SAMPLE_REVIEW_CHECKLIST.md").write_text(
+        _real_sample_checklist(), encoding="utf-8"
+    )
     write_review_index(dest)
     write_first_session_guide(dest)
     return report
@@ -1147,6 +1397,17 @@ Documented in code as `COMPLETION_CRITERIA` (`evaluation/musical_baseline/review
   ties, accepted corrections, and user locks.
 - Compare staff, musical-voice grouping, and printed lanes separately.
 - Do not retune the engine merely because case 138 printed lanes move.
+
+## Supplemental + real samples
+
+- `supplemental_p2b/` holds synthetic corrected voice pairs (sustained
+  resume, short-line continues) with matched renders/playback. Not part of
+  the 15-candidate set; not musician-validated.
+- `dev-pickup` (and related tempo cases in the package) remain the pickup /
+  tempo review examples.
+- For live jobs, use `REAL_SAMPLE_REVIEW_CHECKLIST.md` (job ID, engine
+  evidence, audio, unedited/corrected outputs, timestamp/measure, edits,
+  correction time).
 """
 
 
@@ -1169,6 +1430,13 @@ def _markdown_report(report: dict[str, Any]) -> str:
         f"- Stale reviews: **{summary.get('stale_count', 0)}**",
         f"- P1 complete: **{report['p1_complete']}**",
         f"- Reason: {report['p1_complete_reason']}",
+        "",
+        "## Supplemental P2b export evidence",
+        "",
+        "- Synthetic voice-continuity pairs (multi-channel) live under "
+        "`supplemental_p2b/`. They are **not** P1 candidates and do not "
+        "alter held-out splits.",
+        "- Real-sample workflow: `REAL_SAMPLE_REVIEW_CHECKLIST.md`.",
         "",
         "## Family coverage",
         "",

@@ -338,7 +338,7 @@ reviews. Default remains `performance-score-1`; v2 stays opt-in.
 1. **Short repeating line must not lose notes to a sustained hold.**
    - Duration-compatible same-pitch bonus; paired unit coverage.
 
-**P2b increment (this branch, base `8b381cb`).**
+**P2b increment (PR #89 @ `e0051f1`).**
 
 1. **E2E fixture evidence repair (no production heuristic change).**
    - **Defect (test evidence).** `_write_same_pitch_midi` wrote overlapping
@@ -365,8 +365,50 @@ reviews. Default remains `performance-score-1`; v2 stays opt-in.
      unchanged grouping, and register-split piano lines legitimately show
      `musical_voice=0` per hand after staff assignment. ≥2 musical voices
      is now asserted on same-staff multi-channel same-pitch E2E only.
-   - **Production.** No VoiceSeparator change in this increment — corrected
-     fixtures reproduce the intended partitions without a new defect.
+   - **Production.** No VoiceSeparator change — corrected fixtures
+     reproduce the intended partitions without a new defect.
+
+**P2b increment (this branch, base `e0051f1`).**
+
+1. **Export artifact verification for corrected voice pairs.**
+   - Sustained-resume and short-line E2E now independently decode
+     MusicXML (`score_attacks`) and score MIDI (pretty_midi) **before and
+     after** a velocity-only edit, comparing both runs to fixture
+     expectations (not only auto-vs-edited equality).
+   - Asserts: note multiplicity/pitches; attack/release within MIDI tick
+     tolerance; hold not shortened by interrupters; distinct repeated
+     attacks; MusicXML ties only within a single intended attack span;
+     editor partitions; velocity edit touches only the target
+     `source_note_id`.
+   - **Boundary.** Canonical multi-channel MIDI → planner → MusicXML/MIDI
+     serialization → independent decode. No production defect reproduced;
+     no VoiceSeparator / exporter change in this increment.
+   - **Exported comparison (sustained-resume, seconds @ 120 bpm).**
+
+     | note | fixture | score MIDI auto | score MIDI after vel→105 on hold |
+     |---|---|---|---|
+     | hold | 0.0–1.0 @80 | 0.0–1.0 @80 | 0.0–1.0 @105 |
+     | t0 | 0.25–0.5 @70 | 0.25–0.5 @70 | unchanged |
+     | t1 | 0.75–1.0 @70 | 0.75–1.0 @70 | unchanged |
+     | s1 | 1.0–1.5 @80 | 1.0–1.5 @80 | unchanged |
+
+     MusicXML attack spans (beats): hold 0–2, t0 0.5–1, t1 1.5–2, s1 2–3;
+     no cross-voice ties.
+
+2. **Review handoff refresh (versioned; old archives preserved).**
+   - New portable bundle under
+     `evaluation/musical_baseline/handoff/p1-review-handoff-e0051f1261ad-*.tar.gz`
+     (prior `2ad36b7` archive kept).
+   - Regenerated 15-candidate package at tested commit; human
+     `review.json` / filled forms preserved (not rebound).
+   - `supplemental_p2b/` adds synthetic sustained-resume + short-line
+     pairs with matched v1/v2 MusicXML, score MIDI, and OSMD HTML
+     previews — **not** part of the P1 candidate set; held-out unchanged.
+   - `REAL_SAMPLE_REVIEW_CHECKLIST.md` for live jobs (job ID, engine
+     evidence, audio, unedited/corrected outputs, timestamp/measure,
+     edits, correction time).
+   - OSMD HTML renders present; PNG/SVG not produced in this environment
+     (documented limitation — playback MIDI + MusicXML remain).
 
 **Remaining P2 work.**
 
@@ -376,6 +418,8 @@ reviews. Default remains `performance-score-1`; v2 stays opt-in.
 3. Musician review of any interpretation claim — blocked on P1 ratings.
 4. Auto-infer path still needs measured downs without a preceding barline;
    do not invent pickups from incomplete openings alone.
+5. Collect real-sample reviews via checklist + existing `review.json`
+   schema; do not invent ratings.
 
 ## P3 — Controlled readable-v2 rollout
 
@@ -487,20 +531,25 @@ independently validated.
 
 ## Suggested next milestone
 
-P2b E2E voice-fixture evidence repair is in this branch (base `8b381cb`).
-**P1 is still 0/15 attributed reviews** — do not mark P1 or P2 complete.
-Construction-labeled tests are not musician sign-off. **Next:** more P2b
-pairs only with failing reproductions on decoded fixtures; collect musician
-reviews via `REVIEW_INDEX.html` / `FIRST_SESSION.md`. Keep v1 default /
-v2 opt-in.
+P2b export verification + versioned review handoff are in this branch
+(base `e0051f1`). **P1 is still 0/15 attributed reviews** — do not mark
+P1 or P2 complete. Construction-labeled / synthetic cases are not
+musician sign-off. **Next:** collect real-sample reviews with
+`REAL_SAMPLE_REVIEW_CHECKLIST.md` + `REVIEW_INDEX.html` /
+`FIRST_SESSION.md`; more P2b pairs only with failing reproductions on
+decoded fixtures. Keep v1 default / v2 opt-in. No further speculative
+voice heuristics.
 
-**Validation (this increment, base SHA=`8b381cb`, branch WIP).**
+**Validation (this increment, base SHA=`e0051f1`, branch WIP).**
 
 - Focused voice continuity + separator + identity + pickup/timing +
-  musical-baseline:
+  musical-baseline + export evidence:
   `pytest tests/test_voice_continuity_paired.py tests/test_voice_separator.py tests/test_voice_identity_regressions.py tests/test_midi_timing_fidelity.py tests/test_export_evidence_structure.py tests/test_notation_settings.py tests/test_musical_baseline.py -q`
   → **92 passed**.
 - Supported backend suite:
   `pytest -m 'not integration and not pm2s' -q`
   → **1030 passed, 4 deselected, 0 failed**.
+- Handoff:
+  `evaluation/musical_baseline/handoff/p1-review-handoff-e0051f1261ad-20260929T113906Z.tar.gz`
+  (prior `p1-review-handoff-2ad36b7-20260928T184012Z.tar.gz` preserved).
 

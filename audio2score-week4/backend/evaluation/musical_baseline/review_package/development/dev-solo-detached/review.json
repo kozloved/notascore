@@ -12,8 +12,8 @@
   },
   "artifact_binding": {
     "midi_sha256": "5a0e0be8f784321bb92ceb573a405cc1f15c9b582e5e9631dc1211a438ca89da",
-    "v1_musicxml_sha256": "61ec629408bfd602332ccc9fc3bb43c5d2a4f179a3321e8e163eb341b795abb1",
-    "v2_musicxml_sha256": "020691275c15f9c1168edff6e77956d972425621b9ae30d74ec0307ff300b5b0",
+    "v1_musicxml_sha256": "2e9eedeecd938c2dce42e9c96c2a37d54c15f7c5acc109187b34e0f37c1eb555",
+    "v2_musicxml_sha256": "1251129deebb7f0ddc5353ffd0a9d64b51ea554308d85d50352ea611487a6f16",
     "v1_score_midi_sha256": "02ea2176452c0b0730fe55060db649d641f2766bd93bbfcc0fe123a21a8da8a4",
     "v2_score_midi_sha256": "06e8c58adfc6a4cab37614f23389ea4840cee025d79658eae1ec6d42aca083fd",
     "v1_algorithm_version": "performance-score-1",

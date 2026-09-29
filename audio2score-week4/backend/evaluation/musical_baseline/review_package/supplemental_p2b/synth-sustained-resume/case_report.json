@@ -1,0 +1,48 @@
+{
+  "example_id": "synth-sustained-resume",
+  "title": "Same-pitch sustained line resumes after short interruptions",
+  "label": "synthetic_construction_pair",
+  "permitted_use": "synthetic_repo_fixture",
+  "package_role": "supplemental_p2b_export_evidence",
+  "not_in_p1_candidate_set": true,
+  "held_out_unchanged": true,
+  "midi_sha256": "30241c2b673f1c9576a6e2b8756e494837e62ae9a28bf902b8f3f9c59ef7f191",
+  "source_midi_unchanged": true,
+  "algorithms": {
+    "v1": "performance-score-1",
+    "v2": "performance-score-2"
+  },
+  "note_count": 4,
+  "musical_voices": [
+    0,
+    1
+  ],
+  "renders": [
+    {
+      "version": "v1",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": false,
+        "svg": false
+      }
+    },
+    {
+      "version": "v2",
+      "osmd": {
+        "returncode": 0,
+        "html": true,
+        "png": false,
+        "svg": false
+      }
+    }
+  ],
+  "artifacts": {
+    "input_midi": "supplemental_p2b/synth-sustained-resume/input.mid",
+    "v1_musicxml": "supplemental_p2b/synth-sustained-resume/v1.musicxml",
+    "v2_musicxml": "supplemental_p2b/synth-sustained-resume/v2.musicxml",
+    "v1_score_midi": "supplemental_p2b/synth-sustained-resume/v1.score.mid",
+    "v2_score_midi": "supplemental_p2b/synth-sustained-resume/v2.score.mid"
+  },
+  "note": "Synthetic construction pair for voice continuity / export verification. Not a P1 completion case; not musician-reviewed."
+}

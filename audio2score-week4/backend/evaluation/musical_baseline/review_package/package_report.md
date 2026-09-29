@@ -1,7 +1,7 @@
 # P1 musical baseline review package
 
-- Generated: `2026-09-28T18:40:13.704934+00:00`
-- Mode: `report_only`
+- Generated: `2026-09-29T11:36:18.737039+00:00`
+- Mode: `package`
 - Cases packaged: **15** (development 9, held-out 6)
 - Default algorithm: `performance-score-1`
 - Opt-in algorithm: `performance-score-2`
@@ -12,6 +12,11 @@
 - Stale reviews: **0**
 - P1 complete: **False**
 - Reason: 0/15 cases meet review_complete criteria; 0/15 musically accepted (interpretation pass). Do not mark P1 complete without attributed current reviews. Completion is not production readiness.
+
+## Supplemental P2b export evidence
+
+- Synthetic voice-continuity pairs (multi-channel) live under `supplemental_p2b/`. They are **not** P1 candidates and do not alter held-out splits.
+- Real-sample workflow: `REAL_SAMPLE_REVIEW_CHECKLIST.md`.
 
 ## Family coverage
 

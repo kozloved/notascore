@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-09-28T18:40:13.704934+00:00",
-  "mode": "report_only",
+  "generated_at": "2026-09-29T11:36:18.737039+00:00",
+  "mode": "package",
   "out_dir": "evaluation/musical_baseline/review_package",
   "default_algorithm_version": "performance-score-1",
   "opt_in_algorithm_version": "performance-score-2",
@@ -294,6 +294,19 @@
       "midi_sha256": "5a0e0be8f784321bb92ceb573a405cc1f15c9b582e5e9631dc1211a438ca89da",
       "performance_sha256": "5a0e0be8f784321bb92ceb573a405cc1f15c9b582e5e9631dc1211a438ca89da",
       "source_midi_unchanged": true,
+      "artifact_fingerprint": {
+        "midi_sha256": "5a0e0be8f784321bb92ceb573a405cc1f15c9b582e5e9631dc1211a438ca89da",
+        "v1_musicxml_sha256": "2e9eedeecd938c2dce42e9c96c2a37d54c15f7c5acc109187b34e0f37c1eb555",
+        "v2_musicxml_sha256": "1251129deebb7f0ddc5353ffd0a9d64b51ea554308d85d50352ea611487a6f16",
+        "v1_score_midi_sha256": "02ea2176452c0b0730fe55060db649d641f2766bd93bbfcc0fe123a21a8da8a4",
+        "v2_score_midi_sha256": "06e8c58adfc6a4cab37614f23389ea4840cee025d79658eae1ec6d42aca083fd",
+        "v1_algorithm_version": "performance-score-1",
+        "v2_algorithm_version": "performance-score-2",
+        "settings_digest": "91ada6a846a0fc8c548f2769d1bc3cc19e1375f87e9ab3bc8b9a9531544940cd",
+        "meter": "4/4",
+        "tempo": 120.0,
+        "musicxml_hash_normalized": true
+      },
       "default_algorithm_version": "performance-score-1",
       "opt_in_algorithm_version": "performance-score-2",
       "algorithms": {
@@ -464,7 +477,7 @@
           "mechanical": true,
           "score": null,
           "reviewer": "automated_export_integrity",
-          "reviewed_at": "2026-09-28T18:36:25.288965+00:00",
+          "reviewed_at": "2026-09-29T11:36:14.947765+00:00",
           "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
           "human_status": "not_reviewed",
           "human_versions": {
@@ -660,8 +673,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         },
         {
@@ -669,8 +682,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         }
       ],
@@ -704,6 +717,19 @@
       "midi_sha256": "bbe76c96da15f3d45f206115a112afbf0b0b70b5b3dee09a3313476d20d08996",
       "performance_sha256": "bbe76c96da15f3d45f206115a112afbf0b0b70b5b3dee09a3313476d20d08996",
       "source_midi_unchanged": true,
+      "artifact_fingerprint": {
+        "midi_sha256": "bbe76c96da15f3d45f206115a112afbf0b0b70b5b3dee09a3313476d20d08996",
+        "v1_musicxml_sha256": "f3852041b568a9bbaf4c4a8acb13e4a6f7988b4873d56cc064e50cf9baccd920",
+        "v2_musicxml_sha256": "f3852041b568a9bbaf4c4a8acb13e4a6f7988b4873d56cc064e50cf9baccd920",
+        "v1_score_midi_sha256": "0f2466db7fea964cf2c4c1bba18c8308135e6eb2e256b3aa4984868288357013",
+        "v2_score_midi_sha256": "0f2466db7fea964cf2c4c1bba18c8308135e6eb2e256b3aa4984868288357013",
+        "v1_algorithm_version": "performance-score-1",
+        "v2_algorithm_version": "performance-score-2",
+        "settings_digest": "4bb26134714344abebccb19aeac61f3240ab2ac1dbe792c2055308a0b4bb4ce3",
+        "meter": "4/4",
+        "tempo": 120.0,
+        "musicxml_hash_normalized": true
+      },
       "default_algorithm_version": "performance-score-1",
       "opt_in_algorithm_version": "performance-score-2",
       "algorithms": {
@@ -873,7 +899,7 @@
           "mechanical": true,
           "score": null,
           "reviewer": "automated_export_integrity",
-          "reviewed_at": "2026-09-28T18:36:34.349422+00:00",
+          "reviewed_at": "2026-09-29T11:36:15.182414+00:00",
           "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
           "human_status": "not_reviewed",
           "human_versions": {
@@ -1069,8 +1095,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         },
         {
@@ -1078,8 +1104,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         }
       ],
@@ -1113,6 +1139,19 @@
       "midi_sha256": "c9620066dfc02d0ec64b6212e2663a418d1a09e3f29b16ad8a1a063782b6383f",
       "performance_sha256": "c9620066dfc02d0ec64b6212e2663a418d1a09e3f29b16ad8a1a063782b6383f",
       "source_midi_unchanged": true,
+      "artifact_fingerprint": {
+        "midi_sha256": "c9620066dfc02d0ec64b6212e2663a418d1a09e3f29b16ad8a1a063782b6383f",
+        "v1_musicxml_sha256": "6b32b23127bd484e59f9ca82f4a327389645a252ddbe5f649fb4b66336adfdf0",
+        "v2_musicxml_sha256": "6b32b23127bd484e59f9ca82f4a327389645a252ddbe5f649fb4b66336adfdf0",
+        "v1_score_midi_sha256": "8921623bf145678b30458a97cacb989c4800f09f31719658c736b6386608eaa4",
+        "v2_score_midi_sha256": "8921623bf145678b30458a97cacb989c4800f09f31719658c736b6386608eaa4",
+        "v1_algorithm_version": "performance-score-1",
+        "v2_algorithm_version": "performance-score-2",
+        "settings_digest": "8bda60b6c2777563cf58b82b0563a66c9b53b9b135407f6c8cd7fbe52438e91d",
+        "meter": "4/4",
+        "tempo": 120.0,
+        "musicxml_hash_normalized": true
+      },
       "default_algorithm_version": "performance-score-1",
       "opt_in_algorithm_version": "performance-score-2",
       "algorithms": {
@@ -1285,7 +1324,7 @@
           "mechanical": true,
           "score": null,
           "reviewer": "automated_export_integrity",
-          "reviewed_at": "2026-09-28T18:36:37.963498+00:00",
+          "reviewed_at": "2026-09-29T11:36:15.490568+00:00",
           "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
           "human_status": "not_reviewed",
           "human_versions": {
@@ -1481,8 +1520,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         },
         {
@@ -1490,8 +1529,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         }
       ],
@@ -1524,6 +1563,19 @@
       "midi_sha256": "a7404c045eefcd53af6f47844174778e65410a9aefc1a6b4d92353283a0c7561",
       "performance_sha256": "a7404c045eefcd53af6f47844174778e65410a9aefc1a6b4d92353283a0c7561",
       "source_midi_unchanged": true,
+      "artifact_fingerprint": {
+        "midi_sha256": "a7404c045eefcd53af6f47844174778e65410a9aefc1a6b4d92353283a0c7561",
+        "v1_musicxml_sha256": "d58888b3864d59ec236c18fabbcb7f2eba4bf27df88e8cc5ebd98e4b0274fa3d",
+        "v2_musicxml_sha256": "d58888b3864d59ec236c18fabbcb7f2eba4bf27df88e8cc5ebd98e4b0274fa3d",
+        "v1_score_midi_sha256": "ed937af24efafe16be4c8f41da1b1ed2957e114815daa18c5db3ff4f5bef621f",
+        "v2_score_midi_sha256": "ed937af24efafe16be4c8f41da1b1ed2957e114815daa18c5db3ff4f5bef621f",
+        "v1_algorithm_version": "performance-score-1",
+        "v2_algorithm_version": "performance-score-2",
+        "settings_digest": "a5294ad57450637a1f43c63fbe7409d58f3450c116428fa91790fad9f37b0f45",
+        "meter": "4/4",
+        "tempo": 120.0,
+        "musicxml_hash_normalized": true
+      },
       "default_algorithm_version": "performance-score-1",
       "opt_in_algorithm_version": "performance-score-2",
       "algorithms": {
@@ -1693,7 +1745,7 @@
           "mechanical": true,
           "score": null,
           "reviewer": "automated_export_integrity",
-          "reviewed_at": "2026-09-28T18:36:40.619887+00:00",
+          "reviewed_at": "2026-09-29T11:36:15.712928+00:00",
           "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
           "human_status": "not_reviewed",
           "human_versions": {
@@ -1889,8 +1941,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         },
         {
@@ -1898,8 +1950,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         }
       ],
@@ -1932,6 +1984,19 @@
       "midi_sha256": "5f03280a7237a808bd4a90641ba780e38233902df9926b9cfc993d76d63837f8",
       "performance_sha256": "5f03280a7237a808bd4a90641ba780e38233902df9926b9cfc993d76d63837f8",
       "source_midi_unchanged": true,
+      "artifact_fingerprint": {
+        "midi_sha256": "5f03280a7237a808bd4a90641ba780e38233902df9926b9cfc993d76d63837f8",
+        "v1_musicxml_sha256": "3bb9d596354a28ab516567881818be6612a98493325dd216354b02e23fe595dc",
+        "v2_musicxml_sha256": "57543919776accde3d00e499865f50b72a9f36c8c8bfe63299afddfdd7757673",
+        "v1_score_midi_sha256": "c15e323f67e45b110ec74859dff596913c778213b35686b5fe38b50687602cc9",
+        "v2_score_midi_sha256": "aaf7df82655a4bc33c5b619ea78b52eea7f05b58163f9a09697e676f2ea0d420",
+        "v1_algorithm_version": "performance-score-1",
+        "v2_algorithm_version": "performance-score-2",
+        "settings_digest": "8c2d1c111ea61ce6436451fc670f03d73f8ef718e769453f790e3f9e453c63ab",
+        "meter": "4/4",
+        "tempo": 120.0,
+        "musicxml_hash_normalized": true
+      },
       "default_algorithm_version": "performance-score-1",
       "opt_in_algorithm_version": "performance-score-2",
       "algorithms": {
@@ -2103,7 +2168,7 @@
           "mechanical": true,
           "score": null,
           "reviewer": "automated_export_integrity",
-          "reviewed_at": "2026-09-28T18:36:43.183346+00:00",
+          "reviewed_at": "2026-09-29T11:36:15.927318+00:00",
           "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
           "human_status": "not_reviewed",
           "human_versions": {
@@ -2299,8 +2364,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         },
         {
@@ -2308,8 +2373,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         }
       ],
@@ -2343,6 +2408,19 @@
       "midi_sha256": "0da7a1f61f0f8453e472ee7a576c30176b3da738b46bed28897084dc53e36894",
       "performance_sha256": "0da7a1f61f0f8453e472ee7a576c30176b3da738b46bed28897084dc53e36894",
       "source_midi_unchanged": true,
+      "artifact_fingerprint": {
+        "midi_sha256": "0da7a1f61f0f8453e472ee7a576c30176b3da738b46bed28897084dc53e36894",
+        "v1_musicxml_sha256": "16f9f82f1567cf1724eaa4cc15a0825c8fb60b56c09c0b1f35c068888c5bb09a",
+        "v2_musicxml_sha256": "4479b06dbc58108afe58fc732d6dedd3af6d3308c2fa568a063fb50785c38a91",
+        "v1_score_midi_sha256": "f66f4a6a143b4302013493438b9be21d0c7b5a5023d7ec89523d892904e59ebf",
+        "v2_score_midi_sha256": "cabf518ac17cff5bcd2bb150b402b2d0b10710d186ac4faec174c227982a5b99",
+        "v1_algorithm_version": "performance-score-1",
+        "v2_algorithm_version": "performance-score-2",
+        "settings_digest": "8c1dd3f2b3b98a0f9621ddc920dda7a59ce69d74f49e1c9c5b29078e3eb36094",
+        "meter": "4/4",
+        "tempo": 120.0,
+        "musicxml_hash_normalized": true
+      },
       "default_algorithm_version": "performance-score-1",
       "opt_in_algorithm_version": "performance-score-2",
       "algorithms": {
@@ -2512,7 +2590,7 @@
           "mechanical": true,
           "score": null,
           "reviewer": "automated_export_integrity",
-          "reviewed_at": "2026-09-28T18:36:45.688589+00:00",
+          "reviewed_at": "2026-09-29T11:36:16.183223+00:00",
           "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
           "human_status": "not_reviewed",
           "human_versions": {
@@ -2708,8 +2786,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         },
         {
@@ -2717,8 +2795,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         }
       ],
@@ -2751,6 +2829,19 @@
       "midi_sha256": "f8238162c47ed24b5ce0326175d2b6d94ca74ddc17f8ad2339a6a712091d6a3a",
       "performance_sha256": "f8238162c47ed24b5ce0326175d2b6d94ca74ddc17f8ad2339a6a712091d6a3a",
       "source_midi_unchanged": true,
+      "artifact_fingerprint": {
+        "midi_sha256": "f8238162c47ed24b5ce0326175d2b6d94ca74ddc17f8ad2339a6a712091d6a3a",
+        "v1_musicxml_sha256": "802ff535234b8b1bb54c2ad975455acbbe2404e6a78932fb82f257464328eb7f",
+        "v2_musicxml_sha256": "802ff535234b8b1bb54c2ad975455acbbe2404e6a78932fb82f257464328eb7f",
+        "v1_score_midi_sha256": "cbdb5bee7b33480f2234abadd6d2f6c0c24bd54fa02c811ef522e692029b83db",
+        "v2_score_midi_sha256": "cbdb5bee7b33480f2234abadd6d2f6c0c24bd54fa02c811ef522e692029b83db",
+        "v1_algorithm_version": "performance-score-1",
+        "v2_algorithm_version": "performance-score-2",
+        "settings_digest": "70bdc3e2519a7b7f6d5125c23211a3e8139be0e28eb169fb212f2d913a145e35",
+        "meter": "4/4",
+        "tempo": 120.0,
+        "musicxml_hash_normalized": true
+      },
       "default_algorithm_version": "performance-score-1",
       "opt_in_algorithm_version": "performance-score-2",
       "algorithms": {
@@ -2922,7 +3013,7 @@
           "mechanical": true,
           "score": null,
           "reviewer": "automated_export_integrity",
-          "reviewed_at": "2026-09-28T18:36:48.130049+00:00",
+          "reviewed_at": "2026-09-29T11:36:16.412510+00:00",
           "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
           "human_status": "not_reviewed",
           "human_versions": {
@@ -3118,8 +3209,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         },
         {
@@ -3127,8 +3218,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         }
       ],
@@ -3161,6 +3252,19 @@
       "midi_sha256": "6a6e795e7eb8c00dc7a6bada808ac1dfe538a91bdbcb4ffa3c8a3b158c4e9cd5",
       "performance_sha256": "6a6e795e7eb8c00dc7a6bada808ac1dfe538a91bdbcb4ffa3c8a3b158c4e9cd5",
       "source_midi_unchanged": true,
+      "artifact_fingerprint": {
+        "midi_sha256": "6a6e795e7eb8c00dc7a6bada808ac1dfe538a91bdbcb4ffa3c8a3b158c4e9cd5",
+        "v1_musicxml_sha256": "4a5af1d79e47a2a170974a0c40713bb8231a2b797c44d54882581f166aa0b536",
+        "v2_musicxml_sha256": "4a5af1d79e47a2a170974a0c40713bb8231a2b797c44d54882581f166aa0b536",
+        "v1_score_midi_sha256": "18a69372d51b831cbf2e96166e2615ee161651171cf5f3209b2a1c126f65b90f",
+        "v2_score_midi_sha256": "18a69372d51b831cbf2e96166e2615ee161651171cf5f3209b2a1c126f65b90f",
+        "v1_algorithm_version": "performance-score-1",
+        "v2_algorithm_version": "performance-score-2",
+        "settings_digest": "96df314cd598dbae7b04485c61f820378ebceab0efad5baca15b2a2a6510b05e",
+        "meter": "4/4",
+        "tempo": 120.0,
+        "musicxml_hash_normalized": true
+      },
       "default_algorithm_version": "performance-score-1",
       "opt_in_algorithm_version": "performance-score-2",
       "algorithms": {
@@ -3331,7 +3435,7 @@
           "mechanical": true,
           "score": null,
           "reviewer": "automated_export_integrity",
-          "reviewed_at": "2026-09-28T18:36:50.766421+00:00",
+          "reviewed_at": "2026-09-29T11:36:16.684317+00:00",
           "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
           "human_status": "not_reviewed",
           "human_versions": {
@@ -3527,8 +3631,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         },
         {
@@ -3536,8 +3640,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         }
       ],
@@ -3571,6 +3675,19 @@
       "midi_sha256": "8dd452bdd808a23f54fe9829beeb44d206b31d7b5850ebef2a0b8202336c50f0",
       "performance_sha256": "8dd452bdd808a23f54fe9829beeb44d206b31d7b5850ebef2a0b8202336c50f0",
       "source_midi_unchanged": true,
+      "artifact_fingerprint": {
+        "midi_sha256": "8dd452bdd808a23f54fe9829beeb44d206b31d7b5850ebef2a0b8202336c50f0",
+        "v1_musicxml_sha256": "05f377aea0e16cd40f90cd4ec80be402b4ebae7d021cbf4c6a0c087e658cf86c",
+        "v2_musicxml_sha256": "05f377aea0e16cd40f90cd4ec80be402b4ebae7d021cbf4c6a0c087e658cf86c",
+        "v1_score_midi_sha256": "865edc196bbe8f4aa76240a816591b08927b3c94ada8eda6e25df381d954c23f",
+        "v2_score_midi_sha256": "865edc196bbe8f4aa76240a816591b08927b3c94ada8eda6e25df381d954c23f",
+        "v1_algorithm_version": "performance-score-1",
+        "v2_algorithm_version": "performance-score-2",
+        "settings_digest": "350840e879586721a3e0276481bb8c82a633d845fd4f1730cc2df0d9cd60ae27",
+        "meter": "3/4",
+        "tempo": 120.0,
+        "musicxml_hash_normalized": true
+      },
       "default_algorithm_version": "performance-score-1",
       "opt_in_algorithm_version": "performance-score-2",
       "algorithms": {
@@ -3741,7 +3858,7 @@
           "mechanical": true,
           "score": null,
           "reviewer": "automated_export_integrity",
-          "reviewed_at": "2026-09-28T18:36:53.266298+00:00",
+          "reviewed_at": "2026-09-29T11:36:16.918937+00:00",
           "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
           "human_status": "not_reviewed",
           "human_versions": {
@@ -3937,8 +4054,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         },
         {
@@ -3946,8 +4063,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         }
       ],
@@ -3980,6 +4097,19 @@
       "midi_sha256": "f0fb516b4a1ab8016d5d5b57289e5d760ad5c4b4f8cb7f307c1b54b26f49868d",
       "performance_sha256": "f0fb516b4a1ab8016d5d5b57289e5d760ad5c4b4f8cb7f307c1b54b26f49868d",
       "source_midi_unchanged": true,
+      "artifact_fingerprint": {
+        "midi_sha256": "f0fb516b4a1ab8016d5d5b57289e5d760ad5c4b4f8cb7f307c1b54b26f49868d",
+        "v1_musicxml_sha256": "d58888b3864d59ec236c18fabbcb7f2eba4bf27df88e8cc5ebd98e4b0274fa3d",
+        "v2_musicxml_sha256": "d58888b3864d59ec236c18fabbcb7f2eba4bf27df88e8cc5ebd98e4b0274fa3d",
+        "v1_score_midi_sha256": "ed937af24efafe16be4c8f41da1b1ed2957e114815daa18c5db3ff4f5bef621f",
+        "v2_score_midi_sha256": "ed937af24efafe16be4c8f41da1b1ed2957e114815daa18c5db3ff4f5bef621f",
+        "v1_algorithm_version": "performance-score-1",
+        "v2_algorithm_version": "performance-score-2",
+        "settings_digest": "675616a5e5ed72e35d1c0e16e23e219179a95f30a3292ea7ca26868b963e39b6",
+        "meter": "4/4",
+        "tempo": 120.0,
+        "musicxml_hash_normalized": true
+      },
       "default_algorithm_version": "performance-score-1",
       "opt_in_algorithm_version": "performance-score-2",
       "algorithms": {
@@ -4149,7 +4279,7 @@
           "mechanical": true,
           "score": null,
           "reviewer": "automated_export_integrity",
-          "reviewed_at": "2026-09-28T18:36:55.920986+00:00",
+          "reviewed_at": "2026-09-29T11:36:17.128934+00:00",
           "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
           "human_status": "not_reviewed",
           "human_versions": {
@@ -4345,8 +4475,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         },
         {
@@ -4354,8 +4484,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         }
       ],
@@ -4389,6 +4519,19 @@
       "midi_sha256": "4bffd38e7355626f9f464380dc2da5f233cbef2d7ee75615ecfeb4772aff1959",
       "performance_sha256": "4bffd38e7355626f9f464380dc2da5f233cbef2d7ee75615ecfeb4772aff1959",
       "source_midi_unchanged": true,
+      "artifact_fingerprint": {
+        "midi_sha256": "4bffd38e7355626f9f464380dc2da5f233cbef2d7ee75615ecfeb4772aff1959",
+        "v1_musicxml_sha256": "7896b605408173648aceb2204f0541f75b0122119705a1aac6218a0846154506",
+        "v2_musicxml_sha256": "7896b605408173648aceb2204f0541f75b0122119705a1aac6218a0846154506",
+        "v1_score_midi_sha256": "efc01b830df9d9a528e9f71e96ce75b4e00b4ead10a0d59a5e9210bc9f8a58c9",
+        "v2_score_midi_sha256": "efc01b830df9d9a528e9f71e96ce75b4e00b4ead10a0d59a5e9210bc9f8a58c9",
+        "v1_algorithm_version": "performance-score-1",
+        "v2_algorithm_version": "performance-score-2",
+        "settings_digest": "c52acb0d50defd82352d8498232c232be901116790993fe6b990c929369460c8",
+        "meter": "4/4",
+        "tempo": 120.0,
+        "musicxml_hash_normalized": true
+      },
       "default_algorithm_version": "performance-score-1",
       "opt_in_algorithm_version": "performance-score-2",
       "algorithms": {
@@ -4562,7 +4705,7 @@
           "mechanical": true,
           "score": null,
           "reviewer": "automated_export_integrity",
-          "reviewed_at": "2026-09-28T18:36:58.401359+00:00",
+          "reviewed_at": "2026-09-29T11:36:17.354907+00:00",
           "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
           "human_status": "not_reviewed",
           "human_versions": {
@@ -4758,8 +4901,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         },
         {
@@ -4767,8 +4910,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         }
       ],
@@ -4801,6 +4944,19 @@
       "midi_sha256": "233c65001861637080a624a01fa74393f073de7e4b8c55940f547b8cc338d62a",
       "performance_sha256": "233c65001861637080a624a01fa74393f073de7e4b8c55940f547b8cc338d62a",
       "source_midi_unchanged": true,
+      "artifact_fingerprint": {
+        "midi_sha256": "233c65001861637080a624a01fa74393f073de7e4b8c55940f547b8cc338d62a",
+        "v1_musicxml_sha256": "dd42408b1e8573be9ea9241c21709b3986fcdba8e3a1dd6a2564ea8866bacf72",
+        "v2_musicxml_sha256": "dd42408b1e8573be9ea9241c21709b3986fcdba8e3a1dd6a2564ea8866bacf72",
+        "v1_score_midi_sha256": "245e83a1f39b91fc628c68808bffcd19aa4d8e8e373aa408e9c6a0334292f73b",
+        "v2_score_midi_sha256": "245e83a1f39b91fc628c68808bffcd19aa4d8e8e373aa408e9c6a0334292f73b",
+        "v1_algorithm_version": "performance-score-1",
+        "v2_algorithm_version": "performance-score-2",
+        "settings_digest": "5a0097f040fcf67fff3a69d4cc71f2704c747a6c4db0b6eaf1f5c8fb4f545dcf",
+        "meter": "6/8",
+        "tempo": 90.0,
+        "musicxml_hash_normalized": true
+      },
       "default_algorithm_version": "performance-score-1",
       "opt_in_algorithm_version": "performance-score-2",
       "algorithms": {
@@ -4971,7 +5127,7 @@
           "mechanical": true,
           "score": null,
           "reviewer": "automated_export_integrity",
-          "reviewed_at": "2026-09-28T18:37:00.942081+00:00",
+          "reviewed_at": "2026-09-29T11:36:17.559153+00:00",
           "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
           "human_status": "not_reviewed",
           "human_versions": {
@@ -5167,8 +5323,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         },
         {
@@ -5176,8 +5332,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         }
       ],
@@ -5211,6 +5367,19 @@
       "midi_sha256": "61b3e9bc28227a6645e414f07101bde19a99b25a1ae238423bc0ef2d968d1df5",
       "performance_sha256": "61b3e9bc28227a6645e414f07101bde19a99b25a1ae238423bc0ef2d968d1df5",
       "source_midi_unchanged": true,
+      "artifact_fingerprint": {
+        "midi_sha256": "61b3e9bc28227a6645e414f07101bde19a99b25a1ae238423bc0ef2d968d1df5",
+        "v1_musicxml_sha256": "aa3f8117d7160fcecfc30ca4c4c7278b5239e5b7e8999bb36e0aaaada27416d8",
+        "v2_musicxml_sha256": "aa3f8117d7160fcecfc30ca4c4c7278b5239e5b7e8999bb36e0aaaada27416d8",
+        "v1_score_midi_sha256": "f59830bf45afd00b25a14baa59aa12cf7dd4ebfa53b7ee4ccb8dbbfd769cdb09",
+        "v2_score_midi_sha256": "f59830bf45afd00b25a14baa59aa12cf7dd4ebfa53b7ee4ccb8dbbfd769cdb09",
+        "v1_algorithm_version": "performance-score-1",
+        "v2_algorithm_version": "performance-score-2",
+        "settings_digest": "61be5cc43434578d67afda432e8aa2bed9582c18592b06504b9cdf8bace4c0ec",
+        "meter": "4/4",
+        "tempo": 120.0,
+        "musicxml_hash_normalized": true
+      },
       "default_algorithm_version": "performance-score-1",
       "opt_in_algorithm_version": "performance-score-2",
       "algorithms": {
@@ -5381,7 +5550,7 @@
           "mechanical": true,
           "score": null,
           "reviewer": "automated_export_integrity",
-          "reviewed_at": "2026-09-28T18:37:03.445541+00:00",
+          "reviewed_at": "2026-09-29T11:36:17.779427+00:00",
           "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
           "human_status": "not_reviewed",
           "human_versions": {
@@ -5577,8 +5746,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         },
         {
@@ -5586,8 +5755,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         }
       ],
@@ -5620,6 +5789,19 @@
       "midi_sha256": "edda21b1206e6c680cce5e737bd4349af9b80b8d6125a9071f06acb4ca1c9448",
       "performance_sha256": "edda21b1206e6c680cce5e737bd4349af9b80b8d6125a9071f06acb4ca1c9448",
       "source_midi_unchanged": true,
+      "artifact_fingerprint": {
+        "midi_sha256": "edda21b1206e6c680cce5e737bd4349af9b80b8d6125a9071f06acb4ca1c9448",
+        "v1_musicxml_sha256": "6999726ef94e228c328ab39f269a8799dd3f2b3751a407449e6099f3c0307cd4",
+        "v2_musicxml_sha256": "6999726ef94e228c328ab39f269a8799dd3f2b3751a407449e6099f3c0307cd4",
+        "v1_score_midi_sha256": "2030431072dd115545e3f40ce81471af35316180d73c2e56e1d0192b3119a8e9",
+        "v2_score_midi_sha256": "2030431072dd115545e3f40ce81471af35316180d73c2e56e1d0192b3119a8e9",
+        "v1_algorithm_version": "performance-score-1",
+        "v2_algorithm_version": "performance-score-2",
+        "settings_digest": "f6256367fd515123bd2eff994c29c56554d4c358e22326e8cdafd8aea5914c10",
+        "meter": "4/4",
+        "tempo": 120.0,
+        "musicxml_hash_normalized": true
+      },
       "default_algorithm_version": "performance-score-1",
       "opt_in_algorithm_version": "performance-score-2",
       "algorithms": {
@@ -5789,7 +5971,7 @@
           "mechanical": true,
           "score": null,
           "reviewer": "automated_export_integrity",
-          "reviewed_at": "2026-09-28T18:37:05.908674+00:00",
+          "reviewed_at": "2026-09-29T11:36:18.038631+00:00",
           "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
           "human_status": "not_reviewed",
           "human_versions": {
@@ -5985,8 +6167,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         },
         {
@@ -5994,8 +6176,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         }
       ],
@@ -6028,6 +6210,19 @@
       "midi_sha256": "de76aa46964aa820df7b2825dfb61cfde11c0385e9acb70ffee78764c11e30f4",
       "performance_sha256": "de76aa46964aa820df7b2825dfb61cfde11c0385e9acb70ffee78764c11e30f4",
       "source_midi_unchanged": true,
+      "artifact_fingerprint": {
+        "midi_sha256": "de76aa46964aa820df7b2825dfb61cfde11c0385e9acb70ffee78764c11e30f4",
+        "v1_musicxml_sha256": "85bf4b6dc3e025e9fa061434f263dae215740983a3078d1f069193d4b896442a",
+        "v2_musicxml_sha256": "85bf4b6dc3e025e9fa061434f263dae215740983a3078d1f069193d4b896442a",
+        "v1_score_midi_sha256": "c5e40b27f2a1f72be7321df097640ac5a0c90d739f46a37db29f0d263a479e8e",
+        "v2_score_midi_sha256": "c5e40b27f2a1f72be7321df097640ac5a0c90d739f46a37db29f0d263a479e8e",
+        "v1_algorithm_version": "performance-score-1",
+        "v2_algorithm_version": "performance-score-2",
+        "settings_digest": "0db8fc801d947fe1003d6c86939c74248f594dea3a11a91146963a968c8d6ce5",
+        "meter": "4/4",
+        "tempo": 120.0,
+        "musicxml_hash_normalized": true
+      },
       "default_algorithm_version": "performance-score-1",
       "opt_in_algorithm_version": "performance-score-2",
       "algorithms": {
@@ -6199,7 +6394,7 @@
           "mechanical": true,
           "score": null,
           "reviewer": "automated_export_integrity",
-          "reviewed_at": "2026-09-28T18:37:08.378471+00:00",
+          "reviewed_at": "2026-09-29T11:36:18.239954+00:00",
           "notes": "Automated export integrity only. Does not prove musical quality. Performed-MIDI offset F1 vs a score reference is out of scope here.",
           "human_status": "not_reviewed",
           "human_versions": {
@@ -6395,8 +6590,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         },
         {
@@ -6404,8 +6599,8 @@
           "osmd": {
             "returncode": 0,
             "html": true,
-            "png": true,
-            "svg": true
+            "png": false,
+            "svg": false
           }
         }
       ],
@@ -6428,5 +6623,103 @@
     "python -m evaluation.musical_baseline --write-index evaluation/musical_baseline/review_package",
     "python -m evaluation.musical_baseline --bundle evaluation/musical_baseline/review_package",
     "python -m pytest -q tests/test_musical_baseline.py"
+  ],
+  "supplemental_p2b": [
+    {
+      "example_id": "synth-sustained-resume",
+      "title": "Same-pitch sustained line resumes after short interruptions",
+      "label": "synthetic_construction_pair",
+      "permitted_use": "synthetic_repo_fixture",
+      "package_role": "supplemental_p2b_export_evidence",
+      "not_in_p1_candidate_set": true,
+      "held_out_unchanged": true,
+      "midi_sha256": "30241c2b673f1c9576a6e2b8756e494837e62ae9a28bf902b8f3f9c59ef7f191",
+      "source_midi_unchanged": true,
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "note_count": 4,
+      "musical_voices": [
+        0,
+        1
+      ],
+      "renders": [
+        {
+          "version": "v1",
+          "osmd": {
+            "returncode": 0,
+            "html": true,
+            "png": false,
+            "svg": false
+          }
+        },
+        {
+          "version": "v2",
+          "osmd": {
+            "returncode": 0,
+            "html": true,
+            "png": false,
+            "svg": false
+          }
+        }
+      ],
+      "artifacts": {
+        "input_midi": "supplemental_p2b/synth-sustained-resume/input.mid",
+        "v1_musicxml": "supplemental_p2b/synth-sustained-resume/v1.musicxml",
+        "v2_musicxml": "supplemental_p2b/synth-sustained-resume/v2.musicxml",
+        "v1_score_midi": "supplemental_p2b/synth-sustained-resume/v1.score.mid",
+        "v2_score_midi": "supplemental_p2b/synth-sustained-resume/v2.score.mid"
+      },
+      "note": "Synthetic construction pair for voice continuity / export verification. Not a P1 completion case; not musician-reviewed."
+    },
+    {
+      "example_id": "synth-short-line-continues",
+      "title": "Short repeating line continues after sustained hold ends",
+      "label": "synthetic_construction_pair",
+      "permitted_use": "synthetic_repo_fixture",
+      "package_role": "supplemental_p2b_export_evidence",
+      "not_in_p1_candidate_set": true,
+      "held_out_unchanged": true,
+      "midi_sha256": "8e1c6fa31de4fa5972395b4b30aca82c7b8c88bf4f9beeeec0ddac2cb5d071ff",
+      "source_midi_unchanged": true,
+      "algorithms": {
+        "v1": "performance-score-1",
+        "v2": "performance-score-2"
+      },
+      "note_count": 5,
+      "musical_voices": [
+        0,
+        1
+      ],
+      "renders": [
+        {
+          "version": "v1",
+          "osmd": {
+            "returncode": 0,
+            "html": true,
+            "png": false,
+            "svg": false
+          }
+        },
+        {
+          "version": "v2",
+          "osmd": {
+            "returncode": 0,
+            "html": true,
+            "png": false,
+            "svg": false
+          }
+        }
+      ],
+      "artifacts": {
+        "input_midi": "supplemental_p2b/synth-short-line-continues/input.mid",
+        "v1_musicxml": "supplemental_p2b/synth-short-line-continues/v1.musicxml",
+        "v2_musicxml": "supplemental_p2b/synth-short-line-continues/v2.musicxml",
+        "v1_score_midi": "supplemental_p2b/synth-short-line-continues/v1.score.mid",
+        "v2_score_midi": "supplemental_p2b/synth-short-line-continues/v2.score.mid"
+      },
+      "note": "Synthetic construction pair for voice continuity / export verification. Not a P1 completion case; not musician-reviewed."
+    }
   ]
 }
