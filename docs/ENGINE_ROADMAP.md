@@ -531,7 +531,7 @@ independently validated.
 
 ## Suggested next milestone
 
-Real-job review registration is in this branch (base `c9c5efe`). Use
+Real-job review registration is in this branch (base `678d35b`). Use
 `--import-real-job` + `--report-reviews` for already-downloaded bundles;
 results stay under `real_samples/` and do **not** change the synthetic
 15-case P1 completion count. **P1 is still 0/15 attributed reviews** —
@@ -539,31 +539,30 @@ do not mark P1 or P2 complete. Do not invent real jobs or human ratings.
 Keep v1 default / v2 opt-in. Pause speculative interpretation/voice
 heuristics until real attributed reviews arrive.
 
-**P1 increment (this branch, base `c9c5efe`).**
+**P1 increment (this branch, base `678d35b`).**
 
-1. **Manifest-based real-job cases.**
-   - `evaluation/musical_baseline/real_samples.py` registers downloaded
-     job bundles under `review_package/real_samples/` with
-     `manifest.json` + per-case `case_manifest.json`.
-   - Evidence model is **original vs corrected** (not algorithm v1/v2).
-   - Hashes originals/corrections/audio/corrections; missing engine,
-     audio, source-note IDs, permitted use, and reference labels stay
-     explicitly `unknown`/`missing`.
-   - `--report-reviews` discovers registered real cases, verifies live
-     files, marks stale bindings on drift, and reports them separately
-     from synthetic P1 counts. Human `review.json` preserved on re-import.
-   - CLI: `--import-real-job` / `--job-id` (optional engine/provider/
-     algorithm/permitted-use flags). Demonstrated with clearly labeled
-     temporary test data only — no production access, no invented review.
+1. **Immutable registered real-job originals.**
+   - `import_real_job_bundle` stages the full evidence set, then publishes
+     only after validation. Identical re-imports are idempotent.
+   - Changed originals/artifacts are rejected (`RealImportConflict`);
+     human `review.json` never bypasses overwrite protection.
+   - `--force-import` publishes a new revision (`example_id-rN`) and
+     leaves the prior case + bindings intact (no in-place erase).
+   - Omitted optionals on a revision do not leave mixed leftover files;
+     failed imports restore the prior package manifest.
+   - Evidence model remains **original vs corrected** (not algorithm
+     v1/v2). Missing engine/audio/source-note IDs stay `unknown`/`missing`.
+   - Demonstrated with clearly labeled temporary test data only — no
+     production access, no invented review.
 
-**Validation (this increment, base SHA=`c9c5efe`, branch WIP).**
+**Validation (this increment, base SHA=`678d35b`, branch WIP).**
 
 - Focused:
   `pytest tests/test_real_sample_reviews.py tests/test_musical_baseline.py tests/test_voice_continuity_paired.py tests/test_export_evidence_structure.py -q`
-  → **61 passed**.
+  → **68 passed**.
 - Supported backend suite:
   `pytest -m 'not integration and not pm2s' -q`
-  → **1036 passed, 4 deselected, 0 failed**.
+  → **1043 passed, 4 deselected, 0 failed**.
 
 **Exact commands (real sample, local downloaded bundle).**
 

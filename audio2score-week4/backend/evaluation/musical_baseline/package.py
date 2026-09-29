@@ -1222,7 +1222,14 @@ python -m evaluation.musical_baseline \
 ```
 
 This registers `real_samples/<example_id>/`, hashes supplied artifacts, and
-writes an empty `review.json` scaffold (human-owned files are preserved).
+writes an empty `review.json` scaffold.
+
+**Immutability.** Registered originals are never overwritten in place.
+Identical re-imports are idempotent. A changed evidence set is rejected
+unless `--force-import` is passed, which publishes a **new revision**
+(`example_id-rN`) and leaves the prior case + human `review.json` intact.
+Human attribution never bypasses overwrite protection. Optional artifacts
+omitted on a revision are absent in the new case (no mixed leftover set).
 
 ## Record a review
 
