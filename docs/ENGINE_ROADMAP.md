@@ -578,7 +578,10 @@ python -m evaluation.musical_baseline \
   --report-reviews evaluation/musical_baseline/review_package
 ```
 
-**Remaining human inputs.** Real job ID, permitted-use documentation,
-audio + reference labels (for acoustic), attributed reviewer + dates,
-actual/estimated correction time. No musician-validated quality claim.
+**Remaining human inputs.** At least one complete downloaded job bundle
+(`original.musicxml`, optional corrected + audio, job ID, permitted-use
+note), then attributed reviewer + dates and actual/estimated correction
+time. Session inventory: `review_package/REAL_SAMPLE_EVAL_SESSION.md`
+(baseline `39c18ef`). No musician-validated quality claim. Real-sample
+count remains 0 until a suitable bundle is imported.
 
