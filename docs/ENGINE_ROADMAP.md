@@ -4,8 +4,10 @@ Canonical development plan for reliable, editable solo-instrument and piano
 scores. Historical reviews stay in dated `docs/` files. New engine work is
 scheduled here.
 
-Reviewed remote baseline for this plan: `2ad36b7` / PR #82 (P0 timing /
-fallback / review-binding fixes on top of PR #81 artifact verification).
+Reviewed remote baseline for this plan: `2c928e5` / PR #83 (P1 musician-
+review handoff package). P1 remains **0/15 attributed reviews** —
+`musician_reviewed_complete=0`, `p1_complete=false`. Prepared for review
+does not mean P1 is complete.
 
 This is a plan, not a claim that musical quality is solved. Synthetic tests,
 valid MusicXML, and successful PDF export are not proof of musical quality.
@@ -171,7 +173,11 @@ fingerprints, OSMD renders, `REVIEW_INDEX.html`, and
 `stale_count=0`, `p1_complete=false`. Prepared for review ≠ reviewed.
 Automated visual inspection is not musician sign-off. Synthetic examples
 can assess notation quality but cannot establish acoustic transcription
-accuracy. **Do not start P2 heuristics** without reviewed counterexamples.
+accuracy. Deterministic P2a correctness fixes may use construction-labeled
+pairs while reviews remain 0/15; **do not claim musician-validated
+interpretation improvement** and **do not start P2b voice heuristics**
+without independent P2a validation plus reviewed or construction-labeled
+counterexamples.
 
 **Remaining gaps (exact).**
 
@@ -233,14 +239,19 @@ voice continuity make a score unusable even when export is valid.
 `mir/voice_separator.py`, `mir/meter.py`, `evaluation/readable_v2_cases.py`.
 
 **Dependencies.** P1 examples for anything claimed as musical benefit. P0
-metrics before treating 138 as voice work.
+metrics before treating 138 as voice work. Deterministic correctness fixes
+may proceed with construction-labeled pairs while P1 reviews are still 0/15;
+do not claim musician-validated improvement.
 
 **Implementation tasks.**
 
 1. Prioritize tempo scale, downbeat/pickup alignment, and voice continuity.
+   **P2a (tempo scale) started** on branch `cursor/engine-p2a-tempo-pickup`
+   from `2c928e5`.
 2. Use paired counterexamples for every heuristic change.
 3. Preserve deliberate rests, independent holds, and user-locked decisions.
 4. Do not retune readable-v2 from 138 printed-lane movement.
+5. Defer P2b voice heuristics until P2a is independently validated.
 
 **Acceptance criteria.**
 
@@ -249,8 +260,49 @@ metrics before treating 138 as voice work.
 - User-locked timing, staff, and voice survive.
 - No claim of quality without P1 reviews.
 
-**Status.** Missing as a reviewed interpretation program. Several synthetic
-heuristics are implemented but unverified musically.
+**Status.** Partially implemented as deterministic correctness work —
+**not P2 complete**, **not musician-validated**. P1 still 0/15 attributed
+reviews. Default remains `performance-score-1`; v2 stays opt-in.
+
+**P2a increment (tested on this branch).**
+
+- **Defect.** `evaluate_candidates` / `choose_candidate` double-timed
+  already-correct half notes (120 bpm, attacks every 2 beats) into whole
+  notes at ×2 because longer values looked cheaper under `APPLY_MARGIN`.
+  First diverging stage: tempo-scale candidate scoring (not playback export).
+  Classification: implementation error (false tempo retune), not an
+  ambiguous musical choice once construction labels are fixed.
+- **Fix.** When ≥85% of scale-1 onsets already land on integer beats,
+  add the same +0.6 penalty used for `keep_fast_pattern` to tempo_scale
+  2.0 only. Preserves intended double-time of mis-scaled eighths on a
+  60 bpm grid.
+- **Paired cases (construction labels, not human review).**
+  - Intended correction: `e0000`–`e0007` on 60 bpm → still chooses ×2.
+  - Already-correct: `h0000`–`h0007` on 120 bpm → now stays ×1 (was ×2).
+  - Syncopation offbeats → stays ×1 (not a shifted-downbeat retune).
+- **Not changed.** Pickup inference remains conservative (MIDI path still
+  passes `downbeat_beats=[0.0]` so auto-pickup needs settings or measured
+  downs after the first attack). No P2b voice work. No v2 promotion.
+- **Commands / results.**
+  - Focused: `pytest -q tests/test_score_interpretation.py
+    tests/test_downbeat_alignment.py tests/test_score_time_consistency.py
+    tests/test_midi_timing_fidelity.py tests/test_notation_settings.py
+    tests/test_musical_time_map.py tests/test_rubato_musical_time.py
+    tests/test_export_integrity.py tests/test_shared_engraving.py
+    tests/test_musical_baseline.py` → **144 passed**.
+  - Supported backend suite:
+    `pytest -m 'not integration and not pm2s' -q`
+    → **1012 passed, 4 deselected, 0 failed**.
+
+**Remaining P2 work.**
+
+1. Pickup/downbeat: stronger MIDI evidence without treating every incomplete
+   opening as a pickup; user `pickup_beats` / locks stay authoritative.
+2. Rubato + sub-beat tempo knots under scale transforms — keep playback
+   fidelity regressions green; no new heuristic without a paired case.
+3. P2b musical-voice continuity only after P2a validation and with cases
+   that are not mere printed-lane moves (138).
+4. Musician review of any interpretation claim — blocked on P1 ratings.
 
 ## P3 — Controlled readable-v2 rollout
 
@@ -362,10 +414,11 @@ independently validated.
 
 ## Suggested next milestone
 
-Review handoff package is ready on engine `2ad36b7` (portable bundle under
-`evaluation/musical_baseline/handoff/`). **Next:** a musician fills
-attributed reviews via `REVIEW_INDEX.html` / `FIRST_SESSION.md` (3–5
-development cases first). Do not invent ratings. Synthetic fixtures are
-notation-review material only — not acoustic-accuracy evidence. Only after
-real attributed reviews exist: **P2 musical interpretation improvements**
-using reviewed counterexamples. Do not retune heuristics without them.
+P2a started with one deterministic tempo-scale correctness fix (false
+double-time of already-on-beat halves) and paired construction-labeled
+tests. **P1 is still 0/15 attributed reviews** — do not mark P1 or P2
+complete. **Next:** continue P2a on pickup/downbeat only when a reproduced
+defect has a construction-labeled pair; collect musician reviews via
+`REVIEW_INDEX.html` / `FIRST_SESSION.md` before any musician-validated
+interpretation claim. Defer P2b voice heuristics. Keep v1 default / v2
+opt-in. Do not retune without counterexamples.
