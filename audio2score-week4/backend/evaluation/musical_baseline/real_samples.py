@@ -446,19 +446,416 @@ def validate_real_case_dir(case_dir: Path) -> ReviewValidation:
     )
 
 
-def load_case_manifest(case_dir: Path) -> dict[str, Any]:
-    path = case_dir / CASE_MANIFEST_NAME
+class RealImportConflict(RuntimeError):
+    """Non-identical re-import rejected so registered evidence stays intact."""
+
+
+# Files that define a registered case's evidence set (excluding generated meta).
+TRACKED_CASE_ARTIFACTS = (
+    "original.musicxml",
+    "original.score.mid",
+    "corrected.musicxml",
+    "corrected.score.mid",
+    "input.mid",
+    CORRECTIONS_NAME,
+    NOTE_INDEX_NAME,
+    "reference_labels.json",
+)
+
+
+def _hash_case_file(path: Path) -> str | None:
     if not path.is_file():
-        return {
-            "example_id": case_dir.name,
-            "job_id": "unknown",
-            "case_kind": "real_job",
-            "split": REAL_SAMPLES_DIRNAME,
-        }
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError(f"{path} root must be an object")
-    return data
+        return None
+    name = path.name.lower()
+    if name.endswith(".musicxml") or name.endswith(".xml"):
+        return stable_musicxml_digest(path.read_text(encoding="utf-8"))
+    return sha256_bytes(path.read_bytes())
+
+
+def case_content_fingerprint(case_dir: Path) -> dict[str, str | None]:
+    """Content hashes for every tracked evidence file (None = absent)."""
+    out: dict[str, str | None] = {}
+    for name in TRACKED_CASE_ARTIFACTS:
+        out[name] = _hash_case_file(case_dir / name)
+    audio = _audio_path(case_dir)
+    out["audio"] = sha256_bytes(audio.read_bytes()) if audio else None
+    return out
+
+
+def _next_revision_example_id(package_dir: Path, base_id: str) -> str:
+    """Allocate ``base-r2``, ``base-r3``, … without colliding on disk/manifest."""
+    existing = {row.get("example_id") for row in list_registered_real_cases(package_dir)}
+    root = real_samples_root(package_dir)
+    if root.is_dir():
+        existing.update(p.name for p in root.iterdir() if p.is_dir())
+    n = 2
+    while True:
+        candidate = f"{base_id}-r{n}"
+        if candidate not in existing and not case_dir_for(package_dir, candidate).exists():
+            return candidate
+        n += 1
+
+
+def _populate_stage_from_bundle(
+    bundle: Path, stage: Path, job_id: str
+) -> dict[str, str | None]:
+    """Copy bundle evidence into an empty staging directory (complete set only)."""
+    copied: dict[str, str | None] = {}
+    for dest_name, aliases in BUNDLE_ALIASES.items():
+        src = _resolve_bundle_file(bundle, dest_name, aliases, job_id)
+        if src is None:
+            copied[dest_name] = None
+            continue
+        target = stage / dest_name
+        shutil.copy2(src, target)
+        copied[dest_name] = dest_name
+
+    audio_src = None
+    for name in AUDIO_CANDIDATES:
+        candidate = bundle / name
+        if candidate.is_file():
+            audio_src = candidate
+            break
+    if audio_src is None and job_id:
+        for ext in (".wav", ".mp3", ".flac", ".m4a"):
+            candidate = bundle / f"{job_id}{ext}"
+            if candidate.is_file():
+                audio_src = candidate
+                break
+    if audio_src is not None:
+        dest_audio = stage / f"audio{audio_src.suffix.lower()}"
+        shutil.copy2(audio_src, dest_audio)
+        copied["audio"] = dest_audio.name
+    else:
+        copied["audio"] = None
+
+    refs = bundle / "reference_labels.json"
+    if refs.is_file():
+        shutil.copy2(refs, stage / "reference_labels.json")
+        copied["reference_labels.json"] = "reference_labels.json"
+    else:
+        copied["reference_labels.json"] = None
+    return copied
+
+
+def _publish_stage_to_case(stage: Path, case_dir: Path) -> None:
+    """Copy staged evidence into a new/empty case directory."""
+    case_dir.mkdir(parents=True, exist_ok=True)
+    for path in stage.iterdir():
+        dest = case_dir / path.name
+        if path.is_file():
+            shutil.copy2(path, dest)
+        elif path.is_dir():
+            shutil.copytree(path, dest)
+
+
+def _merge_engine_metadata(
+    *,
+    engine_commit: str | None,
+    algorithm_version: str | None,
+    provider: str | None,
+    bundle: Path,
+    previous: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Prefer explicit CLI values; else keep previous known metadata; else bundle."""
+    engine = {
+        "commit": engine_commit,
+        "algorithm_version": algorithm_version,
+        "provider": provider,
+        "status": (
+            "present"
+            if any([engine_commit, algorithm_version, provider])
+            else "unknown"
+        ),
+    }
+    if engine["status"] == "unknown":
+        engine_path = bundle / "engine.json"
+        if engine_path.is_file():
+            try:
+                eng = json.loads(engine_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                eng = None
+            if isinstance(eng, dict):
+                engine = {
+                    "commit": eng.get("commit") or eng.get("engine_commit"),
+                    "algorithm_version": eng.get("algorithm_version"),
+                    "provider": eng.get("provider"),
+                    "status": "present",
+                }
+    if engine["status"] == "unknown" and isinstance(previous, dict):
+        prev_engine = previous.get("engine")
+        if isinstance(prev_engine, dict) and prev_engine.get("status") == "present":
+            return dict(prev_engine)
+    return engine
+
+
+def import_real_job_bundle(
+    bundle_dir: Path,
+    *,
+    package_dir: Path,
+    job_id: str,
+    example_id: str | None = None,
+    engine_commit: str | None = None,
+    algorithm_version: str | None = None,
+    provider: str | None = None,
+    permitted_use: str | None = None,
+    title: str | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Import an already-downloaded job bundle into the review package.
+
+    Registered originals are immutable. Identical re-imports are idempotent.
+    A changed evidence set is rejected unless ``force=True``, which publishes a
+    **new revision** (``example_id-rN``) and leaves the prior case + review
+    binding untouched. Never overwrites an existing case directory in place.
+    Stages the full import and validates before updating the package manifest.
+    """
+    import tempfile
+
+    bundle = Path(bundle_dir)
+    if not bundle.is_dir():
+        raise FileNotFoundError(f"bundle directory not found: {bundle}")
+    base_eid = (example_id or f"real-job-{job_id}").strip()
+    if not base_eid:
+        raise ValueError("example_id required")
+
+    with tempfile.TemporaryDirectory(prefix="notascore-real-import-") as tmp:
+        stage = Path(tmp) / "stage"
+        stage.mkdir()
+        copied = _populate_stage_from_bundle(bundle, stage, job_id)
+        if not (stage / "original.musicxml").is_file():
+            raise FileNotFoundError(
+                "bundle must include unedited MusicXML as original.musicxml "
+                "(or unedited.musicxml / automatic.musicxml)"
+            )
+        staged_fp = case_content_fingerprint(stage)
+
+        publish_eid = base_eid
+        case_dir = case_dir_for(package_dir, publish_eid)
+        previous_manifest: dict[str, Any] | None = None
+        supersedes: str | None = None
+        action = "created"
+
+        if case_dir.is_dir() and any(case_dir.iterdir()):
+            previous_manifest = load_case_manifest(case_dir)
+            existing_fp = case_content_fingerprint(case_dir)
+            if existing_fp == staged_fp:
+                # Idempotent: do not rewrite artifacts or manifest bindings.
+                fp_path = case_dir / FINGERPRINT_NAME
+                fingerprint = (
+                    json.loads(fp_path.read_text(encoding="utf-8"))
+                    if fp_path.is_file()
+                    else build_real_fingerprint(case_dir, previous_manifest or {})
+                )
+                return {
+                    "example_id": publish_eid,
+                    "job_id": job_id,
+                    "case_dir": str(case_dir),
+                    "manifest": str(manifest_path(package_dir)),
+                    "fingerprint": fingerprint,
+                    "case_manifest": previous_manifest,
+                    "review_write": {"action": "unchanged_idempotent"},
+                    "form_write": {"action": "unchanged_idempotent"},
+                    "import_action": "idempotent",
+                    "supersedes": None,
+                }
+
+            original_changed = (
+                existing_fp.get("original.musicxml")
+                != staged_fp.get("original.musicxml")
+            )
+            human = False
+            if (case_dir / REVIEW_JSON_NAME).is_file():
+                loaded = load_review(case_dir)
+                human = bool(
+                    loaded.status == "loaded"
+                    and loaded.data
+                    and review_has_human_input(loaded.data)
+                )
+            # Human input never bypasses overwrite protection.
+            if not force:
+                raise RealImportConflict(
+                    f"Case {publish_eid!r} already registered with different "
+                    f"artifacts (original_changed={original_changed}, "
+                    f"human_review={human}). Refusing in-place overwrite. "
+                    "Re-import the identical bundle for a no-op, or pass "
+                    "force=True to publish a new revision "
+                    f"({publish_eid}-rN) that preserves the old case."
+                )
+            # force → new revision; never erase the prior case.
+            supersedes = publish_eid
+            publish_eid = _next_revision_example_id(package_dir, base_eid)
+            case_dir = case_dir_for(package_dir, publish_eid)
+            action = "revision"
+            previous_manifest = None  # new case; do not inherit unless below
+
+        if case_dir.exists() and any(case_dir.iterdir()):
+            raise RealImportConflict(
+                f"Refusing to publish into non-empty case dir {case_dir}"
+            )
+
+        package_manifest_before = load_package_manifest(package_dir)
+        published = False
+        try:
+            _publish_stage_to_case(stage, case_dir)
+            published = True
+
+            # Prefer explicit permitted_use; else keep prior known value when revising family.
+            prior_for_meta = None
+            if supersedes:
+                prior_for_meta = load_case_manifest(
+                    case_dir_for(package_dir, supersedes)
+                )
+            if permitted_use:
+                permitted = {"status": "present", "value": permitted_use}
+            elif isinstance(prior_for_meta, dict):
+                prev_use = prior_for_meta.get("permitted_use")
+                permitted = (
+                    dict(prev_use)
+                    if isinstance(prev_use, dict)
+                    else {"status": "unknown", "value": None}
+                )
+            else:
+                permitted = {"status": "unknown", "value": None}
+
+            engine = _merge_engine_metadata(
+                engine_commit=engine_commit,
+                algorithm_version=algorithm_version,
+                provider=provider,
+                bundle=bundle,
+                previous=prior_for_meta,
+            )
+            title_value = title
+            if title_value is None and isinstance(prior_for_meta, dict):
+                title_value = prior_for_meta.get("title")
+            if not title_value:
+                title_value = f"Real job {job_id}"
+            if action == "revision":
+                title_value = f"{title_value} (revision of {supersedes})"
+
+            source_note_ids = _source_note_ids_status(case_dir)
+            has_audio = _audio_path(case_dir) is not None
+            has_refs = (case_dir / "reference_labels.json").is_file()
+            acoustic_default = (
+                "not_reviewed" if (has_audio and has_refs) else "not_applicable"
+            )
+
+            # Artifact presence comes only from this staged set — no leftovers.
+            case_manifest = {
+                "schema_version": SCHEMA_VERSION,
+                "case_kind": "real_job",
+                "example_id": publish_eid,
+                "job_id": job_id,
+                "composition_id": f"real-comp-{job_id}",
+                "performance_id": f"real-perf-{job_id}",
+                "split": REAL_SAMPLES_DIRNAME,
+                "title": title_value,
+                "comparison_model": "original_versus_corrected",
+                "not_algorithm_v1_v2": True,
+                "not_in_p1_synthetic_candidate_set": True,
+                "engine": engine,
+                "permitted_use": permitted,
+                "audio": _status_token(has_audio, value=copied.get("audio")),
+                "reference_labels": _status_token(has_refs),
+                "source_note_ids": source_note_ids,
+                "artifacts": {
+                    "original_musicxml": "original.musicxml",
+                    "original_score_midi": copied.get("original.score.mid"),
+                    "corrected_musicxml": copied.get("corrected.musicxml"),
+                    "corrected_score_midi": copied.get("corrected.score.mid"),
+                    "input_midi": copied.get("input.mid"),
+                    "corrections": copied.get(CORRECTIONS_NAME),
+                    "note_index": copied.get(NOTE_INDEX_NAME),
+                    "audio": copied.get("audio"),
+                },
+                "content_fingerprint": staged_fp,
+                "supersedes": supersedes,
+                "registered_at": datetime.now(timezone.utc).isoformat(),
+                "note": (
+                    "Original vs corrected evidence for musician review. "
+                    "Corrected exports are not algorithm v2. Registered "
+                    "originals are immutable; force publishes a new revision. "
+                    "Missing fields stay unknown/missing."
+                ),
+            }
+            (case_dir / CASE_MANIFEST_NAME).write_text(
+                json.dumps(case_manifest, indent=2) + "\n", encoding="utf-8"
+            )
+
+            fingerprint = build_real_fingerprint(case_dir, case_manifest)
+            # Ensure fingerprint agrees with staged content fingerprint.
+            if fingerprint.get("original_musicxml_sha256") != staged_fp.get(
+                "original.musicxml"
+            ):
+                raise RealImportConflict(
+                    "internal error: published original hash mismatch vs stage"
+                )
+            (case_dir / FINGERPRINT_NAME).write_text(
+                json.dumps(fingerprint, indent=2) + "\n", encoding="utf-8"
+            )
+
+            template = empty_real_review_template(
+                example_id=publish_eid,
+                composition_id=case_manifest["composition_id"],
+                performance_id=case_manifest["performance_id"],
+                fingerprint=fingerprint,
+                acoustic_default=acoustic_default,
+            )
+            review_write = write_review_if_absent(case_dir, template)
+            form_md = _real_review_form_markdown(case_manifest)
+            form_write = write_review_form_if_absent(case_dir, form_md)
+
+            report = {
+                **case_manifest,
+                "artifact_fingerprint": fingerprint,
+                "review": {"write": review_write, "form_write": form_write},
+                "package_role": "real_job_review_case",
+            }
+            (case_dir / CASE_REPORT_NAME).write_text(
+                json.dumps(report, indent=2) + "\n", encoding="utf-8"
+            )
+
+            # Package manifest last — only after the case is fully written.
+            package_manifest = load_package_manifest(package_dir)
+            cases = [
+                row
+                for row in (package_manifest.get("cases") or [])
+                if isinstance(row, dict) and row.get("example_id") != publish_eid
+            ]
+            cases.append(
+                {
+                    "example_id": publish_eid,
+                    "job_id": job_id,
+                    "registered_at": case_manifest["registered_at"],
+                    "case_kind": "real_job",
+                    "comparison_model": "original_versus_corrected",
+                    "supersedes": supersedes,
+                }
+            )
+            package_manifest["cases"] = cases
+            package_manifest["schema_version"] = SCHEMA_VERSION
+            save_package_manifest(package_dir, package_manifest)
+
+            return {
+                "example_id": publish_eid,
+                "job_id": job_id,
+                "case_dir": str(case_dir),
+                "manifest": str(manifest_path(package_dir)),
+                "fingerprint": fingerprint,
+                "case_manifest": case_manifest,
+                "review_write": review_write,
+                "form_write": form_write,
+                "import_action": action,
+                "supersedes": supersedes,
+            }
+        except Exception:
+            # Failed publish must not leave a partial new case or corrupt the
+            # package manifest. Restore prior package manifest if we got that far.
+            if published and case_dir.exists() and action in {"created", "revision"}:
+                # Only delete the new target — never the superseded case.
+                shutil.rmtree(case_dir, ignore_errors=True)
+            save_package_manifest(package_dir, package_manifest_before)
+            raise
 
 
 def _copy_aliased(
@@ -481,12 +878,6 @@ def _resolve_bundle_file(
     if found:
         return found
     if job_id:
-        prefixed = (
-            f"{job_id}.musicxml",
-            f"{job_id}.score.mid",
-            f"{job_id}.raw.mid",
-            f"{job_id}.wav",
-        )
         if dest_name == "original.musicxml":
             return _find_first(bundle, (f"{job_id}.musicxml", f"{job_id}.unedited.musicxml"))
         if dest_name == "original.score.mid":
@@ -495,214 +886,22 @@ def _resolve_bundle_file(
             return _find_first(bundle, (f"{job_id}.raw.mid", f"{job_id}.mid"))
         if dest_name.startswith("audio"):
             return _find_first(bundle, (f"{job_id}.wav", f"{job_id}.mp3", f"{job_id}.flac"))
-        del prefixed
     return None
 
 
-def import_real_job_bundle(
-    bundle_dir: Path,
-    *,
-    package_dir: Path,
-    job_id: str,
-    example_id: str | None = None,
-    engine_commit: str | None = None,
-    algorithm_version: str | None = None,
-    provider: str | None = None,
-    permitted_use: str | None = None,
-    title: str | None = None,
-    force: bool = False,
-) -> dict[str, Any]:
-    """Import an already-downloaded job bundle into the review package.
-
-    Copies bytes; hashes them; writes case_manifest + fingerprint + empty
-    review scaffold. Never invents human ratings. Does not access production.
-    """
-    bundle = Path(bundle_dir)
-    if not bundle.is_dir():
-        raise FileNotFoundError(f"bundle directory not found: {bundle}")
-    eid = (example_id or f"real-job-{job_id}").strip()
-    if not eid:
-        raise ValueError("example_id required")
-    case_dir = case_dir_for(package_dir, eid)
-    if case_dir.exists() and not force:
-        # Preserve human feedback; refresh only missing generated files.
-        if review_has_human_input(
-            (load_review(case_dir).data or {})
-        ) if (case_dir / REVIEW_JSON_NAME).is_file() else False:
-            pass
-        elif any(case_dir.iterdir()):
-            raise FileExistsError(
-                f"{case_dir} already exists; pass force=True to re-import "
-                "(human review.json is still preserved when present)"
-            )
-
-    case_dir.mkdir(parents=True, exist_ok=True)
-
-    copied: dict[str, str | None] = {}
-    for dest_name, aliases in BUNDLE_ALIASES.items():
-        src = _resolve_bundle_file(bundle, dest_name, aliases, job_id)
-        if src is None:
-            copied[dest_name] = None
-            continue
-        target = case_dir / dest_name
-        shutil.copy2(src, target)
-        copied[dest_name] = dest_name
-
-    # Audio: copy first matching candidate under a stable audio.<ext> name.
-    audio_src = None
-    for name in AUDIO_CANDIDATES:
-        candidate = bundle / name
-        if candidate.is_file():
-            audio_src = candidate
-            break
-    if audio_src is None and job_id:
-        for ext in (".wav", ".mp3", ".flac", ".m4a"):
-            candidate = bundle / f"{job_id}{ext}"
-            if candidate.is_file():
-                audio_src = candidate
-                break
-    if audio_src is not None:
-        dest_audio = case_dir / f"audio{audio_src.suffix.lower()}"
-        shutil.copy2(audio_src, dest_audio)
-        copied["audio"] = dest_audio.name
-    else:
-        copied["audio"] = None
-
-    if not (case_dir / "original.musicxml").is_file():
-        raise FileNotFoundError(
-            "bundle must include unedited MusicXML as original.musicxml "
-            "(or unedited.musicxml / automatic.musicxml)"
-        )
-
-    source_note_ids = _source_note_ids_status(case_dir)
-    has_audio = _audio_path(case_dir) is not None
-    has_refs = (case_dir / "reference_labels.json").is_file()
-    acoustic_default = (
-        "not_reviewed" if (has_audio and has_refs) else "not_applicable"
-    )
-
-    engine = {
-        "commit": engine_commit,
-        "algorithm_version": algorithm_version,
-        "provider": provider,
-        "status": (
-            "present"
-            if any([engine_commit, algorithm_version, provider])
-            else "unknown"
-        ),
-    }
-    if engine["status"] == "unknown":
-        # Prefer optional engine.json from the bundle when CLI flags omitted.
-        engine_path = bundle / "engine.json"
-        if engine_path.is_file():
-            try:
-                eng = json.loads(engine_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                eng = None
-            if isinstance(eng, dict):
-                engine = {
-                    "commit": eng.get("commit") or eng.get("engine_commit"),
-                    "algorithm_version": eng.get("algorithm_version"),
-                    "provider": eng.get("provider"),
-                    "status": "present",
-                }
-
-    case_manifest = {
-        "schema_version": SCHEMA_VERSION,
-        "case_kind": "real_job",
-        "example_id": eid,
-        "job_id": job_id,
-        "composition_id": f"real-comp-{job_id}",
-        "performance_id": f"real-perf-{job_id}",
-        "split": REAL_SAMPLES_DIRNAME,
-        "title": title or f"Real job {job_id}",
-        "comparison_model": "original_versus_corrected",
-        "not_algorithm_v1_v2": True,
-        "not_in_p1_synthetic_candidate_set": True,
-        "engine": engine,
-        "permitted_use": {
-            "status": "present" if permitted_use else "unknown",
-            "value": permitted_use,
-        },
-        "audio": _status_token(has_audio, value=copied.get("audio")),
-        "reference_labels": _status_token(has_refs),
-        "source_note_ids": source_note_ids,
-        "artifacts": {
-            "original_musicxml": copied.get("original.musicxml") or "original.musicxml",
-            "original_score_midi": copied.get("original.score.mid"),
-            "corrected_musicxml": copied.get("corrected.musicxml"),
-            "corrected_score_midi": copied.get("corrected.score.mid"),
-            "input_midi": copied.get("input.mid"),
-            "corrections": copied.get(CORRECTIONS_NAME),
-            "note_index": copied.get(NOTE_INDEX_NAME),
-            "audio": copied.get("audio"),
-        },
-        "registered_at": datetime.now(timezone.utc).isoformat(),
-        "note": (
-            "Original vs corrected evidence for musician review. Corrected "
-            "exports are not algorithm v2. Missing fields stay unknown/missing."
-        ),
-    }
-    (case_dir / CASE_MANIFEST_NAME).write_text(
-        json.dumps(case_manifest, indent=2) + "\n", encoding="utf-8"
-    )
-
-    fingerprint = build_real_fingerprint(case_dir, case_manifest)
-    (case_dir / FINGERPRINT_NAME).write_text(
-        json.dumps(fingerprint, indent=2) + "\n", encoding="utf-8"
-    )
-
-    template = empty_real_review_template(
-        example_id=eid,
-        composition_id=case_manifest["composition_id"],
-        performance_id=case_manifest["performance_id"],
-        fingerprint=fingerprint,
-        acoustic_default=acoustic_default,
-    )
-    review_write = write_review_if_absent(case_dir, template)
-    form_md = _real_review_form_markdown(case_manifest)
-    form_write = write_review_form_if_absent(case_dir, form_md)
-
-    report = {
-        **case_manifest,
-        "artifact_fingerprint": fingerprint,
-        "review": {"write": review_write, "form_write": form_write},
-        "package_role": "real_job_review_case",
-    }
-    (case_dir / CASE_REPORT_NAME).write_text(
-        json.dumps(report, indent=2) + "\n", encoding="utf-8"
-    )
-
-    # Register in package manifest (preserve existing entries).
-    package_manifest = load_package_manifest(package_dir)
-    cases = [
-        row
-        for row in (package_manifest.get("cases") or [])
-        if isinstance(row, dict) and row.get("example_id") != eid
-    ]
-    cases.append(
-        {
-            "example_id": eid,
-            "job_id": job_id,
-            "registered_at": case_manifest["registered_at"],
+def load_case_manifest(case_dir: Path) -> dict[str, Any]:
+    path = case_dir / CASE_MANIFEST_NAME
+    if not path.is_file():
+        return {
+            "example_id": case_dir.name,
+            "job_id": "unknown",
             "case_kind": "real_job",
-            "comparison_model": "original_versus_corrected",
+            "split": REAL_SAMPLES_DIRNAME,
         }
-    )
-    package_manifest["cases"] = cases
-    package_manifest["schema_version"] = SCHEMA_VERSION
-    save_package_manifest(package_dir, package_manifest)
-
-    return {
-        "example_id": eid,
-        "job_id": job_id,
-        "case_dir": str(case_dir),
-        "manifest": str(manifest_path(package_dir)),
-        "fingerprint": fingerprint,
-        "case_manifest": case_manifest,
-        "review_write": review_write,
-        "form_write": form_write,
-    }
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} root must be an object")
+    return data
 
 
 def _source_note_ids_status(case_dir: Path) -> dict[str, Any]:

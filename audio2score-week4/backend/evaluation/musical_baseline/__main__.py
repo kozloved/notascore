@@ -123,7 +123,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--force-import",
         action="store_true",
-        help="Allow re-import into an existing real_samples case directory",
+        help=(
+            "When the registered case already exists with different artifacts, "
+            "publish a new revision (example_id-rN) instead of overwriting. "
+            "Identical re-imports remain idempotent without this flag."
+        ),
     )
     args = parser.parse_args(argv)
 
