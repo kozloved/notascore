@@ -167,21 +167,84 @@ def _gap_rest(offset, length, voice, *, leading, trailing, primary_lane):
     return _rest(offset, length, voice, hidden=False, structural=False)
 
 
+def _opening_pickup_span(settings: NotationSettings, report, mql: Fraction):
+    """Return (absolute_start, absolute_end, length) for an anacrusis, or None.
+
+    A normal bar with an intentional opening rest leaves pickup_beats unset and
+    must not match. Legacy phase-only and length+first_downbeat forms qualify
+    when the first attack sits in the anacrusis window.
+    """
+    notes = list(getattr(report, "notes", None) or [])
+    if not notes or settings.pickup_beats is None:
+        return None
+    plen = Fraction(str(settings.pickup_beats)).limit_denominator(64)
+    if plen <= 0 or plen >= mql - Fraction(1, 64):
+        return None
+    first = min(Fraction(str(n.onset)).limit_denominator(64) for n in notes)
+    if settings.first_downbeat_beat is not None:
+        down = Fraction(str(settings.first_downbeat_beat)).limit_denominator(64)
+        if abs(float(down % mql)) > 1e-6:
+            return None
+        start = down - plen
+        if start < -Fraction(1, 64):
+            return None
+        if first < start - Fraction(1, 8) or first >= down - Fraction(1, 64):
+            return None
+        return start, down, plen
+    rem = first % mql
+    expected = mql - plen
+    if abs(float(rem - expected)) > 0.15:
+        return None
+    bar_index = int(first / mql)
+    start = Fraction(bar_index) * mql + expected
+    return start, start + plen, plen
+
+
 def build_exact_measures(events, report, meter, key_name):
     by_id = {ev.note_id: ev for ev in events}
     mql = Fraction(str(meter.measure_quarter_length))
-    beat_length = Fraction(3, 2) if meter.denominator == 8 and meter.numerator > 3 and meter.numerator % 3 == 0 else Fraction(4, meter.denominator)
+    beat_length = (
+        Fraction(3, 2)
+        if meter.denominator == 8 and meter.numerator > 3 and meter.numerator % 3 == 0
+        else Fraction(4, meter.denominator)
+    )
     settings = parse_notation_settings((report.summary or {}).get("notation_settings"))
     end = max((n.onset + n.duration for n in report.notes), default=mql)
-    count = max(1, -(-end // mql))
+    pickup = _opening_pickup_span(settings, report, mql)
+    # Rebase anacrusis to score beat 0 for MusicXML incomplete measures. Source
+    # performance beats stay on the events; export integrity applies the shift.
+    origin = Fraction(0)
+    if pickup is not None:
+        p_start, p_end, _p_len = pickup
+        origin = p_start
+        if getattr(report, "summary", None) is not None:
+            report.summary["pickup_origin_shift"] = float(origin)
+        boundaries = [(p_start - origin, p_end - origin)]
+        cursor = p_end
+        while cursor < end - Fraction(1, 10**6):
+            boundaries.append((cursor - origin, cursor + mql - origin))
+            cursor += mql
+        if len(boundaries) == 1 and end > p_end:
+            boundaries.append((p_end - origin, p_end + mql - origin))
+    else:
+        if getattr(report, "summary", None) is not None:
+            report.summary.pop("pickup_origin_shift", None)
+        count = max(1, int(-(-end // mql)))
+        boundaries = [(Fraction(i) * mql, Fraction(i + 1) * mql) for i in range(count)]
     lanes = defaultdict(list)
     for note in report.notes:
-        lanes[(note.staff, note.voice)].append(note)
+        # Plan in rebased coordinates when an anacrusis was detected.
+        shifted = note
+        if origin:
+            from dataclasses import replace as dc_replace
+
+            shifted = dc_replace(note, onset=note.onset - origin)
+        lanes[(note.staff, note.voice)].append(shifted)
     measures = []
     profile = report.summary.get("score_profile", {"grand_staff": True})
     staff_ids = (0, 1) if profile["grand_staff"] else (0,)
-    for index in range(count):
-        bar_start, bar_end = index * mql, (index + 1) * mql
+    for index, (bar_start, bar_end) in enumerate(boundaries):
+        bar_len = bar_end - bar_start
         local_settings = settings.resolved_for_measure(index + 1)
         staves = []
         for staff in staff_ids:
@@ -192,50 +255,81 @@ def build_exact_measures(events, report, meter, key_name):
                 for note in lanes[key]:
                     if note.onset < bar_end and note.onset + note.duration > bar_start:
                         start = max(bar_start, note.onset) - bar_start
-                        end = min(bar_end, note.onset + note.duration) - bar_start
+                        note_end = min(bar_end, note.onset + note.duration) - bar_start
                         before = note.onset < bar_start
                         after = note.onset + note.duration > bar_end
-                        tie = "continue" if before and after else "stop" if before else "start" if after else None
-                        groups[(start, end, tie)].append(note)
+                        tie = (
+                            "continue"
+                            if before and after
+                            else "stop"
+                            if before
+                            else "start"
+                            if after
+                            else None
+                        )
+                        groups[(start, note_end, tie)].append(note)
                 if not groups:
-                    # Keep lane identities stable when other voices finish.
-                    # Importers may flatten a lone remaining voice and lose
-                    # the identity needed to join its cross-bar ties.
-                    voices.append(PlannedVoice(key[1], [
-                        _rest(Fraction(0), mql, key[1], hidden=key != staff_lanes[0], structural=True)
-                    ]))
+                    voices.append(
+                        PlannedVoice(
+                            key[1],
+                            [
+                                _rest(
+                                    Fraction(0),
+                                    bar_len,
+                                    key[1],
+                                    hidden=key != staff_lanes[0],
+                                    structural=True,
+                                )
+                            ],
+                        )
+                    )
                     continue
                 elements, cursor = [], Fraction(0)
-                for (start, end, tie), group in sorted(groups.items(), key=lambda item: item[0][0]):
+                for (start, note_end, tie), group in sorted(
+                    groups.items(), key=lambda item: item[0][0]
+                ):
                     if start < cursor:
                         raise ValueError("Exact voice lane contains overlapping attacks")
                     for offset, length in _pieces(
-                        cursor, start - cursor, beat_length, local_settings, mql
+                        cursor, start - cursor, beat_length, local_settings, bar_len
                     ):
                         rest = _gap_rest(
-                            offset, length, key[1],
+                            offset,
+                            length,
+                            key[1],
                             leading=cursor == 0,
                             trailing=False,
                             primary_lane=key == staff_lanes[0],
                         )
                         if rest is not None:
                             elements.append(rest)
-                    pieces = list(_pieces(start, end - start, beat_length, local_settings, mql))
+                    pieces = list(
+                        _pieces(start, note_end - start, beat_length, local_settings, bar_len)
+                    )
                     ties = tie_chain(len(pieces), tie)
                     supplied = _source_articulations(group, by_id)
                     for (offset, length), piece_tie in zip(pieces, ties):
-                        elements.append(PlannedNote(
-                            pitches=[by_id[n.source_id].pitch for n in group],
-                            start_q=offset, duration_q=length, voice=key[1],
-                            velocity=max(by_id[n.source_id].velocity for n in group),
-                            velocities=[by_id[n.source_id].velocity for n in group],
-                            tie=piece_tie, event_ids=[n.source_id for n in group],
-                            articulations=_attack_articulations(supplied, piece_tie),
-                        ))
-                    cursor = end
-                for offset, length in _pieces(cursor, mql - cursor, beat_length, local_settings, mql):
+                        elements.append(
+                            PlannedNote(
+                                pitches=[by_id[n.source_id].pitch for n in group],
+                                start_q=offset,
+                                duration_q=length,
+                                voice=key[1],
+                                velocity=max(by_id[n.source_id].velocity for n in group),
+                                velocities=[by_id[n.source_id].velocity for n in group],
+                                tie=piece_tie,
+                                event_ids=[n.source_id for n in group],
+                                articulations=_attack_articulations(supplied, piece_tie),
+                            )
+                        )
+                    cursor = note_end
+                for offset, length in _pieces(
+                    cursor, bar_len - cursor, beat_length, local_settings, bar_len
+                ):
                     rest = _gap_rest(
-                        offset, length, key[1],
+                        offset,
+                        length,
+                        key[1],
                         leading=False,
                         trailing=True,
                         primary_lane=key == staff_lanes[0],
@@ -245,11 +339,23 @@ def build_exact_measures(events, report, meter, key_name):
                 annotate_rhythm(elements, meter.time_signature, f"{index}:{staff}:{key[1]}")
                 voices.append(PlannedVoice(key[1], elements))
             if not voices:
-                voices = [PlannedVoice(0, [_rest(Fraction(0), mql, 0, structural=True)])]
-            clef = ("treble" if staff == 0 else "bass") if profile["grand_staff"] else profile["clef"]
+                voices = [PlannedVoice(0, [_rest(Fraction(0), bar_len, 0, structural=True)])]
+            clef = (
+                ("treble" if staff == 0 else "bass")
+                if profile["grand_staff"]
+                else profile["clef"]
+            )
             staves.append(PlannedStaff(staff, clef, voices=voices))
-        measures.append(PlannedMeasure(index + 1, index * mql, mql,
-                                       meter.time_signature, key_name if index == 0 else None, staves))
+        measures.append(
+            PlannedMeasure(
+                index + 1,
+                float(bar_start),
+                float(bar_len),
+                meter.time_signature,
+                key_name if index == 0 else None,
+                staves,
+            )
+        )
     validate_source_coverage(measures, report, by_id)
     validate_articulation_ownership(measures, report, by_id)
     return measures
@@ -310,6 +416,7 @@ def annotate_rhythm(elements, time_signature, prefix):
 
 def validate_source_coverage(measures, report, by_id):
     fragments = defaultdict(list)
+    shift = Fraction(str((getattr(report, "summary", None) or {}).get("pickup_origin_shift") or 0))
     for measure in measures:
         for staff in measure.staves:
             for voice in staff.voices:
@@ -321,21 +428,26 @@ def validate_source_coverage(measures, report, by_id):
                     for ident, pitch in zip(element.event_ids, element.pitches):
                         if ident not in by_id or pitch != by_id[ident].pitch:
                             raise ValueError("Notation changed a source pitch")
-                        fragments[ident].append((measure.start_beat + element.start_q,
-                                                 element.duration_q, staff.staff_id,
-                                                 voice.voice_id, element.tie))
+                        fragments[ident].append((
+                            Fraction(str(measure.start_beat)) + Fraction(element.start_q),
+                            Fraction(element.duration_q),
+                            staff.staff_id,
+                            voice.voice_id,
+                            element.tie,
+                        ))
     if set(fragments) != {note.source_id for note in report.notes}:
         raise ValueError("Notation lost or introduced source notes")
     for note in report.notes:
         pieces = sorted(fragments[note.source_id])
-        cursor = note.onset
+        # Measures may be rebased so anacrusis starts at beat 0.
+        cursor = note.onset - shift
         expected_ties = tie_chain(len(pieces), None)
         for (start, duration, staff, voice, tie), expected_tie in zip(pieces, expected_ties):
             if (start != cursor or staff != note.staff or voice != note.voice
                     or tie != expected_tie):
                 raise ValueError(f"Broken source timeline for {note.source_id}")
             cursor += duration
-        if cursor != note.onset + note.duration:
+        if cursor != note.onset - shift + note.duration:
             raise ValueError(f"Notation changed duration for {note.source_id}")
 
 

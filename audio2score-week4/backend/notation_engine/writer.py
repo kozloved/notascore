@@ -350,8 +350,15 @@ class NotationWriter:
         quantized = list(result.quantized_events or self.last_quantized_events)
         if self.last_quantization_mode == QuantizationMode.PERFORMANCE:
             validate_event_identity(events, quantized)
+            shift = float((self.last_quantization_summary or {}).get("pickup_origin_shift") or 0.0)
+            if abs(shift) < 1e-12 and self.last_plan is not None:
+                shift = float((self.last_plan.extra or {}).get("pickup_origin_shift") or 0.0)
             self.last_export_integrity = validate_exports(
-                xml_path, out_dir / f"{job_id}.score.mid", quantized)
+                xml_path,
+                out_dir / f"{job_id}.score.mid",
+                quantized,
+                musicxml_beat_shift=shift,
+            )
         else:
             self.last_export_integrity = {
                 "status": "skipped",
@@ -684,6 +691,14 @@ class NotationWriter:
         if meta is not None:
             self._apply_tempo_map(score, meta, score_beat_offset=float(
                 (plan.extra.get("quantization") or {}).get("score_beat_offset", 0)))
+        # Re-assert planned lengths after metronome/tempo inserts — music21 may
+        # widen an incomplete pickup when a mark is placed with barDuration.
+        by_number = {m.number: float(m.duration_beats) for m in plan.measures}
+        for part in parts:
+            for meas in part.getElementsByClass(stream.Measure):
+                planned = by_number.get(meas.number)
+                if planned is not None and abs(float(meas.duration.quarterLength) - planned) > 1e-6:
+                    meas.duration.quarterLength = planned
         return score
 
     def _element_to_m21(self, el):
@@ -1174,10 +1189,17 @@ class NotationWriter:
             return
         for meas in measures:
             start = float(meas.offset)
+            # Prefer the written measure length so incomplete pickups are not
+            # treated as full bars (barDuration alone would swallow later beats).
             try:
-                dur = float(meas.barDuration.quarterLength)
+                dur = float(meas.duration.quarterLength)
             except Exception:
-                dur = float(getattr(meas.duration, "quarterLength", 4.0) or 4.0)
+                dur = 0.0
+            if dur <= 1e-9:
+                try:
+                    dur = float(meas.barDuration.quarterLength)
+                except Exception:
+                    dur = float(getattr(meas.duration, "quarterLength", 4.0) or 4.0)
             if start - 1e-6 <= float(beat) < start + dur - 1e-9 or (
                 meas is measures[-1] and abs(float(beat) - (start + dur)) <= 1e-6
             ):
@@ -1203,8 +1225,17 @@ class NotationWriter:
 
     def _export_musicxml(self, score, xml_path: Path) -> None:
         self._sanitize_export_durations(score)
+        # Incomplete pickup measures must not run music21 makeNotation — it
+        # expands them back to full bars. Fully notated production scores
+        # without an anacrusis still use the default path (accidentals, etc.).
+        shift = 0.0
+        if self.last_plan is not None:
+            shift = float((self.last_plan.extra or {}).get("pickup_origin_shift") or 0.0)
+        make_notation = not (
+            self.last_quantization_mode == QuantizationMode.PERFORMANCE and abs(shift) > 1e-9
+        )
         try:
-            score.write("musicxml", fp=str(xml_path))
+            score.write("musicxml", fp=str(xml_path), makeNotation=make_notation)
         except Exception as exc:
             print(
                 f"[Notation] MusicXML write failed ({exc!s}); "

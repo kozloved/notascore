@@ -480,7 +480,7 @@ def infer_pickup(
     *,
     downbeat_beats: list[float] | None = None,
 ) -> dict[str, Any]:
-    """Infer anacrusis only with a measured downbeat after the first attack.
+    """Infer anacrusis only when the first attack precedes every measured downbeat.
 
     Semantics (score coordinates after origin alignment):
     - ``pickup_beats``: opening-measure length = distance from the first
@@ -489,7 +489,9 @@ def infer_pickup(
       for phase). Downstream must not re-apply ``pickup_beats`` as a phase
       when ``first_downbeat_beat`` is present.
 
-    Do not treat every incomplete opening as a pickup.
+    A measured downbeat at or before the first attack means the opening is a
+    normal bar (e.g. initial rest), not a pickup. Do not treat every incomplete
+    opening as a pickup, and do not invent evidence from synthetic gaps alone.
     """
     empty = {
         "pickup_inferred": False,
@@ -501,8 +503,12 @@ def infer_pickup(
     rel = first_beat % measure_ql
     if rel <= 0.08 or rel >= measure_ql - 0.08:
         return dict(empty)
-    downs = [b for b in (downbeat_beats or []) if abs(b - round(b)) < 0.08]
+    downs = [float(b) for b in (downbeat_beats or []) if abs(float(b) - round(float(b))) < 0.08]
     if not downs:
+        return dict(empty)
+    # Preceding or concurrent downbeat ⇒ bar already started (initial rest /
+    # mid-bar entry), not an anacrusis before the first barline.
+    if min(downs) <= first_beat + 0.1:
         return dict(empty)
     following = [b for b in downs if b > first_beat + 0.1]
     if not following:
