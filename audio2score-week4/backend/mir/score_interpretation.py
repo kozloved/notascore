@@ -366,13 +366,19 @@ def evaluate_candidates(
     )
     keep_fast_pattern = even_16_orig >= 3 or even_trip_orig >= 2
     # Double-time must fix a mis-scaled pulse, not coarsen an already on-beat
-    # reading into longer note values. Labels come from construction: when most
-    # scale-1 onsets already sit on integer beats, prefer preserving tempo 1.0.
+    # reading into longer note values. Count unique pulse times so chord
+    # doubles cannot inflate the on-beat ratio. Require an exact ≥85% ratio
+    # with at least three on-integer pulses (not int(0.85 * n), which accepted
+    # 6/8 = 75%).
+    pulse_onsets = sorted({round(float(onset), 3) for onset in orig_onsets})
     on_integer = sum(
-        1 for onset in orig_onsets if abs(onset - round(onset)) < 0.08
+        1 for onset in pulse_onsets if abs(onset - round(onset)) < 0.08
     )
-    already_on_beat = bool(orig_onsets) and on_integer >= max(
-        3, int(0.85 * len(orig_onsets))
+    n_pulses = len(pulse_onsets)
+    already_on_beat = (
+        n_pulses > 0
+        and on_integer >= 3
+        and on_integer / n_pulses >= 0.85
     )
     out: list[CandidateScore] = []
     for scale in scales:
@@ -474,19 +480,42 @@ def infer_pickup(
     *,
     downbeat_beats: list[float] | None = None,
 ) -> dict[str, Any]:
-    """Do not treat every incomplete opening as a pickup."""
+    """Infer anacrusis only with a measured downbeat after the first attack.
+
+    Semantics (score coordinates after origin alignment):
+    - ``pickup_beats``: opening-measure length = distance from the first
+      attack to the following measured downbeat (not the attack's bar phase).
+    - ``first_downbeat_beat``: absolute score beat of that downbeat (authoritative
+      for phase). Downstream must not re-apply ``pickup_beats`` as a phase
+      when ``first_downbeat_beat`` is present.
+
+    Do not treat every incomplete opening as a pickup.
+    """
+    empty = {
+        "pickup_inferred": False,
+        "pickup_beats": 0.0,
+        "first_downbeat_beat": None,
+    }
     if first_beat <= 0.08 or measure_ql <= 0:
-        return {"pickup_inferred": False, "pickup_beats": 0.0}
+        return dict(empty)
     rel = first_beat % measure_ql
     if rel <= 0.08 or rel >= measure_ql - 0.08:
-        return {"pickup_inferred": False, "pickup_beats": 0.0}
+        return dict(empty)
     downs = [b for b in (downbeat_beats or []) if abs(b - round(b)) < 0.08]
     if not downs:
-        return {"pickup_inferred": False, "pickup_beats": 0.0}
-    # Strong evidence: a measured downbeat after the first attack.
-    if min(downs) > first_beat + 0.1:
-        return {"pickup_inferred": True, "pickup_beats": round(rel, 4)}
-    return {"pickup_inferred": False, "pickup_beats": 0.0}
+        return dict(empty)
+    following = [b for b in downs if b > first_beat + 0.1]
+    if not following:
+        return dict(empty)
+    next_down = float(min(following))
+    length = next_down - float(first_beat)
+    if length <= 0.08 or length >= measure_ql - 0.08:
+        return dict(empty)
+    return {
+        "pickup_inferred": True,
+        "pickup_beats": round(length, 4),
+        "first_downbeat_beat": round(next_down, 4),
+    }
 
 
 def complexity_warnings(

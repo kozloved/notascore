@@ -4,8 +4,8 @@ Canonical development plan for reliable, editable solo-instrument and piano
 scores. Historical reviews stay in dated `docs/` files. New engine work is
 scheduled here.
 
-Reviewed remote baseline for this plan: `2c928e5` / PR #83 (P1 musician-
-review handoff package). P1 remains **0/15 attributed reviews** —
+Reviewed remote baseline for this plan: `e9dca18` / PR #84 (P2a false
+double-time guard). P1 remains **0/15 attributed reviews** —
 `musician_reviewed_complete=0`, `p1_complete=false`. Prepared for review
 does not mean P1 is complete.
 
@@ -246,8 +246,7 @@ do not claim musician-validated improvement.
 **Implementation tasks.**
 
 1. Prioritize tempo scale, downbeat/pickup alignment, and voice continuity.
-   **P2a (tempo scale) started** on branch `cursor/engine-p2a-tempo-pickup`
-   from `2c928e5`.
+   **P2a continued** on `cursor/engine-p2a-pickup-guard` from `e9dca18`.
 2. Use paired counterexamples for every heuristic change.
 3. Preserve deliberate rests, independent holds, and user-locked decisions.
 4. Do not retune readable-v2 from 138 printed-lane movement.
@@ -264,44 +263,54 @@ do not claim musician-validated improvement.
 **not P2 complete**, **not musician-validated**. P1 still 0/15 attributed
 reviews. Default remains `performance-score-1`; v2 stays opt-in.
 
-**P2a increment (tested on this branch).**
+**P2a increment (PR #84 @ `e9dca18`).**
 
-- **Defect.** `evaluate_candidates` / `choose_candidate` double-timed
-  already-correct half notes (120 bpm, attacks every 2 beats) into whole
-  notes at ×2 because longer values looked cheaper under `APPLY_MARGIN`.
-  First diverging stage: tempo-scale candidate scoring (not playback export).
-  Classification: implementation error (false tempo retune), not an
-  ambiguous musical choice once construction labels are fixed.
-- **Fix.** When ≥85% of scale-1 onsets already land on integer beats,
-  add the same +0.6 penalty used for `keep_fast_pattern` to tempo_scale
-  2.0 only. Preserves intended double-time of mis-scaled eighths on a
-  60 bpm grid.
-- **Paired cases (construction labels, not human review).**
-  - Intended correction: `e0000`–`e0007` on 60 bpm → still chooses ×2.
-  - Already-correct: `h0000`–`h0007` on 120 bpm → now stays ×1 (was ×2).
-  - Syncopation offbeats → stays ×1 (not a shifted-downbeat retune).
-- **Not changed.** Pickup inference remains conservative (MIDI path still
-  passes `downbeat_beats=[0.0]` so auto-pickup needs settings or measured
-  downs after the first attack). No P2b voice work. No v2 promotion.
-- **Commands / results.**
-  - Focused: `pytest -q tests/test_score_interpretation.py
-    tests/test_downbeat_alignment.py tests/test_score_time_consistency.py
-    tests/test_midi_timing_fidelity.py tests/test_notation_settings.py
-    tests/test_musical_time_map.py tests/test_rubato_musical_time.py
-    tests/test_export_integrity.py tests/test_shared_engraving.py
-    tests/test_musical_baseline.py` → **144 passed**.
-  - Supported backend suite:
-    `pytest -m 'not integration and not pm2s' -q`
-    → **1012 passed, 4 deselected, 0 failed**.
+- False double-time of already-correct half notes blocked when scale-1
+  onsets are on-beat; paired ×1 / ×2 cases retained.
+
+**P2a increment (this branch, base `e9dca18`).**
+
+1. **Tempo guard correctness.**
+   - **Defect.** `on_integer >= max(3, int(0.85 * n))` accepted 6/8 = 75%,
+     contradicting the documented ≥85% rule. Per-note counting also let
+     chord doubles inflate the ratio (melody 75% vs chord-triads 90%).
+   - **Fix.** Unique pulse times; require `on_integer >= 3` and
+     `on_integer / n_pulses >= 0.85` exactly. Existing half-note ×1 and
+     mis-scaled eighth ×2 pairs preserved.
+   - Boundary tests: 75% false, 87.5% true, short (<3) false, chord == melody.
+
+2. **Pickup / downbeat semantics + collapse bug.**
+   - **Trace.** `infer_pickup` → `pipeline.last_pickup` →
+     `InterpretationContext` → regen copies into `NotationSettings` →
+     `quantize_notation` phase offset. User `pickup_beats` alone still
+     means bar-phase (first-downbeat position) for notes starting at 0.
+   - **Defect.** For attack@3 with downs at 4 and 8, infer returned
+     `pickup_beats=3.0` (bar-relative attack phase). Regen applied that
+     as phase (`offset = (-3) % 4`) and moved `pickup` 3→4 / `down` 4→5,
+     collapsing the anacrusis. Classification: implementation error
+     (semantic mismatch across boundaries), not ambiguous musical choice.
+   - **Fix.** `infer_pickup` returns opening-measure **length**
+     (`pickup_beats = next_down - first_attack`) plus
+     `first_downbeat_beat = next_down`. Settings validation accepts
+     length form alongside legacy phase form. Quantize prefers
+     `first_downbeat_beat` → offset 0 for already-aligned coordinates.
+   - **Paired cases.** Genuine inferred pickup keeps onsets; initial
+     silence / syncopation without following downs → no inference; user
+     `pickup_beats=1.0` alone still phases 0→3; MIDI path still does not
+     invent pickup from incomplete openings (`downbeat_beats=[0.0]`).
+   - Sub-beat tempo pickup playback regression
+     (`test_pickup_onset_with_midbeat_tempo_change`) remains green.
+
+- **Not claimed.** Musician-validated quality. No P2b. No v2 promotion.
+- **Commands / results.** See suggested-next / validation note below.
 
 **Remaining P2 work.**
 
-1. Pickup/downbeat: stronger MIDI evidence without treating every incomplete
-   opening as a pickup; user `pickup_beats` / locks stay authoritative.
-2. Rubato + sub-beat tempo knots under scale transforms — keep playback
-   fidelity regressions green; no new heuristic without a paired case.
-3. P2b musical-voice continuity only after P2a validation and with cases
-   that are not mere printed-lane moves (138).
+1. Opening-measure MusicXML duration spelling from length-form pickup
+   (placement fixed; incomplete-bar engraving may still need paired cases).
+2. Rubato + sub-beat tempo knots under further scale transforms — keep
+   playback fidelity green; no new heuristic without a pair.
+3. P2b musical-voice continuity only after P2a validation (not 138 lanes).
 4. Musician review of any interpretation claim — blocked on P1 ratings.
 
 ## P3 — Controlled readable-v2 rollout
@@ -414,11 +423,19 @@ independently validated.
 
 ## Suggested next milestone
 
-P2a started with one deterministic tempo-scale correctness fix (false
-double-time of already-on-beat halves) and paired construction-labeled
-tests. **P1 is still 0/15 attributed reviews** — do not mark P1 or P2
-complete. **Next:** continue P2a on pickup/downbeat only when a reproduced
-defect has a construction-labeled pair; collect musician reviews via
-`REVIEW_INDEX.html` / `FIRST_SESSION.md` before any musician-validated
-interpretation claim. Defer P2b voice heuristics. Keep v1 default / v2
-opt-in. Do not retune without counterexamples.
+P2a tempo-guard ratio/chord fix and pickup length semantics are in this
+branch (base `e9dca18`). **P1 is still 0/15 attributed reviews** — do not
+mark P1 or P2 complete. Construction-labeled tests are not musician
+sign-off. **Next:** incomplete-bar MusicXML spelling for length-form
+pickups if a paired defect is reproduced; collect musician reviews via
+`REVIEW_INDEX.html` / `FIRST_SESSION.md`. Defer P2b. Keep v1 default /
+v2 opt-in.
+
+**Validation (this increment, SHA=`e9dca18` + local WIP).**
+
+- Focused interpretation/settings/downbeat/timing/baseline/correctness:
+  **177 passed**.
+- Supported backend suite:
+  `pytest -m 'not integration and not pm2s' -q`
+  → **1015 passed, 4 deselected, 0 failed**.
+

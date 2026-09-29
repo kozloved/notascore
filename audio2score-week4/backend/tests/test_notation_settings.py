@@ -102,6 +102,16 @@ def test_pickup_and_downbeat_must_agree():
     assert settings.pickup_beats == 1.0
 
 
+def test_pickup_length_form_agrees_with_first_downbeat():
+    """Opening-measure length + absolute downbeat is a valid settings pair."""
+    settings = parse_notation_settings(
+        {"meter": "4/4", "pickup_beats": 0.5, "first_downbeat_beat": 4.0}
+    )
+    assert settings.pickup_beats == 0.5
+    assert settings.first_downbeat_beat == 4.0
+
+
+
 def test_partial_settings_preserve_clear_and_replace():
     current = NotationSettings.from_dict(
         {
