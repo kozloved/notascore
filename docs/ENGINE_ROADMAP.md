@@ -4,10 +4,10 @@ Canonical development plan for reliable, editable solo-instrument and piano
 scores. Historical reviews stay in dated `docs/` files. New engine work is
 scheduled here.
 
-Reviewed remote baseline for this plan: `e9dca18` / PR #84 (P2a false
-double-time guard). P1 remains **0/15 attributed reviews** —
-`musician_reviewed_complete=0`, `p1_complete=false`. Prepared for review
-does not mean P1 is complete.
+Reviewed remote baseline for this plan: `cbaf099` / PR #85 (P2a tempo-guard
+ratio/chord fix and pickup length semantics). P1 remains **0/15 attributed
+reviews** — `musician_reviewed_complete=0`, `p1_complete=false`. Prepared
+for review does not mean P1 is complete.
 
 This is a plan, not a claim that musical quality is solved. Synthetic tests,
 valid MusicXML, and successful PDF export are not proof of musical quality.
@@ -268,50 +268,58 @@ reviews. Default remains `performance-score-1`; v2 stays opt-in.
 - False double-time of already-correct half notes blocked when scale-1
   onsets are on-beat; paired ×1 / ×2 cases retained.
 
-**P2a increment (this branch, base `e9dca18`).**
+**P2a increment (PR #85 @ `cbaf099`).**
 
-1. **Tempo guard correctness.**
-   - **Defect.** `on_integer >= max(3, int(0.85 * n))` accepted 6/8 = 75%,
-     contradicting the documented ≥85% rule. Per-note counting also let
-     chord doubles inflate the ratio (melody 75% vs chord-triads 90%).
-   - **Fix.** Unique pulse times; require `on_integer >= 3` and
-     `on_integer / n_pulses >= 0.85` exactly. Existing half-note ×1 and
-     mis-scaled eighth ×2 pairs preserved.
-   - Boundary tests: 75% false, 87.5% true, short (<3) false, chord == melody.
+- Tempo-guard unique-pulse ≥85% + min-3; pickup length + `first_downbeat_beat`
+  semantics (opening-measure length, not bar-phase) for inferred anacruses.
 
-2. **Pickup / downbeat semantics + collapse bug.**
-   - **Trace.** `infer_pickup` → `pipeline.last_pickup` →
-     `InterpretationContext` → regen copies into `NotationSettings` →
-     `quantize_notation` phase offset. User `pickup_beats` alone still
-     means bar-phase (first-downbeat position) for notes starting at 0.
-   - **Defect.** For attack@3 with downs at 4 and 8, infer returned
-     `pickup_beats=3.0` (bar-relative attack phase). Regen applied that
-     as phase (`offset = (-3) % 4`) and moved `pickup` 3→4 / `down` 4→5,
-     collapsing the anacrusis. Classification: implementation error
-     (semantic mismatch across boundaries), not ambiguous musical choice.
-   - **Fix.** `infer_pickup` returns opening-measure **length**
-     (`pickup_beats = next_down - first_attack`) plus
-     `first_downbeat_beat = next_down`. Settings validation accepts
-     length form alongside legacy phase form. Quantize prefers
-     `first_downbeat_beat` → offset 0 for already-aligned coordinates.
-   - **Paired cases.** Genuine inferred pickup keeps onsets; initial
-     silence / syncopation without following downs → no inference; user
-     `pickup_beats=1.0` alone still phases 0→3; MIDI path still does not
-     invent pickup from incomplete openings (`downbeat_beats=[0.0]`).
-   - Sub-beat tempo pickup playback regression
-     (`test_pickup_onset_with_midbeat_tempo_change`) remains green.
+**P2a increment (this branch, base `cbaf099`).**
+
+1. **Pickup inference false positive (initial rest).**
+   - **Defect.** After PR #85, `infer_pickup(0.5, 4.0, downbeat_beats=[0,4,8])`
+     ignored the preceding downbeat at 0 and returned
+     `pickup_inferred=True, pickup_beats=3.5, first_downbeat_beat=4.0`.
+     Construction label: normal bar beginning at beat 0 with an initial
+     eighth rest — must not infer a pickup.
+   - **Fix.** Require that the first attack precedes every measured
+     downbeat (`min(downs) > first_beat + 0.1`). Following-downbeat length
+     math retained for the genuine pair attack@3 / downs=[4,8] → length=1,
+     first_downbeat=4. Unordered downs, missing evidence, syncopation, and
+     mid-bar entry after a barline stay non-inferred. User settings/locks
+     remain authoritative.
+   - **Paired table (helper).**
+
+     | Case | first | downs | before (PR #85) | after |
+     |---|---|---|---|---|
+     | Initial eighth rest | 0.5 | 0,4,8 | pickup 3.5 @4 | no pickup |
+     | Genuine one-beat pickup | 3.0 | 4,8 | pickup 1 @4 | pickup 1 @4 |
+
+2. **Incomplete-measure engraving (concrete defect).**
+   - **Defect.** Length-form genuine pickup exported measure 1 as full 4/4
+     padded with leading rests; music21 `makeNotation` and metronome
+     inserts using `barDuration` further widened incomplete bars.
+   - **Fix.** `build_exact_measures` detects pickup span, rebases MusicXML
+     to anacrusis at beat 0 with duration = pickup length; performance
+     event beats stay absolute (`pickup_origin_shift` for integrity only).
+     Performance MusicXML writes with `makeNotation=False`; metronome
+     placement uses written measure duration; planned lengths re-asserted
+     after tempo marks.
+   - **Assertions.** Genuine length+fdb → first measure ql=1.0; initial
+     rest (no pickup) → ql=4.0 with opening rest preserved; legacy
+     `pickup_beats=1.0` alone → ql=1.0. Source MIDI bytes unchanged.
+   - Sub-beat tempo pickup playback regression remains in the suite.
 
 - **Not claimed.** Musician-validated quality. No P2b. No v2 promotion.
-- **Commands / results.** See suggested-next / validation note below.
+  Construction-labeled tests ≠ human review.
 
 **Remaining P2 work.**
 
-1. Opening-measure MusicXML duration spelling from length-form pickup
-   (placement fixed; incomplete-bar engraving may still need paired cases).
-2. Rubato + sub-beat tempo knots under further scale transforms — keep
+1. Rubato + sub-beat tempo knots under further scale transforms — keep
    playback fidelity green; no new heuristic without a pair.
-3. P2b musical-voice continuity only after P2a validation (not 138 lanes).
-4. Musician review of any interpretation claim — blocked on P1 ratings.
+2. P2b musical-voice continuity only after P2a validation (not 138 lanes).
+3. Musician review of any interpretation claim — blocked on P1 ratings.
+4. Auto-infer path still needs measured downs without a preceding barline;
+   do not invent pickups from incomplete openings alone.
 
 ## P3 — Controlled readable-v2 rollout
 
@@ -423,19 +431,18 @@ independently validated.
 
 ## Suggested next milestone
 
-P2a tempo-guard ratio/chord fix and pickup length semantics are in this
-branch (base `e9dca18`). **P1 is still 0/15 attributed reviews** — do not
-mark P1 or P2 complete. Construction-labeled tests are not musician
-sign-off. **Next:** incomplete-bar MusicXML spelling for length-form
-pickups if a paired defect is reproduced; collect musician reviews via
-`REVIEW_INDEX.html` / `FIRST_SESSION.md`. Defer P2b. Keep v1 default /
-v2 opt-in.
+P2a pickup-rest false-positive fix and incomplete-measure engraving are in
+this branch (base `cbaf099`). **P1 is still 0/15 attributed reviews** — do
+not mark P1 or P2 complete. Construction-labeled tests are not musician
+sign-off. **Next:** collect musician reviews via `REVIEW_INDEX.html` /
+`FIRST_SESSION.md`. Defer P2b. Keep v1 default / v2 opt-in.
 
-**Validation (this increment, SHA=`e9dca18` + local WIP).**
+**Validation (this increment, base SHA=`cbaf099`, branch WIP).**
 
-- Focused interpretation/settings/downbeat/timing/baseline/correctness:
-  **177 passed**.
+- Focused interpretation/settings/downbeat/export/timing + musical-baseline:
+  `pytest tests/test_score_interpretation.py tests/test_notation_settings.py tests/test_downbeat_alignment.py tests/test_midi_timing_fidelity.py tests/test_export_evidence_structure.py tests/test_notation_correctness.py tests/test_musical_baseline.py -q`
+  → **92 passed**.
 - Supported backend suite:
   `pytest -m 'not integration and not pm2s' -q`
-  → **1015 passed, 4 deselected, 0 failed**.
+  → **1016 passed, 4 deselected, 0 failed**.
 

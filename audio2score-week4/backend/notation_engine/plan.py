@@ -260,6 +260,11 @@ class NotationPlanner:
             "notation_settings": settings.to_dict() if parsed == QuantizationMode.PERFORMANCE else None,
             "algorithm_version": settings.algorithm_version if parsed == QuantizationMode.PERFORMANCE else None,
         }
+        if production and quant_result.report is not None:
+            shift = (quant_result.report.summary or {}).get("pickup_origin_shift")
+            if shift is not None:
+                extra["pickup_origin_shift"] = float(shift)
+                quant_summary["pickup_origin_shift"] = float(shift)
         if meta and meta.extra:
             if meta.extra.get("meter_decision"):
                 extra["meter_decision"] = meta.extra["meter_decision"]

@@ -3,6 +3,8 @@
 from copy import deepcopy
 from fractions import Fraction
 
+import pytest
+
 from mir.hand_separator import HandSeparator
 from mir.models import MeterHypothesis, PlannedNote
 from mir.performance_score import assign_pipeline_layout, quantize_notation
@@ -301,16 +303,28 @@ def test_g3_syncopation_not_retuned_as_shifted_downbeat():
 
 def test_h_pickup_requires_downbeat_evidence():
     assert infer_pickup(1.0, 4.0, downbeat_beats=[])["pickup_inferred"] is False
+    # Genuine pickup: first attack precedes every measured downbeat.
     inferred = infer_pickup(3.0, 4.0, downbeat_beats=[4.0, 8.0])
     assert inferred["pickup_inferred"] is True
     # Opening-measure length (attack@3 → downbeat@4), not bar-phase 3.0.
     assert inferred["pickup_beats"] == 1.0
     assert inferred["first_downbeat_beat"] == 4.0
+    # Unordered downbeats still resolve to the same following bar.
+    unordered = infer_pickup(3.0, 4.0, downbeat_beats=[8.0, 4.0])
+    assert unordered == inferred
     assert infer_pickup(0.0, 4.0, downbeat_beats=[0.0, 4.0])["pickup_inferred"] is False
     # Syncopated first attack without a following measured downbeat → no pickup.
     assert infer_pickup(0.5, 4.0, downbeat_beats=[0.0])["pickup_inferred"] is False
     # Initial silence then downbeat attack: first_beat on bar → no pickup.
     assert infer_pickup(4.0, 4.0, downbeat_beats=[4.0, 8.0])["pickup_inferred"] is False
+    # Normal bar with initial eighth rest: preceding downbeat at 0 must win.
+    # PR #85 regression selected later downbeat@4 and invented pickup_beats=3.5.
+    initial_rest = infer_pickup(0.5, 4.0, downbeat_beats=[0.0, 4.0, 8.0])
+    assert initial_rest["pickup_inferred"] is False
+    assert initial_rest["pickup_beats"] == 0.0
+    assert initial_rest["first_downbeat_beat"] is None
+    # Mid-bar entry after a measured barline is also not a pickup.
+    assert infer_pickup(3.0, 4.0, downbeat_beats=[0.0, 4.0, 8.0])["pickup_inferred"] is False
 
 
 def test_h2_inferred_pickup_length_does_not_collapse_on_quantize():
@@ -356,6 +370,73 @@ def test_h2_inferred_pickup_length_does_not_collapse_on_quantize():
     u = {n.source_id: n for n in user_report.notes}
     assert float(u["upickup"].onset) == 3.0
     assert float(u["udown"].onset) == 4.0
+
+
+def test_h3_pickup_exports_incomplete_opening_measure(tmp_path):
+    """Genuine one-beat pickup → MusicXML measure duration 1; initial rest stays 4.
+
+    Source/performance beats remain on quantized events; MusicXML rebases the
+    anacrusis to beat 0 for incomplete-bar engraving only.
+    """
+    import xml.etree.ElementTree as ET
+
+    import pretty_midi
+
+    from mir.notation_settings import NotationSettings
+    from mir.pipeline import UnderstandingPipeline
+
+    def _write(path, notes_sec):
+        pm = pretty_midi.PrettyMIDI(initial_tempo=120)
+        inst = pretty_midi.Instrument(0)
+        for pitch, start, end in notes_sec:
+            inst.notes.append(
+                pretty_midi.Note(velocity=80, pitch=pitch, start=start, end=end)
+            )
+        pm.instruments.append(inst)
+        pm.time_signature_changes.append(pretty_midi.TimeSignature(4, 4, 0))
+        pm.write(str(path))
+
+    def _first_measure_ql(xml_text: str) -> float:
+        root = ET.fromstring(xml_text)
+        ns = root.tag.split("}")[0] + "}" if root.tag.startswith("{") else ""
+        part = root.find(f".//{ns}part")
+        meas = part.find(f"{ns}measure")
+        divisions = int(meas.find(f"{ns}attributes/{ns}divisions").text)
+        total = 0
+        for el in list(meas):
+            tag = el.tag.replace(ns, "")
+            if tag == "note" and el.find(f"{ns}chord") is None:
+                total += int(el.find(f"{ns}duration").text)
+            elif tag == "backup":
+                total -= int(el.find(f"{ns}duration").text)
+        return total / divisions
+
+    # Length + first_downbeat: notes already at beats 3/4/5.
+    genuine = tmp_path / "genuine_pickup.mid"
+    original = None
+    _write(genuine, [(67, 1.5, 1.75), (60, 2.0, 2.5), (62, 2.5, 3.0)])
+    original = genuine.read_bytes()
+    pipe = UnderstandingPipeline()
+    pipe.notation_settings = NotationSettings.from_dict(
+        {"meter": "4/4", "pickup_beats": 1.0, "first_downbeat_beat": 4.0}
+    )
+    xml = pipe.transcribe_midi(genuine, "genuine_pickup")
+    assert genuine.read_bytes() == original
+    assert _first_measure_ql(xml) == pytest.approx(1.0)
+    assert pipe.last_pickup["pickup_beats"] == 1.0
+    assert pipe.last_pickup["first_downbeat_beat"] == 4.0
+    # Performance coordinates keep the absolute downbeat at 4.
+    assert any(abs(float(e.start_beat) - 4.0) < 1e-6 for e in pipe.notation.last_quantized_events)
+
+    # Normal bar with intentional opening eighth rest — no pickup, full bar.
+    rest = tmp_path / "initial_rest.mid"
+    _write(rest, [(60, 0.25, 0.75), (62, 0.5, 1.0), (64, 1.0, 1.5)])
+    rest_bytes = rest.read_bytes()
+    pipe2 = UnderstandingPipeline()
+    xml2 = pipe2.transcribe_midi(rest, "initial_rest")
+    assert rest.read_bytes() == rest_bytes
+    assert pipe2.last_pickup["pickup_inferred"] is False
+    assert _first_measure_ql(xml2) == pytest.approx(4.0)
 
 
 def test_i_pedal_like_releases_write_quarters_without_changing_raw():
