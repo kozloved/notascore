@@ -178,6 +178,8 @@ export default function ScoreEditor({
         revision={editor.revision}
         timeSignature={editor.timeSignature}
         provenance={editor.provenance}
+        dirty={editor.dirty}
+        flushSave={editor.flushSave}
         onApplied={() => editor.reloadRemote()}
       />
 

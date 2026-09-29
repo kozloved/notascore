@@ -4,9 +4,18 @@ import test from "node:test";
 import {
   ALGORITHM_VERSION_CURRENT,
   ALGORITHM_VERSION_READABLE_V2,
+  algorithmVersionLabel,
   patchForReadableGapStyle,
   readableGapStyle,
 } from "./notation-style.ts";
+
+test("algorithm version labels stay Standard vs Experimental", () => {
+  assert.equal(algorithmVersionLabel(ALGORITHM_VERSION_CURRENT), "Standard");
+  assert.equal(
+    algorithmVersionLabel(ALGORITHM_VERSION_READABLE_V2),
+    "Experimental"
+  );
+});
 
 test("defaults and Readable stay on the current algorithm", () => {
   assert.equal(

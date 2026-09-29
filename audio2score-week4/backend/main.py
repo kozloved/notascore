@@ -1897,11 +1897,69 @@ def _recompute_notation_revision(
     }
 
 
+def _notation_regeneration_status(job: dict) -> tuple[bool, str | None]:
+    """Whether this completed job can recompute notation without retranscription."""
+    from mir.interpretation_context import (
+        FALLBACK_MISSING,
+        InterpretationContextError,
+        load_context_payload,
+    )
+
+    job_id = job["id"]
+    storage_backend = storage_service.get_storage()
+    result_key = job.get("result_storage_key")
+    raw_midi = _load_result_artifact_bytes(
+        storage_backend, job_id, result_key, f"{job_id}.raw.mid"
+    )
+    if not raw_midi:
+        return (
+            False,
+            "Original performance MIDI is not available for reinterpretation.",
+        )
+    published_context = _read_edited_sidecar(
+        job, f"{job_id}.interpretation_context.json", text=False
+    )
+    if not published_context:
+        published_context = _load_result_artifact_bytes(
+            storage_backend,
+            job_id,
+            result_key,
+            f"{job_id}.interpretation_context.json",
+        )
+    tempo_bytes = _load_result_artifact_bytes(
+        storage_backend, job_id, result_key, f"{job_id}.tempo.json"
+    )
+    tempo_payload = None
+    if tempo_bytes:
+        try:
+            tempo_payload = json.loads(tempo_bytes.decode("utf-8"))
+        except Exception:
+            tempo_payload = None
+    performance = _performance_snapshot(job)
+    try:
+        context, context_status = load_context_payload(
+            published_context,
+            tempo_payload=tempo_payload,
+            midi_sha256=getattr(performance, "midi_sha256", None),
+            source_backend=getattr(performance, "source_backend", "") or "",
+        )
+    except InterpretationContextError as exc:
+        return False, str(exc)
+    if context is None and context_status == FALLBACK_MISSING:
+        return (
+            False,
+            "This score is missing production interpretation context, "
+            "so notation versions cannot be switched without retranscription.",
+        )
+    return True, None
+
+
 def _notation_settings_payload(job: dict) -> dict:
     from mir.notation_settings import default_notation_settings
 
     settings = default_notation_settings()
     stored = None
+    regen_ok, regen_reason = _notation_regeneration_status(job)
     raw = _read_edited_sidecar(job, f"{job['id']}.notation_settings.json", text=True)
     if not raw and job.get("result_storage_key"):
         storage_backend = storage_service.get_storage()
@@ -1912,6 +1970,10 @@ def _notation_settings_payload(job: dict) -> dict:
             f"{job['id']}.notation_settings.json",
         )
         raw = blob.decode("utf-8") if blob else None
+    base = {
+        "regeneration_available": regen_ok,
+        "regeneration_unavailable_reason": None if regen_ok else regen_reason,
+    }
     if raw:
         try:
             stored = json.loads(raw)
@@ -1919,6 +1981,7 @@ def _notation_settings_payload(job: dict) -> dict:
 
             settings = parse_notation_settings(stored.get("notation_settings") or stored)
             return {
+                **base,
                 "notation_settings": settings.to_dict(),
                 "algorithm_version": settings.algorithm_version,
                 "notation_cache_key": stored.get("notation_cache_key") or settings.cache_key(),
@@ -1930,6 +1993,7 @@ def _notation_settings_payload(job: dict) -> dict:
         except Exception:
             pass
     return {
+        **base,
         "notation_settings": settings.to_dict(),
         "algorithm_version": settings.algorithm_version,
         "notation_cache_key": settings.cache_key(),
@@ -2007,6 +2071,7 @@ def job_notation_settings_post(
             detail="Could not recompute notation from the original performance.",
         ) from exc
     result = payload["result"]
+    regen_ok, regen_reason = _notation_regeneration_status(job)
     return {
         "job_id": job_id,
         "transcribed": False,
@@ -2019,6 +2084,8 @@ def job_notation_settings_post(
         "source_note_count": result.source_note_count,
         "fallback": result.fallback,
         "policy_exceptions": result.policy_exceptions,
+        "regeneration_available": regen_ok,
+        "regeneration_unavailable_reason": None if regen_ok else regen_reason,
     }
 
 

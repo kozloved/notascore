@@ -847,6 +847,8 @@ def test_http_readable_v2_is_explicit_opt_in_and_persists(isolated_db, monkeypat
         assert listed.status_code == 200
         assert listed.json()["algorithm_version"] == "performance-score-1"
         assert listed.json()["notation_settings"]["interpretation"] == "readable"
+        assert listed.json()["regeneration_available"] is True
+        assert listed.json().get("regeneration_unavailable_reason") in (None, "")
 
         readable = client.post(
             f"/jobs/{job_id}/notation-settings",
@@ -855,6 +857,8 @@ def test_http_readable_v2_is_explicit_opt_in_and_persists(isolated_db, monkeypat
         assert readable.status_code == 200, readable.text
         assert readable.json()["algorithm_version"] == "performance-score-1"
         assert readable.json()["notation_settings"]["algorithm_version"] == "performance-score-1"
+        assert readable.json()["transcribed"] is False
+        assert readable.json()["regeneration_available"] is True
 
         v2 = client.post(
             f"/jobs/{job_id}/notation-settings",
@@ -866,16 +870,30 @@ def test_http_readable_v2_is_explicit_opt_in_and_persists(isolated_db, monkeypat
         )
         assert v2.status_code == 200, v2.text
         assert v2.json()["algorithm_version"] == "performance-score-2"
+        assert v2.json()["transcribed"] is False
         persisted = client.get(f"/jobs/{job_id}/notation-settings")
         assert persisted.json()["algorithm_version"] == "performance-score-2"
         assert persisted.json()["notation_settings"]["interpretation"] == "readable"
+        assert persisted.json()["regeneration_available"] is True
+
+        back = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={
+                "interpretation": "readable",
+                "algorithm_version": "performance-score-1",
+                "revision": v2.json()["edit_revision"],
+            },
+        )
+        assert back.status_code == 200, back.text
+        assert back.json()["algorithm_version"] == "performance-score-1"
+        assert back.json()["transcribed"] is False
 
         keep_readable = client.post(
             f"/jobs/{job_id}/notation-settings",
             json={
                 "interpretation": "readable",
-                "algorithm_version": persisted.json()["notation_settings"]["algorithm_version"],
-                "revision": v2.json()["edit_revision"],
+                "algorithm_version": "performance-score-2",
+                "revision": back.json()["edit_revision"],
             },
         )
         assert keep_readable.status_code == 200, keep_readable.text
