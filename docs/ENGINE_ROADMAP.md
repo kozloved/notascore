@@ -4,10 +4,10 @@ Canonical development plan for reliable, editable solo-instrument and piano
 scores. Historical reviews stay in dated `docs/` files. New engine work is
 scheduled here.
 
-Reviewed remote baseline for this plan: `5351786` / PR #87 (pickup tempo
-written-coordinate fix + same-pitch voice continuity). P1 remains **0/15
-attributed reviews** — `musician_reviewed_complete=0`, `p1_complete=false`.
-Prepared for review does not mean P1 is complete.
+Reviewed remote baseline for this plan: `8b381cb` / PR #88 (same-pitch
+continuity duration-compatible bonus). P1 remains **0/15 attributed
+reviews** — `musician_reviewed_complete=0`, `p1_complete=false`. Prepared
+for review does not mean P1 is complete.
 
 This is a plan, not a claim that musical quality is solved. Synthetic tests,
 valid MusicXML, and successful PDF export are not proof of musical quality.
@@ -333,38 +333,40 @@ reviews. Default remains `performance-score-1`; v2 stays opt-in.
    - Same-pitch leap-0 bonus favoring longer prior duration; monophonic
      repeats counterexample retained.
 
-**P2b increment (this branch, base `5351786`).**
+**P2b increment (PR #88 @ `8b381cb`).**
 
 1. **Short repeating line must not lose notes to a sustained hold.**
-   - **Reproduction.** After PR #87, `st3` (short 0.5 at beat 2) joined
-     `hold` (duration 2) instead of the short `st*` line — duration bonus
-     outweighed duration mismatch. First wrong assignment: `st3`
-     musical_voice `0` (expected `1` with `st0`–`st2`).
-   - **Before (PR #87) → after (this fix) for short-line case.**
+   - Duration-compatible same-pitch bonus; paired unit coverage.
 
-     | source_note_id | before mv | after mv |
-     |---|---|---|
-     | hold | 0 | 0 |
-     | st0–st2 | 1 | 1 |
-     | st3 | **0** | **1** |
+**P2b increment (this branch, base `8b381cb`).**
 
-   - **Sustained-resume case (PR #87 intent) preserved.**
+1. **E2E fixture evidence repair (no production heuristic change).**
+   - **Defect (test evidence).** `_write_same_pitch_midi` wrote overlapping
+     same-pitch notes on one MIDI channel. pretty_midi round-trip truncated
+     the intended hold `0.0–1.0` to `0.0–0.5`. Regen tests therefore did not
+     exercise the documented construction; auto-vs-edited grouping could
+     pass while both were wrong.
+   - **Fix.** Multi-channel MIDI writers for overlapping unisons; decode
+     assertions (count, pitch, attack/release, distinct IDs) before the
+     engine; expected musical partitions by `source_note_id` for
+     sustained-resume and short-line-continues E2E; staff/hand split
+     documented separately for register-separated piano lines.
+   - **Decoded fixture (sustained-resume).**
 
-     | source_note_id | mv |
-     |---|---|
-     | s0, s1 | 0 |
-     | t0, t1 | 1 |
+     | note | intended | single-channel decode | multi-channel decode |
+     |---|---|---|---|
+     | hold | 0.0–1.0 | **0.0–0.5** | 0.0–1.0 |
+     | t0 | 0.25–0.5 | 0.25–0.5 | 0.25–0.5 |
+     | t1 | 0.75–1.0 | 0.75–1.0 | 0.75–1.0 |
+     | s1 | 1.0–1.5 | 1.0–1.5 | 1.0–1.5 |
 
-   - **Fix.** Apply the sustained-length same-pitch bonus only when the
-     candidate duration is compatible (`dur >= 0.5 * prior_dur`). Mild
-     leap-0 tie-break (`−2`) remains. No additional scoring bonuses.
-   - **Paired coverage.** Sustained resume; short-line continues; both
-     lines resume after gap; returning after rest; crossing (≥2 voices);
-     ambiguous unison documented (merged); user lock overrides; mono
-     counterexample. E2E: musical grouping stable across velocity edit;
-     two-voice MIDI regen preserves ≥2 musical voices.
-   - **Still ambiguous.** Simultaneous unlabeled unisons; crossing line
-     identity without supplied assignments — fixture labels are not proof.
+   - **Claim correction.** Prior roadmap text said two-voice MIDI regen
+     preserves ≥2 musical voices; the old test only checked note count and
+     unchanged grouping, and register-split piano lines legitimately show
+     `musical_voice=0` per hand after staff assignment. ≥2 musical voices
+     is now asserted on same-staff multi-channel same-pitch E2E only.
+   - **Production.** No VoiceSeparator change in this increment — corrected
+     fixtures reproduce the intended partitions without a new defect.
 
 **Remaining P2 work.**
 
@@ -485,20 +487,20 @@ independently validated.
 
 ## Suggested next milestone
 
-P2b same-pitch continuity guard (short-line vs sustained hold) is in this
-branch (base `5351786`). **P1 is still 0/15 attributed reviews** — do not
-mark P1 or P2 complete. Construction-labeled tests are not musician
-sign-off. **Next:** more P2b pairs only with failing reproductions; collect
-musician reviews via `REVIEW_INDEX.html` / `FIRST_SESSION.md`. Keep v1
-default / v2 opt-in.
+P2b E2E voice-fixture evidence repair is in this branch (base `8b381cb`).
+**P1 is still 0/15 attributed reviews** — do not mark P1 or P2 complete.
+Construction-labeled tests are not musician sign-off. **Next:** more P2b
+pairs only with failing reproductions on decoded fixtures; collect musician
+reviews via `REVIEW_INDEX.html` / `FIRST_SESSION.md`. Keep v1 default /
+v2 opt-in.
 
-**Validation (this increment, base SHA=`5351786`, branch WIP).**
+**Validation (this increment, base SHA=`8b381cb`, branch WIP).**
 
 - Focused voice continuity + separator + identity + pickup/timing +
   musical-baseline:
   `pytest tests/test_voice_continuity_paired.py tests/test_voice_separator.py tests/test_voice_identity_regressions.py tests/test_midi_timing_fidelity.py tests/test_export_evidence_structure.py tests/test_notation_settings.py tests/test_musical_baseline.py -q`
-  → **90 passed**.
+  → **92 passed**.
 - Supported backend suite:
   `pytest -m 'not integration and not pm2s' -q`
-  → **1028 passed, 4 deselected, 0 failed**.
+  → **1030 passed, 4 deselected, 0 failed**.
 
