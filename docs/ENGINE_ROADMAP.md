@@ -4,8 +4,8 @@ Canonical development plan for reliable, editable solo-instrument and piano
 scores. Historical reviews stay in dated `docs/` files. New engine work is
 scheduled here.
 
-Reviewed remote baseline for this plan: `cbaf099` / PR #85 (P2a tempo-guard
-ratio/chord fix and pickup length semantics). P1 remains **0/15 attributed
+Reviewed remote baseline for this plan: `97a8785` / PR #86 (P2a pickup-rest
+inference + incomplete-measure engraving). P1 remains **0/15 attributed
 reviews** — `musician_reviewed_complete=0`, `p1_complete=false`. Prepared
 for review does not mean P1 is complete.
 
@@ -246,11 +246,10 @@ do not claim musician-validated improvement.
 **Implementation tasks.**
 
 1. Prioritize tempo scale, downbeat/pickup alignment, and voice continuity.
-   **P2a continued** on `cursor/engine-p2a-pickup-guard` from `e9dca18`.
 2. Use paired counterexamples for every heuristic change.
 3. Preserve deliberate rests, independent holds, and user-locked decisions.
 4. Do not retune readable-v2 from 138 printed-lane movement.
-5. Defer P2b voice heuristics until P2a is independently validated.
+5. Continue P2b only from reproduced musical-identity defects (not lane-only).
 
 **Acceptance criteria.**
 
@@ -309,14 +308,53 @@ reviews. Default remains `performance-score-1`; v2 stays opt-in.
      `pickup_beats=1.0` alone → ql=1.0. Source MIDI bytes unchanged.
    - Sub-beat tempo pickup playback regression remains in the suite.
 
-- **Not claimed.** Musician-validated quality. No P2b. No v2 promotion.
-  Construction-labeled tests ≠ human review.
+- **Not claimed.** Musician-validated quality. No v2 promotion.
+  Construction-labeled tests ≠ human review. P2b not complete.
+
+**P2a boundary (this branch, base `97a8785` / PR #86).**
+
+1. **Pickup rebase vs printed tempo coordinates.**
+   - **Defect.** Notes rebases with `pickup_origin_shift` (perf beat 3 →
+     written 0) while `_apply_tempo_map` used `score_beat_offset` alone, so
+     mid-pickup / first-downbeat metronomes stayed at absolute 3.5 / 4.0 on
+     the written score (wrong measure).
+   - **Fix.** Subtract `pickup_origin_shift` when applying tempos to the
+     engraved score; apply the same offset to `printed_tempo` beats.
+     Playback MIDI still uses absolute quantized events (attack/release
+     times unchanged). Auto and velocity-edited regen agree on written
+     mark positions. Ties/accidentals on the `makeNotation=False` pickup
+     path showed no reproduced defect.
+   - **Assertions.** Written marks 90@0.5 and 100@1.0; m1 ql=1.0; MIDI
+     seconds match source within tick tolerance.
+
+**P2b increment (this branch).**
+
+1. **Same-pitch continuation after an interrupting same-pitch voice.**
+   - **Stage.** `VoiceSeparator._choose_voice` — after s0 hold and short
+     t0/t1 interrupters, s1 (leap 0 to both free voices) preferred the
+     interrupter via duration-similarity.
+   - **Fix.** Same-pitch (leap 0) continuity bonus favoring the more
+     established/sustained prior duration.
+   - **Before → after (musical_voice / printed voice).**
+
+     | source_note_id | before | after |
+     |---|---|---|
+     | s0 | 0 / 0 | 0 / 0 |
+     | t0 | 1 / 1 | 1 / 1 |
+     | t1 | 1 / 1 | 1 / 1 |
+     | s1 | **1 / 1** | **0 / 0** |
+
+   - **Counterexample.** Monophonic repeated same-pitch notes remain one
+     voice. User locks, sustained+accomp, returning-after-rest probes on
+     this separator stay consistent with existing suites. Case 138 printed
+     lane movement is still not treated as a musical-voice defect.
 
 **Remaining P2 work.**
 
 1. Rubato + sub-beat tempo knots under further scale transforms — keep
    playback fidelity green; no new heuristic without a pair.
-2. P2b musical-voice continuity only after P2a validation (not 138 lanes).
+2. Further P2b continuity (crossing fragmentation, ambiguous unisons) only
+   with paired evidence — not 138 lane movement.
 3. Musician review of any interpretation claim — blocked on P1 ratings.
 4. Auto-infer path still needs measured downs without a preceding barline;
    do not invent pickups from incomplete openings alone.
@@ -431,18 +469,19 @@ independently validated.
 
 ## Suggested next milestone
 
-P2a pickup-rest false-positive fix and incomplete-measure engraving are in
-this branch (base `cbaf099`). **P1 is still 0/15 attributed reviews** — do
-not mark P1 or P2 complete. Construction-labeled tests are not musician
-sign-off. **Next:** collect musician reviews via `REVIEW_INDEX.html` /
-`FIRST_SESSION.md`. Defer P2b. Keep v1 default / v2 opt-in.
+P2a pickup-tempo written-coordinate fix and first P2b same-pitch continuity
+fix are in this branch (base `97a8785`). **P1 is still 0/15 attributed
+reviews** — do not mark P1 or P2 complete. Construction-labeled tests are
+not musician sign-off. **Next:** more P2b pairs only with failing
+reproductions; collect musician reviews via `REVIEW_INDEX.html` /
+`FIRST_SESSION.md`. Keep v1 default / v2 opt-in.
 
-**Validation (this increment, base SHA=`cbaf099`, branch WIP).**
+**Validation (this increment, base SHA=`97a8785`, branch WIP).**
 
-- Focused interpretation/settings/downbeat/export/timing + musical-baseline:
-  `pytest tests/test_score_interpretation.py tests/test_notation_settings.py tests/test_downbeat_alignment.py tests/test_midi_timing_fidelity.py tests/test_export_evidence_structure.py tests/test_notation_correctness.py tests/test_musical_baseline.py -q`
-  → **92 passed**.
+- Focused pickup/tempo/export + voice-identity + musical-baseline:
+  `pytest tests/test_midi_timing_fidelity.py tests/test_score_interpretation.py tests/test_voice_separator.py tests/test_voice_identity_regressions.py tests/test_export_evidence_structure.py tests/test_notation_settings.py tests/test_downbeat_alignment.py tests/test_musical_baseline.py -q`
+  → **107 passed**.
 - Supported backend suite:
   `pytest -m 'not integration and not pm2s' -q`
-  → **1016 passed, 4 deselected, 0 failed**.
+  → **1018 passed, 4 deselected, 0 failed**.
 

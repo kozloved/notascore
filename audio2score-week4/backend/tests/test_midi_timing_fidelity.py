@@ -186,6 +186,106 @@ def test_pickup_onset_with_midbeat_tempo_change(tmp_path, monkeypatch):
         assert actual == pytest.approx(expected, abs=tol)
 
 
+def test_pickup_rebase_keeps_tempo_marks_on_written_beats(tmp_path, monkeypatch):
+    """Printed tempos must follow pickup_origin_shift, not absolute event beats.
+
+    Construction: one-beat pickup ending at downbeat 4, with tempo changes at
+    performance beats 3.5 (mid-pickup) and 4.0 (first full bar). Notes rebase
+    to written 0/1; metronome marks must land at written 0.5 and 1.0.
+    """
+    from music21 import converter, tempo as m21tempo
+
+    from mir.midi_ingest import ingest_midi
+    from mir.notation_regen import recompute_notation
+    from mir.notation_settings import NotationSettings
+    from mir.pipeline import UnderstandingPipeline
+    from mir.raw_midi import job_score_midi_path
+    from tests.test_shared_engraving import _context_for
+
+    monkeypatch.setenv("TRANSCRIPTION_QUANTIZATION_MODE", "performance")
+    source = tmp_path / "pickup_tempo_rebase.mid"
+    ticks_per_beat = 480
+    tempos = [500000, 666667, 600000]
+    _write_tempo_midi(
+        source,
+        ticks_per_beat=ticks_per_beat,
+        messages=[
+            mido.MetaMessage("set_tempo", tempo=tempos[0]),
+            mido.MetaMessage("time_signature", numerator=4, denominator=4),
+            # Silence until beat 3, then pickup eighth.
+            mido.Message("note_on", note=67, velocity=80, time=1440),
+            mido.MetaMessage("set_tempo", tempo=tempos[1], time=240),  # beat 3.5
+            mido.Message("note_off", note=67, time=0),
+            mido.MetaMessage("set_tempo", tempo=tempos[2], time=240),  # beat 4
+            mido.Message("note_on", note=60, velocity=90, time=0),
+            mido.Message("note_off", note=60, time=480),
+            mido.Message("note_on", note=62, velocity=85, time=0),
+            mido.Message("note_off", note=62, time=480),
+        ],
+    )
+    original = source.read_bytes()
+    settings = NotationSettings.from_dict(
+        {"meter": "4/4", "pickup_beats": 1.0, "first_downbeat_beat": 4.0}
+    )
+    pipe = UnderstandingPipeline()
+    pipe.notation_settings = settings
+    xml = pipe.transcribe_midi(source, "pickup_tempo_rebase")
+    assert source.read_bytes() == original
+    assert (pipe.notation.last_plan.extra or {}).get("pickup_origin_shift") == pytest.approx(3.0)
+    measures = pipe.notation.last_plan.measures
+    assert measures[0].duration_beats == pytest.approx(1.0)
+    assert measures[1].start_beat == pytest.approx(1.0)
+    # Performance coordinates stay absolute.
+    by_pitch = {e.pitch: e.start_beat for e in pipe.notation.last_quantized_events}
+    assert by_pitch[67] == pytest.approx(3.0)
+    assert by_pitch[60] == pytest.approx(4.0)
+
+    score = converter.parse(xml, format="musicxml")
+    marks = {
+        int(round(float(m.number))): float(m.getOffsetInHierarchy(score))
+        for m in score.recurse().getElementsByClass(m21tempo.MetronomeMark)
+    }
+    assert marks[90] == pytest.approx(0.5)
+    assert marks[100] == pytest.approx(1.0)
+
+    exported = pretty_midi.PrettyMIDI(str(job_score_midi_path(source, "pickup_tempo_rebase")))
+    before = sorted((n.pitch, n.start, n.end) for inst in pretty_midi.PrettyMIDI(str(source)).instruments for n in inst.notes)
+    after = sorted((n.pitch, n.start, n.end) for inst in exported.instruments for n in inst.notes)
+    tol = _tick_tolerance_sec(ticks_per_beat, tempos)
+    assert len(after) == len(before)
+    for actual, expected in zip(after, before):
+        assert actual == pytest.approx(expected, abs=tol)
+
+    ingested = ingest_midi(source)
+    ctx = _context_for(ingested)
+    auto = recompute_notation(
+        midi_bytes=original, settings=settings, performance=ingested.performance, context=ctx
+    )
+    sid = auto.editor_model["notes"][0].get("source_note_id") or auto.editor_model["notes"][0]["id"]
+    edited = recompute_notation(
+        midi_bytes=original,
+        settings=settings,
+        performance=ingested.performance,
+        context=ctx,
+        corrections=[{"source_note_id": sid, "velocity": 101}],
+    )
+    assert source.read_bytes() == original
+
+    def _mark_map(xml_text: str) -> dict[int, float]:
+        parsed = converter.parse(xml_text, format="musicxml")
+        return {
+            int(round(float(m.number))): float(m.getOffsetInHierarchy(parsed))
+            for m in parsed.recurse().getElementsByClass(m21tempo.MetronomeMark)
+        }
+
+    auto_marks = _mark_map(auto.musicxml)
+    edit_marks = _mark_map(edited.musicxml)
+    assert auto_marks[90] == pytest.approx(0.5)
+    assert auto_marks[100] == pytest.approx(1.0)
+    assert edit_marks[90] == pytest.approx(0.5)
+    assert edit_marks[100] == pytest.approx(1.0)
+
+
 def test_repeated_pitch_across_tempo_changes_keeps_reattacks(tmp_path, monkeypatch):
     from mir.pipeline import UnderstandingPipeline
     from mir.raw_midi import job_score_midi_path

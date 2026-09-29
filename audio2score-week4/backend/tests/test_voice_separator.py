@@ -89,6 +89,34 @@ def test_repeated_note_stays_one_voice():
     assert len({e.voice for e in out}) == 1
 
 
+def test_same_pitch_continuation_keeps_sustained_line_not_interrupter():
+    """Held same-pitch line resumes after a short interrupting same-pitch voice.
+
+    Construction: s0 holds 60 for 2 beats; t0/t1 are a separate short voice on
+    the same pitch; s1 reattacks 60 when s0 releases. s1 must continue s0's
+    musical_voice, not join the interrupter (duration-similarity trap).
+    Counterexample: monophonic repeated notes remain one voice.
+    """
+    events = [
+        MusicalEvent(60, 0.0, 2.0, hand=Hand.RIGHT, note_id="s0", velocity=80),
+        MusicalEvent(60, 0.5, 0.5, hand=Hand.RIGHT, note_id="t0", velocity=70),
+        MusicalEvent(60, 1.5, 0.5, hand=Hand.RIGHT, note_id="t1", velocity=70),
+        MusicalEvent(60, 2.0, 1.0, hand=Hand.RIGHT, note_id="s1", velocity=80),
+    ]
+    out = VoiceSeparator().separate(events)
+    by_id = {e.note_id: e for e in out}
+    assert by_id["t0"].musical_voice == by_id["t1"].musical_voice
+    assert by_id["s0"].musical_voice == by_id["s1"].musical_voice
+    assert by_id["s0"].musical_voice != by_id["t0"].musical_voice
+    assert by_id["s0"].voice == by_id["s1"].voice
+    assert by_id["s0"].voice != by_id["t0"].voice
+    # Counterexample preserved: single-line repeats stay one voice.
+    mono = VoiceSeparator().separate(
+        [MusicalEvent(72, float(i), 0.5, hand=Hand.RIGHT, note_id=f"m{i}", velocity=80) for i in range(8)]
+    )
+    assert len({e.musical_voice for e in mono}) == 1
+
+
 def test_two_independent_lines_are_two_voices():
     events = []
     for i in range(4):
