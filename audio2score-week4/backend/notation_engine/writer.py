@@ -689,8 +689,17 @@ class NotationWriter:
         # in memory but music21 omits it from MusicXML, so OSMD never draws BPM.
         self._insert_metronome_at_beat(score, 0.0, bpm)
         if meta is not None:
-            self._apply_tempo_map(score, meta, score_beat_offset=float(
-                (plan.extra.get("quantization") or {}).get("score_beat_offset", 0)))
+            # Written score may rebase anacrusis to beat 0 via pickup_origin_shift
+            # while performance/quantized events keep absolute beats. Printed
+            # tempo annotations must use the same written coordinate transform.
+            quant_extra = plan.extra.get("quantization") or {}
+            score_beat_offset = float(quant_extra.get("score_beat_offset", 0) or 0)
+            pickup_shift = float((plan.extra or {}).get("pickup_origin_shift") or 0)
+            self._apply_tempo_map(
+                score,
+                meta,
+                score_beat_offset=score_beat_offset - pickup_shift,
+            )
         # Re-assert planned lengths after metronome/tempo inserts — music21 may
         # widen an incomplete pickup when a mark is placed with barDuration.
         by_number = {m.number: float(m.duration_beats) for m in plan.measures}
@@ -1142,12 +1151,13 @@ class NotationWriter:
         printed = (meta.extra or {}).get("printed_tempo")
         if self.last_quantization_mode == QuantizationMode.PERFORMANCE and printed is not None:
             # MusicalTimeMap handles performed rubato. Only sustained tempo
-            # regions belong on the page, using the same score-beat origin.
+            # regions belong on the page, using the same written-score origin
+            # (score_beat_offset already includes −pickup_origin_shift when set).
             for annotation in printed:
                 bpm = annotation.get("bpm")
                 if annotation.get("mark") == "a_tempo":
                     bpm = meta.display_tempo_bpm
-                beat = float(annotation.get("beat", 0.0))
+                beat = float(annotation.get("beat", 0.0)) + float(score_beat_offset)
                 if bpm and 0 <= beat <= float(score.highestTime) + 1e-9:
                     self._insert_metronome_at_beat(score, beat, int(round(bpm)))
             return

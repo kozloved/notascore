@@ -156,6 +156,11 @@ class VoiceSeparator:
             cost = leap * 0.9
             cost += 1.4 * max(0.0, gap - 0.75)
             cost += 0.35 * abs(vs["dur"] - dur)
+            if leap == 0:
+                # Same-pitch continuation: prefer the established (often sustained)
+                # line over a short interrupter that happens to match duration.
+                cost -= 2.0
+                cost -= 0.5 * min(float(vs["dur"]), 8.0)
             if leap > cfg.max_leap:
                 cost += 40.0
             if cfg.use_role_hints and vs.get("role") and item["role"] and vs["role"] != item["role"]:
