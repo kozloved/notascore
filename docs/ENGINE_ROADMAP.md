@@ -555,7 +555,7 @@ heuristics until real attributed reviews arrive.
    - Demonstrated with clearly labeled temporary test data only — no
      production access, no invented review.
 
-**Validation (this increment, base SHA=`678d35b`, branch WIP).**
+**Validation (this increment, feature `386a247`, merge `249e79e` / PR #92).**
 
 - Focused:
   `pytest tests/test_real_sample_reviews.py tests/test_musical_baseline.py tests/test_voice_continuity_paired.py tests/test_export_evidence_structure.py -q`
