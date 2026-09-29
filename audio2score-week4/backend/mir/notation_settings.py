@@ -288,13 +288,29 @@ class NotationSettings:
         if (
             self.pickup_beats is not None
             and self.first_downbeat_beat is not None
-            and abs((self.first_downbeat_beat % 1) - (self.pickup_beats % 1)) > 1e-6
             and self.meter
         ):
-            # Pickup length and first downbeat must describe the same bar phase.
-            raise NotationSettingsError(
-                "pickup_beats and first_downbeat_beat disagree about bar phase."
-            )
+            # Two accepted forms:
+            # 1) Legacy phase form: pickup_beats used like a downbeat phase
+            #    (fractional parts match), e.g. pickup=1.0 with downbeat=5.0.
+            # 2) Length form: pickup_beats is opening-measure duration ending
+            #    at first_downbeat_beat (0 < length <= measure).
+            from mir.meter import meter_from_time_signature
+
+            try:
+                mql = float(
+                    meter_from_time_signature(self.meter).measure_quarter_length
+                )
+            except Exception:
+                mql = 4.0
+            pickup = float(self.pickup_beats)
+            downbeat = float(self.first_downbeat_beat)
+            phase_legacy = abs((downbeat % 1) - (pickup % 1)) <= 1e-6
+            length_form = 1e-6 < pickup <= mql + 1e-6 and downbeat + 1e-6 >= pickup
+            if not phase_legacy and not length_form:
+                raise NotationSettingsError(
+                    "pickup_beats and first_downbeat_beat disagree about bar phase."
+                )
         overrides = tuple(self.measure_overrides or ())
         for left, right in (
             (overrides[i], overrides[j])

@@ -236,6 +236,48 @@ def test_g2_already_on_beat_rejects_false_double_time():
     assert double.total > ones.total
 
 
+def test_g2b_on_beat_ratio_uses_exact_85_percent_and_unique_pulses():
+    """Boundary + chord: exact ≥85% on unique pulses; 6/8 must not trigger."""
+    time_map = MusicalTimeMap.from_bpm(120, duration_sec=8)
+
+    def flag_for(notes):
+        cands = evaluate_candidates(notes, time_map)
+        return next(
+            c.extra.get("already_on_beat")
+            for c in cands
+            if abs(c.tempo_scale - 2.0) < 1e-9
+        )
+
+    # 6 on-integer + 2 offbeat = 75% → below threshold (old int(0.85*8)=6 accepted this).
+    below = [
+        _note(72, t, t + 0.2, f"b{i}")
+        for i, t in enumerate([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 0.25, 1.25])
+    ]
+    assert flag_for(below) is False
+
+    # 7 on-integer + 1 offbeat = 87.5% → at/above 85%.
+    above = [
+        _note(72, t, t + 0.2, f"a{i}")
+        for i, t in enumerate([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 0.25])
+    ]
+    assert flag_for(above) is True
+
+    # Short sequence: 2 on-integer only → below minimum evidence of 3.
+    short = [_note(72, 0.0, 0.4, "s0"), _note(72, 1.0, 1.4, "s1")]
+    assert flag_for(short) is False
+
+    # Chord doubling of the 75% melody must not inflate to ≥85%.
+    chord = []
+    for i, t in enumerate([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 0.25, 1.25]):
+        if abs(t - round(t)) < 0.08:
+            for j, pitch in enumerate((60, 64, 67)):
+                chord.append(_note(pitch, t, t + 0.2, f"c{i}_{j}"))
+        else:
+            chord.append(_note(72, t, t + 0.2, f"c{i}"))
+    assert flag_for(chord) is False
+    assert flag_for(below) == flag_for(chord)
+
+
 def test_g3_syncopation_not_retuned_as_shifted_downbeat():
     """Off-beat attacks must stay at tempo ×1 (not double into on-beat wholes).
 
@@ -257,13 +299,63 @@ def test_g3_syncopation_not_retuned_as_shifted_downbeat():
     )
 
 
-
 def test_h_pickup_requires_downbeat_evidence():
     assert infer_pickup(1.0, 4.0, downbeat_beats=[])["pickup_inferred"] is False
     inferred = infer_pickup(3.0, 4.0, downbeat_beats=[4.0, 8.0])
     assert inferred["pickup_inferred"] is True
-    assert inferred["pickup_beats"] == 3.0
+    # Opening-measure length (attack@3 → downbeat@4), not bar-phase 3.0.
+    assert inferred["pickup_beats"] == 1.0
+    assert inferred["first_downbeat_beat"] == 4.0
     assert infer_pickup(0.0, 4.0, downbeat_beats=[0.0, 4.0])["pickup_inferred"] is False
+    # Syncopated first attack without a following measured downbeat → no pickup.
+    assert infer_pickup(0.5, 4.0, downbeat_beats=[0.0])["pickup_inferred"] is False
+    # Initial silence then downbeat attack: first_beat on bar → no pickup.
+    assert infer_pickup(4.0, 4.0, downbeat_beats=[4.0, 8.0])["pickup_inferred"] is False
+
+
+def test_h2_inferred_pickup_length_does_not_collapse_on_quantize():
+    """Paired pickup: genuine inferred anacrusis keeps score placement on regen.
+
+    Before: infer returned bar-phase 3.0; settings treated it as phase and moved
+    pickup→4 / down→5. After: length=1.0 + first_downbeat=4.0 → offset 0.
+    """
+    from mir.notation_settings import NotationSettings
+
+    inferred = infer_pickup(3.0, 4.0, downbeat_beats=[4.0, 8.0])
+    settings = NotationSettings.from_dict(
+        {
+            "meter": "4/4",
+            "pickup_beats": inferred["pickup_beats"],
+            "first_downbeat_beat": inferred["first_downbeat_beat"],
+        }
+    )
+    events = [
+        _event(67, 3.0, 0.5, "pickup"),
+        _event(60, 4.0, 1.0, "down"),
+        _event(62, 5.0, 1.0, "next"),
+    ]
+    before = deepcopy(events)
+    out, _decisions, report = quantize_notation(
+        events, METER_44, config=type("C", (), {"max_onset_move": 0.18})(), settings=settings
+    )
+    assert events == before
+    by_id = {n.source_id: n for n in report.notes}
+    assert float(by_id["pickup"].onset) == 3.0
+    assert float(by_id["down"].onset) == 4.0
+    assert {e.note_id for e in out} == {"pickup", "down", "next"}
+
+    # User-specified pickup length alone (notes start at 0) still phases to bar.
+    user = NotationSettings.from_dict({"meter": "4/4", "pickup_beats": 1.0})
+    user_events = [
+        _event(67, 0.0, 0.5, "upickup"),
+        _event(60, 1.0, 1.0, "udown"),
+    ]
+    _out, _d, user_report = quantize_notation(
+        user_events, METER_44, config=type("C", (), {"max_onset_move": 0.18})(), settings=user
+    )
+    u = {n.source_id: n for n in user_report.notes}
+    assert float(u["upickup"].onset) == 3.0
+    assert float(u["udown"].onset) == 4.0
 
 
 def test_i_pedal_like_releases_write_quarters_without_changing_raw():
