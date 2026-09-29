@@ -578,10 +578,11 @@ python -m evaluation.musical_baseline \
   --report-reviews evaluation/musical_baseline/review_package
 ```
 
-**Remaining human inputs.** At least one complete downloaded job bundle
-(`original.musicxml`, optional corrected + audio, job ID, permitted-use
-note), then attributed reviewer + dates and actual/estimated correction
-time. Session inventory: `review_package/REAL_SAMPLE_EVAL_SESSION.md`
-(baseline `39c18ef`). No musician-validated quality claim. Real-sample
-count remains 0 until a suitable bundle is imported.
+**Remaining human inputs.** Minimum to start: **one** unedited NotaScore
+MusicXML + job ID/link (or “unavailable”). Corrected/audio optional by
+claim. Session: `review_package/REAL_SAMPLE_EVAL_SESSION.md` (baseline
+`1cd1d3f`). Synthetic checkout stale cause: gitignored `*.mid` (use handoff
+tarball or a separately versioned package — never silent rebind). No
+musician-validated quality claim. Real-sample count remains 0 until an
+original is imported.
 

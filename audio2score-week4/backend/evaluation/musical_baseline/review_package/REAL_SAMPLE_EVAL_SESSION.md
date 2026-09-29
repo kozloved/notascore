@@ -1,129 +1,94 @@
-# Real-sample evaluation session (baseline `39c18ef` / PR #93)
+# Real-sample evaluation session (baseline `1cd1d3f` / PR #94)
 
-**Status.** No suitable real-job bundle was registered. `real_samples/` remains
-empty. P1 stays **0/15** attributed synthetic reviews and **0** real-sample
-reviews. v1 default / v2 opt-in unchanged. No ratings invented.
+**Ready for review.** One unedited NotaScore MusicXML is enough to start a
+score/notation review. Corrected exports and correction records are
+**optional**. Audio/reference labels are required only for acoustic claims.
+Unknown engine metadata stays **unknown** — do not invent provenance or join
+unrelated files into one job.
 
-**Report-only** (`--report-reviews` on this package):
+**Not ready.** No confirmed unedited job MusicXML has been imported into
+`real_samples/` yet. Ambiguous Downloads / `.tmp` files were **not** assumed
+to be the same job. P1 remains 0 attributed reviews. v1 default / v2 opt-in.
 
-| Field | Value |
-|---|---|
-| Synthetic musician_reviewed_complete | 0 |
-| Synthetic stale_count | 15 (pre-existing package drift; not real jobs) |
-| `real_samples.count` | 0 |
-| `real_samples.stale_count` | 0 |
-| `p1_complete` | false |
+## Prerequisites (corrected)
 
-## Inventory (facts only)
-
-### Documented repo locations
-
-| Location | Audio | Score MusicXML | Corrected | Job ID | Engine | Permitted use |
-|---|---|---|---|---|---|---|
-| `evaluation/musical_baseline/review_package/` (synthetic 15) | no | v1/v2 fixtures | n/a (algo compare) | n/a | package commit | `synthetic_repo_fixture` |
-| `evaluation/development/NotaTestSamples/` Case1–3 | wav present | **missing** | missing | missing | missing | **undocumented** — not treated as real jobs |
-| `evaluation/paired_corpus/` | missing | missing | missing | missing | missing | slots empty |
-| `evaluation/real_world/`, `benchmark/realworld/local/` | empty / gitignored | missing | missing | missing | missing | n/a |
-| `review_package/real_samples/` | — | — | — | — | — | **none registered** |
-
-### Local Downloads / `.tmp` (not imported)
-
-Near-miss candidate labeled **Autumn Walks** (YouTube-style filename in Downloads):
-
-| Artifact | Present? | Notes |
+| Evidence | Required to start? | Supports |
 |---|---|---|
-| Job-linked MusicXML `audio2score-bd53a401c6eb.musicxml` | yes | job_id `bd53a401c6eb`; **1 note** placeholder titled "Audio2Score Placeholder" — not usable as unedited score |
-| Downloads `…Autumn Walks….musicxml` | yes | Music21 export; 290 notes / 9 measures; **no job_id**; role (original vs corrected vs external) **unknown** |
-| `…Autumn Walks….mid` (1643 B) | yes | role unknown |
-| `…Autumn Walks… (1).mid` (786 B) | yes | **byte-identical** to `.tmp/autumn-walks-review/mt3-original.mid` |
-| Audio `.mp3` | **missing** | only Ableton `.mp3.asd` sidecar found |
-| PDF exports | yes | not a review binding |
-| `.tmp/autumn-walks-review/production-before.musicxml` | yes | algorithm/history compare; **not** documented human correction |
-| `.tmp/autumn-walks-review/current-main.musicxml` | yes | algorithm/history compare |
-| `corrections.json` / `note_index.json` / editor corrected export | **missing** | |
-| Engine commit / provider / algorithm_version | **unknown** | |
-| Permitted-use statement | **unknown** | do not infer from filename |
+| Unedited `original.musicxml` | **Yes** | Notation / interpretation review of the automatic score |
+| Job ID or link (or honest “unavailable”) | Strongly preferred | Provenance; leave unknown if unavailable |
+| `original.score.mid` | Optional | Playback of unedited score |
+| Corrected MusicXML / MIDI / `corrections.json` | Optional | Original-vs-corrected effort comparison |
+| Source audio | Optional | Audio-versus-score / acoustic claims only |
+| Reference labels | Optional | Acoustic accuracy ratings only |
+| Engine commit / provider / algorithm | Optional | Record known; else **unknown** |
 
-Local `uploads/` / `results/` under the main worktree contain assorted wav/mp3/musicxml
-from prior local runs. They are **not** packaged as original-vs-corrected job
-bundles with permitted-use documentation and were not imported.
+## Stale synthetic package diagnosis (isolated copy)
 
-## Selection
+Report-only previously showed **stale_count = 15** on the checked-out
+`review_package/`. Cause (verified in `/tmp` copies; package not mutated):
 
-**0 of 3 preferred slots filled.** Prefer pickup/tempo/rhythm, independent
-voices / sustains, and a user-corrected score — but every candidate lacked
-enough evidence for an honest original-vs-corrected claim (audio and/or
-unedited job MusicXML and/or corrected export and/or permitted use).
+| Finding | Detail |
+|---|---|
+| Root cause | `evaluation/musical_baseline/.gitignore` ignores `*.mid` |
+| On-disk MIDI in git checkout | **0** files (`input.mid`, `v1.score.mid`, `v2.score.mid` all absent) |
+| Fingerprints / review bindings | Still record non-null MIDI SHA-256 from package build |
+| Per-case probe (all 15) | `missing_files`: `input.mid`; `changed_files`: `input.mid`, `v1.score.mid`, `v2.score.mid` |
+| MusicXML | Present; **not** listed as changed |
+| Human reviews | None attributed — templates only |
+| Handoff tarball control | Extract `handoff/p1-review-handoff-e0051f1261ad-20260929T113906Z.tar.gz` → **51** `.mid` files → **0** stale |
 
-Synthetic fixtures and undocumented NotaTestSamples were **not** selected as
-real jobs. Algorithm before/after MusicXML is **not** original-vs-corrected.
+This is **missing gitignored MIDI**, not rewritten MusicXML and not silent
+rebind of human reviews. Do **not** overwrite the existing package in place
+to “fix” hashes. For MIDI-complete review use the handoff archive, or build a
+**separately versioned** package from the current engine and leave the old
+package + any future human reviews untouched.
 
-## Import
+## Minimum user handoff (one sample)
 
-Not run against production. No `--import-real-job` performed (would invent a
-false original/corrected pairing).
+Please provide **one** of the following (folder or loose files):
 
-When a complete bundle exists:
+1. **Required:** unedited NotaScore MusicXML export (`original.musicxml` /
+   `unedited.musicxml` / job export named with the job id).
+2. **Job identity:** job ID and/or link, **or** state that it is unavailable.
+3. **Only if you want audio-vs-score:** the source audio file.
+4. **Only if already available:** corrected MusicXML (and optional score MIDI /
+   `corrections.json`).
+
+**Not required to start:** a completed correction, three samples, or engine
+metadata.
+
+### Ambiguous existing files — please identify (do not guess)
+
+| File | Ask |
+|---|---|
+| Downloads `…Autumn Walks….musicxml` (290 notes, Music21, no job_id) | Is this the **unedited job export**, a **corrected** score, or **something else**? |
+| `audio2score-bd53a401c6eb.musicxml` (1-note placeholder) | Ignore for review unless a real unedited export exists for that job |
+| Downloads `…Autumn Walks….mid` / `(1).mid` | Which is raw performance MIDI vs score MIDI, if either? |
+| `.tmp/autumn-walks-review/production-before.musicxml` vs `current-main.musicxml` | Algorithm/history artifacts — confirm they are **not** human corrections before any compare claim |
+
+## Import (when you supply a usable original)
 
 ```bash
 cd audio2score-week4/backend
 python -m evaluation.musical_baseline \
-  --import-real-job /path/to/downloaded_job_bundle \
-  --job-id <JOB_ID> \
-  --package evaluation/musical_baseline/review_package \
-  --engine-commit <sha-or-omit> \
-  --algorithm-version performance-score-1 \
-  --permitted-use "<documented permitted use>"
-# Identical re-import: idempotent. Changed evidence: rejected unless
-# --force-import → new revision example_id-rN (prior case preserved).
+  --import-real-job /path/to/folder_with_original_musicxml \
+  --job-id <JOB_ID_or_UNKNOWN> \
+  --package evaluation/musical_baseline/review_package
 python -m evaluation.musical_baseline \
   --report-reviews evaluation/musical_baseline/review_package
 ```
 
-## Review sheets (blanks — attribution unfilled)
+Identical re-import is idempotent; changed evidence needs `--force-import`
+(new `example_id-rN`). After import: fill timestamp/measure, expected vs
+observed, correction effort; leave attribution/ratings blank until the user
+supplies them.
 
-### Sheet A — Autumn Walks (candidate only; not registered)
+## Claims supported by current evidence
 
-| Field | Value |
+| Claim | Supported? |
 |---|---|
-| Job / sample identity | Possible job_id `bd53a401c6eb` (placeholder export only) |
-| Engine evidence | **unknown / missing** |
-| Original audio | **missing** (need `.mp3`/`.wav`) |
-| Unedited score / playback | Placeholder MusicXML unusable; full MusicXML role **unknown** |
-| Corrected output | **missing** (need editor export + optional score MIDI) |
-| Timestamp / measure refs | (user fills after listening) |
-| Expected result | _(user)_ |
-| Observed problem | _(user)_ |
-| Edits made | _(user)_ |
-| Correction time | actual ___ min / estimated ___ min / unknown |
-| Reviewer / reviewed_at | _(leave blank until user supplies)_ |
-
-**Mechanically verified:** placeholder job MusicXML has 1 note; Downloads
-MusicXML has 290 notes; one MIDI matches local `mt3-original.mid`.
-
-**Musical judgments:** none recorded.
-
-### Sheet B / C — reserved
-
-No second or third sample met the evidence bar.
-
-## Missing files to provide (only)
-
-For **each** sample (up to three), please supply a folder ready for
-`--import-real-job`:
-
-1. `original.musicxml` — unedited job export (required)
-2. `original.score.mid` — recommended
-3. `corrected.musicxml` (+ `corrected.score.mid`) — if you already corrected it
-4. Source audio (`audio.wav` / `.mp3`) — for acoustic comparison
-5. Optional: `input.mid` / raw MIDI, `corrections.json`, `note_index.json`, `engine.json`
-6. Written **permitted-use** note (and job ID)
-7. Optional: brief expected vs observed notes + actual/estimated minutes
-
-Do **not** mark P1/P2 complete until attributed `review.json` entries exist.
-
-## Next fix
-
-**Blocked on evidence.** No attributed real feedback + complete original/corrected
-pair → no diverging-stage regression and no heuristic change. Smallest next
-step: import one complete downloaded bundle, then fill a review sheet.
+| Review an imported unedited real score | **No** — nothing registered yet |
+| Original-vs-corrected for Autumn Walks | **No** — roles unconfirmed |
+| Audio-vs-score for Autumn Walks | **No** — audio missing |
+| Synthetic P1 complete | **No** — 0 attributed; checkout stale without handoff MIDI |
+| Musician-validated quality | **No** |
