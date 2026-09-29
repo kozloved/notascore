@@ -194,6 +194,68 @@ def test_g_half_double_tempo_candidates_compare_musically():
         c for c in half_candidates if abs(c.tempo_scale - 1.0) < 1e-9 and c.meter == "4/4"
     )
     assert half.total < ones.total
+    # Construction label: half notes on a correct 120 bpm grid. Ambiguous
+    # half-time is cheaper on paper, but choose_candidate must not force it
+    # without a clear APPLY_MARGIN win — and must not double-time into wholes.
+    chosen_halves = choose_candidate(half_candidates)
+    assert chosen_halves.tempo_scale == 1.0
+    assert chosen_halves.meter == "4/4"
+
+
+def test_g2_already_on_beat_rejects_false_double_time():
+    """Paired tempo-scale case: correct halves stay ×1; mis-scaled eighths still ×2.
+
+    Labels are from fixture construction (not human review, not the algorithm).
+    """
+    # Intended correction: tracker at 60 bpm with eighth-like spacing → double.
+    slow_map = MusicalTimeMap.from_bpm(60, duration_sec=8)
+    mis_scaled = [_note(72, i * 0.5, i * 0.5 + 0.4, f"e{i:04d}") for i in range(8)]
+    snap = [source_identity(n) for n in mis_scaled]
+    chosen_double = choose_candidate(evaluate_candidates(mis_scaled, slow_map))
+    _assert_identity(mis_scaled, snap)
+    assert chosen_double.tempo_scale == 2.0
+
+    # Already-correct tempo: half notes every two beats at 120 bpm → stay ×1.
+    # Before the P2a guard, notation cost preferred ×2 (whole notes at 240 bpm).
+    fast_map = MusicalTimeMap.from_bpm(120, duration_sec=8)
+    correct_halves = [
+        _note(72, i * 1.0, i * 1.0 + 0.85, f"h{i:04d}") for i in range(8)
+    ]
+    snap = [source_identity(n) for n in correct_halves]
+    candidates = evaluate_candidates(correct_halves, fast_map)
+    _assert_identity(correct_halves, snap)
+    chosen = choose_candidate(candidates)
+    assert chosen.tempo_scale == 1.0
+    double = next(
+        c for c in candidates if abs(c.tempo_scale - 2.0) < 1e-9 and c.meter == "4/4"
+    )
+    ones = next(
+        c for c in candidates if abs(c.tempo_scale - 1.0) < 1e-9 and c.meter == "4/4"
+    )
+    assert double.extra.get("already_on_beat") is True
+    assert double.total > ones.total
+
+
+def test_g3_syncopation_not_retuned_as_shifted_downbeat():
+    """Off-beat attacks must stay at tempo ×1 (not double into on-beat wholes).
+
+    Construction label: eighth-offbeat syncopation on a correct 120 bpm grid.
+    Double-time can look cheaper in 4/4 alone; choose_candidate must keep ×1.
+    """
+    time_map = MusicalTimeMap.from_bpm(120, duration_sec=8)
+    notes = [
+        _note(72, 0.25 + i * 0.5, 0.25 + i * 0.5 + 0.2, f"y{i:04d}") for i in range(8)
+    ]
+    snap = [source_identity(n) for n in notes]
+    candidates = evaluate_candidates(notes, time_map)
+    _assert_identity(notes, snap)
+    chosen = choose_candidate(candidates)
+    assert chosen.tempo_scale == 1.0
+    assert all(
+        abs(c.tempo_scale - 2.0) > 1e-9 or c.total >= chosen.total
+        for c in candidates
+    )
+
 
 
 def test_h_pickup_requires_downbeat_evidence():

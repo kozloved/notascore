@@ -365,6 +365,15 @@ def evaluate_candidates(
         if abs((b - a) - (1.0 / 3.0)) < 0.05
     )
     keep_fast_pattern = even_16_orig >= 3 or even_trip_orig >= 2
+    # Double-time must fix a mis-scaled pulse, not coarsen an already on-beat
+    # reading into longer note values. Labels come from construction: when most
+    # scale-1 onsets already sit on integer beats, prefer preserving tempo 1.0.
+    on_integer = sum(
+        1 for onset in orig_onsets if abs(onset - round(onset)) < 0.08
+    )
+    already_on_beat = bool(orig_onsets) and on_integer >= max(
+        3, int(0.85 * len(orig_onsets))
+    )
     out: list[CandidateScore] = []
     for scale in scales:
         scaled = scaled_time_map(time_map, float(scale))
@@ -374,6 +383,11 @@ def evaluate_candidates(
             costs = score_notation_cost(rows, meter)
             total = float(costs["notation_cost"]) + 0.15 * abs(float(scale) - 1.0)
             if keep_fast_pattern and abs(float(scale) - 1.0) > 1e-9:
+                total += 0.6
+            # Same magnitude as keep_fast_pattern: block false double-time when
+            # scale 1 is already grid-aligned (half notes must not become wholes
+            # at 2× tempo just because longer values look cheaper).
+            if already_on_beat and abs(float(scale) - 2.0) < 1e-9:
                 total += 0.6
             out.append(
                 CandidateScore(
@@ -393,6 +407,7 @@ def evaluate_candidates(
                     short_notes=int(costs["short_notes"]),
                     extra={
                         "beat_count": len(scaled.beat_times),
+                        "already_on_beat": already_on_beat,
                         **(
                             triple_grouping_scores(rows)
                             if meter in ("3/4", "6/8")
