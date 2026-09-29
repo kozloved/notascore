@@ -17,6 +17,7 @@ from evaluation.musical_baseline.package import (
     write_first_session_guide,
     write_review_index,
 )
+from evaluation.musical_baseline.real_samples import import_real_job_bundle
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -53,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=(
             "Validate/summarize existing reviews without rebuilding scores "
-            "or modifying human-owned review files"
+            "or modifying human-owned review files (includes real_samples/)"
         ),
     )
     parser.add_argument(
@@ -78,7 +79,51 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--engine-commit",
         default=None,
-        help="Optional git commit recorded in the portable handoff manifest",
+        help="Optional git commit recorded in the portable handoff / import",
+    )
+    parser.add_argument(
+        "--import-real-job",
+        type=Path,
+        default=None,
+        help=(
+            "Import an already-downloaded job bundle into package real_samples/ "
+            "(requires --job-id). Does not access production."
+        ),
+    )
+    parser.add_argument(
+        "--job-id",
+        default=None,
+        help="Job ID for --import-real-job",
+    )
+    parser.add_argument(
+        "--example-id",
+        default=None,
+        help="Optional example_id for --import-real-job (default real-job-<job-id>)",
+    )
+    parser.add_argument(
+        "--algorithm-version",
+        default=None,
+        help="Optional algorithm version evidence for --import-real-job",
+    )
+    parser.add_argument(
+        "--provider",
+        default=None,
+        help="Optional transcription provider evidence for --import-real-job",
+    )
+    parser.add_argument(
+        "--permitted-use",
+        default=None,
+        help="Optional permitted-use note for --import-real-job",
+    )
+    parser.add_argument(
+        "--title",
+        default=None,
+        help="Optional title for --import-real-job",
+    )
+    parser.add_argument(
+        "--force-import",
+        action="store_true",
+        help="Allow re-import into an existing real_samples case directory",
     )
     args = parser.parse_args(argv)
 
@@ -89,9 +134,28 @@ def main(argv: list[str] | None = None) -> int:
         and args.report_reviews is None
         and args.write_index is None
         and args.bundle is None
+        and args.import_real_job is None
     ):
         parser.print_help()
         return 2
+
+    if args.import_real_job is not None:
+        if not args.job_id:
+            parser.error("--import-real-job requires --job-id")
+        package_dir = args.package if args.package is not None else DEFAULT_OUT
+        result = import_real_job_bundle(
+            args.import_real_job,
+            package_dir=package_dir,
+            job_id=args.job_id,
+            example_id=args.example_id,
+            engine_commit=args.engine_commit,
+            algorithm_version=args.algorithm_version,
+            provider=args.provider,
+            permitted_use=args.permitted_use,
+            title=args.title,
+            force=args.force_import,
+        )
+        print(json.dumps(result, indent=2, default=str))
 
     if args.inventory or args.inventory_md is not None:
         inv = asset_inventory()
@@ -102,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
             args.inventory_md.write_text(inventory_markdown(inv), encoding="utf-8")
             print(f"wrote {args.inventory_md}", file=sys.stderr)
 
-    if args.package is not None:
+    if args.package is not None and args.import_real_job is None:
         report = build_package(args.package, render=args.render)
         print(
             json.dumps(
@@ -121,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.report_reviews is not None:
         report = report_reviews(args.report_reviews)
+        real = report.get("real_samples") or {}
         print(
             json.dumps(
                 {
@@ -135,6 +200,13 @@ def main(argv: list[str] | None = None) -> int:
                         "stale_count"
                     ),
                     "p1_complete": report["p1_complete"],
+                    "real_samples": {
+                        "count": real.get("count"),
+                        "musician_reviewed_complete": real.get(
+                            "musician_reviewed_complete"
+                        ),
+                        "stale_count": real.get("stale_count"),
+                    },
                     "package_report": str(Path(report["out_dir"]) / "package_report.md"),
                 },
                 indent=2,
