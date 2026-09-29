@@ -95,7 +95,8 @@ def test_same_pitch_continuation_keeps_sustained_line_not_interrupter():
     Construction: s0 holds 60 for 2 beats; t0/t1 are a separate short voice on
     the same pitch; s1 reattacks 60 when s0 releases. s1 must continue s0's
     musical_voice, not join the interrupter (duration-similarity trap).
-    Counterexample: monophonic repeated notes remain one voice.
+    See also test_short_repeating_line_continues_when_sustained_hold_ends for
+    the competing short-line case. Counterexample: monophonic repeated notes.
     """
     events = [
         MusicalEvent(60, 0.0, 2.0, hand=Hand.RIGHT, note_id="s0", velocity=80),

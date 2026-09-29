@@ -4,10 +4,10 @@ Canonical development plan for reliable, editable solo-instrument and piano
 scores. Historical reviews stay in dated `docs/` files. New engine work is
 scheduled here.
 
-Reviewed remote baseline for this plan: `97a8785` / PR #86 (P2a pickup-rest
-inference + incomplete-measure engraving). P1 remains **0/15 attributed
-reviews** — `musician_reviewed_complete=0`, `p1_complete=false`. Prepared
-for review does not mean P1 is complete.
+Reviewed remote baseline for this plan: `5351786` / PR #87 (pickup tempo
+written-coordinate fix + same-pitch voice continuity). P1 remains **0/15
+attributed reviews** — `musician_reviewed_complete=0`, `p1_complete=false`.
+Prepared for review does not mean P1 is complete.
 
 This is a plan, not a claim that musical quality is solved. Synthetic tests,
 valid MusicXML, and successful PDF export are not proof of musical quality.
@@ -327,34 +327,50 @@ reviews. Default remains `performance-score-1`; v2 stays opt-in.
    - **Assertions.** Written marks 90@0.5 and 100@1.0; m1 ql=1.0; MIDI
      seconds match source within tick tolerance.
 
-**P2b increment (this branch).**
+**P2b increment (PR #87 @ `5351786`).**
 
 1. **Same-pitch continuation after an interrupting same-pitch voice.**
-   - **Stage.** `VoiceSeparator._choose_voice` — after s0 hold and short
-     t0/t1 interrupters, s1 (leap 0 to both free voices) preferred the
-     interrupter via duration-similarity.
-   - **Fix.** Same-pitch (leap 0) continuity bonus favoring the more
-     established/sustained prior duration.
-   - **Before → after (musical_voice / printed voice).**
+   - Same-pitch leap-0 bonus favoring longer prior duration; monophonic
+     repeats counterexample retained.
 
-     | source_note_id | before | after |
+**P2b increment (this branch, base `5351786`).**
+
+1. **Short repeating line must not lose notes to a sustained hold.**
+   - **Reproduction.** After PR #87, `st3` (short 0.5 at beat 2) joined
+     `hold` (duration 2) instead of the short `st*` line — duration bonus
+     outweighed duration mismatch. First wrong assignment: `st3`
+     musical_voice `0` (expected `1` with `st0`–`st2`).
+   - **Before (PR #87) → after (this fix) for short-line case.**
+
+     | source_note_id | before mv | after mv |
      |---|---|---|
-     | s0 | 0 / 0 | 0 / 0 |
-     | t0 | 1 / 1 | 1 / 1 |
-     | t1 | 1 / 1 | 1 / 1 |
-     | s1 | **1 / 1** | **0 / 0** |
+     | hold | 0 | 0 |
+     | st0–st2 | 1 | 1 |
+     | st3 | **0** | **1** |
 
-   - **Counterexample.** Monophonic repeated same-pitch notes remain one
-     voice. User locks, sustained+accomp, returning-after-rest probes on
-     this separator stay consistent with existing suites. Case 138 printed
-     lane movement is still not treated as a musical-voice defect.
+   - **Sustained-resume case (PR #87 intent) preserved.**
+
+     | source_note_id | mv |
+     |---|---|
+     | s0, s1 | 0 |
+     | t0, t1 | 1 |
+
+   - **Fix.** Apply the sustained-length same-pitch bonus only when the
+     candidate duration is compatible (`dur >= 0.5 * prior_dur`). Mild
+     leap-0 tie-break (`−2`) remains. No additional scoring bonuses.
+   - **Paired coverage.** Sustained resume; short-line continues; both
+     lines resume after gap; returning after rest; crossing (≥2 voices);
+     ambiguous unison documented (merged); user lock overrides; mono
+     counterexample. E2E: musical grouping stable across velocity edit;
+     two-voice MIDI regen preserves ≥2 musical voices.
+   - **Still ambiguous.** Simultaneous unlabeled unisons; crossing line
+     identity without supplied assignments — fixture labels are not proof.
 
 **Remaining P2 work.**
 
 1. Rubato + sub-beat tempo knots under further scale transforms — keep
    playback fidelity green; no new heuristic without a pair.
-2. Further P2b continuity (crossing fragmentation, ambiguous unisons) only
-   with paired evidence — not 138 lane movement.
+2. Further P2b continuity only with paired evidence — not 138 lane movement.
 3. Musician review of any interpretation claim — blocked on P1 ratings.
 4. Auto-infer path still needs measured downs without a preceding barline;
    do not invent pickups from incomplete openings alone.
@@ -469,19 +485,20 @@ independently validated.
 
 ## Suggested next milestone
 
-P2a pickup-tempo written-coordinate fix and first P2b same-pitch continuity
-fix are in this branch (base `97a8785`). **P1 is still 0/15 attributed
-reviews** — do not mark P1 or P2 complete. Construction-labeled tests are
-not musician sign-off. **Next:** more P2b pairs only with failing
-reproductions; collect musician reviews via `REVIEW_INDEX.html` /
-`FIRST_SESSION.md`. Keep v1 default / v2 opt-in.
+P2b same-pitch continuity guard (short-line vs sustained hold) is in this
+branch (base `5351786`). **P1 is still 0/15 attributed reviews** — do not
+mark P1 or P2 complete. Construction-labeled tests are not musician
+sign-off. **Next:** more P2b pairs only with failing reproductions; collect
+musician reviews via `REVIEW_INDEX.html` / `FIRST_SESSION.md`. Keep v1
+default / v2 opt-in.
 
-**Validation (this increment, base SHA=`97a8785`, branch WIP).**
+**Validation (this increment, base SHA=`5351786`, branch WIP).**
 
-- Focused pickup/tempo/export + voice-identity + musical-baseline:
-  `pytest tests/test_midi_timing_fidelity.py tests/test_score_interpretation.py tests/test_voice_separator.py tests/test_voice_identity_regressions.py tests/test_export_evidence_structure.py tests/test_notation_settings.py tests/test_downbeat_alignment.py tests/test_musical_baseline.py -q`
-  → **107 passed**.
+- Focused voice continuity + separator + identity + pickup/timing +
+  musical-baseline:
+  `pytest tests/test_voice_continuity_paired.py tests/test_voice_separator.py tests/test_voice_identity_regressions.py tests/test_midi_timing_fidelity.py tests/test_export_evidence_structure.py tests/test_notation_settings.py tests/test_musical_baseline.py -q`
+  → **90 passed**.
 - Supported backend suite:
   `pytest -m 'not integration and not pm2s' -q`
-  → **1018 passed, 4 deselected, 0 failed**.
+  → **1028 passed, 4 deselected, 0 failed**.
 
