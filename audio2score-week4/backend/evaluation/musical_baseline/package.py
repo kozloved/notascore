@@ -1173,46 +1173,88 @@ def write_supplemental_p2b_evidence(
 def _real_sample_checklist() -> str:
     return """# Real-sample review checklist
 
-Use this for **live job** evidence destined for musician review. Reuses the
-existing evaluation package / `review.json` structures — no new review app.
+Use this for **already-downloaded live job** evidence. Reuses the existing
+evaluation package / `review.json` structures — no new review app.
+
+Real cases live under `real_samples/` and are tracked **separately** from
+the fixed 15-case synthetic P1 completion count. Corrected exports are
+**not** algorithm v2; comparison is original vs corrected.
 
 Keep synthetic package cases labeled `synthetic_repo_fixture`. Do not bind
-older reviews to rebuilt artifact hashes without re-review.
+older human reviews to rebuilt artifact hashes without re-review. Do not
+access production accounts from this workflow.
 
 ## Per sample
 
 | Field | Value |
 |---|---|
 | Job ID | |
-| Engine commit / version evidence | |
-| Algorithm (`performance-score-1` / `performance-score-2`) | |
-| Original audio (path or storage key) | |
-| Unedited output (MusicXML + score MIDI + playback) | |
-| Corrected output (after edits; same IDs) | |
-| Timestamp / measure cited | |
-| Edits applied (`source_note_id` + fields) | |
-| Correction time (minutes) | |
+| Engine commit / provider / algorithm evidence | known / unknown / missing |
+| Original audio + permitted use | present / missing / unknown |
+| Unedited MusicXML + score MIDI | required originals |
+| Corrected MusicXML + score MIDI | optional |
+| Source-note IDs | present / missing |
+| Timestamp / measure citations | |
+| Edits (`corrections.json`) | |
+| Correction time (minutes) + kind | actual / estimated / unknown |
 | Reviewer + `reviewed_at` (ISO) | |
 
-## Workflow
+## Import a downloaded job bundle
 
-1. Record engine SHA and job ID before exporting artifacts.
-2. Save unedited MusicXML, score MIDI, and original audio alongside the job.
-3. Apply corrections; save corrected exports without rewriting source MIDI.
-4. Cite measure/timestamp and list each edit by `source_note_id`.
-5. Fill `review.json` attribution + interpretation + correction-effort
-   dimensions (same schema as the synthetic package).
-6. Run report-only validation against live hashes:
-   `python -m evaluation.musical_baseline --report-reviews …`
-7. Mark acoustic accuracy only when audio + reference labels exist.
+Place files in a folder (aliases accepted):
+
+- `original.musicxml` (required; also `unedited.musicxml`)
+- `original.score.mid` (optional but recommended)
+- `corrected.musicxml` / `corrected.score.mid` (optional)
+- `input.mid` / `raw.mid` (optional)
+- `audio.wav` (optional)
+- `corrections.json`, `note_index.json`, `engine.json` (optional)
+
+```bash
+cd audio2score-week4/backend
+python -m evaluation.musical_baseline \
+  --import-real-job /path/to/downloaded_job_bundle \
+  --job-id JOB123 \
+  --package evaluation/musical_baseline/review_package \
+  --engine-commit <sha-or-omit> \
+  --algorithm-version performance-score-1 \
+  --permitted-use "document-permitted-use-or-omit"
+```
+
+This registers `real_samples/<example_id>/`, hashes supplied artifacts, and
+writes an empty `review.json` scaffold (human-owned files are preserved).
+
+## Record a review
+
+1. Open `real_samples/<example_id>/`.
+2. Play/compare `original.*` vs `corrected.*` (not v1 vs v2 algorithms).
+3. Copy hashes from `artifact_fingerprint.json` into `review.json` →
+   `artifact_binding`.
+4. Fill attribution, interpretation, correction effort; set
+   `correction_time.kind` to `actual`, `estimated`, or `unknown`.
+5. Cite measures/timestamps in `citations`.
+6. Acoustic accuracy only when audio **and** reference labels exist;
+   otherwise `not_applicable`.
+
+## Validate (report-only)
+
+```bash
+python -m evaluation.musical_baseline \
+  --report-reviews evaluation/musical_baseline/review_package
+```
+
+Report-only discovers registered real cases, verifies live file hashes,
+marks stale reviews when artifacts change, and lists real-sample results
+under `real_samples` in `package_report.json` / `.md` — **without** changing
+the synthetic P1 completion count.
 
 ## Limits
 
 - Synthetic fixtures do not prove acoustic accuracy or P1 completion.
-- P1 remains incomplete until attributed real reviews exist.
+- Successful export or a corrected score alone is insufficient.
+- P1 remains incomplete until attributed reviews exist.
 - Default remains v1; v2 stays opt-in.
 """
-
 
 def build_package(
     out_dir: Path | None = None,
@@ -1260,7 +1302,14 @@ def report_reviews(out_dir: Path | None = None) -> dict[str, Any]:
     artifacts (MusicXML/MIDI), or ``artifact_fingerprint.json``. Regenerates
     package_report.* only. Validation recomputes live file hashes and never
     trusts a cached ``case_report.json`` fingerprint as evidence.
+
+    Also discovers manifest-registered real-job cases under ``real_samples/``
+    and reports them separately from the synthetic 15-case P1 counts.
     """
+    from evaluation.musical_baseline.real_samples import (
+        validate_and_summarize_real_cases,
+    )
+
     dest = Path(out_dir) if out_dir is not None else DEFAULT_OUT
     if not dest.is_dir():
         raise FileNotFoundError(f"review package not found: {dest}")
@@ -1300,12 +1349,17 @@ def report_reviews(out_dir: Path | None = None) -> dict[str, Any]:
     report = _assemble_package_report(
         dest, case_rows, inventory=inventory, mode="report_only"
     )
+    real_summary = validate_and_summarize_real_cases(dest)
+    report["real_samples"] = real_summary
     (dest / "package_report.json").write_text(
         json.dumps(report, indent=2) + "\n", encoding="utf-8"
     )
     (dest / "package_report.md").write_text(_markdown_report(report), encoding="utf-8")
     # Refresh instructions (generated doc), not human reviews.
     (dest / "REVIEW_INSTRUCTIONS.md").write_text(_instructions(), encoding="utf-8")
+    checklist = dest / "REAL_SAMPLE_REVIEW_CHECKLIST.md"
+    if not checklist.is_file():
+        checklist.write_text(_real_sample_checklist(), encoding="utf-8")
     return report
 
 
@@ -1438,9 +1492,52 @@ def _markdown_report(report: dict[str, Any]) -> str:
         "alter held-out splits.",
         "- Real-sample workflow: `REAL_SAMPLE_REVIEW_CHECKLIST.md`.",
         "",
-        "## Family coverage",
-        "",
     ]
+    real = report.get("real_samples") or {}
+    if real:
+        rsum = real.get("review_summary") or {}
+        lines.extend(
+            [
+                "## Real-sample jobs (separate from synthetic P1)",
+                "",
+                f"- Registered cases: **{real.get('count', 0)}**",
+                f"- Review complete: **{real.get('musician_reviewed_complete', 0)}**",
+                f"- Musically accepted: **{real.get('musically_accepted_count', 0)}**",
+                f"- Stale: **{real.get('stale_count', rsum.get('stale_count', 0))}**",
+                "- Comparison model: **original vs corrected** (not algorithm v1/v2).",
+                "- These counts do **not** change synthetic P1 completion.",
+                "",
+            ]
+        )
+        if real.get("cases"):
+            lines.append(
+                "| Example | Job | Complete | Accepted | Stale | Engine |"
+            )
+            lines.append("|---|---|---|---|---|---|")
+            for row in real["cases"]:
+                review = row.get("review") or {}
+                engine = (row.get("engine") or {}).get("status")
+                lines.append(
+                    "| `{eid}` | `{job}` | `{complete}` | `{accepted}` | "
+                    "`{stale}` | `{engine}` |".format(
+                        eid=row.get("example_id"),
+                        job=row.get("job_id"),
+                        complete=review.get("review_complete"),
+                        accepted=review.get("musically_accepted"),
+                        stale=bool(
+                            review.get("binding_stale")
+                            or review.get("artifacts_stale")
+                        ),
+                        engine=engine,
+                    )
+                )
+            lines.append("")
+    lines.extend(
+        [
+            "## Family coverage",
+            "",
+        ]
+    )
     coverage = report["family_coverage"]
     for family, ids in coverage["covered"].items():
         mark = "ok" if ids else "MISSING"

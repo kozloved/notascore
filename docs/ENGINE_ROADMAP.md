@@ -531,25 +531,55 @@ independently validated.
 
 ## Suggested next milestone
 
-P2b export verification + versioned review handoff are in this branch
-(base `e0051f1`). **P1 is still 0/15 attributed reviews** — do not mark
-P1 or P2 complete. Construction-labeled / synthetic cases are not
-musician sign-off. **Next:** collect real-sample reviews with
-`REAL_SAMPLE_REVIEW_CHECKLIST.md` + `REVIEW_INDEX.html` /
-`FIRST_SESSION.md`; more P2b pairs only with failing reproductions on
-decoded fixtures. Keep v1 default / v2 opt-in. No further speculative
-voice heuristics.
+Real-job review registration is in this branch (base `c9c5efe`). Use
+`--import-real-job` + `--report-reviews` for already-downloaded bundles;
+results stay under `real_samples/` and do **not** change the synthetic
+15-case P1 completion count. **P1 is still 0/15 attributed reviews** —
+do not mark P1 or P2 complete. Do not invent real jobs or human ratings.
+Keep v1 default / v2 opt-in. Pause speculative interpretation/voice
+heuristics until real attributed reviews arrive.
 
-**Validation (this increment, base SHA=`e0051f1`, branch WIP).**
+**P1 increment (this branch, base `c9c5efe`).**
 
-- Focused voice continuity + separator + identity + pickup/timing +
-  musical-baseline + export evidence:
-  `pytest tests/test_voice_continuity_paired.py tests/test_voice_separator.py tests/test_voice_identity_regressions.py tests/test_midi_timing_fidelity.py tests/test_export_evidence_structure.py tests/test_notation_settings.py tests/test_musical_baseline.py -q`
-  → **92 passed**.
+1. **Manifest-based real-job cases.**
+   - `evaluation/musical_baseline/real_samples.py` registers downloaded
+     job bundles under `review_package/real_samples/` with
+     `manifest.json` + per-case `case_manifest.json`.
+   - Evidence model is **original vs corrected** (not algorithm v1/v2).
+   - Hashes originals/corrections/audio/corrections; missing engine,
+     audio, source-note IDs, permitted use, and reference labels stay
+     explicitly `unknown`/`missing`.
+   - `--report-reviews` discovers registered real cases, verifies live
+     files, marks stale bindings on drift, and reports them separately
+     from synthetic P1 counts. Human `review.json` preserved on re-import.
+   - CLI: `--import-real-job` / `--job-id` (optional engine/provider/
+     algorithm/permitted-use flags). Demonstrated with clearly labeled
+     temporary test data only — no production access, no invented review.
+
+**Validation (this increment, base SHA=`c9c5efe`, branch WIP).**
+
+- Focused:
+  `pytest tests/test_real_sample_reviews.py tests/test_musical_baseline.py tests/test_voice_continuity_paired.py tests/test_export_evidence_structure.py -q`
+  → **61 passed**.
 - Supported backend suite:
   `pytest -m 'not integration and not pm2s' -q`
-  → **1030 passed, 4 deselected, 0 failed**.
-- Handoff:
-  `evaluation/musical_baseline/handoff/p1-review-handoff-e0051f1261ad-20260929T113906Z.tar.gz`
-  (prior `p1-review-handoff-2ad36b7-20260928T184012Z.tar.gz` preserved).
+  → **1036 passed, 4 deselected, 0 failed**.
+
+**Exact commands (real sample, local downloaded bundle).**
+
+```bash
+cd audio2score-week4/backend
+python -m evaluation.musical_baseline \
+  --import-real-job /path/to/downloaded_job_bundle \
+  --job-id JOB123 \
+  --package evaluation/musical_baseline/review_package \
+  --engine-commit <sha-or-omit> \
+  --algorithm-version performance-score-1
+python -m evaluation.musical_baseline \
+  --report-reviews evaluation/musical_baseline/review_package
+```
+
+**Remaining human inputs.** Real job ID, permitted-use documentation,
+audio + reference labels (for acoustic), attributed reviewer + dates,
+actual/estimated correction time. No musician-validated quality claim.
 

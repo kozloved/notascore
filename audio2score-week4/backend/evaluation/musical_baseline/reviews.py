@@ -486,7 +486,7 @@ def review_has_human_input(data: dict[str, Any]) -> bool:
             return True
         versions = dim.get("versions") or {}
         if isinstance(versions, dict) and any(
-            versions.get(v) for v in PER_VERSION_KEYS
+            versions.get(v) for v in (*PER_VERSION_KEYS, "original", "corrected")
         ):
             return True
     if data.get("musical_acceptance") not in (None, "not_assessed", ""):
@@ -556,11 +556,24 @@ def validate_review(
     load_status: str = "loaded",
     load_error: str | None = None,
     artifact_probe: ArtifactProbe | None = None,
+    binding_fields: tuple[str, ...] | None = None,
+    optional_null_fields: frozenset[str] | None = None,
+    version_keys: tuple[str, ...] | None = None,
 ) -> ReviewValidation:
+    """Validate a review payload against expected identity and live fingerprint.
+
+    ``binding_fields`` / ``optional_null_fields`` default to the synthetic
+    v1/v2 package contract. Real-job cases pass original/corrected fields.
+    ``version_keys`` defaults to ``("v1", "v2")``; real cases use
+    ``("original", "corrected")``.
+    """
     example_id = expected.get("example_id") or ""
     result = ReviewValidation(
         example_id=example_id, load_status=load_status, valid=False
     )
+    active_binding_fields = binding_fields or BINDING_FIELDS
+    active_optional_null = optional_null_fields or frozenset(PLAYBACK_ARTIFACT_FILES)
+    active_version_keys = version_keys or PER_VERSION_KEYS
     if artifact_probe is not None:
         result.artifacts_current = artifact_probe.artifacts_current
         result.artifacts_stale = bool(artifact_probe.changed_files)
@@ -649,14 +662,14 @@ def validate_review(
     else:
         missing_keys: list[str] = []
         stale_keys: list[str] = []
-        for key in COMPLETION_CRITERIA["binding_fields"]:
+        for key in active_binding_fields:
             if key not in binding:
                 missing_keys.append(key)
                 continue
             got = binding.get(key)
             want = fingerprint.get(key)
-            # Playback may be legitimately null when unavailable.
-            if key in PLAYBACK_ARTIFACT_FILES:
+            # Optional artifacts may be legitimately null when unavailable.
+            if key in active_optional_null:
                 if got != want:
                     stale_keys.append(key)
                 continue
@@ -699,7 +712,7 @@ def validate_review(
             result.errors.append(f"dimensions.{name} missing or not an object")
             parsed_dims[name] = {
                 "status": "not_reviewed",
-                "versions": {"v1": None, "v2": None},
+                "versions": {key: None for key in active_version_keys},
                 "score": None,
                 "notes": "",
                 "valid": False,
@@ -722,7 +735,7 @@ def validate_review(
             versions = {}
             status_valid = False
         version_vals: dict[str, str | None] = {}
-        for key in PER_VERSION_KEYS:
+        for key in active_version_keys:
             raw_v = versions.get(key)
             if raw_v in (None, ""):
                 version_vals[key] = None
