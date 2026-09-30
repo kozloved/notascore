@@ -214,6 +214,7 @@ export type NotationSettings = {
   overlap_handling: "preserve" | "contextual";
   max_dots: number;
   algorithm_version: string;
+  printed_tempo_detail?: "off" | "opening" | "expressive";
   meter: string | null;
   pickup_beats: number | null;
   first_downbeat_beat: number | null;

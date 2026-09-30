@@ -53,6 +53,14 @@ class OverlapHandling(str, Enum):
     CONTEXTUAL = "contextual"
 
 
+class PrintedTempoDetail(str, Enum):
+    """How much tempo detail belongs on the page (playback keeps the full curve)."""
+
+    OFF = "off"  # suppress even the opening metronome when re-applying marks
+    OPENING = "opening"  # opening metronome only
+    EXPRESSIVE = "expressive"  # sparse sustained regions + rit / a tempo
+
+
 _DISPLAY_GRID_ALIASES = {
     "auto": DisplayGrid.AUTO,
     "eighth": DisplayGrid.EIGHTH,
@@ -94,6 +102,16 @@ _OVERLAP_ALIASES = {
     "preserve": OverlapHandling.PRESERVE,
     "contextual": OverlapHandling.CONTEXTUAL,
     "context": OverlapHandling.CONTEXTUAL,
+}
+
+_PRINTED_TEMPO_ALIASES = {
+    "off": PrintedTempoDetail.OFF,
+    "none": PrintedTempoDetail.OFF,
+    "opening": PrintedTempoDetail.OPENING,
+    "opening_only": PrintedTempoDetail.OPENING,
+    "expressive": PrintedTempoDetail.EXPRESSIVE,
+    "on": PrintedTempoDetail.EXPRESSIVE,
+    "full": PrintedTempoDetail.EXPRESSIVE,
 }
 
 
@@ -268,6 +286,7 @@ class NotationSettings:
     overlap_handling: OverlapHandling = OverlapHandling.CONTEXTUAL
     max_dots: int = DEFAULT_MAX_DOTS
     algorithm_version: str = ALGORITHM_VERSION_CURRENT
+    printed_tempo_detail: PrintedTempoDetail = PrintedTempoDetail.EXPRESSIVE
     meter: str | None = None
     pickup_beats: float | None = None
     first_downbeat_beat: float | None = None
@@ -375,6 +394,10 @@ class NotationSettings:
             changes["overlap_handling"], OverlapHandling
         ):
             payload["overlap_handling"] = changes["overlap_handling"].value
+        if "printed_tempo_detail" in changes and isinstance(
+            changes["printed_tempo_detail"], PrintedTempoDetail
+        ):
+            payload["printed_tempo_detail"] = changes["printed_tempo_detail"].value
         return NotationSettings.from_dict(payload)
 
     def to_dict(self) -> dict[str, Any]:
@@ -386,6 +409,7 @@ class NotationSettings:
             "overlap_handling": self.overlap_handling.value,
             "max_dots": int(self.max_dots),
             "algorithm_version": self.algorithm_version,
+            "printed_tempo_detail": self.printed_tempo_detail.value,
             "meter": self.meter,
             "pickup_beats": self.pickup_beats,
             "first_downbeat_beat": self.first_downbeat_beat,
@@ -475,6 +499,13 @@ class NotationSettings:
             algorithm_version=str(
                 data.get("algorithm_version") or ALGORITHM_VERSION_CURRENT
             ).strip(),
+            printed_tempo_detail=_enum_from(
+                data.get("printed_tempo_detail", PrintedTempoDetail.EXPRESSIVE),
+                PrintedTempoDetail,
+                _PRINTED_TEMPO_ALIASES,
+                "printed_tempo_detail",
+            )
+            or PrintedTempoDetail.EXPRESSIVE,
             meter=meter,
             pickup_beats=_optional_float(
                 data.get("pickup_beats"), field_name="pickup_beats", lo=0, hi=16

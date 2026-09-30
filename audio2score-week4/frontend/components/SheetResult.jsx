@@ -86,14 +86,16 @@ export default function SheetResult({
           osmd.EngravingRules.NewPageAtXMLNewPageAttribute = false;
           osmd.EngravingRules.StretchLastSystemLine = false;
           // Compact piano spacing so several short measures share a system.
-          // Do not pin a fixed bars-per-line count.
-          osmd.EngravingRules.PageLeftMargin = 8;
-          osmd.EngravingRules.PageRightMargin = 8;
-          osmd.EngravingRules.PageTopMargin = 8;
-          osmd.EngravingRules.PageBottomMargin = 8;
-          osmd.EngravingRules.StaffDistance = 4.5;
-          osmd.EngravingRules.BetweenStaffDistance = 3;
-          osmd.EngravingRules.MinimumDistanceBetweenSystems = 4;
+          // Do not pin a fixed bars-per-line count; dense passages still need room.
+          // Target ~3–4 bars/system when the notation is simple enough to fit.
+          osmd.EngravingRules.PageLeftMargin = 10;
+          osmd.EngravingRules.PageRightMargin = 10;
+          osmd.EngravingRules.PageTopMargin = 10;
+          osmd.EngravingRules.PageBottomMargin = 10;
+          osmd.EngravingRules.StaffDistance = 4.0;
+          osmd.EngravingRules.BetweenStaffDistance = 2.8;
+          osmd.EngravingRules.MinimumDistanceBetweenSystems = 3.2;
+          osmd.EngravingRules.SystemDistance = 3.2;
           osmd.EngravingRules.MeasureNumberLabelOffset = 1.5;
           osmd.EngravingRules.MeasureNumberLabelXOffset = 0.4;
           osmd.EngravingRules.RenderMeasureNumbersOnlyAtSystemStart = true;

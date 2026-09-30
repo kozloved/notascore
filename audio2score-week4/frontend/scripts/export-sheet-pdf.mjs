@@ -14,7 +14,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { writeFileSync } from "node:fs";
 
-import { assembleScorePdf, pngFromSvgMarkup, PDF_SCALE } from "../lib/sheet-pdf.js";
+import { assembleScorePdf, PDF_SCALE, PRINT_SVG_WIDTH } from "../lib/sheet-pdf.js";
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -47,21 +47,30 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1000, height: 1400 } });
 await page.goto(pathToFileURL(resolve(htmlPath)).href, { waitUntil: "networkidle" });
 await page.waitForFunction(() => window.__osmdReady === true, null, { timeout: 30000 });
-const pages = await page.$$eval("#osmd svg", (nodes) =>
-  nodes.map((svg) => {
-    const rect = svg.getBoundingClientRect();
-    const width = Math.ceil(rect.width) || svg.viewBox?.baseVal?.width || 800;
-    const height = Math.ceil(rect.height) || svg.viewBox?.baseVal?.height || 600;
-    const clone = svg.cloneNode(true);
-    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-    clone.setAttribute("width", String(width));
-    clone.setAttribute("height", String(height));
-    return {
-      markup: new XMLSerializer().serializeToString(clone),
-      width,
-      height,
-    };
-  })
+const pages = await page.$$eval(
+  "#osmd svg",
+  (nodes, printWidth) =>
+    nodes.map((svg) => {
+      const vb = svg.viewBox?.baseVal;
+      const rect = svg.getBoundingClientRect();
+      const contentW = (vb && vb.width > 0 ? vb.width : 0) || Math.ceil(rect.width) || 800;
+      const contentH = (vb && vb.height > 0 ? vb.height : 0) || Math.ceil(rect.height) || 600;
+      const width = printWidth;
+      const height = Math.max(1, Math.round((contentH * width) / contentW));
+      const clone = svg.cloneNode(true);
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      clone.setAttribute("width", String(width));
+      clone.setAttribute("height", String(height));
+      if (!clone.getAttribute("viewBox") && contentW > 0 && contentH > 0) {
+        clone.setAttribute("viewBox", `0 0 ${contentW} ${contentH}`);
+      }
+      return {
+        markup: new XMLSerializer().serializeToString(clone),
+        width,
+        height,
+      };
+    }),
+  PRINT_SVG_WIDTH
 );
 if (!pages.length) {
   await browser.close();
@@ -90,14 +99,10 @@ for (const pageSvg of pages) {
     },
     { ...pageSvg, scale: PDF_SCALE }
   );
-  pngs.push(dataUrl);
+  pngs.push({ dataUrl, w: Math.round(pageSvg.width * PDF_SCALE), h: Math.round(pageSvg.height * PDF_SCALE) });
 }
 await browser.close();
 
-// Same jsPDF assembly as the Download PDF button. pngFromSvgMarkup is the
-// browser-side helper; Playwright cannot import it into page.evaluate, so the
-// raster step above mirrors that function and assembleScorePdf is shared.
-void pngFromSvgMarkup;
 const pdf = assembleScorePdf(pngs, jsPDF);
 writeFileSync(pdfPath, Buffer.from(pdf.output("arraybuffer")));
 console.log(JSON.stringify({ pages: pngs.length, pdf: pdfPath }));

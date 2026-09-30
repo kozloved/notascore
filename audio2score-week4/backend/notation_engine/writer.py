@@ -685,9 +685,16 @@ class NotationWriter:
         bpm = format_display_tempo(plan.tempo_bpm)
         if meta and meta.display_tempo_bpm:
             bpm = format_display_tempo(meta.display_tempo_bpm)
+        settings = ((meta.extra or {}).get("notation_settings") if meta else None) or {}
+        detail = str(
+            settings.get("printed_tempo_detail")
+            or ((meta.extra or {}).get("printed_tempo_detail") if meta else None)
+            or "expressive"
+        ).lower()
         # Metronome marks must live in a measure. A score-level mark survives
         # in memory but music21 omits it from MusicXML, so OSMD never draws BPM.
-        self._insert_metronome_at_beat(score, 0.0, bpm)
+        if detail not in {"off", "none"}:
+            self._insert_metronome_at_beat(score, 0.0, bpm)
         if meta is not None:
             # Written score may rebase anacrusis to beat 0 via pickup_origin_shift
             # while performance/quantized events keep absolute beats. Printed
@@ -1142,24 +1149,41 @@ class NotationWriter:
         return score
 
     def _apply_tempo_map(self, score, meta: ScoreMeta, score_beat_offset: float = 0.0) -> None:
-        if (meta.extra or {}).get("preserve_midi_tempo") and meta.tempo_map is not None:
-            for pt in meta.tempo_map.sorted_points():
-                beat = meta.tempo_map.seconds_to_beats(pt.time_sec) + score_beat_offset
-                if 0 <= beat < float(score.highestTime):
-                    self._insert_metronome_at_beat(score, beat, float(pt.bpm))
+        settings = (meta.extra or {}).get("notation_settings") or {}
+        detail = str(settings.get("printed_tempo_detail") or (meta.extra or {}).get("printed_tempo_detail") or "expressive").lower()
+        if detail in {"off", "none"}:
             return
         printed = (meta.extra or {}).get("printed_tempo")
-        if self.last_quantization_mode == QuantizationMode.PERFORMANCE and printed is not None:
-            # MusicalTimeMap handles performed rubato. Only sustained tempo
-            # regions belong on the page, using the same written-score origin
-            # (score_beat_offset already includes −pickup_origin_shift when set).
-            for annotation in printed:
-                bpm = annotation.get("bpm")
-                if annotation.get("mark") == "a_tempo":
-                    bpm = meta.display_tempo_bpm
-                beat = float(annotation.get("beat", 0.0)) + float(score_beat_offset)
-                if bpm and 0 <= beat <= float(score.highestTime) + 1e-9:
-                    self._insert_metronome_at_beat(score, beat, int(round(bpm)))
+        if self.last_quantization_mode == QuantizationMode.PERFORMANCE:
+            if detail in {"opening", "opening_only"}:
+                return
+            # Sparse printed marks win over dumping the performance tempo map.
+            # preserve_midi_tempo still feeds playback via playback_tempo /
+            # MusicalTimeMap; it must not spam decimal BPM labels on the page.
+            if printed is not None:
+                self._apply_printed_tempo_annotations(
+                    score, meta, printed, score_beat_offset=score_beat_offset
+                )
+                return
+            # No printed_tempo payload: keep the opening metronome only.
+            if (meta.extra or {}).get("preserve_midi_tempo"):
+                return
+        if (meta.extra or {}).get("preserve_midi_tempo") and meta.tempo_map is not None:
+            # Legacy / non-performance paths only. Prefer integer display BPM.
+            last = None
+            for pt in meta.tempo_map.sorted_points():
+                beat = meta.tempo_map.seconds_to_beats(pt.time_sec) + score_beat_offset
+                bpm = int(round(float(pt.bpm)))
+                if last is not None and abs(bpm - last) / max(last, 1) < 0.08:
+                    continue
+                if 0 <= beat < float(score.highestTime):
+                    self._insert_metronome_at_beat(score, beat, bpm)
+                    last = bpm
+            return
+        if printed is not None:
+            self._apply_printed_tempo_annotations(
+                score, meta, printed, score_beat_offset=score_beat_offset
+            )
             return
         tempo_map: TempoMap | None = meta.tempo_map
         if tempo_map is None or len(tempo_map.sorted_points()) < 2:
@@ -1181,6 +1205,62 @@ class NotationWriter:
                 continue
             self._insert_metronome_at_beat(score, offset, int(round(next_bpm)))
             last_bpm = next_bpm
+
+    def _apply_printed_tempo_annotations(
+        self, score, meta: ScoreMeta, printed, *, score_beat_offset: float = 0.0
+    ) -> None:
+        for annotation in printed:
+            beat = float(annotation.get("beat", 0.0)) + float(score_beat_offset)
+            if beat < -1e-9 or beat > float(score.highestTime) + 1e-9:
+                continue
+            mark = str(annotation.get("mark") or "metronome")
+            if mark == "rit":
+                self._insert_tempo_text_at_beat(score, beat, "rit.")
+                continue
+            if mark == "a_tempo":
+                self._insert_tempo_text_at_beat(score, beat, "a tempo")
+                continue
+            bpm = annotation.get("bpm")
+            if bpm:
+                self._insert_metronome_at_beat(score, beat, int(round(float(bpm))))
+
+    def _insert_tempo_text_at_beat(self, score, beat: float, text: str) -> None:
+        """Place an expressive tempo word without inventing a new BPM label."""
+        from music21 import expressions as m21expr
+
+        expr = m21expr.TextExpression(text)
+        try:
+            expr.placement = "above"
+        except Exception:
+            pass
+        part = score.parts[0] if getattr(score, "parts", None) else score
+        try:
+            measures = list(part.getElementsByClass("Measure"))
+        except Exception:
+            measures = []
+        if not measures:
+            self._safe_insert(part, max(0.0, float(beat)), expr)
+            return
+        for meas in measures:
+            start = float(meas.offset)
+            try:
+                dur = float(meas.duration.quarterLength)
+            except Exception:
+                dur = 0.0
+            if dur <= 1e-9:
+                try:
+                    dur = float(meas.barDuration.quarterLength)
+                except Exception:
+                    dur = 4.0
+            if start - 1e-6 <= float(beat) < start + dur - 1e-9 or (
+                meas is measures[-1] and abs(float(beat) - (start + dur)) <= 1e-6
+            ):
+                local = max(0.0, float(beat) - start)
+                if local >= dur:
+                    local = max(0.0, dur - 1e-6)
+                self._safe_insert(meas, local, expr)
+                return
+        self._safe_insert(part, max(0.0, float(beat)), expr)
 
     def _insert_metronome_at_beat(self, score, beat: float, bpm: float) -> None:
         """Put a metronome mark inside the measure that OSMD/MusicXML will export."""

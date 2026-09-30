@@ -57,15 +57,21 @@ def test_printed_tempo_ignores_rubato_jitter():
     assert marks[0].mark == "metronome"
 
 
-def test_printed_tempo_emits_rit_for_persistent_slowing():
+def test_printed_tempo_emits_metronome_for_discrete_slower_plateau():
     series = [(float(i), 90.0) for i in range(12)]
     series += [(float(i), 70.0) for i in range(12, 24)]
     marks = printed_tempo_annotations(series, min_change_ratio=0.12, min_hold_beats=8)
     kinds = [m.mark for m in marks]
     assert kinds[0] == "metronome"
-    assert "rit" in kinds
-    assert marks[0].bpm == 90
+    assert "rit" not in kinds
+    assert any(m.mark == "metronome" and m.bpm == 70 for m in marks)
 
+
+def test_printed_tempo_emits_rit_for_gradual_slowing():
+    series = [(float(i), 100.0 - i * 1.5) for i in range(20)]
+    marks = printed_tempo_annotations(series, min_change_ratio=0.08, min_hold_beats=6)
+    assert marks[0].mark == "metronome"
+    assert any(m.mark == "rit" for m in marks)
 
 def test_transkun_and_beat_this_stay_disabled(monkeypatch):
     from engine.flags import transkun_configured, transkun_operational

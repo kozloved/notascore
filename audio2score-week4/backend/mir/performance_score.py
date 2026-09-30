@@ -369,27 +369,46 @@ def _onset_vocab(settings: NotationSettings, *, allow_finer=False):
     return exact, search
 
 
-def _onset_candidates(raw, max_move, settings=None, exceptions=None):
-    settings = _settings(settings)
-    # An already representable attack is stronger evidence than a preference
-    # for a simpler rhythm. In particular, preserve 64ths and offbeat triplets.
-    exact_vocab, search_vocab = _onset_vocab(settings)
+def _exact_onset_hit(raw, max_move, exact_vocab):
     for denominator, family in exact_vocab:
         exact = Fraction(round(raw * denominator), denominator)
         if abs(float(exact) - raw) <= min(1e-7, max_move):
-            return [(exact, family, 0.0)]
+            return exact, family, 0.0
+    return None
+
+
+def _readable_may_simplify_exact(onset: Fraction, family: str) -> bool:
+    """Readable may consider coarser alternatives for fine binary grids.
+
+    Exact tuplets and coarse binary attacks (quarters through sixteenths) stay
+    exclusive so deliberate syncopation and tuplet spelling are preserved.
+    """
+    if family != "binary":
+        return False
+    return onset.denominator > 4
+
+
+def _onset_candidates(raw, max_move, settings=None, exceptions=None):
+    settings = _settings(settings)
+    # An already representable attack is strong evidence. Literal keeps it
+    # exclusive. Readable still seeds it at cost 0, but also considers simpler
+    # binary alternatives for fine grids so accompaniment can share a beat.
+    exact_vocab, search_vocab = _onset_vocab(settings)
+    exact_hit = _exact_onset_hit(raw, max_move, exact_vocab)
     # Exact values outside the selected grid still win: they are distinct attacks.
     # Triplet policy is still honored; a required tuplet is a recorded exception.
-    if not settings.uses_current_vocabulary():
+    if exact_hit is None and not settings.uses_current_vocabulary():
         fallback_exact = _ONSET_EXACT
         if settings.triplet_policy == TripletPolicy.DISABLED:
             fallback_exact = [(d, f) for d, f in _ONSET_EXACT if f != "triplet"]
-        for denominator, family in fallback_exact:
-            exact = Fraction(round(raw * denominator), denominator)
-            if abs(float(exact) - raw) <= min(1e-7, max_move):
-                return [(exact, family, 0.0)]
+        exact_hit = _exact_onset_hit(raw, max_move, fallback_exact)
     candidates = {}
     literal = settings.interpretation == Interpretation.LITERAL
+    if exact_hit is not None:
+        onset, family, cost = exact_hit
+        if literal or not _readable_may_simplify_exact(onset, family):
+            return [(onset, family, cost)]
+        candidates[(onset, family)] = cost
 
     def _collect(vocab):
         for denominator, family, complexity in vocab:
@@ -406,6 +425,15 @@ def _onset_candidates(raw, max_move, settings=None, exceptions=None):
                     0.065 if family == "binary" and denominator <= 4 else 0.0
                 )
                 cost = max(0.0, error - tolerance) * 3 + complexity
+                # Near a beat, Readable prefers landing on that beat over a
+                # barely closer 32nd when both stay inside the move bound.
+                if (
+                    not literal
+                    and family == "binary"
+                    and denominator <= 2
+                    and error <= 0.12
+                ):
+                    cost -= 0.02
                 key = (onset, family)
                 if key not in candidates or cost < candidates[key]:
                     candidates[key] = cost
@@ -838,6 +866,195 @@ def _readable_v2_gap_is_articulation(raw, remaining, slot, sixteenth):
     if rem_f >= raw_f:
         return False
     return rem_f / slot_f < Fraction(1, 5)
+
+
+_SHARED_BEAT_WINDOW = 0.13
+
+
+def _voice_is_fast_near(ev, ordered_same_voice, *, window=0.35) -> bool:
+    """True when the local same-voice stream is a rapid figure, not a held tone."""
+    neighbors = sum(
+        1
+        for other in ordered_same_voice
+        if other.note_id != ev.note_id
+        and abs(other.start_beat - ev.start_beat) < window
+    )
+    return neighbors >= 2
+
+
+def _readable_align_shared_onsets(
+    onset_by_id,
+    events,
+    roles,
+    *,
+    max_move,
+    settings,
+):
+    """Align near-simultaneous cross-line attacks onto one simpler Readable beat.
+
+    Covers delayed melody entries against bass/accompaniment when the performed
+    gap is within a 32nd-ish window. Literal mode, locked timing, tuplets, and
+    fast local streams are left alone.
+    """
+    settings = _settings(settings)
+    adjustments = {}
+    if settings.interpretation != Interpretation.READABLE:
+        return onset_by_id, adjustments
+
+    by_voice = defaultdict(list)
+    for ev in events:
+        by_voice[(ev.hand, ev.voice, ev.source_track_id)].append(ev)
+    for group in by_voice.values():
+        group.sort(key=lambda e: (e.start_beat, e.pitch, e.note_id))
+
+    ordered = sorted(events, key=lambda e: (e.start_beat, e.pitch, e.note_id))
+    clusters = []
+    for ev in ordered:
+        if getattr(ev, "score_timing_locked", False):
+            continue
+        if clusters and ev.start_beat - clusters[-1][0].start_beat <= _SHARED_BEAT_WINDOW:
+            clusters[-1].append(ev)
+        else:
+            clusters.append([ev])
+
+    for cluster in clusters:
+        if len(cluster) < 2:
+            continue
+        if any(getattr(ev, "score_timing_locked", False) for ev in cluster):
+            continue
+        hands = {ev.hand for ev in cluster}
+        role_names = {roles.get(ev.note_id, ("accompaniment",))[0] for ev in cluster}
+        cross_line = len(hands) >= 2 or (
+            {"melody"} & role_names
+            and role_names & {"bass", "accompaniment"}
+        )
+        if not cross_line:
+            continue
+        if any(
+            _voice_is_fast_near(ev, by_voice[(ev.hand, ev.voice, ev.source_track_id)])
+            for ev in cluster
+        ):
+            continue
+        current = [onset_by_id[ev.note_id] for ev in cluster]
+        if len(set(current)) == 1:
+            continue
+        # Do not flatten an already-exact tuplet spelling.
+        if any(onset.denominator % 3 == 0 for onset in current):
+            continue
+
+        raw_min = min(ev.start_beat for ev in cluster)
+        raw_mean = mean(ev.start_beat for ev in cluster)
+        anchors = set(current)
+        for center in (raw_min, raw_mean):
+            for denominator in (1, 2, 4):
+                anchors.add(Fraction(round(center * denominator), denominator))
+
+        best = None
+        best_cost = None
+        for cand in anchors:
+            if cand < 0 or cand.denominator % 3 == 0:
+                continue
+            if any(abs(float(cand) - ev.start_beat) > max_move for ev in cluster):
+                continue
+            cost = sum(abs(float(cand) - ev.start_beat) for ev in cluster)
+            cost += 0.012 * max(0, cand.denominator - 1)
+            if any(
+                onset_by_id[ev.note_id] == cand and cand.denominator <= 2
+                for ev in cluster
+            ):
+                cost -= 0.05
+            role_boost = any(
+                roles.get(ev.note_id, ("",))[0] in {"bass", "accompaniment"}
+                and abs(float(cand) - ev.start_beat)
+                <= abs(float(onset_by_id[ev.note_id]) - ev.start_beat) + 1e-9
+                for ev in cluster
+            )
+            if role_boost and cand.denominator <= 2:
+                cost -= 0.03
+            if best is None or cost < best_cost:
+                best, best_cost = cand, cost
+        if best is None:
+            continue
+        for ev in cluster:
+            prev = onset_by_id[ev.note_id]
+            if prev == best:
+                continue
+            onset_by_id[ev.note_id] = best
+            adjustments[ev.note_id] = {
+                "from": float(prev),
+                "to": float(best),
+                "reason": "readable_shared_beat",
+            }
+    return onset_by_id, adjustments
+
+
+_ORNAMENT_MAX_RAW_DURATION = 0.35
+_ORNAMENT_LEAD_WINDOW = 0.30
+
+
+def _readable_mark_ornaments(events, onset_by_id, exact, roles, settings, raw_by_id):
+    """Label short anticipatory notes as editable ornaments (Readable only).
+
+    Does not delete source attacks. Written duration stays positive so playback
+    and export integrity keep the performed attack; decisions expose an
+    editable ornament interpretation for the editor.
+    """
+    settings = _settings(settings)
+    marks = {}
+    if settings.interpretation != Interpretation.READABLE:
+        return marks
+
+    by_hand = defaultdict(list)
+    for ev in events:
+        by_hand[ev.hand].append(ev)
+    for group in by_hand.values():
+        group.sort(key=lambda e: (
+            raw_by_id.get(e.note_id, e).start_beat,
+            e.pitch,
+            e.note_id,
+        ))
+
+    for _hand, ordered in by_hand.items():
+        for index, ev in enumerate(ordered):
+            raw = raw_by_id.get(ev.note_id, ev)
+            if getattr(raw, "score_timing_locked", False):
+                continue
+            if float(raw.duration_beats) > _ORNAMENT_MAX_RAW_DURATION:
+                continue
+            # Long written holds (e.g. re-ingested score MIDI) are not ornaments
+            # merely because a reviewer described them as short.
+            written = exact.get(ev.note_id)
+            if written is not None and float(written[1]) > 1.0:
+                continue
+            primary = None
+            for later in ordered[index + 1 :]:
+                raw_later = raw_by_id.get(later.note_id, later)
+                gap = raw_later.start_beat - raw.start_beat
+                if gap < -1e-9:
+                    continue
+                if gap > _ORNAMENT_LEAD_WINDOW:
+                    break
+                if float(raw_later.duration_beats) < float(raw.duration_beats) * 1.5:
+                    continue
+                if later.pitch == ev.pitch:
+                    continue
+                primary = later
+                break
+            if primary is None:
+                continue
+            primary_onset = onset_by_id.get(primary.note_id)
+            if primary_onset is None or primary_onset.denominator > 4:
+                continue
+            role = roles.get(ev.note_id, ("accompaniment",))[0]
+            if role == "bass":
+                continue
+            marks[ev.note_id] = {
+                "ornament_style": "acciaccatura",
+                "primary_note_id": primary.note_id,
+                "editable": True,
+                "reason": "short_anticipation_before_pulse",
+            }
+    return marks
 
 
 def _score_voices(events, separator):
@@ -1360,12 +1577,34 @@ def quantize_notation(
                     onset_by_id[ev.note_id] = onset
             onset_jobs.append((key, group, onset, family, nxt, raw_next, i, prev_interval))
 
+    onset_by_id, shared_beat_adjustments = _readable_align_shared_onsets(
+        onset_by_id,
+        interpreted,
+        roles,
+        max_move=config.max_onset_move,
+        settings=settings,
+    )
+
     out, exact = [], {}
     for key, group, onset, family, nxt, raw_next, group_index, prev_interval in onset_jobs:
+        # Prefer post-alignment onsets; chord mates still share after search,
+        # and shared-beat alignment may unify cross-line attacks.
+        aligned = [onset_by_id[ev.note_id] for ev in group]
+        onset = aligned[0]
+        if nxt is not None:
+            # Recompute the next written attack from aligned onsets in this voice.
+            voice_events = voices[key]
+            later = [
+                onset_by_id[ev.note_id]
+                for ev in voice_events
+                if onset_by_id[ev.note_id] > onset
+            ]
+            nxt = min(later) if later else None
         bar_number = int(onset / measure_length) + 1 if measure_length > 0 else 1
         local_settings = settings.resolved_for_measure(bar_number)
         for ev in group:
             role, phrase = roles[ev.note_id]
+            onset = onset_by_id[ev.note_id]
             if getattr(ev, "score_timing_locked", False):
                 locked_onset = onset_by_id[ev.note_id]
                 locked_duration = as_score_fraction(ev.duration_beats, positive=True, locked=True)
@@ -1410,6 +1649,18 @@ def quantize_notation(
     out = _stable_lanes(out, exact, profile.grand_staff)
     out = _conservative_articulations(out, settings=settings)
     raw_by_id = {e.note_id: e for e in raw}
+    ornament_marks = _readable_mark_ornaments(
+        out, onset_by_id, exact, roles, settings, raw_by_id
+    )
+    if ornament_marks:
+        tagged = []
+        for ev in out:
+            mark = ornament_marks.get(ev.note_id)
+            if mark and not ev.articulation:
+                tagged.append(copy_event(ev, articulation="ornament"))
+            else:
+                tagged.append(ev)
+        out = tagged
     decisions, notes = [], []
     for ev in out:
         source = raw_by_id[ev.note_id]
@@ -1429,7 +1680,10 @@ def quantize_notation(
                 "supplied" if source.voice_assigned else "inferred"
             ),
         ))
-        decisions.append({
+        reason = "bounded_voice_search"
+        if ev.note_id in shared_beat_adjustments:
+            reason = "readable_shared_beat"
+        decision = {
             "note_id": ev.note_id, "raw_start": source.start_beat,
             "source_track_id": source.source_track_id, "source_program": source.source_program,
             "raw_duration": source.duration_beats, "quantized_start": ev.start_beat,
@@ -1448,7 +1702,7 @@ def quantize_notation(
             "role": ev.role, "role_confidence": 0.4, "rhythm_family": family,
             "phrase_id": ev.phrase_id, "hand_confidence": ev.hand_confidence,
             "voice_confidence": ev.voice_confidence,
-            "group_id": group_id, "reason": "bounded_voice_search",
+            "group_id": group_id, "reason": reason,
             "score_beat_offset": offset,
             "onset_error_beats": error_beats,
             "onset_error_ms": beats_to_ms(error_beats, bpm),
@@ -1465,7 +1719,12 @@ def quantize_notation(
                 row for row in policy_exceptions
                 if abs(float(row.get("onset", 0)) - float(source.start_beat)) < 1e-6
             ],
-        })
+        }
+        if ev.note_id in shared_beat_adjustments:
+            decision["shared_beat"] = shared_beat_adjustments[ev.note_id]
+        if ev.note_id in ornament_marks:
+            decision["ornament"] = ornament_marks[ev.note_id]
+        decisions.append(decision)
     summary = summarize_quantization(raw, out, decisions)
     if collapse_warning:
         summary["solo_collapse_warning"] = collapse_warning
