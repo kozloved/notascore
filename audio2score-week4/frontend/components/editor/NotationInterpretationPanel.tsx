@@ -152,8 +152,10 @@ export default function NotationInterpretationPanel({
     <section className="ns-notation-panel" aria-label="Notation interpretation">
       <div className="ns-notation-row">
         <div className="ns-notation-version">
+          <p className="ns-notation-control-label" id="ns-notation-version-label">
+            Notation version
+          </p>
           <SegmentedControl
-            compact
             label="Notation version"
             value={algorithmValue}
             disabled={selectorDisabled}
@@ -186,36 +188,42 @@ export default function NotationInterpretationPanel({
             </p>
           ) : null}
         </div>
-        <SegmentedControl
-          compact
-          label="Notation interpretation"
-          value={settings.interpretation}
-          disabled={busy || !regenAvailable}
-          onChange={(interpretation) =>
-            void apply({
-              ...settings,
-              interpretation,
-              algorithm_version: settings.algorithm_version,
-            })
-          }
-          options={[
-            { value: "readable", label: "Readable" },
-            { value: "literal", label: "Literal" },
-          ]}
-        />
-        <SegmentedControl
-          compact
-          label="Display grid"
-          value={settings.display_grid}
-          disabled={busy || !regenAvailable}
-          onChange={(display_grid) =>
-            void apply({
-              ...settings,
-              display_grid,
-            })
-          }
-          options={[...GRID_OPTIONS]}
-        />
+      </div>
+      <div className="ns-notation-row">
+        <div className="ns-notation-control">
+          <p className="ns-notation-control-label">Interpretation</p>
+          <SegmentedControl
+            label="Notation interpretation"
+            value={settings.interpretation}
+            disabled={busy || !regenAvailable}
+            onChange={(interpretation) =>
+              void apply({
+                ...settings,
+                interpretation,
+                algorithm_version: settings.algorithm_version,
+              })
+            }
+            options={[
+              { value: "readable", label: "Readable" },
+              { value: "literal", label: "Literal" },
+            ]}
+          />
+        </div>
+        <div className="ns-notation-control">
+          <p className="ns-notation-control-label">Display grid</p>
+          <SegmentedControl
+            label="Display grid"
+            value={settings.display_grid}
+            disabled={busy || !regenAvailable}
+            onChange={(display_grid) =>
+              void apply({
+                ...settings,
+                display_grid,
+              })
+            }
+            options={[...GRID_OPTIONS]}
+          />
+        </div>
       </div>
       <div className="ns-notation-row">
         <label className="ns-notation-field">

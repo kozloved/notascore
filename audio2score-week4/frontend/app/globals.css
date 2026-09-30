@@ -652,14 +652,15 @@ body::before {
 .theme-option:hover,
 .mode-option:hover:not(:disabled) {
   color: var(--ns-text-primary);
+  background: color-mix(in srgb, var(--ns-accent-soft) 55%, transparent);
 }
 
 .ns-segment-option.is-active,
 .theme-option.is-active,
 .mode-option.is-active {
-  background: color-mix(in srgb, var(--ns-background) 80%, var(--ns-surface));
+  background: var(--ns-accent-soft);
   color: var(--ns-text-primary);
-  box-shadow: var(--ns-shadow);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ns-accent) 45%, transparent);
 }
 
 .ns-segment-option:focus-visible,
@@ -669,16 +670,48 @@ body::before {
   outline-offset: 2px;
 }
 
+.ns-segment.is-compact .ns-segment-option {
+  padding: 7px 12px;
+  min-height: 36px;
+}
+
+/* Hide text only when an icon is present (theme toggle). Label-only
+   compact controls must stay readable. */
+.ns-segment.is-compact .ns-segment-option:has(svg) .ns-segment-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
 .ns-notation-version {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-width: min(100%, 280px);
+  flex: 1 1 100%;
+  min-width: min(100%, 320px);
+}
+
+.ns-notation-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.ns-notation-control-label {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ns-text-muted);
 }
 
 .ns-notation-version-help {
   margin: 0;
-  max-width: 28rem;
+  max-width: 36rem;
 }
 
 .ns-segment-copy {
@@ -694,14 +727,6 @@ body::before {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   opacity: 0.8;
-}
-
-.ns-segment.is-compact .ns-segment-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
 }
 
 .ns-spinner,
