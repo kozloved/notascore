@@ -224,6 +224,29 @@ export default function NotationInterpretationPanel({
             options={[...GRID_OPTIONS]}
           />
         </div>
+        <div className="ns-notation-control">
+          <p className="ns-notation-control-label">Printed tempo</p>
+          <SegmentedControl
+            label="Printed tempo detail"
+            value={settings.printed_tempo_detail || "expressive"}
+            disabled={busy || !regenAvailable}
+            onChange={(printed_tempo_detail) =>
+              void apply({
+                ...settings,
+                printed_tempo_detail,
+              })
+            }
+            options={[
+              { value: "expressive", label: "Expressive" },
+              { value: "opening", label: "Opening" },
+              { value: "off", label: "Off" },
+            ]}
+          />
+          <p className="ns-notation-note">
+            Playback keeps the full tempo curve. Expressive prints sustained
+            changes and rit./a tempo; Opening prints only the first metronome.
+          </p>
+        </div>
       </div>
       <div className="ns-notation-row">
         <label className="ns-notation-field">
