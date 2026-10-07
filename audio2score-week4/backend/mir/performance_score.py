@@ -873,13 +873,13 @@ _SHARED_BEAT_WINDOW = 0.13
 
 def _voice_is_fast_near(ev, ordered_same_voice, *, window=0.35) -> bool:
     """True when the local same-voice stream is a rapid figure, not a held tone."""
-    neighbors = sum(
-        1
+    # Count attacks, not chord members. A block chord is one rhythmic event.
+    neighbors = {
+        round(other.start_beat, 9)
         for other in ordered_same_voice
-        if other.note_id != ev.note_id
-        and abs(other.start_beat - ev.start_beat) < window
-    )
-    return neighbors >= 2
+        if 1e-9 < abs(other.start_beat - ev.start_beat) < window
+    }
+    return len(neighbors) >= 2
 
 
 def _readable_align_shared_onsets(
@@ -935,6 +935,15 @@ def _readable_align_shared_onsets(
             for ev in cluster
         ):
             continue
+        # Cross-line cleanup must not turn a trill, repeated note, or short
+        # melodic figure into a chord, even when there are only two attacks.
+        line_onsets = defaultdict(set)
+        for ev in cluster:
+            line_onsets[(ev.hand, ev.voice, ev.source_track_id)].add(
+                round(ev.start_beat, 9)
+            )
+        if any(len(attacks) > 1 for attacks in line_onsets.values()):
+            continue
         current = [onset_by_id[ev.note_id] for ev in cluster]
         if len(set(current)) == 1:
             continue
@@ -951,12 +960,16 @@ def _readable_align_shared_onsets(
 
         best = None
         best_cost = None
-        for cand in anchors:
+        for cand in sorted(anchors):
             if cand < 0 or cand.denominator % 3 == 0:
                 continue
             if any(abs(float(cand) - ev.start_beat) > max_move for ev in cluster):
                 continue
-            cost = sum(abs(float(cand) - ev.start_beat) for ev in cluster)
+            # Give each line's attack equal weight regardless of chord size.
+            cost = sum(
+                abs(float(cand) - onset)
+                for attacks in line_onsets.values() for onset in attacks
+            )
             cost += 0.012 * max(0, cand.denominator - 1)
             if any(
                 onset_by_id[ev.note_id] == cand and cand.denominator <= 2
@@ -1004,17 +1017,17 @@ def _readable_mark_ornaments(events, onset_by_id, exact, roles, settings, raw_by
     if settings.interpretation != Interpretation.READABLE:
         return marks
 
-    by_hand = defaultdict(list)
+    by_line = defaultdict(list)
     for ev in events:
-        by_hand[ev.hand].append(ev)
-    for group in by_hand.values():
+        by_line[(ev.hand, ev.voice, ev.source_track_id)].append(ev)
+    for group in by_line.values():
         group.sort(key=lambda e: (
             raw_by_id.get(e.note_id, e).start_beat,
             e.pitch,
             e.note_id,
         ))
 
-    for _hand, ordered in by_hand.items():
+    for _line, ordered in by_line.items():
         for index, ev in enumerate(ordered):
             raw = raw_by_id.get(ev.note_id, ev)
             if getattr(raw, "score_timing_locked", False):
@@ -1030,7 +1043,8 @@ def _readable_mark_ornaments(events, onset_by_id, exact, roles, settings, raw_by
             for later in ordered[index + 1 :]:
                 raw_later = raw_by_id.get(later.note_id, later)
                 gap = raw_later.start_beat - raw.start_beat
-                if gap < -1e-9:
+                # A simultaneous chord member is not an anticipation.
+                if gap <= 1e-9:
                     continue
                 if gap > _ORNAMENT_LEAD_WINDOW:
                     break
