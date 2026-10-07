@@ -155,6 +155,33 @@ def _rest(offset, length, voice, *, hidden=False, structural=False):
     return PlannedRest(offset, length, voice, hidden=hidden, kind=kind)
 
 
+def _rest_pieces(start, duration, beat_length, settings, measure_length):
+    """Spell silence by pulse, independently of note syncopation policy.
+
+    Dotted compound beats are conventional; offbeat rests must expose the
+    next pulse. Simple duple meters may combine aligned pairs of beats into
+    half rests. Triple meter keeps each beat visible. Exact gap coverage is
+    unchanged, including tuplets and short structural spacers.
+    """
+    cursor, remaining = Fraction(start), Fraction(duration)
+    pulse = Fraction(beat_length)
+    bar = Fraction(measure_length)
+    pulse_count = bar / pulse
+    while remaining > 0:
+        cap = pulse - cursor % pulse
+        if (
+            pulse == 1
+            and pulse_count in (2, 4)
+            and cursor % 2 == 0
+            and remaining >= 2
+        ):
+            cap = Fraction(2)
+        span = min(remaining, cap)
+        yield from _pieces(cursor, span, pulse, settings, bar)
+        cursor += span
+        remaining -= span
+
+
 def _gap_rest(offset, length, voice, *, leading, trailing, primary_lane):
     """Visible musical rests vs filler around a temporarily used inner lane."""
     if length <= 0:
@@ -278,7 +305,7 @@ def build_exact_measures(events, report, meter, key_name):
                                     bar_len,
                                     key[1],
                                     hidden=key != staff_lanes[0],
-                                    structural=True,
+                                    structural=key != staff_lanes[0],
                                 )
                             ],
                         )
@@ -290,7 +317,7 @@ def build_exact_measures(events, report, meter, key_name):
                 ):
                     if start < cursor:
                         raise ValueError("Exact voice lane contains overlapping attacks")
-                    for offset, length in _pieces(
+                    for offset, length in _rest_pieces(
                         cursor, start - cursor, beat_length, local_settings, bar_len
                     ):
                         rest = _gap_rest(
@@ -323,7 +350,7 @@ def build_exact_measures(events, report, meter, key_name):
                             )
                         )
                     cursor = note_end
-                for offset, length in _pieces(
+                for offset, length in _rest_pieces(
                     cursor, bar_len - cursor, beat_length, local_settings, bar_len
                 ):
                     rest = _gap_rest(
@@ -339,7 +366,7 @@ def build_exact_measures(events, report, meter, key_name):
                 annotate_rhythm(elements, meter.time_signature, f"{index}:{staff}:{key[1]}")
                 voices.append(PlannedVoice(key[1], elements))
             if not voices:
-                voices = [PlannedVoice(0, [_rest(Fraction(0), bar_len, 0, structural=True)])]
+                voices = [PlannedVoice(0, [_rest(Fraction(0), bar_len, 0)])]
             clef = (
                 ("treble" if staff == 0 else "bass")
                 if profile["grand_staff"]
@@ -405,7 +432,6 @@ def annotate_rhythm(elements, time_signature, prefix):
         if (
             tuplets
             and duration_is_tuplet
-            and not isinstance(element, PlannedRest)
         ):
             tuplet = tuplets[0]
             if tuplet.type in ("start", "startStop"):
