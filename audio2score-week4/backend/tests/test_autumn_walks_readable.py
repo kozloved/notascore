@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from fractions import Fraction
+from dataclasses import replace
 
 from mir.models import MeterHypothesis
 from mir.notation_settings import NotationSettings
-from mir.performance_score import _onset_candidates, quantize_notation
+from mir.performance_score import (
+    _onset_candidates, _readable_align_shared_onsets, _readable_mark_ornaments,
+    quantize_notation,
+)
 from mir.quantizer import QuantizerConfig
 from mir.types import Hand, MusicalEvent
 
@@ -27,12 +31,13 @@ def _ev(pitch, start, dur, ident, hand=Hand.RIGHT):
     )
 
 
-def test_exact_fine_onset_stays_exclusive_in_literal_but_opens_in_readable():
+def test_exact_fine_onset_requires_context_before_readable_simplification():
     literal = _onset_candidates(3.125, 0.22, LITERAL)
     readable = _onset_candidates(3.125, 0.22, READABLE)
     assert len(literal) == 1 and float(literal[0][0]) == 3.125
-    assert any(float(onset) == 3.0 for onset, _family, _cost in readable)
-    assert any(float(onset) == 3.125 for onset, _family, _cost in readable)
+    assert readable == literal
+    # The end-to-end paired test below still aligns this attack to a bass
+    # pulse when cross-line evidence supports that interpretation.
 
 
 def test_exact_sixteenth_and_tuplet_remain_exclusive_in_readable():
@@ -161,3 +166,46 @@ def test_literal_does_not_mark_ornaments():
     ]
     _out, dec, _ = quantize_notation(events, METER, config=CONFIG, settings=LITERAL)
     assert all("ornament" not in d for d in dec)
+
+
+def test_delayed_block_chord_aligns_with_bass():
+    events = [_ev(42, 3, 2, "bass", Hand.LEFT)] + [
+        _ev(p, 3.125, 2, str(p)) for p in (60, 64, 67)
+    ]
+    onsets = {e.note_id: Fraction(e.start_beat) for e in events}
+    aligned, _ = _readable_align_shared_onsets(
+        onsets, events, {}, max_move=0.22, settings=READABLE,
+    )
+    assert set(aligned.values()) == {Fraction(3)}
+
+
+def test_shared_alignment_preserves_two_distinct_same_voice_attacks():
+    events = [
+        _ev(42, 3, 2, "bass", Hand.LEFT),
+        _ev(72, 3, .125, "first"),
+        _ev(72, 3.125, .5, "repeat"),
+    ]
+    onsets = {e.note_id: Fraction(e.start_beat) for e in events}
+    aligned, changes = _readable_align_shared_onsets(
+        dict(onsets), events, {}, max_move=0.22, settings=READABLE,
+    )
+    assert aligned == onsets
+    assert not changes
+
+
+def test_simultaneous_chord_tone_is_not_an_anticipation():
+    events = [_ev(60, 1, .25, "short"), _ev(64, 1, 1, "long")]
+    marks = _readable_mark_ornaments(
+        events, {e.note_id: Fraction(1) for e in events}, {}, {}, READABLE, {},
+    )
+    assert not marks
+
+
+def test_ornament_primary_cannot_come_from_an_independent_voice():
+    events = [_ev(60, 1, .25, "short"), _ev(64, 1.25, 1, "long")]
+    events[1] = replace(events[1], voice=1)
+    marks = _readable_mark_ornaments(
+        events, {e.note_id: Fraction(e.start_beat) for e in events},
+        {}, {}, READABLE, {},
+    )
+    assert not marks

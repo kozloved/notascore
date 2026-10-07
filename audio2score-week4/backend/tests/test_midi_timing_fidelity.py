@@ -186,12 +186,11 @@ def test_pickup_onset_with_midbeat_tempo_change(tmp_path, monkeypatch):
         assert actual == pytest.approx(expected, abs=tol)
 
 
-def test_pickup_rebase_keeps_tempo_marks_on_written_beats(tmp_path, monkeypatch):
-    """Printed tempos must follow pickup_origin_shift, not absolute event beats.
+def test_pickup_keeps_sparse_printed_tempo_and_full_playback_curve(tmp_path, monkeypatch):
+    """A rebased pickup must not truncate the absolute playback tempo curve.
 
-    Construction: one-beat pickup ending at downbeat 4, with tempo changes at
-    performance beats 3.5 (mid-pickup) and 4.0 (first full bar). Notes rebase
-    to written 0/1; metronome marks must land at written 0.5 and 1.0.
+    Short local fluctuations stay off the printed page under the sparse tempo
+    policy introduced in PR #98, but survive decoded MIDI playback.
     """
     from music21 import converter, tempo as m21tempo
 
@@ -245,8 +244,7 @@ def test_pickup_rebase_keeps_tempo_marks_on_written_beats(tmp_path, monkeypatch)
         int(round(float(m.number))): float(m.getOffsetInHierarchy(score))
         for m in score.recurse().getElementsByClass(m21tempo.MetronomeMark)
     }
-    assert marks[90] == pytest.approx(0.5)
-    assert marks[100] == pytest.approx(1.0)
+    assert marks == {round(pipe.last_score_meta.display_tempo_bpm): 0.0}
 
     exported = pretty_midi.PrettyMIDI(str(job_score_midi_path(source, "pickup_tempo_rebase")))
     before = sorted((n.pitch, n.start, n.end) for inst in pretty_midi.PrettyMIDI(str(source)).instruments for n in inst.notes)
@@ -280,10 +278,8 @@ def test_pickup_rebase_keeps_tempo_marks_on_written_beats(tmp_path, monkeypatch)
 
     auto_marks = _mark_map(auto.musicxml)
     edit_marks = _mark_map(edited.musicxml)
-    assert auto_marks[90] == pytest.approx(0.5)
-    assert auto_marks[100] == pytest.approx(1.0)
-    assert edit_marks[90] == pytest.approx(0.5)
-    assert edit_marks[100] == pytest.approx(1.0)
+    assert auto_marks == edit_marks
+    assert len(auto_marks) == 1 and list(auto_marks.values()) == [0.0]
 
 
 def test_repeated_pitch_across_tempo_changes_keeps_reattacks(tmp_path, monkeypatch):

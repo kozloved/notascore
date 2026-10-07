@@ -17,8 +17,9 @@ def convert(source: Path, output: Path, meter=None, settings=None):
     snapshot_path = output.with_suffix(".performance.json")
     midi_path = output.with_suffix(".score.mid")
     settings_path = output.with_suffix(".notation_settings.json")
+    context_path = output.with_suffix(".interpretation_context.json")
     settings = parse_notation_settings(settings)
-    paths = [output, report_path, snapshot_path, midi_path, settings_path]
+    paths = [output, report_path, snapshot_path, midi_path, settings_path, context_path]
     if source.resolve() in {p.resolve() for p in paths}:
         raise ValueError("Output must not replace the source MIDI")
     if len({p.resolve() for p in paths}) != len(paths):
@@ -34,12 +35,17 @@ def convert(source: Path, output: Path, meter=None, settings=None):
         "notation_settings": settings.to_dict(),
         "pedal_events": list(ingested.pedal_events or []),
         "preserve_midi_tempo": True,
+        "playback_tempo": [
+            {"beat": point.beat, "bpm": point.bpm}
+            for point in ingested.tempo_map.points
+        ],
     }
     writer = NotationWriter()
     score = writer.write_from_events_direct(events, meta, quantization_mode="performance")
     output.parent.mkdir(parents=True, exist_ok=True)
-    writer._export_musicxml(score, output)
-    score.write("midi", fp=str(midi_path))
+    xml, playback_bytes = writer.export_musicxml_and_midi(score, meta)
+    output.write_text(xml, encoding="utf-8")
+    midi_path.write_bytes(playback_bytes)
     ingested.performance.verify_midi(source.read_bytes())
     ingested.performance.write_json(snapshot_path)
     from mir.interpretation_context import InterpretationContext
@@ -52,6 +58,7 @@ def convert(source: Path, output: Path, meter=None, settings=None):
         time_map=time_map,
         selected_meter=str(settings.meter or meter or ingested.time_sig_hint or "4/4"),
         display_bpm=float(ingested.tempo_map.bpm_at(0)),
+        playback_tempo=tuple(meta.extra["playback_tempo"]),
         accepted_source_note_ids=accepted,
         has_recorded_selection=True,
         layout_decisions=tuple(writer.last_quantization_decisions or ()),
@@ -59,7 +66,7 @@ def convert(source: Path, output: Path, meter=None, settings=None):
         midi_sha256=ingested.performance.midi_sha256,
         source_backend=ingested.performance.source_backend or "midi",
     )
-    context.write_json(output.with_suffix(".interpretation_context.json"))
+    context.write_json(context_path)
     context_digest = context.identity_digest()
     settings_path.write_text(
         json.dumps(
