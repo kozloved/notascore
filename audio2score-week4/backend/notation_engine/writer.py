@@ -380,9 +380,15 @@ class NotationWriter:
         # The page keeps sparse markings; MIDI needs the full score-time curve.
         offset = float(self.last_quantization_summary.get("score_beat_offset", 0.0))
         if tempi:
+            # Playback events keep absolute score coordinates; engraving may
+            # rebase a pickup and therefore have a shorter highestTime.
+            playback_end = max(
+                (e.start_beat + e.duration_beats for e in self.last_quantized_events),
+                default=0.0,
+            )
             points = {0.0: float(tempi[0]["bpm"])}
             points.update({float(p["beat"]) + offset: float(p["bpm"]) for p in tempi
-                           if 0 <= float(p["beat"]) + offset < float(score.highestTime)})
+                           if 0 <= float(p["beat"]) + offset < playback_end})
         else:
             points = {float(m.getOffsetInHierarchy(score.parts[0])): float(m.number)
                       for m in score.parts[0].recurse().getElementsByClass(m21tempo.MetronomeMark)

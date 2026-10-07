@@ -103,6 +103,15 @@ def _metrical_cap(cursor, remaining, beat_length, measure_length=None):
 def _pieces(start, duration, beat_length=Fraction(1), settings=None, measure_length=None):
     settings = parse_notation_settings(settings)
     values = _spellable_values(settings)
+    # Never invent a tuplet merely because its value is the largest that fits
+    # an ordinary binary span (e.g. 11/8 -> 4/3 + 1/24). Exact source timing
+    # needs binary ties here, not a change of rhythmic family.
+    binary_span = all(
+        Fraction(value).denominator & (Fraction(value).denominator - 1) == 0
+        for value in (start, duration, beat_length)
+    )
+    if binary_span:
+        values = [value for value in values if not _is_tuplet(value)]
     cursor, remaining = start, duration
     while remaining:
         # A writable syncopation or tuplet is already one note. Splitting it
@@ -138,6 +147,7 @@ def _pieces(start, duration, beat_length=Fraction(1), settings=None, measure_len
                     for d in (1, 2, 4, 8, 16, 3, 6, 12, 24, 48)
                     for n in (1, 2, 3, 4, 6, 8)
                     if Fraction(n, d) <= cap
+                    and (not binary_span or not _is_tuplet(Fraction(n, d)))
                 },
                 reverse=True,
             )
@@ -153,6 +163,33 @@ def _pieces(start, duration, beat_length=Fraction(1), settings=None, measure_len
 def _rest(offset, length, voice, *, hidden=False, structural=False):
     kind = "structural" if structural or hidden else "musical"
     return PlannedRest(offset, length, voice, hidden=hidden, kind=kind)
+
+
+def _rest_pieces(start, duration, beat_length, settings, measure_length):
+    """Spell silence by pulse, independently of note syncopation policy.
+
+    Dotted compound beats are conventional; offbeat rests must expose the
+    next pulse. Simple duple meters may combine aligned pairs of beats into
+    half rests. Triple meter keeps each beat visible. Exact gap coverage is
+    unchanged, including tuplets and short structural spacers.
+    """
+    cursor, remaining = Fraction(start), Fraction(duration)
+    pulse = Fraction(beat_length)
+    bar = Fraction(measure_length)
+    pulse_count = bar / pulse
+    while remaining > 0:
+        cap = pulse - cursor % pulse
+        if (
+            pulse == 1
+            and pulse_count in (2, 4)
+            and cursor % 2 == 0
+            and remaining >= 2
+        ):
+            cap = Fraction(2)
+        span = min(remaining, cap)
+        yield from _pieces(cursor, span, pulse, settings, bar)
+        cursor += span
+        remaining -= span
 
 
 def _gap_rest(offset, length, voice, *, leading, trailing, primary_lane):
@@ -278,7 +315,7 @@ def build_exact_measures(events, report, meter, key_name):
                                     bar_len,
                                     key[1],
                                     hidden=key != staff_lanes[0],
-                                    structural=True,
+                                    structural=key != staff_lanes[0],
                                 )
                             ],
                         )
@@ -290,7 +327,7 @@ def build_exact_measures(events, report, meter, key_name):
                 ):
                     if start < cursor:
                         raise ValueError("Exact voice lane contains overlapping attacks")
-                    for offset, length in _pieces(
+                    for offset, length in _rest_pieces(
                         cursor, start - cursor, beat_length, local_settings, bar_len
                     ):
                         rest = _gap_rest(
@@ -323,7 +360,7 @@ def build_exact_measures(events, report, meter, key_name):
                             )
                         )
                     cursor = note_end
-                for offset, length in _pieces(
+                for offset, length in _rest_pieces(
                     cursor, bar_len - cursor, beat_length, local_settings, bar_len
                 ):
                     rest = _gap_rest(
@@ -339,7 +376,7 @@ def build_exact_measures(events, report, meter, key_name):
                 annotate_rhythm(elements, meter.time_signature, f"{index}:{staff}:{key[1]}")
                 voices.append(PlannedVoice(key[1], elements))
             if not voices:
-                voices = [PlannedVoice(0, [_rest(Fraction(0), bar_len, 0, structural=True)])]
+                voices = [PlannedVoice(0, [_rest(Fraction(0), bar_len, 0)])]
             clef = (
                 ("treble" if staff == 0 else "bass")
                 if profile["grand_staff"]
@@ -405,7 +442,6 @@ def annotate_rhythm(elements, time_signature, prefix):
         if (
             tuplets
             and duration_is_tuplet
-            and not isinstance(element, PlannedRest)
         ):
             tuplet = tuplets[0]
             if tuplet.type in ("start", "startStop"):
