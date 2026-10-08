@@ -1,8 +1,10 @@
 """Strongly detached playing becomes written pulse notes, not tiny notes plus rests.
 
-Readable convention, not recovered certainty. Four-attack rest figures and
-locked / Literal notes stay short. Score playback of inferred staccato must
-not sound the full written duration.
+Readable convention, not recovered certainty. Pulse is inferred inside coherent
+streams: offbeat accompaniment must not truncate a melody. Short regular on-beat
+phrases fill when metrical position, a repeated pulse, and release consistency
+agree. Locked / Literal notes stay short. Score playback of inferred staccato
+must not sound the full written duration, and clearing that mark survives regen.
 """
 
 from __future__ import annotations
@@ -11,7 +13,9 @@ from io import BytesIO
 from pathlib import Path
 
 import pretty_midi
+from music21 import converter
 
+from evaluation.notation_correctness_evidence import inspect_xml, musicxml_note_marks
 from evaluation.readable_v2_cases import READABLE_V2_CASES
 from mir.cmr_builder import notes_to_events
 from mir.midi_ingest import ingest_midi
@@ -21,7 +25,7 @@ from mir.notation_settings import NotationSettings
 from mir.performance_score import quantize_notation
 from mir.quantizer import QuantizerConfig
 from mir.types import Hand, MusicalEvent
-from notation_engine.playback import playback_duration_beats
+from notation_engine.playback import STACCATO_PLAYBACK_FRACTION, playback_duration_beats
 from tests.test_shared_engraving import _context_for
 
 METER = MeterHypothesis("4/4", 4, 4, 4.0, 1.0, 1.0)
@@ -63,31 +67,106 @@ def _from_midi(path: Path, settings):
     return out, dec, ingested
 
 
+def _melody_quarters(count=8):
+    return [_ev(72 + i, float(i), 0.20, f"rh{i}") for i in range(count)]
+
+
+def _offbeat_left(count=8):
+    return [
+        _ev(48, float(i) + 0.5, 0.20, f"lh{i}", hand=Hand.LEFT) for i in range(count)
+    ]
+
+
+def _xml_note_durations(xml_text: str) -> list[float]:
+    score = converter.parse(xml_text, format="musicxml")
+    durs = []
+    for part in score.parts:
+        for el in part.recurse().notes:
+            if el.isChord:
+                continue
+            durs.append(float(el.quarterLength))
+    return durs
+
+
 def test_strongly_detached_quarters_become_written_quarters():
-    events = [_ev(72 + i, float(i), 0.20, f"n{i}") for i in range(8)]
-    readable, _, _ = _quantize(events, READABLE)
+    events = _melody_quarters()
+    readable, dec, _ = _quantize(events, READABLE)
     literal, _, _ = _quantize(events, LITERAL)
     v2, _, _ = _quantize(events, V2)
     legacy, _, _ = _quantize(events, LEGACY)
     assert [round(e.duration_beats, 4) for e in readable] == [1.0] * 8
     assert [round(e.start_beat, 4) for e in readable] == [float(i) for i in range(8)]
-    assert {e.note_id for e in readable} == {f"n{i}" for i in range(8)}
+    assert {e.note_id for e in readable} == {f"rh{i}" for i in range(8)}
     assert all(e.articulation == "staccato" for e in readable)
+    assert all(e.articulation_source == "inferred" for e in readable)
+    assert {row.get("articulation_source") for row in dec} == {"inferred"}
     assert all(e.duration_beats <= 0.25 + 1e-9 for e in literal)
     assert all(e.duration_beats <= 0.25 + 1e-9 for e in v2)
     assert all(e.duration_beats <= 0.25 + 1e-9 for e in legacy)
     assert all(not e.articulation for e in literal)
 
 
-def test_four_short_notes_with_rests_stay_short():
-    events = [_ev(76, float(i), 0.20, f"s{i}") for i in range(4)]
-    readable, _, _ = _quantize(events, READABLE)
-    literal, _, _ = _quantize(events, LITERAL)
-    assert all(e.duration_beats <= 0.25 + 1e-9 for e in readable)
-    assert [round(e.duration_beats, 4) for e in readable] == [
-        round(e.duration_beats, 4) for e in literal
+def test_offbeat_accompaniment_does_not_truncate_the_melody():
+    alone, _, _ = _quantize(_melody_quarters(), READABLE)
+    paired, _, _ = _quantize(_melody_quarters() + _offbeat_left(), READABLE)
+    melody = [e for e in paired if e.note_id.startswith("rh")]
+    bass = [e for e in paired if e.note_id.startswith("lh")]
+    assert [round(e.duration_beats, 4) for e in alone] == [1.0] * 8
+    assert [round(e.duration_beats, 4) for e in melody] == [1.0] * 8
+    assert [round(e.start_beat, 4) for e in melody] == [float(i) for i in range(8)]
+    assert all(e.articulation == "staccato" for e in melody)
+    assert [round(e.start_beat, 4) for e in bass] == [float(i) + 0.5 for i in range(8)]
+    by_start = {round(e.start_beat, 4): round(e.duration_beats, 4) for e in bass}
+    for beat in (0.5, 1.5, 2.5, 4.5, 5.5, 6.5):
+        assert by_start[beat] == 1.0
+    assert by_start[3.5] == 0.5
+    assert by_start[7.5] == 0.5
+
+
+def test_same_staff_independent_voice_does_not_truncate_the_melody():
+    melody = [
+        _ev(76 + i, float(i), 0.20, f"rh{i}", musical_voice=0, voice=0, voice_assigned=True)
+        for i in range(8)
     ]
-    assert all(not e.articulation for e in readable)
+    inner = [
+        _ev(
+            60,
+            float(i) + 0.5,
+            0.20,
+            f"in{i}",
+            musical_voice=1,
+            voice=1,
+            voice_assigned=True,
+        )
+        for i in range(8)
+    ]
+    out, _, _ = _quantize(melody + inner, READABLE)
+    upper = [e for e in out if e.note_id.startswith("rh")]
+    lower = [e for e in out if e.note_id.startswith("in")]
+    assert [round(e.duration_beats, 4) for e in upper] == [1.0] * 8
+    assert [round(e.start_beat, 4) for e in upper] == [float(i) for i in range(8)]
+    assert all(e.musical_voice != lower[0].musical_voice for e in upper)
+    by_start = {round(e.start_beat, 4): round(e.duration_beats, 4) for e in lower}
+    for beat in (0.5, 1.5, 2.5, 4.5, 5.5, 6.5):
+        assert by_start[beat] == 1.0
+    assert by_start[3.5] == 0.5
+    assert by_start[7.5] == 0.5
+
+
+def test_regular_short_phrases_fill_from_metrical_evidence():
+    four = [_ev(76, float(i), 0.20, f"s{i}") for i in range(4)]
+    five = [_ev(76, float(i), 0.20, f"s{i}") for i in range(5)]
+    chords = []
+    for i in range(4):
+        for pitch in (60, 64, 67):
+            chords.append(_ev(pitch, float(i), 0.20, f"{pitch}-{i}"))
+    for events in (four, five, chords):
+        readable, _, _ = _quantize(events, READABLE)
+        literal, _, _ = _quantize(events, LITERAL)
+        assert all(round(e.duration_beats, 4) == 1.0 for e in readable)
+        assert all(e.articulation == "staccato" for e in readable)
+        assert all(e.articulation_source == "inferred" for e in readable)
+        assert all(e.duration_beats <= 0.25 + 1e-9 for e in literal)
 
 
 def test_strongly_detached_chords_become_quarter_chords():
@@ -103,16 +182,6 @@ def test_strongly_detached_chords_become_quarter_chords():
     assert all(durs == {1.0} for durs in by_onset.values())
     assert len(readable) == 24
     assert all(e.articulation == "staccato" for e in readable)
-
-
-def test_short_four_chords_with_rests_stay_short():
-    events = []
-    for i in range(4):
-        for pitch in (60, 64, 67):
-            events.append(_ev(pitch, float(i), 0.20, f"{pitch}-{i}"))
-    readable, _, _ = _quantize(events, READABLE)
-    assert all(e.duration_beats <= 0.25 + 1e-9 for e in readable)
-    assert all(not e.articulation for e in readable)
 
 
 def test_bass_chord_accompaniment_fills_to_the_pulse_not_the_next_bass():
@@ -142,7 +211,6 @@ def test_meaningful_pause_inside_detached_phrase_stays_a_rest():
 
 
 def test_phrase_ending_fills_to_the_pulse_not_the_bar():
-    # Last attack at beat 8 (bar 3 beat 1); leftover to the barline is 4.
     beats = [0, 1, 2, 3, 4, 5, 6, 8]
     events = [_ev(72 + i, float(beat), 0.20, f"n{i}") for i, beat in enumerate(beats)]
     readable, _, _ = _quantize(events, READABLE)
@@ -191,11 +259,31 @@ def test_locked_timing_and_literal_measure_are_not_filled():
     assert locked_by["n0"].start_beat + locked_by["n0"].duration_beats <= 2.0 + 1e-9
 
 
-def test_ambiguous_five_shorts_keep_the_rest_convention():
-    events = [_ev(76, float(i), 0.20, f"s{i}") for i in range(5)]
+def test_isolated_short_in_mixed_phrase_stays_a_rest():
+    events = [
+        _ev(72, 0.0, 0.82, "a"),
+        _ev(74, 1.0, 0.82, "b"),
+        _ev(76, 2.0, 0.18, "c"),
+        _ev(77, 3.0, 0.82, "d"),
+    ]
     readable, _, _ = _quantize(events, READABLE)
-    assert all(e.duration_beats <= 0.25 + 1e-9 for e in readable)
-    assert all(not e.articulation for e in readable)
+    by_id = {e.note_id: e for e in readable}
+    assert round(by_id["a"].duration_beats, 4) == 1.0
+    assert round(by_id["b"].duration_beats, 4) == 1.0
+    assert by_id["c"].duration_beats <= 0.25 + 1e-9
+    assert not by_id["c"].articulation
+    assert round(by_id["d"].duration_beats, 4) == 1.0
+
+
+def test_supplied_articulation_is_not_overwritten():
+    events = [
+        _ev(72 + i, float(i), 0.20, f"n{i}", articulation="tenuto") for i in range(8)
+    ]
+    readable, dec, _ = _quantize(events, READABLE)
+    assert all(round(e.duration_beats, 4) == 1.0 for e in readable)
+    assert all(e.articulation == "tenuto" for e in readable)
+    assert all(e.articulation_source == "supplied" for e in readable)
+    assert {row.get("articulation") for row in dec} == {"tenuto"}
 
 
 def test_midi_fixtures_match_the_readable_convention(tmp_path):
@@ -215,14 +303,31 @@ def test_midi_fixtures_match_the_readable_convention(tmp_path):
     assert chords.read_bytes() == original
     assert all(round(e.duration_beats, 4) == 1.0 for e in out)
 
-    rests = tmp_path / "B.mid"
-    READABLE_V2_CASES["B_short_notes_with_rests"](rests)
-    out, _, _ = _from_midi(rests, READABLE)
-    assert all(e.duration_beats <= 0.25 + 1e-9 for e in out)
+    shorts = tmp_path / "B.mid"
+    READABLE_V2_CASES["B_short_notes_with_rests"](shorts)
+    out, _, _ = _from_midi(shorts, READABLE)
+    assert all(round(e.duration_beats, 4) == 1.0 for e in out)
+    assert all(e.articulation == "staccato" for e in out)
+
+    offbeat = tmp_path / "offbeat.mid"
+    READABLE_V2_CASES["detached_melody_with_offbeat_accompaniment"](offbeat)
+    original = offbeat.read_bytes()
+    out, _, ingested = _from_midi(offbeat, READABLE)
+    assert offbeat.read_bytes() == original
+    melody = [e for e in out if e.pitch >= 72]
+    assert [round(e.duration_beats, 4) for e in melody] == [1.0] * 8
+
+    same_staff = tmp_path / "same_staff.mid"
+    READABLE_V2_CASES["detached_same_staff_independent_voices"](same_staff)
+    original = same_staff.read_bytes()
+    out, _, _ = _from_midi(same_staff, READABLE)
+    assert same_staff.read_bytes() == original
+    melody = [e for e in out if e.pitch >= 76]
+    assert [round(e.duration_beats, 4) for e in melody] == [1.0] * 8
 
 
 def test_staccato_score_playback_stays_detached_not_legato(tmp_path):
-    events = [_ev(72 + i, float(i), 0.20, f"n{i}") for i in range(8)]
+    events = _melody_quarters()
     midi = pretty_midi.PrettyMIDI(initial_tempo=120)
     inst = pretty_midi.Instrument(0, name="Piano")
     for ev in events:
@@ -249,16 +354,89 @@ def test_staccato_score_playback_stays_detached_not_legato(tmp_path):
     written = [round(float(n["duration"]), 4) for n in result.editor_model["notes"]]
     assert written == [1.0] * 8
     assert all(n.get("articulation") == "staccato" for n in result.editor_model["notes"])
+    assert all(n.get("articulation_source") == "inferred" for n in result.editor_model["notes"])
     score = pretty_midi.PrettyMIDI(BytesIO(result.score_midi))
     played = sorted(n.end - n.start for inst in score.instruments for n in inst.notes)
     assert played
     assert all(dur <= 0.30 + 1e-3 for dur in played)
     assert all(dur >= 0.10 for dur in played)
+    xml_durs = _xml_note_durations(result.musicxml)
+    assert xml_durs
+    assert all(abs(dur - 1.0) < 1e-6 for dur in xml_durs)
+    marks = musicxml_note_marks(result.musicxml)
+    assert all("staccato" in row["articulations"] for row in marks)
+    shape = inspect_xml(result.musicxml)
+    assert shape["marked_notes"] == 8
+
+
+def test_clearing_inferred_staccato_survives_regeneration(tmp_path):
+    events = _melody_quarters()
+    midi = pretty_midi.PrettyMIDI(initial_tempo=120)
+    inst = pretty_midi.Instrument(0, name="Piano")
+    for ev in events:
+        inst.notes.append(
+            pretty_midi.Note(
+                velocity=80,
+                pitch=ev.pitch,
+                start=ev.start_beat * 0.5,
+                end=(ev.start_beat + ev.duration_beats) * 0.5,
+            )
+        )
+    midi.instruments.append(inst)
+    path = tmp_path / "det.mid"
+    midi.write(str(path))
+    original = path.read_bytes()
+    ingested = ingest_midi(path)
+    context = _context_for(ingested)
+    first = recompute_notation(
+        midi_bytes=original,
+        settings=READABLE,
+        performance=ingested.performance,
+        context=context,
+    )
+    sid = first.editor_model["notes"][0]["source_note_id"]
+    assert first.editor_model["notes"][0]["articulation"] == "staccato"
+    cleared = recompute_notation(
+        midi_bytes=original,
+        settings=READABLE,
+        performance=ingested.performance,
+        context=context,
+        corrections=[{"source_note_id": sid, "articulation": None}],
+    )
+    row = next(
+        note
+        for note in cleared.editor_model["notes"]
+        if note.get("source_note_id") == sid
+    )
+    assert not row.get("articulation")
+    assert row.get("articulation_source") == "user_edit"
+    cleared_marks = musicxml_note_marks(cleared.musicxml)
+    assert any(not row["articulations"] for row in cleared_marks)
+    assert any("staccato" in row["articulations"] for row in cleared_marks)
+    again = recompute_notation(
+        midi_bytes=original,
+        settings=READABLE,
+        performance=ingested.performance,
+        context=context,
+        corrections=[{"source_note_id": sid, "articulation": None}],
+    )
+    row2 = next(
+        note
+        for note in again.editor_model["notes"]
+        if note.get("source_note_id") == sid
+    )
+    assert not row2.get("articulation")
+    assert path.read_bytes() == original
+    others = [
+        note for note in again.editor_model["notes"] if note.get("source_note_id") != sid
+    ]
+    assert all(note.get("articulation") == "staccato" for note in others)
 
 
 def test_playback_duration_helper_halves_staccato_only():
     plain = _ev(72, 0.0, 1.0, "q")
     marked = _ev(72, 0.0, 1.0, "s", articulation="staccato")
+    assert STACCATO_PLAYBACK_FRACTION == 0.5
     assert playback_duration_beats(plain) == 1.0
     assert abs(playback_duration_beats(marked) - 0.5) < 1e-9
 

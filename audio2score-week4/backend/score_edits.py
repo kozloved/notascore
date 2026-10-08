@@ -54,6 +54,18 @@ def validate_articulation(value: Any) -> str | None:
     return text
 
 
+_ARTICULATION_SOURCES = {"inferred", "supplied", "user_edit"}
+
+
+def _articulation_source(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in _ARTICULATION_SOURCES:
+        return text
+    return None
+
+
 def validate_source_note_id(value: Any) -> str | None:
     if value is None:
         return None
@@ -169,6 +181,7 @@ def validate_notes(raw_notes: Any) -> list[dict]:
                 "start_sec": start_sec,
                 "end_sec": end_sec,
                 "articulation": validate_articulation(item.get("articulation")),
+                "articulation_source": _articulation_source(item.get("articulation_source")),
             }
         )
     notes.sort(key=lambda note: (note["start"], note["track"], note["pitch"], note["id"]))

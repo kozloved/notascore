@@ -1,5 +1,19 @@
 import type { EditableNote, TempoCurvePoint } from "./score-editor";
 
+/** Keep in sync with notation_engine.playback.STACCATO_PLAYBACK_FRACTION. */
+export const STACCATO_PLAYBACK_FRACTION = 0.5;
+
+export function playbackDurationBeats(
+  note: Pick<EditableNote, "duration" | "articulation">
+): number {
+  const written = Number(note.duration);
+  if (!(written > 0)) return written;
+  if ((note.articulation || "") === "staccato") {
+    return Math.max(written * STACCATO_PLAYBACK_FRACTION, 1e-3);
+  }
+  return written;
+}
+
 function sortedCurve(
   tempoBpm: number,
   tempoCurve?: TempoCurvePoint[]
@@ -36,7 +50,7 @@ export async function notesToMidiBytes(
     track.addNote({
       midi: note.pitch,
       ticks: Math.max(0, Math.round(note.start * ppq)),
-      durationTicks: Math.max(1, Math.round(note.duration * ppq)),
+      durationTicks: Math.max(1, Math.round(playbackDurationBeats(note) * ppq)),
       velocity: Math.max(0.1, Math.min(1, note.velocity / 127)),
     });
   }

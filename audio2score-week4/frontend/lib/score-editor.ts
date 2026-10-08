@@ -14,6 +14,8 @@ export type EditableNote = {
   voice: number;
   start_sec?: number | null;
   end_sec?: number | null;
+  articulation?: string | null;
+  articulation_source?: string | null;
 };
 
 export type TempoCurvePoint = {
@@ -85,7 +87,8 @@ export function notesEqual(left: EditableNote[], right: EditableNote[]): boolean
       note.voice === other.voice &&
       note.source_note_id === other.source_note_id &&
       (note.start_sec ?? null) === (other.start_sec ?? null) &&
-      (note.end_sec ?? null) === (other.end_sec ?? null)
+      (note.end_sec ?? null) === (other.end_sec ?? null) &&
+      (note.articulation ?? null) === (other.articulation ?? null)
     );
   });
 }
@@ -104,6 +107,16 @@ export function changePitch(notes: EditableNote[], id: string, delta: number): E
 export function changeDuration(notes: EditableNote[], id: string, beats: number): EditableNote[] {
   const duration = Math.max(GRID, snapGrid(beats));
   return notes.map((note) => (note.id === id ? { ...note, duration } : note));
+}
+
+export function changeArticulation(
+  notes: EditableNote[],
+  id: string,
+  mark: string | null
+): EditableNote[] {
+  return notes.map((note) =>
+    note.id === id ? { ...note, articulation: mark, articulation_source: "user_edit" } : note
+  );
 }
 
 export function moveNote(notes: EditableNote[], id: string, steps: number): EditableNote[] {

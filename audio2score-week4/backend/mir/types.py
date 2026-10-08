@@ -255,6 +255,8 @@ class MusicalEvent:
     # True when start_beat/duration_beats were set by an accepted score-beat edit.
     # Automatic quantization must leave those values unchanged.
     score_timing_locked: bool = False
+    # "supplied" from MIDI/user input, "inferred" from Readable, "user_edit" from a correction.
+    articulation_source: str = ""
 
 
 def copy_event(event: MusicalEvent, **changes: Any) -> MusicalEvent:

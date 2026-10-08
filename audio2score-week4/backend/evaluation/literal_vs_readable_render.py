@@ -189,6 +189,22 @@ PAIRS = [
         "expected": EXPECTED_NOTATION["ambiguous_five_shorts"],
     },
     {
+        "id": "detached_melody_with_offbeat_accompaniment",
+        "builder": READABLE_V2_CASES["detached_melody_with_offbeat_accompaniment"],
+        "meter": "4/4",
+        "tempo": 120.0,
+        "kind": "synthetic",
+        "expected": EXPECTED_NOTATION["detached_melody_with_offbeat_accompaniment"],
+    },
+    {
+        "id": "detached_same_staff_independent_voices",
+        "builder": READABLE_V2_CASES["detached_same_staff_independent_voices"],
+        "meter": "4/4",
+        "tempo": 120.0,
+        "kind": "synthetic",
+        "expected": EXPECTED_NOTATION["detached_same_staff_independent_voices"],
+    },
+    {
         "id": "G_held_voice_same_staff",
         "builder": READABLE_V2_CASES["G_held_voice_same_staff"],
         "meter": "4/4",

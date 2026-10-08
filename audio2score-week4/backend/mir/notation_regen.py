@@ -1078,8 +1078,9 @@ def _apply_score_ops(events, ops: list[dict], snapshot: PerformanceSnapshot):
             changes["velocity"] = int(op["velocity"])
         if "articulation" in op:
             mark = op.get("articulation") or None
-            if mark != (ev.articulation or None):
+            if mark != (ev.articulation or None) or (ev.articulation_source or "") != "user_edit":
                 changes["articulation"] = mark
+                changes["articulation_source"] = "user_edit"
         out.append(copy_event(ev, **changes) if changes else ev)
     for op in ops:
         if not op.get("insert"):
@@ -1100,6 +1101,7 @@ def _apply_score_ops(events, ops: list[dict], snapshot: PerformanceSnapshot):
                 hand_locked=True,
                 score_timing_locked=True,
                 articulation=op.get("articulation") or None,
+                articulation_source="user_edit" if "articulation" in op else "",
             )
         )
     return out
@@ -1251,6 +1253,7 @@ def editor_model_from_events(
                 "start_sec": getattr(ev, "start_time_sec", None),
                 "end_sec": getattr(ev, "end_time_sec", None),
                 "articulation": getattr(ev, "articulation", None) or None,
+                "articulation_source": getattr(ev, "articulation_source", "") or None,
             }
         )
     notes = (

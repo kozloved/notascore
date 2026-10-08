@@ -62,6 +62,8 @@ def test_literal_vs_readable_pairs_have_independent_expected_notation():
     assert "detached_phrase_with_pause" in ids
     assert "hold_under_strongly_detached" in ids
     assert "ambiguous_five_shorts" in ids
+    assert "detached_melody_with_offbeat_accompaniment" in ids
+    assert "detached_same_staff_independent_voices" in ids
     assert "humanized_ceg_chord" in ids
     assert "rapid_sixteenth_run" in ids
     for row in PAIRS:
@@ -95,10 +97,11 @@ def test_intentional_short_notes_keep_rests_in_readable():
     events = [_ev(76, i * 1.0, 0.20, f"s{i}") for i in range(4)]
     readable, _, _ = _quantize(events, READABLE)
     literal, _, _ = _quantize(events, LITERAL)
-    assert [round(e.duration_beats, 4) for e in readable] == [
-        round(e.duration_beats, 4) for e in literal
-    ]
-    assert all(e.duration_beats <= 0.25 + 1e-9 for e in readable)
+    v2, _, _ = _quantize(events, NotationSettings.readable_v2())
+    assert [round(e.duration_beats, 4) for e in readable] == [1.0] * 4
+    assert all(e.articulation == "staccato" for e in readable)
+    assert all(e.duration_beats <= 0.25 + 1e-9 for e in literal)
+    assert all(e.duration_beats <= 0.25 + 1e-9 for e in v2)
 
 
 def test_detached_quarter_line_fills_in_readable(tmp_path):
@@ -475,10 +478,11 @@ def test_short_chords_with_rests_stay_short_in_readable():
             events.append(_ev(pitch, float(i), 0.20, f"{pitch}-{i}"))
     readable, _, _ = _quantize(events, READABLE)
     literal, _, _ = _quantize(events, LITERAL)
-    assert all(e.duration_beats <= 0.25 + 1e-9 for e in readable)
-    assert [round(e.duration_beats, 4) for e in readable] == [
-        round(e.duration_beats, 4) for e in literal
-    ]
+    v2, _, _ = _quantize(events, NotationSettings.readable_v2())
+    assert all(round(e.duration_beats, 4) == 1.0 for e in readable)
+    assert all(e.articulation == "staccato" for e in readable)
+    assert all(e.duration_beats <= 0.25 + 1e-9 for e in literal)
+    assert all(e.duration_beats <= 0.25 + 1e-9 for e in v2)
 
 
 def test_independent_hold_under_mixed_release_chords_is_not_absorbed():
@@ -738,10 +742,9 @@ def test_genuine_short_rest_pattern_stays_short_through_midi(tmp_path):
     readable, _, _ = _quantize(events, READABLE)
     literal, _, _ = _quantize(events, LITERAL)
     assert source.read_bytes() == original
-    assert all(e.duration_beats <= 0.25 + 1e-9 for e in readable)
-    assert [round(e.duration_beats, 4) for e in readable] == [
-        round(e.duration_beats, 4) for e in literal
-    ]
+    assert all(round(e.duration_beats, 4) == 1.0 for e in readable)
+    assert all(e.articulation == "staccato" for e in readable)
+    assert all(e.duration_beats <= 0.25 + 1e-9 for e in literal)
 
 
 def test_waltz_mixed_release_phrase_is_consistent():
