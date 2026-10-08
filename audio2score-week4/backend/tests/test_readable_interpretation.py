@@ -479,18 +479,18 @@ def test_independent_hold_under_mixed_release_chords_is_not_absorbed():
     moving = []
     for i, dur in enumerate(MIXED_RELEASE_DURS[:4]):
         for pitch in (72, 76):
-            moving.append(_ev(pitch, float(i), dur, f"{pitch}-{i}"))
+            moving.append(
+                MusicalEvent(
+                    pitch,
+                    float(i),
+                    dur,
+                    note_id=f"{pitch}-{i}",
+                    velocity=80,
+                    source_backend="midi",
+                )
+            )
     events = [
-        MusicalEvent(
-            64,
-            0.0,
-            4.0,
-            note_id="inner",
-            velocity=80,
-            source_backend="midi",
-            hand=Hand.RIGHT,
-            hand_locked=True,
-        ),
+        MusicalEvent(64, 0.0, 4.0, note_id="inner", velocity=80, source_backend="midi"),
         *moving,
     ]
     out, _, _ = _quantize(events, READABLE)

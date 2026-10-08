@@ -947,6 +947,12 @@ def _readable_v2_gap_is_articulation(raw, remaining, slot, sixteenth):
     return True
 
 
+_SHARED_BEAT_WINDOW = 0.13
+_CHORD_COINCIDENCE_WINDOW = 0.08
+_CHORD_UNIFY_SPREAD = 0.5
+_CHORD_UNIFY_RELATIVE = 0.18
+_CHORD_COMPACT_SPAN = 14
+
 _PHRASE_PULSES = (
     Fraction(1),
     Fraction(1, 2),
@@ -974,27 +980,115 @@ def _snap_phrase_pulse(ioi):
     return None if best is None else best[1]
 
 
-def _split_voice_phrases(ordered, exact):
-    """Split a voice on irregular onset gaps, not on small release leftovers."""
-    if not ordered:
+def _measure_number(onset, measure_length) -> int:
+    if measure_length is None:
+        return 1
+    length = Fraction(measure_length)
+    if length <= 0:
+        return 1
+    return int(Fraction(onset) / length) + 1
+
+
+def _settings_at_onset(settings, onset, measure_length) -> NotationSettings:
+    return settings.resolved_for_measure(_measure_number(onset, measure_length))
+
+
+def _has_readable_override(settings) -> bool:
+    return any(
+        override.interpretation == Interpretation.READABLE
+        for override in (settings.measure_overrides or ())
+        if override.interpretation is not None
+    )
+
+
+def _attack_groups_in_voice(ordered, exact):
+    """Same-onset different-pitch members in one musical voice are one attack.
+
+    Overlapping unisons (same pitch) stay separate. A long inner hold that
+    merely shares an onset with shorter chord mates is not one attack: duration
+    spread is the evidence that the lines are independent.
+    """
+    groups = []
+    for ev in ordered:
+        onset = exact[ev.note_id][0]
+        duration = exact[ev.note_id][1]
+        if groups:
+            prev = groups[-1]
+            prev_onset = exact[prev[0].note_id][0]
+            if abs(float(onset) - float(prev_onset)) <= 1e-9 and all(
+                ev.pitch != other.pitch for other in prev
+            ):
+                durs = [exact[other.note_id][1] for other in prev] + [duration]
+                spread = float(max(durs) - min(durs))
+                if spread < _CHORD_UNIFY_SPREAD:
+                    prev.append(ev)
+                    continue
+        groups.append([ev])
+    return groups
+
+
+def _phrase_readable_at(attack, exact, settings, measure_length) -> bool:
+    onset = exact[attack[0].note_id][0]
+    return _settings_at_onset(settings, onset, measure_length).uses_phrase_readable()
+
+
+def _is_phrase_protected(ev, exact, settings, measure_length) -> bool:
+    if getattr(ev, "score_timing_locked", False):
+        return True
+    return not _settings_at_onset(
+        settings, exact[ev.note_id][0], measure_length
+    ).uses_phrase_readable()
+
+
+def _next_later_attack(phrase, index, exact):
+    onset = exact[phrase[index][0].note_id][0]
+    for later in phrase[index + 1 :]:
+        later_onset = exact[later[0].note_id][0]
+        if later_onset > onset:
+            return later[0]
+    return None
+
+
+def _split_voice_phrases(attacks, exact, settings=None, measure_length=None):
+    """Split a voice on irregular onset gaps and interpretation boundaries."""
+    if not attacks:
         return []
-    if len(ordered) == 1:
-        return [list(ordered)]
-    onsets = [float(exact[ev.note_id][0]) for ev in ordered]
-    iois = [b - a for a, b in zip(onsets, onsets[1:])]
+    if len(attacks) == 1:
+        return [list(attacks)]
     phrases = []
-    current = [ordered[0]]
+    current = [attacks[0]]
     seen = []
-    for ev, ioi in zip(ordered[1:], iois):
-        recent = seen[-3:] or [ioi]
+    prev_flag = (
+        _phrase_readable_at(attacks[0], exact, settings, measure_length)
+        if settings is not None
+        else True
+    )
+    for attack in attacks[1:]:
+        onset = float(exact[attack[0].note_id][0])
+        prev_onset = float(exact[current[-1][0].note_id][0])
+        ioi = onset - prev_onset
+        flag = (
+            _phrase_readable_at(attack, exact, settings, measure_length)
+            if settings is not None
+            else prev_flag
+        )
+        recent = seen[-3:] or ([ioi] if ioi > 0 else [0.0])
         typical = sorted(recent)[len(recent) // 2]
-        if typical > 0 and ioi >= max(2.0, typical * 1.85) and ioi - typical >= 0.75:
+        gap = (
+            ioi > 0
+            and typical > 0
+            and ioi >= max(2.0, typical * 1.85)
+            and ioi - typical >= 0.75
+        )
+        if flag != prev_flag or gap:
             phrases.append(current)
-            current = [ev]
+            current = [attack]
             seen = []
         else:
-            current.append(ev)
-            seen.append(ioi)
+            current.append(attack)
+            if ioi > 0:
+                seen.append(ioi)
+        prev_flag = flag
     phrases.append(current)
     return phrases
 
@@ -1044,30 +1138,35 @@ def _readable_phrase_unify_durations(
     """Rewrite a voice's written durations jointly over a measure or short phrase.
 
     Local leftover thresholds can alternate 0.75 and 1.0 on a detached quarter
-    line. When neighboring notes share pulse and similar release ratios, prefer
-    one conventional value. Isolated shorts, independent holds, locked timing,
-    and substantial pauses stay put.
+    line. When neighboring attacks share pulse and similar release ratios,
+    prefer one conventional value. A chord is one attack. Isolated shorts,
+    independent holds, locked timing, Literal override measures, and
+    substantial pauses stay put and cap neighbors.
     """
     settings = _settings(settings)
     adjustments = {}
-    if not settings.uses_phrase_readable():
+    if not settings.uses_phrase_readable() and not _has_readable_override(settings):
         return events, exact, adjustments
     measure_length = Fraction(measure_length)
     groups = defaultdict(list)
     for ev in events:
-        if getattr(ev, "score_timing_locked", False):
-            continue
         line = ev.musical_voice if ev.musical_voice is not None else ev.voice
         groups[(ev.hand, line, ev.source_track_id)].append(ev)
     new_exact = dict(exact)
     for group in groups.values():
         ordered = sorted(group, key=lambda e: (exact[e.note_id][0], e.pitch, e.note_id))
-        for phrase in _split_voice_phrases(ordered, exact):
+        attacks = _attack_groups_in_voice(ordered, exact)
+        for phrase in _split_voice_phrases(
+            attacks, exact, settings=settings, measure_length=measure_length
+        ):
             if len(phrase) < 2:
                 continue
             snapped_iois = []
-            for ev, nxt in zip(phrase, phrase[1:]):
-                snapped = _snap_phrase_pulse(exact[nxt.note_id][0] - exact[ev.note_id][0])
+            for attack, nxt in zip(phrase, phrase[1:]):
+                delta = exact[nxt[0].note_id][0] - exact[attack[0].note_id][0]
+                if delta <= 0:
+                    continue
+                snapped = _snap_phrase_pulse(delta)
                 if snapped is not None:
                     snapped_iois.append(snapped)
             if not snapped_iois:
@@ -1076,22 +1175,29 @@ def _readable_phrase_unify_durations(
             needed = max(2, (len(phrase) * 3 + 4) // 5)
             if snapped_iois.count(pulse) < needed:
                 continue
-            candidates = []
-            for index, ev in enumerate(phrase):
-                nxt = phrase[index + 1] if index + 1 < len(phrase) else None
-                onset = new_exact[ev.note_id][0]
+            eligible = []
+            for index, attack in enumerate(phrase):
+                nxt = _next_later_attack(phrase, index, new_exact)
+                onset = new_exact[attack[0].note_id][0]
                 bar_pos = onset % measure_length if measure_length > 0 else Fraction(0)
                 to_bar = measure_length - bar_pos if measure_length > 0 else None
-                ioi = _phrase_ioi(ev, nxt, new_exact, pulse, to_bar)
-                source = raw_by_id.get(ev.note_id)
-                raw = source.duration_beats if source is not None else float(ev.duration_beats)
-                if ioi is None or not _is_phrase_detached(raw, ioi):
-                    continue
-                if nxt is None and float(ioi) - float(raw) >= 0.5:
-                    continue
-                candidates.append((ev, ioi, raw))
-            if len(candidates) < max(2, (len(phrase) * 3 + 4) // 5):
+                ioi = _phrase_ioi(attack[0], nxt, new_exact, pulse, to_bar)
+                members = []
+                for ev in attack:
+                    if _is_phrase_protected(ev, new_exact, settings, measure_length):
+                        continue
+                    source = raw_by_id.get(ev.note_id)
+                    raw = source.duration_beats if source is not None else float(ev.duration_beats)
+                    if ioi is None or not _is_phrase_detached(raw, ioi):
+                        continue
+                    if nxt is None and float(ioi) - float(raw) >= 0.5:
+                        continue
+                    members.append((ev, ioi, raw))
+                if members:
+                    eligible.append(members)
+            if len(eligible) < needed:
                 continue
+            candidates = [item for members in eligible for item in members]
             ratios = [c[2] / float(c[1]) for c in candidates]
             if max(ratios) - min(ratios) > 0.22:
                 continue
@@ -1120,13 +1226,6 @@ def _readable_phrase_unify_durations(
     return updated, new_exact, adjustments
 
 
-_SHARED_BEAT_WINDOW = 0.13
-_CHORD_COINCIDENCE_WINDOW = 0.08
-_CHORD_UNIFY_SPREAD = 0.5
-_CHORD_UNIFY_RELATIVE = 0.18
-_CHORD_COMPACT_SPAN = 14
-
-
 def _voice_is_fast_near(ev, ordered_same_voice, *, window=0.35) -> bool:
     """True when the local same-voice stream is a rapid figure, not a held tone.
 
@@ -1149,17 +1248,26 @@ def _readable_align_shared_onsets(
     *,
     max_move,
     settings,
+    measure_length=None,
 ):
     """Align near-simultaneous cross-line attacks onto one simpler Readable beat.
 
     Covers delayed melody entries against bass/accompaniment when the performed
     gap is within a 32nd-ish window. Literal mode, locked timing, tuplets, and
-    fast local streams are left alone.
+    fast local streams are left alone. Saved v1 Readable still runs this
+    cross-line path; chord coincidence stays on v2 and current.
     """
     settings = _settings(settings)
     adjustments = {}
-    if not settings.uses_improved_readable():
-        return onset_by_id, adjustments
+
+    def _event_local(ev):
+        onset = onset_by_id.get(ev.note_id, ev.start_beat)
+        return _settings_at_onset(settings, onset, measure_length)
+
+    def _onset_readable(ev) -> bool:
+        if getattr(ev, "score_timing_locked", False):
+            return False
+        return _event_local(ev).interpretation == Interpretation.READABLE
 
     by_voice = defaultdict(list)
     for ev in events:
@@ -1170,7 +1278,7 @@ def _readable_align_shared_onsets(
     ordered = sorted(events, key=lambda e: (e.start_beat, e.pitch, e.note_id))
     clusters = []
     for ev in ordered:
-        if getattr(ev, "score_timing_locked", False):
+        if not _onset_readable(ev):
             continue
         if clusters and ev.start_beat - clusters[-1][0].start_beat <= _SHARED_BEAT_WINDOW:
             clusters[-1].append(ev)
@@ -1191,6 +1299,8 @@ def _readable_align_shared_onsets(
         members = cluster
         reason = "readable_shared_beat"
         if not cross_line:
+            if not all(_event_local(ev).uses_improved_readable() for ev in cluster):
+                continue
             members = _compact_chord_coincidence(cluster)
             if len(members) < 2:
                 continue
@@ -1306,7 +1416,7 @@ def _members_overlap_as_chord(members) -> bool:
     return True
 
 
-def _readable_unify_chord_durations(events, exact, settings):
+def _readable_unify_chord_durations(events, exact, settings, measure_length=None):
     """Give humanized chord mates one written duration when evidence agrees.
 
     Independent mixed-release holds, overlapping unisons, and tuplets of
@@ -1314,7 +1424,7 @@ def _readable_unify_chord_durations(events, exact, settings):
     """
     settings = _settings(settings)
     adjustments = {}
-    if not settings.uses_improved_readable():
+    if not settings.uses_improved_readable() and not _has_readable_override(settings):
         return events, exact, adjustments
     groups = defaultdict(list)
     for ev in events:
@@ -1324,7 +1434,12 @@ def _readable_unify_chord_durations(events, exact, settings):
     new_exact = dict(exact)
     for members in groups.values():
         members = [
-            ev for ev in members if not getattr(ev, "score_timing_locked", False)
+            ev
+            for ev in members
+            if not getattr(ev, "score_timing_locked", False)
+            and _settings_at_onset(
+                settings, exact[ev.note_id][0], measure_length
+            ).uses_improved_readable()
         ]
         if len(members) < 2:
             continue
@@ -1372,7 +1487,9 @@ _ORNAMENT_MAX_RAW_DURATION = 0.35
 _ORNAMENT_LEAD_WINDOW = 0.30
 
 
-def _readable_mark_ornaments(events, onset_by_id, exact, roles, settings, raw_by_id):
+def _readable_mark_ornaments(
+    events, onset_by_id, exact, roles, settings, raw_by_id, measure_length=None
+):
     """Label short anticipatory notes as editable ornaments (Readable only).
 
     Does not delete source attacks. Written duration stays positive so playback
@@ -1381,7 +1498,10 @@ def _readable_mark_ornaments(events, onset_by_id, exact, roles, settings, raw_by
     """
     settings = _settings(settings)
     marks = {}
-    if settings.interpretation != Interpretation.READABLE:
+    if (
+        settings.interpretation != Interpretation.READABLE
+        and not _has_readable_override(settings)
+    ):
         return marks
 
     by_hand = defaultdict(list)
@@ -1398,6 +1518,11 @@ def _readable_mark_ornaments(events, onset_by_id, exact, roles, settings, raw_by
         for index, ev in enumerate(ordered):
             raw = raw_by_id.get(ev.note_id, ev)
             if getattr(raw, "score_timing_locked", False):
+                continue
+            local = _settings_at_onset(
+                settings, onset_by_id.get(ev.note_id, raw.start_beat), measure_length
+            )
+            if local.interpretation != Interpretation.READABLE:
                 continue
             if float(raw.duration_beats) > _ORNAMENT_MAX_RAW_DURATION:
                 continue
@@ -1965,6 +2090,7 @@ def quantize_notation(
         roles,
         max_move=config.max_onset_move,
         settings=settings,
+        measure_length=measure_length,
     )
 
     out, exact = [], {}
@@ -2044,12 +2170,18 @@ def quantize_notation(
         beat_length=beat_length,
     )
     out, exact, chord_duration_adjustments = _readable_unify_chord_durations(
-        out, exact, settings
+        out, exact, settings, measure_length=measure_length
     )
     out = _stable_lanes(out, exact, profile.grand_staff)
     out = _conservative_articulations(out, settings=settings)
     ornament_marks = _readable_mark_ornaments(
-        out, onset_by_id, exact, roles, settings, raw_by_id
+        out,
+        onset_by_id,
+        exact,
+        roles,
+        settings,
+        raw_by_id,
+        measure_length=measure_length,
     )
     if ornament_marks:
         tagged = []
