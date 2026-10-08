@@ -1226,6 +1226,168 @@ def _readable_phrase_unify_durations(
     return updated, new_exact, adjustments
 
 
+_DETACHED_PULSE_MIN_ONSETS = 6
+_DETACHED_PULSE_MIN_ELIGIBLE_ONSETS = 4
+_DETACHED_PULSE_ELIGIBLE_SHARE = 0.4
+_DETACHED_RATIO_LO = 0.12
+_DETACHED_RATIO_HI = 0.45
+_DETACHED_RATIO_SPREAD = 0.30
+_DETACHED_SECTION_GAP = 4.0
+
+
+def _cluster_unique_onsets(exact, events):
+    clustered = []
+    for onset in sorted(Fraction(exact[ev.note_id][0]) for ev in events):
+        if clustered and abs(float(onset) - float(clustered[-1])) <= _CHORD_COINCIDENCE_WINDOW:
+            continue
+        clustered.append(onset)
+    return clustered
+
+
+def _split_onset_sections(onsets, measure_length):
+    if not onsets:
+        return []
+    gap_limit = max(float(measure_length or 4), _DETACHED_SECTION_GAP)
+    sections = [[onsets[0]]]
+    for onset in onsets[1:]:
+        prev = sections[-1][-1]
+        if float(onset) - float(prev) >= gap_limit - 1e-9:
+            sections.append([onset])
+        else:
+            sections[-1].append(onset)
+    return sections
+
+
+def _next_clustered_onset(onsets, current):
+    for onset in onsets:
+        if float(onset) > float(current) + 1e-9:
+            return onset
+    return None
+
+
+def _detached_pulse_of(onsets):
+    iois = [later - earlier for earlier, later in zip(onsets, onsets[1:]) if later > earlier]
+    snapped = []
+    for ioi in iois:
+        value = _snap_phrase_pulse(ioi)
+        if value is not None:
+            snapped.append(value)
+    if not snapped:
+        return None
+    pulse = max(set(snapped), key=snapped.count)
+    needed = max(3, (len(snapped) * 3 + 4) // 5)
+    if snapped.count(pulse) < needed:
+        return None
+    return pulse
+
+
+def _is_detached_hold(ev, raw, pulse, onset, next_onset, exact):
+    if float(raw) >= 2.0 * float(pulse) - 1e-9:
+        return True
+    written = exact[ev.note_id][1]
+    if float(written) >= 2.0 * float(pulse) - 1e-9:
+        return True
+    if next_onset is not None and float(onset) + float(raw) > float(next_onset) + 0.04:
+        return True
+    return False
+
+
+def _readable_unify_detached_pulse(
+    events,
+    exact,
+    settings,
+    raw_by_id,
+    *,
+    measure_length=Fraction(4),
+    beat_length=Fraction(1),
+):
+    """Rewrite strongly detached pulse playing as conventional written values.
+
+    Local leftover rules and the 0.74 phrase unify keep genuine short-note/rest
+    figures. When a phrase of six or more attacks shares a pulse and similar
+    short releases, current Readable treats the shortness as articulation of
+    that pulse. Independent holds, locked timing, and Literal measures stay put.
+    """
+    settings = _settings(settings)
+    adjustments = {}
+    if not settings.uses_phrase_readable() and not _has_readable_override(settings):
+        return events, exact, adjustments
+    measure_length = Fraction(measure_length)
+    onsets = _cluster_unique_onsets(exact, events)
+    new_exact = dict(exact)
+    updated_by_id = {}
+    for section in _split_onset_sections(onsets, measure_length):
+        if len(section) < _DETACHED_PULSE_MIN_ONSETS:
+            continue
+        pulse = _detached_pulse_of(section)
+        if pulse is None or pulse <= 0:
+            continue
+        members = [ev for ev in events if any(
+            abs(float(exact[ev.note_id][0]) - float(onset)) <= _CHORD_COINCIDENCE_WINDOW
+            for onset in section
+        )]
+        eligible = []
+        eligible_onsets = set()
+        for ev in members:
+            if _is_phrase_protected(ev, new_exact, settings, measure_length):
+                continue
+            onset = new_exact[ev.note_id][0]
+            nxt = _next_clustered_onset(section, onset)
+            source = raw_by_id.get(ev.note_id)
+            raw = source.duration_beats if source is not None else float(ev.duration_beats)
+            if _is_detached_hold(ev, raw, pulse, onset, nxt, new_exact):
+                continue
+            ratio = float(raw) / float(pulse)
+            if ratio < _DETACHED_RATIO_LO or ratio > _DETACHED_RATIO_HI:
+                continue
+            eligible.append((ev, onset, nxt, raw, ratio))
+            eligible_onsets.add(round(float(onset), 6))
+        if len(eligible_onsets) < _DETACHED_PULSE_MIN_ELIGIBLE_ONSETS:
+            continue
+        if len(eligible_onsets) / len(section) < _DETACHED_PULSE_ELIGIBLE_SHARE - 1e-9:
+            continue
+        ratios = [item[4] for item in eligible]
+        if max(ratios) - min(ratios) > _DETACHED_RATIO_SPREAD:
+            continue
+        for ev, onset, nxt, raw, _ratio in eligible:
+            bar_pos = onset % measure_length if measure_length > 0 else Fraction(0)
+            to_bar = measure_length - bar_pos if measure_length > 0 else None
+            chosen = Fraction(pulse).limit_denominator(48)
+            if nxt is not None:
+                chosen = min(chosen, Fraction(nxt) - Fraction(onset))
+            if to_bar is not None and to_bar > 0:
+                chosen = min(chosen, Fraction(to_bar))
+            if chosen <= 0:
+                continue
+            if float(chosen) < float(pulse) * 0.75 - 1e-9:
+                continue
+            current_onset, duration, family, group_id = new_exact[ev.note_id]
+            if abs(float(chosen) - float(duration)) <= 1e-9:
+                mark = ev.articulation or "staccato"
+                if not ev.articulation:
+                    updated_by_id[ev.note_id] = copy_event(ev, articulation=mark)
+                continue
+            new_exact[ev.note_id] = (current_onset, chosen, family, group_id)
+            mark = ev.articulation or "staccato"
+            updated_by_id[ev.note_id] = copy_event(
+                ev, duration_beats=float(chosen), articulation=mark
+            )
+            adjustments[ev.note_id] = {
+                "from": float(duration),
+                "to": float(chosen),
+                "reason": "readable_detached_pulse",
+                "pulse": float(pulse),
+                "performed": float(raw),
+            }
+    if not adjustments and not updated_by_id:
+        return events, exact, adjustments
+    updated = []
+    for ev in events:
+        replacement = updated_by_id.get(ev.note_id)
+        updated.append(replacement if replacement is not None else ev)
+    return updated, new_exact, adjustments
+
+
 def _voice_is_fast_near(ev, ordered_same_voice, *, window=0.35) -> bool:
     """True when the local same-voice stream is a rapid figure, not a held tone.
 
@@ -1710,10 +1872,10 @@ def _voice_search_events(events):
 
 
 def _conservative_articulations(events, *, settings=None):
-    """Keep supplied marks. Do not guess staccato from a rest.
+    """Keep supplied marks. Do not guess staccato from an isolated rest.
 
-    A rest after a short note is not evidence of staccato. This never invents
-    dynamics, phrase slurs, or pedal marks from duration alone, and it never
+    Phrase-level detached-pulse inference may already have marked staccato.
+    This pass never invents dynamics, slurs, or pedal marks, and it never
     overwrites a supplied articulation.
     """
     settings = _settings(settings)
@@ -2169,6 +2331,15 @@ def quantize_notation(
         measure_length=measure_length,
         beat_length=beat_length,
     )
+    out, exact, detached_adjustments = _readable_unify_detached_pulse(
+        out,
+        exact,
+        settings,
+        raw_by_id,
+        measure_length=measure_length,
+        beat_length=beat_length,
+    )
+    phrase_duration_adjustments.update(detached_adjustments)
     out, exact, chord_duration_adjustments = _readable_unify_chord_durations(
         out, exact, settings, measure_length=measure_length
     )
@@ -2215,7 +2386,7 @@ def quantize_notation(
         if ev.note_id in shared_beat_adjustments:
             reason = shared_beat_adjustments[ev.note_id].get("reason") or "readable_shared_beat"
         elif ev.note_id in phrase_duration_adjustments:
-            reason = "readable_phrase_duration"
+            reason = phrase_duration_adjustments[ev.note_id].get("reason") or "readable_phrase_duration"
         elif ev.note_id in chord_duration_adjustments:
             reason = "readable_chord_duration"
         decision = {
