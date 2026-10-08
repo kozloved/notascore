@@ -383,6 +383,13 @@ class NotationWriter:
             points = {0.0: float(tempi[0]["bpm"])}
             points.update({float(p["beat"]) + offset: float(p["bpm"]) for p in tempi
                            if 0 <= float(p["beat"]) + offset < float(score.highestTime)})
+        elif (meta.extra or {}).get("preserve_midi_tempo") and meta.tempo_map is not None:
+            points = {0.0: float(meta.tempo_map.bpm_at(0.0))}
+            points.update({
+                float(meta.tempo_map.seconds_to_beats(p.time_sec)) + offset: float(p.bpm)
+                for p in meta.tempo_map.sorted_points()
+                if 0 <= float(meta.tempo_map.seconds_to_beats(p.time_sec)) + offset < float(score.highestTime)
+            })
         else:
             points = {float(m.getOffsetInHierarchy(score.parts[0])): float(m.number)
                       for m in score.parts[0].recurse().getElementsByClass(m21tempo.MetronomeMark)

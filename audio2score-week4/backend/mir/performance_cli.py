@@ -38,8 +38,12 @@ def convert(source: Path, output: Path, meter=None, settings=None):
     writer = NotationWriter()
     score = writer.write_from_events_direct(events, meta, quantization_mode="performance")
     output.parent.mkdir(parents=True, exist_ok=True)
-    writer._export_musicxml(score, output)
-    score.write("midi", fp=str(midi_path))
+    # Engraving deliberately prints a sparse tempo summary. Export playback
+    # through the shared writer so MIDI retains the full performance tempo
+    # curve and unsplit source attacks, just like production/editor exports.
+    musicxml, score_midi = writer.export_musicxml_and_midi(score, meta)
+    output.write_text(musicxml, encoding="utf-8")
+    midi_path.write_bytes(score_midi)
     ingested.performance.verify_midi(source.read_bytes())
     ingested.performance.write_json(snapshot_path)
     from mir.interpretation_context import InterpretationContext

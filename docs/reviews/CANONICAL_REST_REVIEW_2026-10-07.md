@@ -63,3 +63,13 @@ smoke test. No GPU/audio-model inference was run; audio tests use mocks.
 The engine has useful provenance and export-integrity protections, but passing
 these regressions alone is insufficient evidence of publisher-quality notation
 on arbitrary MIDI or audio.
+
+## Pre-merge follow-up (October 8)
+
+GitHub's foundation job exposed a tempo regression after PR #98: the CLI wrote
+MIDI directly from the sparsely marked engraving score, losing performance
+tempo changes. The CLI now uses the shared MusicXML/playback exporter; when
+`preserve_midi_tempo` is set without a `playback_tempo` payload, playback reads
+the full source tempo map independently of printed marks. The existing tempo
+regression now covers expressive, opening-only, and disabled printed tempo.
+Canonical-rest tests are also included in the foundation CI job.
