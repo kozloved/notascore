@@ -92,7 +92,8 @@ def test_cli_emits_distinct_score_midi_and_provenance(tmp_path):
         convert(tmp_path / "score.score.mid", tmp_path / "score.musicxml")
 
 
-def test_tempo_changes_survive_interpretation_and_score_midi(tmp_path):
+@pytest.mark.parametrize("printed_detail", ["expressive", "opening", "off"])
+def test_tempo_changes_survive_interpretation_and_score_midi(tmp_path, printed_detail):
     import mido
     source = tmp_path / "tempo.mid"
     midi = mido.MidiFile(ticks_per_beat=480)
@@ -109,7 +110,7 @@ def test_tempo_changes_survive_interpretation_and_score_midi(tmp_path):
         mido.Message("note_off", note=74, time=480),
     ])
     midi.save(source)
-    convert(source, tmp_path / "tempo.musicxml")
+    convert(source, tmp_path / "tempo.musicxml", settings={"printed_tempo_detail": printed_detail})
     snapshot = PerformanceSnapshot.read_json(tmp_path / "tempo.performance.json")
     assert snapshot.tempo_changes == ((0.0, 120.0), (0.5, 60.0))
     score_midi = ingest_midi(tmp_path / "tempo.score.mid")
