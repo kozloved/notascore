@@ -407,7 +407,7 @@ def case_detached_same_staff_independent_voices(path: Path) -> str:
     for i in range(8):
         start = i * 0.5
         notes.append((76 + (i % 3), start, start + 0.10, 86))
-        notes.append((60, start + 0.25, start + 0.35, 72))
+        notes.append((67, start + 0.25, start + 0.35, 72))
     return _write(path, notes)
 
 
