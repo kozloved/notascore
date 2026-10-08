@@ -351,6 +351,44 @@ def test_delete_and_insert_are_explicit_operations():
     assert restored == []
 
 
+def test_clearing_inferred_articulation_is_a_source_id_op_without_timing():
+    snapshot = _snapshot([("n1", 60, "unknown")])
+    uncorrected = {
+        "n1": {
+            "pitch": 60,
+            "track": 0,
+            "voice": 0,
+            "start": 0.0,
+            "duration": 1.0,
+            "velocity": 80,
+            "articulation": "staccato",
+        }
+    }
+    displayed = _model([("n1", 60, 0, 0)])
+    displayed["notes"][0]["articulation"] = "staccato"
+    displayed["notes"][0]["articulation_source"] = "inferred"
+    submitted = dict(displayed)
+    submitted["notes"] = [
+        dict(displayed["notes"][0], articulation=None, articulation_source="user_edit")
+    ]
+    ops = extract_corrections(
+        submitted,
+        snapshot=snapshot,
+        displayed=displayed,
+        uncorrected=uncorrected,
+        existing=[],
+    )
+    assert ops == [{"source_note_id": "n1", "articulation": None}]
+    restored = extract_corrections(
+        displayed,
+        snapshot=snapshot,
+        displayed=submitted,
+        uncorrected=uncorrected,
+        existing=ops,
+    )
+    assert restored == []
+
+
 def test_performed_seconds_cannot_be_changed():
     snapshot = _snapshot([("n1", 60, "unknown")])
     displayed = _model([("n1", 60, 0, 0)])

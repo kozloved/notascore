@@ -1337,6 +1337,28 @@ body::before {
   background: var(--ns-accent-soft);
 }
 
+.ns-note-articulation {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ns-note-articulations {
+  display: flex;
+  gap: 4px;
+}
+
+.ns-note-articulations .ns-note-duration {
+  min-width: 72px;
+  font-size: 0.85rem;
+}
+
+.ns-note-articulation-status {
+  margin: 0;
+  color: var(--ns-text-muted);
+  font-size: 0.8rem;
+}
+
 .ns-note-toolbar-hint {
   margin: 0;
   color: var(--ns-text-secondary);

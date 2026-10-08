@@ -29,6 +29,7 @@ export type AnalyticsEvent =
   | "note_selected"
   | "note_pitch_changed"
   | "note_duration_changed"
+  | "note_articulation_changed"
   | "note_moved"
   | "note_added"
   | "note_deleted"

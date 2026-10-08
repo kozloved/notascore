@@ -741,6 +741,104 @@ def test_http_articulation_round_trip_velocity_regen_and_reset(isolated_db, monk
         assert raw.content == original
 
 
+def _prepare_detached_job(tmp_path, job_id: str):
+    import database as db
+    from mir.performance_cli import convert
+    from tests.test_notation_revision_safety import _job_row
+
+    midi = pretty_midi.PrettyMIDI(initial_tempo=120)
+    piano = pretty_midi.Instrument(program=0, name="Piano")
+    for i in range(8):
+        start = i * 0.5
+        piano.notes.append(
+            pretty_midi.Note(velocity=84, pitch=72 + i, start=start, end=start + 0.10)
+        )
+    midi.instruments.append(piano)
+    source = tmp_path / f"{job_id}.mid"
+    midi.write(str(source))
+    original = source.read_bytes()
+    xml_path = tmp_path / f"{job_id}.musicxml"
+    convert(source, xml_path)
+    (tmp_path / f"{job_id}.raw.mid").write_bytes(original)
+    db.create_job(_job_row(job_id, result_storage_key=str(xml_path), edit_revision=0))
+    return xml_path, original
+
+
+def test_http_clearing_inferred_staccato_survives_regen_without_timing_lock(isolated_db, monkeypatch):
+    _fail_if_transcribe(monkeypatch)
+    job_id = f"clear-{uuid.uuid4().hex[:12]}"
+    _xml_path, original = _prepare_detached_job(isolated_db, job_id)
+    with _client() as client:
+        posted = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={"interpretation": "readable", "revision": 0},
+        )
+        assert posted.status_code == 200, posted.text
+        loaded = client.get(f"/scores/{job_id}/edits")
+        assert loaded.status_code == 200
+        body = loaded.json()
+        notes = [dict(row) for row in body["notes"]]
+        target = notes[0]
+        sid = target.get("source_note_id") or target["id"]
+        assert target.get("articulation") == "staccato"
+        assert target.get("articulation_source") == "inferred"
+        original_duration = float(target["duration"])
+        original_start = float(target["start"])
+        target["articulation"] = None
+        target["articulation_source"] = "user_edit"
+        saved = _save_notes(client, job_id, body, notes)
+        assert saved.status_code == 200, saved.text
+        cleared = _note(saved.json(), sid)
+        assert not cleared.get("articulation")
+        assert cleared.get("articulation_source") == "user_edit"
+        assert float(cleared["duration"]) == pytest.approx(original_duration, abs=1e-3)
+        assert float(cleared["start"]) == pytest.approx(original_start, abs=1e-3)
+        _, key1 = _pointer(job_id)
+        ops = [op for op in _ops(key1, job_id) if op.get("source_note_id") == sid]
+        assert ops and "articulation" in ops[0] and not ops[0].get("articulation")
+        assert "start" not in ops[0] and "duration" not in ops[0]
+
+        reloaded = client.get(f"/scores/{job_id}/edits")
+        assert reloaded.status_code == 200
+        assert not _note(reloaded.json(), sid).get("articulation")
+
+        xml = client.get(f"/jobs/{job_id}/result?format=musicxml")
+        assert xml.status_code == 200
+        from tests.test_notation_articulation_ownership import musicxml_note_marks
+
+        marks = musicxml_note_marks(xml.text)
+        assert any(not row["articulations"] for row in marks)
+        assert any("staccato" in row["articulations"] for row in marks)
+
+        score_midi = client.get(f"/jobs/{job_id}/result?format=midi_score")
+        assert score_midi.status_code == 200
+        played = pretty_midi.PrettyMIDI(__import__("io").BytesIO(score_midi.content))
+        durs = [n.end - n.start for inst in played.instruments for n in inst.notes]
+        assert durs
+
+        regen = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={"display_grid": "sixteenth", "revision": saved.json()["revision"]},
+        )
+        assert regen.status_code == 200, regen.text
+        after = client.get(f"/scores/{job_id}/edits")
+        assert after.status_code == 200
+        row = _note(after.json(), sid)
+        assert not row.get("articulation")
+        assert row.get("articulation_source") == "user_edit"
+        assert float(row["duration"]) == pytest.approx(original_duration, abs=1e-3)
+        others = [
+            note
+            for note in after.json()["notes"]
+            if (note.get("source_note_id") or note["id"]) != sid
+        ]
+        assert all(note.get("articulation") == "staccato" for note in others)
+        assert (isolated_db / f"{job_id}.raw.mid").read_bytes() == original
+        raw = client.get(f"/jobs/{job_id}/result?format=midi")
+        assert raw.status_code == 200
+        assert raw.content == original
+
+
 def _prepare_chord_job(tmp_path, job_id: str):
     import database as db
     from mir.performance_cli import convert

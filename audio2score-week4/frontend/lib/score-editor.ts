@@ -49,6 +49,33 @@ export const DURATION_PRESETS = [
   { beats: 0.25, label: "Sixteenth", symbol: "16" },
 ] as const;
 
+export const ARTICULATION_OPTIONS = [
+  { value: null, label: "None" },
+  { value: "staccato", label: "Staccato" },
+  { value: "tenuto", label: "Tenuto" },
+] as const;
+
+export type ArticulationMark = (typeof ARTICULATION_OPTIONS)[number]["value"];
+
+export function articulationStatus(
+  note: Pick<EditableNote, "articulation" | "articulation_source">
+): string {
+  const source = note.articulation_source || "";
+  if (source === "user_edit") {
+    return note.articulation ? "Chosen by you" : "Chosen by you: no mark";
+  }
+  if (source === "inferred") {
+    return "Inferred by Readable";
+  }
+  if (source === "supplied") {
+    return "From the performance";
+  }
+  if (note.articulation) {
+    return "From the performance";
+  }
+  return "No articulation mark";
+}
+
 const PITCH_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
 
 export function snapGrid(value: number): number {

@@ -188,6 +188,7 @@ export default function ScoreEditor({
         insertAt={editor.insertAt}
         onPitch={editor.onPitch}
         onDuration={editor.onDuration}
+        onArticulation={editor.onArticulation}
         onMove={editor.onMove}
         onDelete={editor.onDelete}
         onAdd={editor.onAdd}
