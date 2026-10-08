@@ -50,11 +50,11 @@ def test_inner_hold_keeps_opposite_stems_from_the_moving_line(tmp_path):
     result, _ = _build(source, NotationSettings(), meter="4/4", tempo=120.0)
     assert source.read_bytes() == original
     notes = _notes(result.musicxml)
-    held = [row for row in notes if row["step"] == "G" and row["type"] == "whole"]
+    held = [row for row in notes if row["step"] == "G" and row["octave"] == "4"]
     moving = [row for row in notes if row["type"] == "quarter"]
-    assert len(held) == 1
+    assert [row["type"] for row in held] == ["half", "half"]
     assert len(moving) == 4
-    assert held[0]["stem"] == "down"
+    assert {row["stem"] for row in held} == {"down"}
     assert {row["stem"] for row in moving} == {"up"}
     assert held[0]["voice"] != moving[0]["voice"]
     pitches = sorted(
@@ -62,6 +62,8 @@ def test_inner_hold_keeps_opposite_stems_from_the_moving_line(tmp_path):
         for n in result.editor_model["notes"]
     )
     assert pitches == [67, 76, 77, 78, 79]
+    written = next(n for n in result.editor_model["notes"] if int(n["pitch"]) == 67)
+    assert round(float(written["duration"]), 4) == 4.0
 
 
 def test_hold_under_chords_keeps_the_inner_voice_distinct(tmp_path):
@@ -77,9 +79,8 @@ def test_hold_under_chords_keeps_the_inner_voice_distinct(tmp_path):
         for row in notes
         if not (row["step"] == "G" and row["octave"] == "4") and not row["chord"]
     ]
-    assert len(held) == 1
-    assert held[0]["type"] == "whole"
-    assert held[0]["stem"] == "down"
+    assert [row["type"] for row in held] == ["half", "half"]
+    assert {row["stem"] for row in held} == {"down"}
     assert {row["stem"] for row in moving} == {"up"}
     written = sorted(
         (round(float(n["start"]), 4), int(n["pitch"]), round(float(n["duration"]), 4))
@@ -87,6 +88,38 @@ def test_hold_under_chords_keeps_the_inner_voice_distinct(tmp_path):
     )
     assert (0.0, 67, 4.0) in written
     assert all(dur == 1.0 for start, pitch, dur in written if pitch != 67)
+
+
+def test_hold_under_staccato_dyads_prints_tied_halves_not_a_stacked_whole(tmp_path):
+    source = tmp_path / "staccato-hold.mid"
+    READABLE_V2_CASES["hold_under_strongly_detached"](source)
+    original = source.read_bytes()
+    result, _ = _build(source, NotationSettings(), meter="4/4", tempo=120.0)
+    assert source.read_bytes() == original
+    notes = _notes(result.musicxml)
+    held = [row for row in notes if row["step"] == "G" and row["octave"] == "4"]
+    moving = [
+        row
+        for row in notes
+        if row["step"] == "C" and not row["chord"]
+    ]
+    assert [row["type"] for row in held] == ["half", "half", "half", "half"]
+    assert {row["stem"] for row in held} == {"down"}
+    assert {row["stem"] for row in moving} == {"up"}
+    assert held[0]["voice"] != moving[0]["voice"]
+    written = next(n for n in result.editor_model["notes"] if int(n["pitch"]) == 67)
+    assert round(float(written["duration"]), 4) == 8.0
+    assert written.get("articulation") in (None, "")
+
+
+def test_single_voice_whole_chord_stays_a_whole_note(tmp_path):
+    source = tmp_path / "whole-chord.mid"
+    READABLE_V2_CASES["early_release_chord_to_bar"](source)
+    result, _ = _build(source, NotationSettings(), meter="4/4", tempo=120.0)
+    notes = _notes(result.musicxml)
+    types = {row["type"] for row in notes}
+    assert types == {"whole"}
+    assert all(row["stem"] is None for row in notes)
 
 
 def test_single_voice_detached_line_does_not_force_stems(tmp_path):
