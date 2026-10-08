@@ -51,6 +51,10 @@ def test_literal_vs_readable_pairs_have_independent_expected_notation():
     assert "A_detached_regular_line" in ids
     assert "B_short_notes_with_rests" in ids
     assert "mixed_release_quarters" in ids
+    assert "mixed_release_chords" in ids
+    assert "short_chords_with_rests" in ids
+    assert "hold_under_mixed_release_chords" in ids
+    assert "literal_measure_then_readable" in ids
     assert "isolated_rest_in_phrase" in ids
     assert "humanized_ceg_chord" in ids
     assert "rapid_sixteenth_run" in ids
@@ -391,6 +395,39 @@ def test_legacy_saved_readable_does_not_fill_detached_quarters():
     assert [round(e.duration_beats, 4) for e in current] == [1.0] * 4
 
 
+MIXED_RELEASE_DURS = [0.77, 0.79, 0.81, 0.83, 0.77, 0.79, 0.81, 0.83]
+
+
+def _mixed_release_chords():
+    events = []
+    for i, dur in enumerate(MIXED_RELEASE_DURS):
+        for pitch in (60, 64, 67):
+            events.append(_ev(pitch, float(i), dur, f"{pitch}-{i}"))
+    return events
+
+
+def _literal_first_measure_settings():
+    return NotationSettings.from_dict(
+        {
+            "interpretation": "readable",
+            "measure_overrides": [
+                {"start_measure": 1, "end_measure": 1, "interpretation": "literal"}
+            ],
+        }
+    )
+
+
+def _readable_second_measure_settings():
+    return NotationSettings.from_dict(
+        {
+            "interpretation": "literal",
+            "measure_overrides": [
+                {"start_measure": 2, "end_measure": 2, "interpretation": "readable"}
+            ],
+        }
+    )
+
+
 def test_mixed_release_quarter_phrase_is_consistent_in_readable():
     durs = [0.77, 0.79, 0.81, 0.83, 0.77, 0.79, 0.81, 0.83]
     events = [_ev(72 + (i % 3) * 2, float(i), durs[i], f"n{i}") for i in range(8)]
@@ -404,6 +441,143 @@ def test_mixed_release_quarter_phrase_is_consistent_in_readable():
     ]
     assert all(e.duration_beats <= 0.8125 + 1e-9 for e in legacy)
     assert {row.get("reason") for row in dec} & {"readable_phrase_duration", "bounded_voice_search"}
+
+
+def test_mixed_release_chord_phrase_is_consistent_in_readable():
+    readable, dec, _ = _quantize(_mixed_release_chords(), READABLE)
+    v2, _, _ = _quantize(_mixed_release_chords(), NotationSettings.readable_v2())
+    by_onset = {}
+    for ev in readable:
+        by_onset.setdefault(round(ev.start_beat, 4), set()).add(round(ev.duration_beats, 4))
+    assert sorted(by_onset) == [float(i) for i in range(8)]
+    assert all(durs == {1.0} for durs in by_onset.values())
+    assert len(readable) == 24
+    assert len({e.note_id for e in readable}) == 24
+    v2_by_onset = {}
+    for ev in v2:
+        v2_by_onset.setdefault(round(ev.start_beat, 4), set()).add(round(ev.duration_beats, 4))
+    assert [next(iter(v2_by_onset[float(i)])) for i in range(8)] == [
+        0.75, 0.75, 1.0, 1.0, 0.75, 0.75, 1.0, 1.0
+    ]
+    assert {row.get("reason") for row in dec} & {"readable_phrase_duration", "bounded_voice_search"}
+
+
+def test_short_chords_with_rests_stay_short_in_readable():
+    events = []
+    for i in range(4):
+        for pitch in (60, 64, 67):
+            events.append(_ev(pitch, float(i), 0.20, f"{pitch}-{i}"))
+    readable, _, _ = _quantize(events, READABLE)
+    literal, _, _ = _quantize(events, LITERAL)
+    assert all(e.duration_beats <= 0.25 + 1e-9 for e in readable)
+    assert [round(e.duration_beats, 4) for e in readable] == [
+        round(e.duration_beats, 4) for e in literal
+    ]
+
+
+def test_independent_hold_under_mixed_release_chords_is_not_absorbed():
+    moving = []
+    for i, dur in enumerate(MIXED_RELEASE_DURS[:4]):
+        for pitch in (72, 76):
+            moving.append(_ev(pitch, float(i), dur, f"{pitch}-{i}"))
+    events = [
+        MusicalEvent(
+            64,
+            0.0,
+            4.0,
+            note_id="inner",
+            velocity=80,
+            source_backend="midi",
+            hand=Hand.RIGHT,
+            hand_locked=True,
+        ),
+        *moving,
+    ]
+    out, _, _ = _quantize(events, READABLE)
+    held = next(e for e in out if e.note_id == "inner")
+    chords = [e for e in out if e.note_id != "inner"]
+    assert round(held.duration_beats, 4) >= 3.9
+    assert all(round(e.duration_beats, 4) == 1.0 for e in chords)
+    assert all(e.musical_voice != held.musical_voice for e in chords)
+
+
+def test_literal_measure_override_keeps_performed_timing():
+    events = [_ev(72 + (i % 3) * 2, float(i), MIXED_RELEASE_DURS[i], f"n{i}") for i in range(8)]
+    mixed, _, _ = _quantize(events, _literal_first_measure_settings())
+    literal, _, _ = _quantize(events, LITERAL)
+    readable, _, _ = _quantize(events, READABLE)
+    mixed_by = {e.note_id: e for e in mixed}
+    literal_by = {e.note_id: e for e in literal}
+    for ident in ("n0", "n1", "n2", "n3"):
+        assert abs(mixed_by[ident].duration_beats - literal_by[ident].duration_beats) < 1e-6
+        assert mixed_by[ident].duration_beats < 0.95
+    for ident in ("n4", "n5", "n6", "n7"):
+        assert round(mixed_by[ident].duration_beats, 4) == 1.0
+    assert [round(e.duration_beats, 4) for e in readable] == [1.0] * 8
+
+
+def test_readable_measure_override_on_literal_score():
+    events = [_ev(72 + (i % 3) * 2, float(i), MIXED_RELEASE_DURS[i], f"n{i}") for i in range(8)]
+    mixed, _, _ = _quantize(events, _readable_second_measure_settings())
+    literal, _, _ = _quantize(events, LITERAL)
+    mixed_by = {e.note_id: e for e in mixed}
+    literal_by = {e.note_id: e for e in literal}
+    for ident in ("n0", "n1", "n2", "n3"):
+        assert abs(mixed_by[ident].duration_beats - literal_by[ident].duration_beats) < 1e-6
+    for ident in ("n4", "n5", "n6", "n7"):
+        assert round(mixed_by[ident].duration_beats, 4) == 1.0
+
+
+def test_literal_measure_override_survives_regen_and_score_midi(tmp_path):
+    path = tmp_path / "override.mid"
+    midi = pretty_midi.PrettyMIDI(initial_tempo=120)
+    inst = pretty_midi.Instrument(0, name="Piano")
+    for i, dur in enumerate(MIXED_RELEASE_DURS):
+        inst.notes.append(
+            pretty_midi.Note(
+                velocity=80,
+                pitch=72 + (i % 3) * 2,
+                start=i * 0.5,
+                end=i * 0.5 + dur * 0.5,
+            )
+        )
+    midi.instruments.append(inst)
+    midi.write(str(path))
+    original = path.read_bytes()
+    ingested = ingest_midi(path)
+    result = recompute_notation(
+        midi_bytes=original,
+        settings=_literal_first_measure_settings(),
+        performance=ingested.performance,
+        context=_context_for(ingested),
+    )
+    assert path.read_bytes() == original
+    notes = sorted(result.editor_model["notes"], key=lambda n: float(n["start"]))
+    assert all(float(n["duration"]) < 0.95 for n in notes if float(n["start"]) < 4.0)
+    assert all(abs(float(n["duration"]) - 1.0) < 1e-6 for n in notes if float(n["start"]) >= 4.0)
+    score = pretty_midi.PrettyMIDI(BytesIO(result.score_midi))
+    played = sorted(
+        (round(n.start / 0.5, 4), round((n.end - n.start) / 0.5, 4))
+        for inst in score.instruments
+        for n in inst.notes
+    )
+    assert played
+    written = [(round(float(n["start"]), 4), round(float(n["duration"]), 4)) for n in notes]
+    assert played == written
+
+
+def test_locked_note_blocks_neighbors_from_filling_through_its_attack():
+    events = [
+        _ev(72, 0.0, 0.82, "a"),
+        _ev(74, 1.0, 0.40, "locked", score_timing_locked=True),
+        _ev(76, 2.0, 0.82, "c"),
+        _ev(77, 3.0, 0.82, "d"),
+    ]
+    out, _, _ = _quantize(events, READABLE)
+    by_id = {e.note_id: e for e in out}
+    assert abs(by_id["locked"].duration_beats - 0.40) < 1e-9
+    assert abs(by_id["locked"].start_beat - 1.0) < 1e-9
+    assert by_id["a"].start_beat + by_id["a"].duration_beats <= 1.0 + 1e-9
 
 
 def test_isolated_rest_inside_connected_phrase_stays_a_rest():
@@ -489,6 +663,37 @@ def test_current_readable_cache_key_differs_from_saved_engines():
     v3 = NotationSettings().cache_key(midi)
     assert len({v1, v2, v3}) == 3
     assert NotationSettings().algorithm_version == ALGORITHM_VERSION_READABLE
+
+
+def test_mixed_release_chord_phrase_survives_midi_ingest(tmp_path):
+    source = tmp_path / "chords.mid"
+    READABLE_V2_CASES["mixed_release_chords"](source)
+    original = source.read_bytes()
+    ingested = ingest_midi(source)
+    events = notes_to_events(ingested.notes, ingested.tempo_map, source_backend="midi")
+    readable, _, _ = _quantize(events, READABLE)
+    literal, _, _ = _quantize(events, LITERAL)
+    assert source.read_bytes() == original
+    by_onset = {}
+    for ev in readable:
+        by_onset.setdefault(round(ev.start_beat, 4), set()).add(round(ev.duration_beats, 4))
+    assert sorted(by_onset) == [float(i) for i in range(8)]
+    assert all(durs == {1.0} for durs in by_onset.values())
+    assert len(readable) == 24
+    assert any(e.duration_beats < 0.95 for e in literal)
+    result = recompute_notation(
+        midi_bytes=original,
+        settings=READABLE,
+        performance=ingested.performance,
+        context=_context_for(ingested),
+    )
+    assert source.read_bytes() == original
+    written = [round(float(n["duration"]), 4) for n in result.editor_model["notes"]]
+    assert written == [1.0] * 24
+    score = pretty_midi.PrettyMIDI(BytesIO(result.score_midi))
+    played = sorted(n.end - n.start for inst in score.instruments for n in inst.notes)
+    assert played
+    assert all(abs(dur - 0.5) < 0.05 for dur in played)
 
 
 def test_mixed_release_quarter_phrase_survives_midi_ingest(tmp_path):

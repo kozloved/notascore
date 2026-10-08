@@ -229,6 +229,45 @@ def case_early_release_whole(path: Path) -> str:
     return _write(path, [(72, 0.0, 1.925, 80)])
 
 
+def case_mixed_release_chords(path: Path) -> str:
+    """Eight detached C–E–G chords with slightly different releases.
+
+    Expected Readable: eight quarter-note chords. Each attack is one pulse,
+    not three sequential leftover decisions.
+    """
+    durs = [0.385, 0.395, 0.405, 0.415, 0.385, 0.395, 0.405, 0.415]
+    notes = []
+    for i, dur in enumerate(durs):
+        start = i * 0.5
+        for pitch in (60, 64, 67):
+            notes.append((pitch, start, start + dur, 82))
+    return _write(path, notes)
+
+
+def case_short_chords_with_rests(path: Path) -> str:
+    """Deliberate short C–E–G attacks followed by meaningful rests."""
+    notes = []
+    for i in range(4):
+        start = i * 0.5
+        for pitch in (60, 64, 67):
+            notes.append((pitch, start, start + 0.10, 88))
+    return _write(path, notes)
+
+
+def case_hold_under_mixed_release_chords(path: Path) -> str:
+    """Inner G4 hold under mixed-release upper dyads.
+
+    Expected: the hold lasts the bar; moving attacks become quarters.
+    """
+    notes = [(67, 0.0, 2.0, 70)]
+    durs = [0.385, 0.395, 0.405, 0.415]
+    for i, dur in enumerate(durs):
+        start = i * 0.5
+        notes.append((72, start, start + dur, 82))
+        notes.append((76, start, start + dur, 80))
+    return _write(path, notes)
+
+
 def case_mixed_release_quarters(path: Path) -> str:
     """Eight detached quarters with slightly different releases.
 
@@ -389,6 +428,9 @@ READABLE_V2_CASES = {
     "early_release_whole": case_early_release_whole,
     "uneven_chord_releases": case_uneven_chord_releases,
     "mixed_release_quarters": case_mixed_release_quarters,
+    "mixed_release_chords": case_mixed_release_chords,
+    "short_chords_with_rests": case_short_chords_with_rests,
+    "hold_under_mixed_release_chords": case_hold_under_mixed_release_chords,
     "isolated_rest_in_phrase": case_isolated_rest_in_phrase,
 }
 
@@ -499,6 +541,26 @@ EXPECTED_NOTATION = {
         "onset": "Eight attacks on successive quarter beats.",
         "release": "Performed 0.77–0.83 beats. The variation is articulation.",
         "engraving": "Eight quarters. Do not alternate filled and unfilled leftovers.",
+    },
+    "mixed_release_chords": {
+        "onset": "Eight C–E–G attacks on successive quarter beats.",
+        "release": "Each chord's members share a performed duration of 0.77–0.83.",
+        "engraving": "Eight quarter-note chords. A chord is one attack, not three leftover fills.",
+    },
+    "short_chords_with_rests": {
+        "onset": "Four C–E–G attacks on successive quarter beats.",
+        "release": "Sounding sixteenths with visible rests through each quarter.",
+        "engraving": "Do not fill short chords to the next attack.",
+    },
+    "hold_under_mixed_release_chords": {
+        "onset": "Held G4 plus four upper dyads on successive quarters.",
+        "release": "The hold lasts the bar; dyads become quarters.",
+        "engraving": "Independent inner hold. Do not absorb it into the chords.",
+    },
+    "literal_measure_then_readable": {
+        "onset": "Eight mixed-release quarters; measure 1 is Literal, measure 2 Readable.",
+        "release": "Measure 1 keeps performed leftovers. Measure 2 writes quarters.",
+        "engraving": "Override boundaries stay. Do not fill through the Literal bar.",
     },
     "isolated_rest_in_phrase": {
         "onset": "Four attacks on successive quarter beats.",

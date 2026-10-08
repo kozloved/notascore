@@ -29,6 +29,7 @@ jobs:
             tests/test_export_evidence_structure.py \
             tests/test_readable_v2_rollout.py \
             tests/test_readable_interpretation.py \
+            tests/test_autumn_walks_readable.py \
             tests/test_notation_settings.py \
             -m "not audio and not integration and not pm2s and not app"
 
@@ -65,6 +66,7 @@ jobs:
             tests/test_voice_separator.py \
             tests/test_notation_articulation_ownership.py \
             tests/test_readable_interpretation.py \
+            tests/test_autumn_walks_readable.py \
             tests/test_notation_settings.py \
             tests/test_notation_evidence_meter.py \
             tests/test_export_integrity.py \

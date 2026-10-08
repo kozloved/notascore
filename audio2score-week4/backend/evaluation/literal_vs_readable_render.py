@@ -84,6 +84,55 @@ PAIRS = [
         "expected": EXPECTED_NOTATION["mixed_release_quarters"],
     },
     {
+        "id": "mixed_release_chords",
+        "builder": READABLE_V2_CASES["mixed_release_chords"],
+        "meter": "4/4",
+        "tempo": 120.0,
+        "kind": "synthetic",
+        "expected": EXPECTED_NOTATION["mixed_release_chords"],
+    },
+    {
+        "id": "short_chords_with_rests",
+        "builder": READABLE_V2_CASES["short_chords_with_rests"],
+        "meter": "4/4",
+        "tempo": 120.0,
+        "kind": "synthetic",
+        "expected": EXPECTED_NOTATION["short_chords_with_rests"],
+    },
+    {
+        "id": "hold_under_mixed_release_chords",
+        "builder": READABLE_V2_CASES["hold_under_mixed_release_chords"],
+        "meter": "4/4",
+        "tempo": 120.0,
+        "kind": "synthetic",
+        "expected": EXPECTED_NOTATION["hold_under_mixed_release_chords"],
+    },
+    {
+        "id": "literal_measure_then_readable",
+        "builder": READABLE_V2_CASES["mixed_release_quarters"],
+        "meter": "4/4",
+        "tempo": 120.0,
+        "kind": "synthetic",
+        "expected": EXPECTED_NOTATION["literal_measure_then_readable"],
+        "extra_modes": [
+            (
+                "literal_m1_readable_m2",
+                NotationSettings.from_dict(
+                    {
+                        "interpretation": "readable",
+                        "measure_overrides": [
+                            {
+                                "start_measure": 1,
+                                "end_measure": 1,
+                                "interpretation": "literal",
+                            }
+                        ],
+                    }
+                ),
+            )
+        ],
+    },
+    {
         "id": "isolated_rest_in_phrase",
         "builder": READABLE_V2_CASES["isolated_rest_in_phrase"],
         "meter": "4/4",
@@ -238,8 +287,17 @@ def render_pair(spec: dict, out_dir: Path) -> dict:
         midi_path, NotationSettings(), meter=spec["meter"], tempo=spec["tempo"]
     )
     assert midi_path.read_bytes() == original
+    results = [("literal", literal), ("readable", readable)]
+    extra_records = {}
+    for label, extra_settings in spec.get("extra_modes") or ():
+        extra, _ = _build(
+            midi_path, extra_settings, meter=spec["meter"], tempo=spec["tempo"]
+        )
+        assert midi_path.read_bytes() == original
+        results.append((label, extra))
+        extra_records[label] = _mode_record(extra, midi_sha)
     renders = {}
-    for label, result in (("literal", literal), ("readable", readable)):
+    for label, result in results:
         xml_path = case_dir / f"{label}.musicxml"
         xml_path.write_text(result.musicxml, encoding="utf-8")
         osmd_dir = case_dir / f"{label}_osmd"
@@ -257,7 +315,7 @@ def render_pair(spec: dict, out_dir: Path) -> dict:
             "pdf": {"ok": bool(pdf.get("pdf")), "path": str(pdf_path) if pdf_path.exists() else None},
             "crop": str(crop) if cropped and crop.exists() else None,
         }
-    return {
+    report = {
         "id": spec["id"],
         "kind": spec["kind"],
         "meter": spec["meter"],
@@ -268,6 +326,8 @@ def render_pair(spec: dict, out_dir: Path) -> dict:
         "renders": renders,
         "cache_keys_differ": literal.cache_key != readable.cache_key,
     }
+    report.update(extra_records)
+    return report
 
 
 def development_midi() -> list[dict]:
@@ -345,7 +405,7 @@ def copy_artifacts(report: dict, artifacts: Path) -> None:
     for row in report["cases"]:
         case_id = row["id"]
         case_dir = Path(report["out_dir"]) / case_id
-        for mode in ("literal", "readable"):
+        for mode in row.get("renders") or ("literal", "readable"):
             crop = case_dir / f"{mode}_crop.png"
             pdf = case_dir / f"{mode}_sheetresult.pdf"
             png = case_dir / f"{mode}_osmd" / "osmd.png"

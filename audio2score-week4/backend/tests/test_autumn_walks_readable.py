@@ -17,6 +17,8 @@ LITERAL = NotationSettings.from_dict(
 READABLE = NotationSettings.from_dict(
     {"interpretation": "readable", "algorithm_version": "performance-score-1"}
 )
+CURRENT = NotationSettings()
+V2 = NotationSettings.readable_v2()
 CONFIG = QuantizerConfig()
 
 
@@ -84,6 +86,17 @@ def test_readable_aligns_exact_thirty_second_melody_to_bass():
     assert any(d.get("reason") == "readable_shared_beat" for d in dec)
 
 
+def test_current_readable_aligns_exact_thirty_second_melody_to_bass():
+    events = [
+        _ev(42, 3.0, 2.0, "bass", Hand.LEFT),
+        _ev(77, 3.125, 2.0, "melody", Hand.RIGHT),
+    ]
+    out, dec, _ = quantize_notation(events, METER, config=CONFIG, settings=CURRENT)
+    by_id = {e.note_id: e for e in out}
+    assert by_id["bass"].start_beat == by_id["melody"].start_beat == 3.0
+    assert any(d.get("reason") == "readable_shared_beat" for d in dec)
+
+
 def test_readable_preserves_isolated_syncopation_without_accompaniment():
     events = [
         _ev(72, 1.125, 0.5, "offbeat", Hand.RIGHT),
@@ -100,12 +113,25 @@ def test_readable_aligns_humanized_chord_coincidence():
         _ev(64, 0.04, 1.85, "e"),
         _ev(67, 0.05, 1.88, "g"),
     ]
+    for settings in (CURRENT, V2):
+        out, dec, _ = quantize_notation(events, METER, config=CONFIG, settings=settings)
+        starts = {round(e.start_beat, 4) for e in out}
+        assert len(starts) == 1
+        assert min(starts) <= 0.05
+        reasons = {d.get("reason") for d in dec}
+        assert "readable_chord_coincidence" in reasons or len(starts) == 1
+
+
+def test_legacy_readable_does_not_chord_snap_humanized_members():
+    events = [
+        _ev(60, 0.00, 1.9, "c"),
+        _ev(64, 0.04, 1.85, "e"),
+        _ev(67, 0.05, 1.88, "g"),
+    ]
     out, dec, _ = quantize_notation(events, METER, config=CONFIG, settings=READABLE)
     starts = {round(e.start_beat, 4) for e in out}
-    assert len(starts) == 1
-    assert min(starts) <= 0.05
-    reasons = {d.get("reason") for d in dec}
-    assert "readable_chord_coincidence" in reasons or len(starts) == 1
+    assert "readable_chord_coincidence" not in {d.get("reason") for d in dec}
+    assert len(starts) > 1
 
 
 def test_readable_does_not_align_deliberate_same_hand_syncopation():
