@@ -1012,7 +1012,14 @@ def _phrase_ioi(ev, nxt, exact, pulse, to_bar):
 
 
 def _is_phrase_detached(raw, ioi):
-    """True when a leftover looks like articulation of a repeated written value."""
+    """True when a leftover looks like articulation of a repeated written value.
+
+    Mixed-release quarters (0.74–0.83 of the pulse) fill. Short notes with a
+    real rest (~0.64 of an irregular IOI, or remaining ≥ sounding duration)
+    stay short. This is stricter than the local leftover threshold so a
+    phrase of similar releases can still unify 0.77/0.83 without absorbing
+    genuine short-note/rest patterns.
+    """
     if ioi is None or ioi <= 0:
         return False
     rem = float(ioi) - float(raw)
@@ -1020,7 +1027,7 @@ def _is_phrase_detached(raw, ioi):
         return False
     if rem >= float(raw) - 1e-9:
         return False
-    if float(raw) / float(ioi) < 0.55:
+    if float(raw) / float(ioi) < 0.74:
         return False
     return True
 

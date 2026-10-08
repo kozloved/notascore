@@ -193,6 +193,16 @@ def test_compound_and_triple_meters_fill_conventional_slots():
     assert all(abs(e.duration_beats - 0.5) < 0.05 for e in out68)
 
 
+def test_irregular_short_triplet_intervals_keep_rests():
+    events = [
+        _ev(72, 0.0, 0.24, "a"),
+        _ev(74, 0.38, 0.24, "b"),
+        _ev(76, 0.82, 0.24, "c"),
+    ]
+    out, _, _ = _quantize(events, READABLE)
+    assert all(e.duration_beats <= 0.25 + 1e-9 for e in out)
+
+
 def test_syncopation_and_tuplets_are_not_flattened():
     events = [
         _ev(72, 0.25, 0.5, "a"),
@@ -543,6 +553,20 @@ def test_offbeat_release_targets_use_metrical_positions_not_onset_plus_beat():
     assert abs(out[0].start_beat - 0.25) < 1e-6
     assert round(out[0].duration_beats, 4) == 0.75
     assert round(out[0].start_beat + out[0].duration_beats, 4) == 1.0
+
+
+def test_short_rests_repeats_keep_the_interior_gap(tmp_path):
+    source = tmp_path / "short_rests.mid"
+    FIXTURES["short_rests_repeats"](source)
+    original = source.read_bytes()
+    ingested = ingest_midi(source)
+    events = notes_to_events(ingested.notes, ingested.tempo_map, source_backend="midi")
+    out, _, _ = _quantize(events, READABLE)
+    assert source.read_bytes() == original
+    by_start = {round(e.start_beat, 4): e for e in out}
+    assert 0.25 in by_start and 0.75 in by_start
+    assert by_start[0.25].duration_beats <= 0.25 + 1e-9
+    assert round(by_start[0.25].start_beat + by_start[0.25].duration_beats, 4) < 0.75
 
 
 def test_isolated_interior_rest_survives_midi_ingest(tmp_path):

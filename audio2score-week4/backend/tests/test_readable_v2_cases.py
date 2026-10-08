@@ -50,7 +50,10 @@ def test_readable_unifies_humanized_chord_durations_not_mixed_release(tmp_path):
         ev(64, 0.03, 1.80, "e"),
         ev(67, 0.04, 1.88, "g"),
     ]
-    out, dec, _ = quantize_notation(chord, METER, config=QuantizerConfig(), settings=V1)
+    legacy, _, _ = quantize_notation(chord, METER, config=QuantizerConfig(), settings=V1)
+    assert len({round(e.start_beat, 4) for e in legacy}) > 1
+
+    out, dec, _ = quantize_notation(chord, METER, config=QuantizerConfig(), settings=V2)
     starts = {round(e.start_beat, 4) for e in out}
     durs = {round(e.duration_beats, 4) for e in out}
     assert len(starts) == 1
@@ -65,7 +68,7 @@ def test_readable_unifies_humanized_chord_durations_not_mixed_release(tmp_path):
         MusicalEvent(79, 2.0, 0.84, note_id="m2", velocity=80, source_backend="midi"),
         MusicalEvent(81, 3.0, 0.84, note_id="m3", velocity=80, source_backend="midi"),
     ]
-    mixed_out, _dec, _ = quantize_notation(mixed, METER, config=QuantizerConfig(), settings=V1)
+    mixed_out, _dec, _ = quantize_notation(mixed, METER, config=QuantizerConfig(), settings=V2)
     held = next(e for e in mixed_out if e.note_id == "inner")
     moving = [e for e in mixed_out if e.note_id != "inner"]
     assert round(held.duration_beats, 4) >= 3.9

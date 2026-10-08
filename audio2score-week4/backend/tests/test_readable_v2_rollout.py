@@ -278,7 +278,16 @@ def test_rollout_run_writes_report_and_keeps_v2_opt_in(tmp_path):
     assert "short_rests_repeats" in labels
     short = next(row for row in report["cases"] if row["label"] == "short_rests_repeats")
     irregular = next(row for row in report["cases"] if row["label"] == "irregular_triplet_intervals")
-    assert short["timing"]["durations_equal"] is True
+    # Phrase-level Readable may write consecutive sixteenths consistently; the
+    # interior rest (the skip from beat 0.25 to 0.75) must remain.
+    v2_starts = [round(float(n["start"]), 4) for n in short["v2"]["assignments"]["notes"]]
+    v2_durs = {
+        round(float(n["start"]), 4): round(float(n["duration"]), 4)
+        for n in short["v2"]["assignments"]["notes"]
+    }
+    assert 0.25 in v2_starts
+    assert 0.75 in v2_starts
+    assert v2_durs[0.25] <= 0.25 + 1e-9
     assert irregular["timing"]["durations_equal"] is True
     assert short["measure_integrity"]["v1_musical_valid"] is True
     assert short["measure_integrity"]["v2_musical_valid"] is True
