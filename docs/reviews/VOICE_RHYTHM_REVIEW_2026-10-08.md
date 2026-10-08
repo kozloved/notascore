@@ -3,7 +3,9 @@
 Reviewed main at `71b4c18` (PR #100, canonical rests + independent playback
 tempo). This increment stays on the shared production path
 (`assign_pipeline_layout` → `quantize_notation` → `build_exact_measures` →
-writer/playback/regen). Experimental (`performance-score-2`) remains opt-in.
+writer/playback/regen). User-facing modes are Literal and Readable. New
+scores default to Readable (`performance-score-2`). Saved jobs keep stored
+`algorithm_version` until explicit regenerate.
 
 Development MIDI is labeled as such. P1 musician reviews remain 0/15.
 
@@ -12,7 +14,7 @@ Development MIDI is labeled as such. P1 musician reviews remain 0/15.
 Input: `evaluation/development/NotaTestSamples/Case2/138_с_chords_piano_raw.mid`
 (undocumented development MIDI, not musician-validated).
 
-Current engine (this increment, Standard Readable):
+Current engine (this increment, user-facing Readable):
 
 - Staff equal v1/v2; musical grouping equal; source MIDI bytes unchanged.
 - Kind: printed-lane adjustment (or unchanged), **not** a musical-line regrouping.
@@ -115,6 +117,10 @@ Until that lands, ornaments stay decision + `articulation="ornament"` only.
 
 - Not musician-validated quality. New scores default to Readable
   (`performance-score-2`); existing jobs are not auto-migrated.
+- Reattack / pedal-tail writes to the next accepted attack. Independent
+  overlapping unisons and long same-pitch holds stay `overlapping_repeat`.
+- Literal vs Readable OSMD/PDF of the same MIDI is the visual evidence for
+  this increment, not fewer symbols alone.
 - 138 remains unlabeled development MIDI. Chord-coincidence spelling on that
   file is a printed-lane / duration change, not musician-validated quality.
 - Filename-specific heuristics were not added.

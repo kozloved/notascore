@@ -9,7 +9,8 @@ from pathlib import Path
 import pretty_midi
 
 from evaluation.notation_fixtures import FIXTURES
-from evaluation.readable_v2_cases import READABLE_V2_CASES
+from evaluation.literal_vs_readable_render import PAIRS
+from evaluation.readable_v2_cases import EXPECTED_NOTATION, READABLE_V2_CASES
 from mir.cmr_builder import notes_to_events
 from mir.midi_ingest import ingest_midi
 from mir.models import MeterHypothesis
@@ -43,6 +44,21 @@ def _ev(pitch, start, dur, ident, hand=Hand.RIGHT, **kwargs):
 
 def _quantize(events, settings, meter=METER):
     return quantize_notation(events, meter, config=CONFIG, settings=settings)
+
+
+def test_literal_vs_readable_pairs_have_independent_expected_notation():
+    ids = {row["id"] for row in PAIRS}
+    assert "A_detached_regular_line" in ids
+    assert "B_short_notes_with_rests" in ids
+    assert "humanized_ceg_chord" in ids
+    assert "rapid_sixteenth_run" in ids
+    for row in PAIRS:
+        expected = row["expected"]
+        assert expected["onset"]
+        assert expected["release"]
+        assert expected["engraving"]
+        if row["id"] in EXPECTED_NOTATION:
+            assert expected["engraving"]
 
 
 def test_early_release_fills_to_conventional_duration_in_readable_not_literal():
@@ -303,6 +319,56 @@ def test_score_playback_matches_readable_written_durations(tmp_path):
     played = sorted((round(n.end - n.start, 3), n.pitch) for n in score.instruments[0].notes)
     assert played
     assert all(abs(dur - 1.0) < 0.05 for dur, _pitch in played)
+
+
+def test_midi_humanized_chord_vs_rapid_run_through_ingest(tmp_path):
+    chord_path = tmp_path / "humanized.mid"
+    READABLE_V2_CASES["humanized_ceg_chord"](chord_path)
+    original = chord_path.read_bytes()
+    ingested = ingest_midi(chord_path)
+    events = notes_to_events(ingested.notes, ingested.tempo_map, source_backend="midi")
+    readable, _, _ = _quantize(events, READABLE)
+    literal, _, _ = _quantize(events, LITERAL)
+    assert chord_path.read_bytes() == original
+    assert len({round(e.start_beat, 4) for e in readable}) == 1
+    assert {round(e.duration_beats, 4) for e in readable} == {2.0}
+    assert max(e.start_beat for e in literal) > 0.0 or min(
+        e.duration_beats for e in literal
+    ) < 2.0 - 1e-6
+
+    run_path = tmp_path / "run.mid"
+    READABLE_V2_CASES["rapid_sixteenth_run"](run_path)
+    original = run_path.read_bytes()
+    ingested = ingest_midi(run_path)
+    events = notes_to_events(ingested.notes, ingested.tempo_map, source_backend="midi")
+    out, _, _ = _quantize(events, READABLE)
+    assert run_path.read_bytes() == original
+    starts = [round(e.start_beat, 6) for e in sorted(out, key=lambda e: e.start_beat)]
+    assert starts == [0.0, 0.0625, 0.125]
+    assert all(e.duration_beats <= 0.125 + 1e-9 for e in out)
+
+
+def test_midi_early_release_and_uneven_chord_through_ingest(tmp_path):
+    whole = tmp_path / "whole.mid"
+    READABLE_V2_CASES["early_release_whole"](whole)
+    original = whole.read_bytes()
+    ingested = ingest_midi(whole)
+    events = notes_to_events(ingested.notes, ingested.tempo_map, source_backend="midi")
+    readable, _, _ = _quantize(events, READABLE)
+    literal, _, _ = _quantize(events, LITERAL)
+    assert whole.read_bytes() == original
+    assert round(readable[0].duration_beats, 4) == 4.0
+    assert literal[0].duration_beats < 4.0
+
+    chord = tmp_path / "uneven.mid"
+    READABLE_V2_CASES["uneven_chord_releases"](chord)
+    original = chord.read_bytes()
+    ingested = ingest_midi(chord)
+    events = notes_to_events(ingested.notes, ingested.tempo_map, source_backend="midi")
+    readable, _, _ = _quantize(events, READABLE)
+    assert chord.read_bytes() == original
+    assert len({round(e.start_beat, 4) for e in readable}) == 1
+    assert {round(e.duration_beats, 4) for e in readable} == {2.0}
 
 
 def test_legacy_saved_readable_does_not_fill_detached_quarters():

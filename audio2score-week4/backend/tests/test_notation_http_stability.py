@@ -838,14 +838,14 @@ def test_http_mixed_chord_articulations_survive_save_reload_regen_reset(isolated
         assert (isolated_db / f"{job_id}.raw.mid").read_bytes() == original
 
 
-def test_http_readable_v2_is_explicit_opt_in_and_persists(isolated_db, monkeypatch):
+def test_http_readable_defaults_to_current_engine_and_preserves_legacy(isolated_db, monkeypatch):
     _fail_if_transcribe(monkeypatch)
     job_id = f"v2-{uuid.uuid4().hex[:12]}"
     _xml_path, original = _prepare_http_job(isolated_db, job_id)
     with _client() as client:
         listed = client.get(f"/jobs/{job_id}/notation-settings")
         assert listed.status_code == 200
-        assert listed.json()["algorithm_version"] == "performance-score-1"
+        assert listed.json()["algorithm_version"] == "performance-score-2"
         assert listed.json()["notation_settings"]["interpretation"] == "readable"
         assert listed.json()["regeneration_available"] is True
         assert listed.json().get("regeneration_unavailable_reason") in (None, "")
@@ -855,55 +855,55 @@ def test_http_readable_v2_is_explicit_opt_in_and_persists(isolated_db, monkeypat
             json={"interpretation": "readable", "revision": 0},
         )
         assert readable.status_code == 200, readable.text
-        assert readable.json()["algorithm_version"] == "performance-score-1"
-        assert readable.json()["notation_settings"]["algorithm_version"] == "performance-score-1"
+        assert readable.json()["algorithm_version"] == "performance-score-2"
+        assert readable.json()["notation_settings"]["algorithm_version"] == "performance-score-2"
         assert readable.json()["transcribed"] is False
         assert readable.json()["regeneration_available"] is True
 
-        v2 = client.post(
-            f"/jobs/{job_id}/notation-settings",
-            json={
-                "interpretation": "readable",
-                "algorithm_version": "performance-score-2",
-                "revision": readable.json()["edit_revision"],
-            },
-        )
-        assert v2.status_code == 200, v2.text
-        assert v2.json()["algorithm_version"] == "performance-score-2"
-        assert v2.json()["transcribed"] is False
-        persisted = client.get(f"/jobs/{job_id}/notation-settings")
-        assert persisted.json()["algorithm_version"] == "performance-score-2"
-        assert persisted.json()["notation_settings"]["interpretation"] == "readable"
-        assert persisted.json()["regeneration_available"] is True
-
-        back = client.post(
+        legacy = client.post(
             f"/jobs/{job_id}/notation-settings",
             json={
                 "interpretation": "readable",
                 "algorithm_version": "performance-score-1",
-                "revision": v2.json()["edit_revision"],
+                "revision": readable.json()["edit_revision"],
             },
         )
-        assert back.status_code == 200, back.text
-        assert back.json()["algorithm_version"] == "performance-score-1"
-        assert back.json()["transcribed"] is False
+        assert legacy.status_code == 200, legacy.text
+        assert legacy.json()["algorithm_version"] == "performance-score-1"
+        assert legacy.json()["transcribed"] is False
+        persisted = client.get(f"/jobs/{job_id}/notation-settings")
+        assert persisted.json()["algorithm_version"] == "performance-score-1"
+        assert persisted.json()["notation_settings"]["interpretation"] == "readable"
+        assert persisted.json()["regeneration_available"] is True
 
-        keep_readable = client.post(
+        current = client.post(
             f"/jobs/{job_id}/notation-settings",
             json={
                 "interpretation": "readable",
                 "algorithm_version": "performance-score-2",
-                "revision": back.json()["edit_revision"],
+                "revision": legacy.json()["edit_revision"],
             },
         )
-        assert keep_readable.status_code == 200, keep_readable.text
-        assert keep_readable.json()["algorithm_version"] == "performance-score-2"
+        assert current.status_code == 200, current.text
+        assert current.json()["algorithm_version"] == "performance-score-2"
+        assert current.json()["transcribed"] is False
+
+        literal = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={
+                "interpretation": "literal",
+                "revision": current.json()["edit_revision"],
+            },
+        )
+        assert literal.status_code == 200, literal.text
+        assert literal.json()["notation_settings"]["interpretation"] == "literal"
 
         reset = client.post(
             f"/jobs/{job_id}/notation-settings",
-            json={"reset": True, "revision": keep_readable.json()["edit_revision"]},
+            json={"reset": True, "revision": literal.json()["edit_revision"]},
         )
         assert reset.status_code == 200, reset.text
-        assert reset.json()["algorithm_version"] == "performance-score-1"
+        assert reset.json()["algorithm_version"] == "performance-score-2"
+        assert reset.json()["notation_settings"]["interpretation"] == "readable"
         assert (isolated_db / f"{job_id}.raw.mid").read_bytes() == original
 

@@ -1,4 +1,4 @@
-"""readable-v2 stays opt-in; rollout comparison preserves MIDI and silence."""
+"""Legacy Readable vs current Readable comparison preserves MIDI and silence."""
 
 from __future__ import annotations
 

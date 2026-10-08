@@ -188,6 +188,62 @@ def case_d_independent_sustain(path: Path) -> str:
     return _write(path, notes)
 
 
+def case_humanized_ceg_chord(path: Path) -> str:
+    """Humanized C–E–G: slightly staggered attacks, substantial overlap.
+
+    Expected Readable: one half-note chord. Members overlap and share a
+    likely release. Literal may keep the performed stagger.
+    """
+    return _write(
+        path,
+        [
+            (60, 0.00, 0.95, 80),
+            (64, 0.02, 0.945, 78),
+            (67, 0.025, 0.94, 82),
+        ],
+    )
+
+
+def case_rapid_sixteenth_run(path: Path) -> str:
+    """Consecutive short C–E–G attacks, not a staggered chord.
+
+    Expected in both modes: three successive 16ths. Duration equals the
+    onset spread; there is no shared sustain.
+    """
+    # 120 BPM: 16th = 0.125s.
+    return _write(
+        path,
+        [
+            (60, 0.0, 0.03125, 84),
+            (64, 0.03125, 0.0625, 84),
+            (67, 0.0625, 0.09375, 84),
+        ],
+    )
+
+
+def case_early_release_whole(path: Path) -> str:
+    """Single attack from beat 0 that releases at 3.85 in 4/4.
+
+    Expected Readable: a whole note. Literal keeps the performed length.
+    """
+    return _write(path, [(72, 0.0, 1.925, 80)])
+
+
+def case_uneven_chord_releases(path: Path) -> str:
+    """Chord members with slightly different performed releases.
+
+    Expected Readable: one half-note chord. Literal may keep 1.82/1.94/2.01.
+    """
+    return _write(
+        path,
+        [
+            (60, 0.00, 0.91, 80),
+            (64, 0.015, 0.97, 78),
+            (67, 0.02, 1.005, 82),
+        ],
+    )
+
+
 def case_final_short_then_silence(path: Path) -> str:
     """Held-out: four quarters, then a short attack followed by silence.
 
@@ -303,6 +359,10 @@ READABLE_V2_CASES = {
     "J_intentional_short_triplet_rests": case_j_intentional_short_triplet_rests,
     "K_repeated_triplet_pitches": case_k_repeated_triplet_pitches,
     "L_held_voice_under_triplets": case_l_held_voice_under_triplets,
+    "humanized_ceg_chord": case_humanized_ceg_chord,
+    "rapid_sixteenth_run": case_rapid_sixteenth_run,
+    "early_release_whole": case_early_release_whole,
+    "uneven_chord_releases": case_uneven_chord_releases,
 }
 
 # Held-out investigation material. None of these were used to tune the
@@ -387,6 +447,26 @@ EXPECTED_NOTATION = {
         "onset": "One bass attack plus six treble triplet-eighth attacks.",
         "release": "Bass lasts its span; treble last note is a triplet eighth.",
         "engraving": "Two independent voices. Do not clip the hold.",
+    },
+    "humanized_ceg_chord": {
+        "onset": "C3–E3–G3 with a few hundredths of a beat of stagger.",
+        "release": "Members overlap substantially and share a likely half-note release.",
+        "engraving": "Readable: one half-note chord. Literal may keep the stagger.",
+    },
+    "rapid_sixteenth_run": {
+        "onset": "C4, E4, G4 at beats 0, 1/16, 1/8.",
+        "release": "Each lasts a 16th. No shared sustain.",
+        "engraving": "Consecutive short attacks in both modes, not a staggered chord.",
+    },
+    "early_release_whole": {
+        "onset": "One attack at beat 0.",
+        "release": "Performed 3.85 beats in 4/4.",
+        "engraving": "Readable: whole note. Literal: near 3.85, not forced to 4.",
+    },
+    "uneven_chord_releases": {
+        "onset": "C3–E3–G3 nearly together.",
+        "release": "Performed 1.82, 1.94, 2.01 beats.",
+        "engraving": "Readable: one half-note chord. Do not stretch an independent hold.",
     },
     "mixed_tuplets": {
         "onset": "Four quarters, then six triplet-eighth attacks starting at beat 4.",

@@ -742,16 +742,16 @@ def _duration(
             named,
             key=lambda d: (abs(float(d) - raw), d.denominator, d),
         )
-    # Preserve-overlap wins over an inferred pedal-tail cutoff.
-    # A performed hold longer than the next same-pitch attack is an overlapping
-    # unison, not a replacement; do not steal that release.
+    # Reattack / pedal-tail means write to the next accepted attack. Independent
+    # overlapping unisons and long holds through a same-pitch interrupter are
+    # classified as overlapping_repeat before this point, so they never cap.
     if (
         settings.overlap_handling != OverlapHandling.PRESERVE
         and release_reason in {"pedal_tail", "reattack"}
         and isinstance(release_at, Fraction)
     ):
         cap = release_at - onset
-        if cap > 0 and float(raw) <= float(cap) + 0.12:
+        if cap > 0:
             return cap
     if isinstance(next_onset, Fraction) or next_onset is None:
         effective_next = next_onset
