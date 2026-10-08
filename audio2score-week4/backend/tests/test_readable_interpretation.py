@@ -64,6 +64,9 @@ def test_literal_vs_readable_pairs_have_independent_expected_notation():
     assert "ambiguous_five_shorts" in ids
     assert "detached_melody_with_offbeat_accompaniment" in ids
     assert "detached_same_staff_independent_voices" in ids
+    assert "offbeat_quarters_crossing_barline" in ids
+    assert "phrase_ending_visible_rest" in ids
+    assert "early_release_chord_to_bar" in ids
     assert "humanized_ceg_chord" in ids
     assert "rapid_sixteenth_run" in ids
     for row in PAIRS:

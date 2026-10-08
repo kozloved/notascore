@@ -1400,6 +1400,8 @@ def _detached_stream_groups(events, exact):
 
 
 def _detached_mark(ev):
+    if (ev.articulation_source or "") == "user_edit":
+        return ev.articulation or None, "user_edit"
     if ev.articulation:
         source = ev.articulation_source or "supplied"
         return ev.articulation, source
@@ -1493,7 +1495,11 @@ def _readable_unify_detached_pulse(
                     if until_next < chosen:
                         chosen = until_next
                         truncated_by_stream = True
-                if to_bar is not None and to_bar > 0:
+                # A barline is an engraving boundary. Duration inference stays
+                # on the logical note; canonical spelling splits it into ties.
+                # The last attack of a phrase does not invent a continuation
+                # into empty following space.
+                if nxt is None and to_bar is not None and to_bar > 0:
                     chosen = min(chosen, Fraction(to_bar))
                 if chosen <= 0:
                     continue
@@ -1503,26 +1509,30 @@ def _readable_unify_detached_pulse(
                 mark, source = _detached_mark(ev)
                 filled = True
                 if abs(float(chosen) - float(duration)) <= 1e-9:
-                    if not ev.articulation:
+                    if source != "user_edit" and not ev.articulation:
                         updated_by_id[ev.note_id] = copy_event(
                             ev, articulation=mark, articulation_source=source
                         )
                     continue
                 new_exact[ev.note_id] = (current_onset, chosen, family, group_id)
-                updated_by_id[ev.note_id] = copy_event(
-                    ev,
-                    duration_beats=float(chosen),
-                    articulation=mark,
-                    articulation_source=source,
-                )
+                if source == "user_edit":
+                    updated = copy_event(ev, duration_beats=float(chosen))
+                else:
+                    updated = copy_event(
+                        ev,
+                        duration_beats=float(chosen),
+                        articulation=mark,
+                        articulation_source=source,
+                    )
+                updated_by_id[ev.note_id] = updated
                 adjustments[ev.note_id] = {
                     "from": float(duration),
                     "to": float(chosen),
                     "reason": "readable_detached_pulse",
                     "pulse": float(pulse),
                     "performed": float(raw),
-                    "articulation": mark,
-                    "articulation_source": source,
+                    "articulation": updated.articulation,
+                    "articulation_source": updated.articulation_source,
                 }
             if filled:
                 pulse_hint = pulse

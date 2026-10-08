@@ -411,6 +411,46 @@ def case_detached_same_staff_independent_voices(path: Path) -> str:
     return _write(path, notes)
 
 
+def case_offbeat_quarters_crossing_barline(path: Path) -> str:
+    """Eight offbeat detached attacks, pulse one quarter.
+
+    Interior notes keep the inferred quarter across the barline and print as
+    tied eighths. The last attack is a phrase ending at the bar.
+    """
+    notes = []
+    for i in range(8):
+        start = i * 0.5 + 0.25
+        notes.append((48, start, start + 0.10, 72))
+    return _write(path, notes)
+
+
+def case_phrase_ending_visible_rest(path: Path) -> str:
+    """Three detached on-beat quarters, then silence through the barline.
+
+    Expected: three staccato quarters and a visible rest on beat 4.
+    """
+    notes = []
+    for i in range(3):
+        start = i * 0.5
+        notes.append((72, start, start + 0.10, 84))
+    return _write(path, notes)
+
+
+def case_early_release_chord_to_bar(path: Path) -> str:
+    """Early-released C–E–G intended to occupy the bar.
+
+    Expected Readable: one whole-note chord. Literal keeps the performed ends.
+    """
+    return _write(
+        path,
+        [
+            (60, 0.00, 1.85, 80),
+            (64, 0.01, 1.89, 78),
+            (67, 0.02, 1.925, 82),
+        ],
+    )
+
+
 def case_uneven_chord_releases(path: Path) -> str:
     """Chord members with slightly different performed releases.
 
@@ -558,6 +598,9 @@ READABLE_V2_CASES = {
     "ambiguous_five_shorts": case_ambiguous_five_shorts,
     "detached_melody_with_offbeat_accompaniment": case_detached_melody_with_offbeat_accompaniment,
     "detached_same_staff_independent_voices": case_detached_same_staff_independent_voices,
+    "offbeat_quarters_crossing_barline": case_offbeat_quarters_crossing_barline,
+    "phrase_ending_visible_rest": case_phrase_ending_visible_rest,
+    "early_release_chord_to_bar": case_early_release_chord_to_bar,
 }
 
 # Held-out investigation material. None of these were used to tune the
@@ -771,11 +814,26 @@ EXPECTED_NOTATION = {
     "detached_melody_with_offbeat_accompaniment": {
         "onset": "Eight right-hand attacks on beats 0–7 plus left-hand offbeats.",
         "release": "Both streams performed ~0.20 of a quarter.",
-        "engraving": "Melody stays staccato quarters. Offbeat accompaniment does not truncate it.",
+        "engraving": "Melody stays staccato quarters. Offbeat accompaniment keeps interior quarters across the barline, printed as ties.",
     },
     "detached_same_staff_independent_voices": {
         "onset": "High on-beat stream plus a low offbeat stream on one staff.",
         "release": "Both streams performed ~0.20 of a quarter.",
-        "engraving": "Independent voices. The melody keeps its quarter interpretation.",
+        "engraving": "Independent voices. Interior offbeats stay quarters across the barline.",
+    },
+    "offbeat_quarters_crossing_barline": {
+        "onset": "Eight left-hand attacks on beats 0.5, 1.5, …, 7.5.",
+        "release": "Each performed 0.20 of a quarter.",
+        "engraving": "Interior logical quarters, including 3.5. Print the barline crossing as tied eighths. Last attack is a phrase ending.",
+    },
+    "phrase_ending_visible_rest": {
+        "onset": "Three on-beat detached attacks, then silence.",
+        "release": "Each performed 0.20 of a quarter.",
+        "engraving": "Three staccato quarters and a visible rest before the barline.",
+    },
+    "early_release_chord_to_bar": {
+        "onset": "C3–E3–G3 together at beat 0.",
+        "release": "Performed about 3.70–3.85 beats in 4/4.",
+        "engraving": "Readable: one whole-note chord. Literal keeps the early releases.",
     },
 }
