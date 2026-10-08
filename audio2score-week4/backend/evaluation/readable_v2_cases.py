@@ -293,6 +293,95 @@ def case_isolated_rest_in_phrase(path: Path) -> str:
     return _write(path, notes)
 
 
+def case_strongly_detached_quarters(path: Path) -> str:
+    """Eight strongly detached scale degrees on a quarter pulse.
+
+    Performed ~0.10s (0.20 of the beat). Readable convention: eight written
+    quarters, optionally staccato — not sixteenths plus rests. Distinct from
+    B_short_notes_with_rests, which is a four-attack rest figure.
+    """
+    pitches = [72, 74, 76, 77, 79, 81, 83, 84]
+    notes = []
+    for i, pitch in enumerate(pitches):
+        start = i * 0.5
+        notes.append((pitch, start, start + 0.10, 84))
+    return _write(path, notes)
+
+
+def case_strongly_detached_chords(path: Path) -> str:
+    """Eight short C–E–G attacks on a quarter pulse.
+
+    Distinct from short_chords_with_rests (four attacks): a repeating
+    block-chord pattern is written as quarters.
+    """
+    notes = []
+    for i in range(8):
+        start = i * 0.5
+        for pitch in (60, 64, 67):
+            notes.append((pitch, start, start + 0.10, 86))
+    return _write(path, notes)
+
+
+def case_detached_bass_chord_pulse(path: Path) -> str:
+    """Bass octaves alternating with upper dyads, all short, quarter pulse.
+
+    Construction analogue of a detached accompaniment. Meter is supplied 4/4;
+    do not infer 3/4 from texture.
+    """
+    notes = []
+    for i in range(8):
+        start = i * 0.5
+        if i % 3 == 0:
+            notes.append((38, start, start + 0.11, 78))
+            notes.append((50, start, start + 0.11, 76))
+        else:
+            notes.append((54, start, start + 0.09, 80))
+            notes.append((57, start, start + 0.10, 82))
+    return _write(path, notes)
+
+
+def case_detached_phrase_with_pause(path: Path) -> str:
+    """Detached quarter line with one skipped beat.
+
+    Expected: written quarters around a visible rest. Do not fill across the
+    pause or absorb it as leftover articulation.
+    """
+    pitches = [72, 74, 76, 77, 79, 81, 83, 84]
+    beats = [0, 1, 2, 3, 5, 6, 7, 8]
+    notes = []
+    for pitch, beat in zip(pitches, beats):
+        start = beat * 0.5
+        notes.append((pitch, start, start + 0.10, 84))
+    return _write(path, notes)
+
+
+def case_hold_under_strongly_detached(path: Path) -> str:
+    """Inner G4 hold under eight short upper dyads.
+
+    Expected: the hold lasts the phrase; moving attacks become quarters.
+    """
+    notes = [(67, 0.0, 4.0, 70)]
+    for i in range(8):
+        start = i * 0.5
+        notes.append((72, start, start + 0.10, 84))
+        notes.append((76, start, start + 0.10, 82))
+    return _write(path, notes)
+
+
+def case_ambiguous_five_shorts(path: Path) -> str:
+    """Five identical short attacks on a quarter pulse.
+
+    Ambiguous: not enough phrase evidence to prefer detached quarters.
+    Readable convention: keep the short notes and rests. Literal is the
+    precise alternative if the user wanted five staccato quarters.
+    """
+    notes = []
+    for i in range(5):
+        start = i * 0.5
+        notes.append((76, start, start + 0.10, 88))
+    return _write(path, notes)
+
+
 def case_uneven_chord_releases(path: Path) -> str:
     """Chord members with slightly different performed releases.
 
@@ -432,6 +521,12 @@ READABLE_V2_CASES = {
     "short_chords_with_rests": case_short_chords_with_rests,
     "hold_under_mixed_release_chords": case_hold_under_mixed_release_chords,
     "isolated_rest_in_phrase": case_isolated_rest_in_phrase,
+    "strongly_detached_quarters": case_strongly_detached_quarters,
+    "strongly_detached_chords": case_strongly_detached_chords,
+    "detached_bass_chord_pulse": case_detached_bass_chord_pulse,
+    "detached_phrase_with_pause": case_detached_phrase_with_pause,
+    "hold_under_strongly_detached": case_hold_under_strongly_detached,
+    "ambiguous_five_shorts": case_ambiguous_five_shorts,
 }
 
 # Held-out investigation material. None of these were used to tune the
@@ -566,6 +661,36 @@ EXPECTED_NOTATION = {
         "onset": "Four attacks on successive quarter beats.",
         "release": "Beats 1, 2, and 4 are detached quarters; beat 3 is a short rest.",
         "engraving": "Keep the interior rest. Fill the neighboring quarters.",
+    },
+    "strongly_detached_quarters": {
+        "onset": "Eight scale degrees on successive quarter beats.",
+        "release": "Performed ~0.20 of the pulse. Readable writes quarters; the shortness is articulation.",
+        "engraving": "Quarter line, optionally staccato. Not sixteenths plus rests.",
+    },
+    "strongly_detached_chords": {
+        "onset": "Eight C–E–G attacks on successive quarter beats.",
+        "release": "Performed ~0.20 of the pulse, similar across the phrase.",
+        "engraving": "Eight quarter-note chords. Distinct from the four-attack rest figure.",
+    },
+    "detached_bass_chord_pulse": {
+        "onset": "Eight quarter-pulse attacks: bass octaves alternating with dyads.",
+        "release": "All members ~0.18–0.22 of the pulse. Roles stay separate.",
+        "engraving": "Written quarters under supplied 4/4. Do not retune meter from texture.",
+    },
+    "detached_phrase_with_pause": {
+        "onset": "Eight attacks on a quarter grid with beat 5 skipped.",
+        "release": "Each sounding attack is short; the skipped beat is a rest.",
+        "engraving": "Quarters around a visible pause. Do not fill across the gap.",
+    },
+    "hold_under_strongly_detached": {
+        "onset": "Held G4 plus eight upper dyads on successive quarters.",
+        "release": "The hold lasts the phrase; dyads become detached quarters.",
+        "engraving": "Independent inner hold. Do not clip it or absorb it into the dyads.",
+    },
+    "ambiguous_five_shorts": {
+        "onset": "Five identical short attacks on successive quarter beats.",
+        "release": "Not enough phrase evidence to prefer written quarters.",
+        "engraving": "Readable convention: keep short notes and rests. Literal remains available.",
     },
     "mixed_tuplets": {
         "onset": "Four quarters, then six triplet-eighth attacks starting at beat 4.",

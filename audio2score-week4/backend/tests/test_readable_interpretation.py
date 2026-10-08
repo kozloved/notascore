@@ -56,6 +56,12 @@ def test_literal_vs_readable_pairs_have_independent_expected_notation():
     assert "hold_under_mixed_release_chords" in ids
     assert "literal_measure_then_readable" in ids
     assert "isolated_rest_in_phrase" in ids
+    assert "strongly_detached_quarters" in ids
+    assert "strongly_detached_chords" in ids
+    assert "detached_bass_chord_pulse" in ids
+    assert "detached_phrase_with_pause" in ids
+    assert "hold_under_strongly_detached" in ids
+    assert "ambiguous_five_shorts" in ids
     assert "humanized_ceg_chord" in ids
     assert "rapid_sixteenth_run" in ids
     for row in PAIRS:
