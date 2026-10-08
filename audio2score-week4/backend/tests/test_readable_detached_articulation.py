@@ -602,3 +602,33 @@ def test_case3_development_midi_fills_under_fixed_four_four():
     assert all(round(e.duration_beats, 4) == 1.0 for e in readable)
     assert all(e.duration_beats <= 0.30 + 1e-9 for e in literal)
     assert len({e.note_id for e in readable}) == 24
+
+
+def test_midi_ingest_publishes_quantized_editor_model(tmp_path):
+    from engine.sidecars import extra_result_files
+    from mir.pipeline import UnderstandingPipeline
+    from score_edits import loads_edits
+
+    midi = pretty_midi.PrettyMIDI(initial_tempo=120)
+    inst = pretty_midi.Instrument(0, name="Piano")
+    for i in range(8):
+        start = i * 0.5
+        inst.notes.append(
+            pretty_midi.Note(velocity=84, pitch=72 + i, start=start, end=start + 0.10)
+        )
+    midi.instruments.append(inst)
+    source = tmp_path / "detached.mid"
+    midi.write(str(source))
+    job_id = "first-open"
+    UnderstandingPipeline().transcribe_midi(source, job_id)
+    out_dir = tmp_path / f"bp_{job_id}"
+    path = out_dir / f"{job_id}.edits.json"
+    assert path.is_file()
+    extras = {p.name for p in extra_result_files(out_dir, job_id)}
+    assert f"{job_id}.edits.json" in extras
+    model = loads_edits(path.read_text(encoding="utf-8"))
+    notes = model["notes"]
+    assert len(notes) == 8
+    assert all(n.get("articulation") == "staccato" for n in notes)
+    assert all(n.get("articulation_source") == "inferred" for n in notes)
+    assert all(abs(float(n["duration"]) - 1.0) < 1e-6 for n in notes)

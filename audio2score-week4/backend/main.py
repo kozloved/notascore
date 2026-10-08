@@ -529,6 +529,9 @@ def _load_edit_model(job: dict) -> dict:
     raw = _read_edited_sidecar(job, f"{job['id']}.edits.json", text=True)
     if raw:
         return loads_edits(raw)
+    published = _read_result_sidecar(job, f"{job['id']}.edits.json", text=True)
+    if published:
+        return loads_edits(published)
     performance_raw = _read_result_sidecar(job, f"{job['id']}.performance.json", text=True)
     tempo_raw = _read_result_sidecar(job, f"{job['id']}.tempo.json", text=True)
     if performance_raw:

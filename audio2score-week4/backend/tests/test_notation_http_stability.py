@@ -764,6 +764,92 @@ def _prepare_detached_job(tmp_path, job_id: str):
     return xml_path, original
 
 
+def test_load_edit_model_prefers_published_edits_over_performance(isolated_db):
+    import database as db
+    import main as app_main
+    from score_edits import dumps_edits
+    from tests.test_notation_revision_safety import _job_row
+
+    job_id = f"pref-{uuid.uuid4().hex[:12]}"
+    xml_path = isolated_db / f"{job_id}.musicxml"
+    xml_path.write_text("<score-partwise version='3.1'/>", encoding="utf-8")
+    (isolated_db / f"{job_id}.performance.json").write_text("{}", encoding="utf-8")
+    model = {
+        "tempo_bpm": 120,
+        "time_signature": "4/4",
+        "tempo_curve": [{"beat": 0.0, "bpm": 120.0}],
+        "printed_tempo_marks": [],
+        "provenance": "performance",
+        "notes": [
+            {
+                "id": "n-0000",
+                "source_note_id": "n-0000",
+                "pitch": 72,
+                "start": 0.0,
+                "duration": 1.0,
+                "velocity": 84,
+                "track": 0,
+                "voice": 0,
+                "articulation": "staccato",
+                "articulation_source": "inferred",
+            }
+        ],
+    }
+    (isolated_db / f"{job_id}.edits.json").write_text(dumps_edits(model), encoding="utf-8")
+    db.create_job(_job_row(job_id, result_storage_key=str(xml_path), edit_revision=0))
+    loaded = app_main._load_edit_model(db.get_job(job_id))
+    note = loaded["notes"][0]
+    assert note["articulation"] == "staccato"
+    assert note["articulation_source"] == "inferred"
+    assert float(note["duration"]) == pytest.approx(1.0)
+
+
+def test_http_first_open_edits_use_quantized_model_not_raw_performance(isolated_db, monkeypatch):
+    _fail_if_transcribe(monkeypatch)
+    import database as db
+    from mir.pipeline import UnderstandingPipeline
+    from tests.test_notation_articulation_ownership import musicxml_note_marks
+    from tests.test_notation_revision_safety import _job_row
+
+    job_id = f"open-{uuid.uuid4().hex[:12]}"
+    midi = pretty_midi.PrettyMIDI(initial_tempo=120)
+    piano = pretty_midi.Instrument(program=0, name="Piano")
+    for i in range(8):
+        start = i * 0.5
+        piano.notes.append(
+            pretty_midi.Note(velocity=84, pitch=72 + i, start=start, end=start + 0.10)
+        )
+    midi.instruments.append(piano)
+    source = isolated_db / f"{job_id}.mid"
+    midi.write(str(source))
+    original = source.read_bytes()
+    UnderstandingPipeline().transcribe_midi(source, job_id)
+    out_dir = isolated_db / f"bp_{job_id}"
+    xml_path = out_dir / f"{job_id}.musicxml"
+    assert xml_path.is_file()
+    assert (out_dir / f"{job_id}.edits.json").is_file()
+    assert (out_dir / f"{job_id}.performance.json").is_file()
+    db.create_job(_job_row(job_id, result_storage_key=str(xml_path), edit_revision=0))
+    with _client() as client:
+        loaded = client.get(f"/scores/{job_id}/edits")
+        assert loaded.status_code == 200, loaded.text
+        body = loaded.json()
+        assert body["revision"] == 0
+        assert body["has_edits"] is False
+        notes = body["notes"]
+        assert len(notes) == 8
+        assert all(row.get("articulation") == "staccato" for row in notes)
+        assert all(row.get("articulation_source") == "inferred" for row in notes)
+        assert all(abs(float(row["duration"]) - 1.0) < 0.05 for row in notes)
+        xml = client.get(f"/jobs/{job_id}/result?format=musicxml")
+        assert xml.status_code == 200
+        marks = musicxml_note_marks(xml.text)
+        assert all("staccato" in row["articulations"] for row in marks)
+        raw = client.get(f"/jobs/{job_id}/result?format=midi")
+        assert raw.status_code == 200
+        assert raw.content == original
+
+
 def test_http_clearing_inferred_staccato_survives_regen_without_timing_lock(isolated_db, monkeypatch):
     _fail_if_transcribe(monkeypatch)
     job_id = f"clear-{uuid.uuid4().hex[:12]}"

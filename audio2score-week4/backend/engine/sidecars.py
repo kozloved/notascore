@@ -24,6 +24,7 @@ CORE_SIDECARS = (
     ("interpretation.json", "application/json"),
     ("interpretation_context.json", "application/json"),
     ("notation_settings.json", "application/json"),
+    ("edits.json", "application/json"),
 )
 
 _CONTENT_TYPES = {
@@ -60,6 +61,7 @@ def extra_result_files(out_dir: str | Path, job_id: str) -> list[Path]:
         f"{job_id}.interpretation.json",
         f"{job_id}.interpretation_context.json",
         f"{job_id}.notation_settings.json",
+        f"{job_id}.edits.json",
         f"{job_id}_norm.wav",
     )
     found = [root / name for name in names if (root / name).exists()]
