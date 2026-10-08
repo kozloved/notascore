@@ -1028,3 +1028,86 @@ def test_http_apply_current_readable_upgrades_saved_legacy_without_round_trip(
             velocity=99,
         )
 
+
+def _prepare_mixed_release_job(tmp_path, job_id: str):
+    import database as db
+    from mir.performance_cli import convert
+    from tests.test_notation_revision_safety import _job_row
+
+    durs = [0.77, 0.79, 0.81, 0.83, 0.77, 0.79, 0.81, 0.83]
+    midi = pretty_midi.PrettyMIDI(initial_tempo=120)
+    piano = pretty_midi.Instrument(program=0, name="Piano")
+    for i, dur in enumerate(durs):
+        piano.notes.append(
+            pretty_midi.Note(
+                velocity=80,
+                pitch=72 + (i % 3) * 2,
+                start=i * 0.5,
+                end=i * 0.5 + dur * 0.5,
+            )
+        )
+    midi.instruments.append(piano)
+    source = tmp_path / f"{job_id}.mid"
+    midi.write(str(source))
+    original = source.read_bytes()
+    xml_path = tmp_path / f"{job_id}.musicxml"
+    convert(source, xml_path)
+    (tmp_path / f"{job_id}.raw.mid").write_bytes(original)
+    db.create_job(_job_row(job_id, result_storage_key=str(xml_path), edit_revision=0))
+    return xml_path, original
+
+
+def test_http_measure_override_survives_unrelated_regeneration(isolated_db, monkeypatch):
+    _fail_if_transcribe(monkeypatch)
+    job_id = f"ovr-{uuid.uuid4().hex[:12]}"
+    _xml_path, original = _prepare_mixed_release_job(isolated_db, job_id)
+    with _client() as client:
+        listed = client.get(f"/jobs/{job_id}/notation-settings")
+        assert listed.json()["notation_settings"]["interpretation"] == "readable"
+        posted = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={
+                "measure_overrides": [
+                    {"start_measure": 1, "end_measure": 1, "interpretation": "literal"}
+                ],
+                "revision": listed.json().get("edit_revision") or 0,
+            },
+        )
+        assert posted.status_code == 200, posted.text
+        assert posted.json()["transcribed"] is False
+        overrides = posted.json()["notation_settings"]["measure_overrides"]
+        assert overrides == [
+            {"start_measure": 1, "end_measure": 1, "interpretation": "literal"}
+        ]
+        notes = client.get(f"/scores/{job_id}/edits").json()["notes"]
+        first = [n for n in notes if float(n["start"]) < 4.0]
+        second = [n for n in notes if float(n["start"]) >= 4.0]
+        assert first and all(float(n["duration"]) < 0.95 for n in first)
+        assert second and all(abs(float(n["duration"]) - 1.0) < 1e-6 for n in second)
+
+        sid = notes[0].get("source_note_id") or notes[0]["id"]
+        edited = [dict(row) for row in notes]
+        edited[0]["velocity"] = 91
+        saved = _save_notes(
+            client, job_id, client.get(f"/scores/{job_id}/edits").json(), edited
+        )
+        assert saved.status_code == 200, saved.text
+
+        regen = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={"display_grid": "sixteenth", "revision": saved.json()["revision"]},
+        )
+        assert regen.status_code == 200, regen.text
+        persisted = client.get(f"/jobs/{job_id}/notation-settings")
+        assert persisted.json()["notation_settings"]["measure_overrides"] == overrides
+        after = client.get(f"/scores/{job_id}/edits").json()
+        assert int(_note(after, sid)["velocity"]) == 91
+        notes_after = after["notes"]
+        assert all(float(n["duration"]) < 0.95 for n in notes_after if float(n["start"]) < 4.0)
+        assert all(
+            abs(float(n["duration"]) - 1.0) < 1e-6
+            for n in notes_after
+            if float(n["start"]) >= 4.0
+        )
+        assert (isolated_db / f"{job_id}.raw.mid").read_bytes() == original
+

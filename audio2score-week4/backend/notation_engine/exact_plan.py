@@ -150,6 +150,35 @@ def _pieces(start, duration, beat_length=Fraction(1), settings=None, measure_len
         remaining -= piece
 
 
+def assign_polyphonic_stems(voices) -> None:
+    """Opposite stems for independent voices that share a staff.
+
+    A sustained inner whole note and a moving line must not print as one
+    stacked chord. Highest-pitch voice takes stems up; the others take stems
+    down. Single-voice staves stay unspecified so auto stems remain conventional.
+    Whole notes still receive a direction so OSMD keeps the voice distinct,
+    even when it draws no stem flag.
+    """
+    pitched = []
+    for voice in voices:
+        pitches = [
+            int(pitch)
+            for element in voice.elements
+            if isinstance(element, PlannedNote)
+            for pitch in (element.pitches or [])
+        ]
+        if pitches:
+            pitched.append((sum(pitches) / len(pitches), voice))
+    if len(pitched) < 2:
+        return
+    pitched.sort(key=lambda row: (-row[0], row[1].voice_id))
+    for index, (_mean, voice) in enumerate(pitched):
+        direction = "up" if index == 0 else "down"
+        for element in voice.elements:
+            if isinstance(element, PlannedNote) and not element.stem:
+                element.stem = direction
+
+
 def _rest(offset, length, voice, *, hidden=False, structural=False):
     kind = "structural" if structural or hidden else "musical"
     return PlannedRest(offset, length, voice, hidden=hidden, kind=kind)
@@ -367,6 +396,7 @@ def build_exact_measures(events, report, meter, key_name):
                 voices.append(PlannedVoice(key[1], elements))
             if not voices:
                 voices = [PlannedVoice(0, [_rest(Fraction(0), bar_len, 0)])]
+            assign_polyphonic_stems(voices)
             clef = (
                 ("treble" if staff == 0 else "bass")
                 if profile["grand_staff"]

@@ -36,6 +36,7 @@ from mir.models import NotationPlan, PlannedRest
 from mir.quantizer import SMALLEST_WRITABLE, snap_writable_length
 from mir.types import Hand, MusicalEvent, ScoreMeta, TempoMap
 from notation_engine.meter import bar_length, estimate_key, estimate_time_signature
+from notation_engine.exact_plan import assign_polyphonic_stems
 from notation_engine.plan import NotationPlanner, log_notation_invariant, validate_voice_timeline
 from notation_engine.quantize import quantize_events
 from notation_engine.integrity import NotationIntegrityError, validate_event_identity, validate_exports
@@ -628,6 +629,7 @@ class NotationWriter:
                         self._safe_append(rest_voice, rest)
                     self._safe_insert(m, 0, rest_voice)
                 else:
+                    assign_polyphonic_stems(staff.voices)
                     for vplan in staff.voices:
                         voice = stream.Voice(id=str(vplan.voice_id + 1))
                         for issue in validate_voice_timeline(vplan.elements, measure_ql):
@@ -773,6 +775,9 @@ class NotationWriter:
                 n.volume.velocity = int(velocities[0])
         if getattr(el, "tie", None) in ("start", "stop", "continue"):
             n.tie = m21tie.Tie(el.tie)
+        stem = getattr(el, "stem", None)
+        if stem in {"up", "down", "none"}:
+            n.stemDirection = stem
         self._apply_planned_articulations(n, el)
         dynamic = getattr(el, "dynamic", None)
         if dynamic in ("p", "pp", "mp", "mf", "f", "ff", "fff"):
