@@ -164,3 +164,72 @@ def test_user_locked_staff_and_voice_survive_unrelated_edit(tmp_path):
     compared = compare_staff_voice(_assignments(locked), _assignments(louder))
     assert compared["kind"] == "unchanged"
     assert compared["assignments_unchanged"] is True
+
+
+def test_contrary_lines_are_not_one_chord_on_midi_or_same_hand(tmp_path):
+    """Hand/staff, same-hand musical voices, and parallel chords stay distinct.
+
+    Unlabeled MIDI may staff-split contrary octaves via HandSeparator. Same-hand
+    locked events still become two musical voices. Parallel tenths stay one chord.
+    """
+    from evaluation.notation_fixtures import _write
+    from mir.performance_score import _score_voices
+    from mir.types import Hand, MusicalEvent
+    from mir.voice_separator import VoiceSeparator
+
+    lines = []
+    for i, (upper, lower) in enumerate(zip([72, 74, 76, 77], [60, 59, 57, 55])):
+        lines.append(
+            MusicalEvent(upper, float(i), 1.0, hand=Hand.RIGHT, note_id=f"u{i}", velocity=80)
+        )
+        lines.append(
+            MusicalEvent(lower, float(i), 1.0, hand=Hand.RIGHT, note_id=f"l{i}", velocity=70)
+        )
+    scored = {event.note_id: event for event in _score_voices(lines, VoiceSeparator())}
+    assert {scored[f"u{i}"].musical_voice for i in range(4)} == {scored["u0"].musical_voice}
+    assert {scored[f"l{i}"].musical_voice for i in range(4)} == {scored["l0"].musical_voice}
+    assert scored["u0"].musical_voice != scored["l0"].musical_voice
+    assert {scored[f"u{i}"].hand for i in range(4)} == {Hand.RIGHT}
+    assert {scored[f"l{i}"].hand for i in range(4)} == {Hand.RIGHT}
+
+    contrary = tmp_path / "contrary.mid"
+    notes = []
+    for i, (upper, lower) in enumerate(zip([72, 74, 76, 77], [60, 59, 57, 55])):
+        start = i * 0.5
+        notes.extend([(upper, start, start + 0.45, 80), (lower, start, start + 0.45, 70)])
+    _write(contrary, notes)
+    original = contrary.read_bytes()
+    ingested = ingest_midi(contrary)
+    auto = recompute_notation(
+        midi_bytes=original,
+        settings=NotationSettings(),
+        performance=ingested.performance,
+        context=_context_for(ingested),
+    )
+    assert contrary.read_bytes() == original
+    assign = _assignments(auto)["notes"]
+    high = [note for note in assign if note["pitch"] >= 72]
+    low = [note for note in assign if note["pitch"] <= 60]
+    assert high and low
+    same_staff = {note["staff"] for note in high} == {note["staff"] for note in low}
+    same_musical = {note["musical_voice"] for note in high} == {note["musical_voice"] for note in low}
+    assert not (same_staff and same_musical)
+
+    parallel = tmp_path / "parallel.mid"
+    notes = []
+    for i, (upper, lower) in enumerate(zip([81, 79, 77, 76], [67, 65, 64, 62])):
+        start = i * 0.5
+        notes.extend([(upper, start, start + 0.45, 80), (lower, start, start + 0.45, 70)])
+    _write(parallel, notes)
+    original = parallel.read_bytes()
+    ingested = ingest_midi(parallel)
+    auto = recompute_notation(
+        midi_bytes=original,
+        settings=NotationSettings(),
+        performance=ingested.performance,
+        context=_context_for(ingested),
+    )
+    assert parallel.read_bytes() == original
+    assign = _assignments(auto)["notes"]
+    assert {note["staff"] for note in assign} == {0}
+    assert len({note["musical_voice"] for note in assign}) == 1

@@ -36,6 +36,12 @@ chord.
 
 Pair: contrary C4/C5-register lines vs repeating C–E–G vs parallel octaves.
 
+Same-hand locked events (production `_score_voices`) split contrary motion
+into two musical voices. Unlabeled MIDI of the same pitches may staff-split
+via HandSeparator instead; that is a hand/staff identity, not a chord. Parallel
+tenths stay one chord on one staff. Do not compare those outcomes by numeric
+voice labels alone.
+
 ### 2. Overlapping unisons keep attacks and identity
 
 Same-pitch members of an onset cluster are no longer one chord. Independent
@@ -107,6 +113,11 @@ Until that lands, ornaments stay decision + `articulation="ornament"` only.
 ## What this is not
 
 - Not musician-validated quality. Not a v2 default promotion.
-- 138 remains unlabeled development MIDI.
+- 138 remains unlabeled development MIDI. Chord-coincidence spelling on that
+  file is a printed-lane / duration change, not musician-validated quality.
 - Filename-specific heuristics were not added.
 - Parallel replacement pipelines were not added.
+- Unlabeled MIDI contrary octaves may still become a two-staff layout; the
+  VoiceSeparator fix is the same-hand path. OSMD stacks a treble whole-note
+  inner hold under the first melody attack, so the PNG can look like a short
+  chord even when MusicXML is a whole note plus moving eighths.

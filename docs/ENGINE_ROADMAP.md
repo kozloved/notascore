@@ -447,6 +447,9 @@ reviews. Default remains `performance-score-1`; v2 stays opt-in.
 4. Collect real-sample reviews via checklist + existing `review.json`
    schema; do not invent ratings.
 5. Grace-note MusicXML + editor reject contract (see review).
+6. Unlabeled MIDI contrary octaves may still staff-split via HandSeparator;
+   the VoiceSeparator lookahead is the same-hand path. Do not collapse those
+   identities.
 
 ## P3 — Controlled readable-v2 rollout
 
