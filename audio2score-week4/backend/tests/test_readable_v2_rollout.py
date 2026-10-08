@@ -33,12 +33,13 @@ from evaluation.readable_v2_rollout import (
 )
 
 
-def test_default_stays_performance_score_1():
-    assert NotationSettings().algorithm_version == ALGORITHM_VERSION_CURRENT
-    assert NotationSettings().algorithm_version == "performance-score-1"
-    opt = NotationSettings.readable_opt_in()
-    assert opt.algorithm_version == ALGORITHM_VERSION_READABLE
-    assert opt.algorithm_version == "performance-score-2"
+def test_new_scores_default_to_current_readable_engine():
+    assert NotationSettings().algorithm_version == ALGORITHM_VERSION_READABLE
+    assert NotationSettings().algorithm_version == "performance-score-2"
+    assert NotationSettings().uses_improved_readable() is True
+    legacy = NotationSettings.legacy_readable()
+    assert legacy.algorithm_version == ALGORITHM_VERSION_CURRENT
+    assert legacy.algorithm_version == "performance-score-1"
 
 
 def test_inventory_reports_synthetic_provenance_and_real_gap():
@@ -249,7 +250,7 @@ def test_locked_timing_survives_both_versions():
         ),
     ]
     meter = MeterHypothesis("4/4", 4, 4, 4.0, 1.0, 1.0)
-    v1 = NotationSettings()
+    v1 = NotationSettings.legacy_readable()
     v2 = NotationSettings.readable_opt_in()
     out1, _, _ = quantize_notation(events, meter, config=QuantizerConfig(), settings=v1)
     out2, _, _ = quantize_notation(events, meter, config=QuantizerConfig(), settings=v2)
@@ -261,7 +262,7 @@ def test_locked_timing_survives_both_versions():
 
 def test_rollout_run_writes_report_and_keeps_v2_opt_in(tmp_path):
     report = run(tmp_path / "out", render=False)
-    assert report["inventory"]["default_algorithm_version"] == "performance-score-1"
+    assert report["inventory"]["default_algorithm_version"] == "performance-score-2"
     assert all(row["source_midi_unchanged"] for row in report["cases"])
     assert all(row["source_midi_unchanged"] for row in report["corpus"])
     labels = {row["label"] for row in report["cases"]}
@@ -285,7 +286,7 @@ def test_rollout_run_writes_report_and_keeps_v2_opt_in(tmp_path):
         assert all(row["provenance"]["kind"] == "local_reference_midi" for row in report["reference_midi"])
     rec = recommend(report)
     assert rec["migrate_existing_jobs"] is False
-    assert rec["decision"] == "continued_opt_in"
+    assert rec["decision"] == "new_job_default"
     assert report["inventory"]["real_material"]["licensed_performances_available"] is False
     assert (tmp_path / "out" / "rollout_report.md").exists()
     assert (tmp_path / "out" / "B_short_notes_with_rests" / "v1.musicxml").exists()

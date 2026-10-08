@@ -9,11 +9,7 @@ import {
   type NotationSettings,
   type PolicyException,
 } from "../../lib/jobs";
-import {
-  ALGORITHM_VERSION_CURRENT,
-  ALGORITHM_VERSION_READABLE_V2,
-  type AlgorithmVersionChoice,
-} from "../../lib/notation-style";
+import { patchForInterpretation } from "../../lib/notation-style";
 import Button from "../ui/Button";
 import SegmentedControl from "../ui/SegmentedControl";
 
@@ -33,12 +29,6 @@ const GRID_OPTIONS = [
   { value: "sixteenth", label: "16" },
   { value: "thirty-second", label: "32" },
 ] as const;
-
-function asAlgorithmChoice(version: string | undefined): AlgorithmVersionChoice {
-  return version === ALGORITHM_VERSION_READABLE_V2
-    ? ALGORITHM_VERSION_READABLE_V2
-    : ALGORITHM_VERSION_CURRENT;
-}
 
 export default function NotationInterpretationPanel({
   jobId,
@@ -145,69 +135,40 @@ export default function NotationInterpretationPanel({
     ) : null;
   }
 
-  const algorithmValue = asAlgorithmChoice(settings.algorithm_version);
   const selectorDisabled = busy || !regenAvailable;
 
   return (
     <section className="ns-notation-panel" aria-label="Notation interpretation">
-      <div className="ns-notation-row">
-        <div className="ns-notation-version">
-          <p className="ns-notation-control-label" id="ns-notation-version-label">
-            Notation version
-          </p>
-          <SegmentedControl
-            label="Notation version"
-            value={algorithmValue}
-            disabled={selectorDisabled}
-            onChange={(algorithm_version: AlgorithmVersionChoice) => {
-              if (algorithm_version === algorithmValue) return;
-              void apply({
-                ...settings,
-                algorithm_version,
-              });
-            }}
-            options={[
-              {
-                value: ALGORITHM_VERSION_CURRENT,
-                label: "Standard",
-              },
-              {
-                value: ALGORITHM_VERSION_READABLE_V2,
-                label: "Experimental",
-              },
-            ]}
-          />
-          <p className="ns-notation-note ns-notation-version-help">
-            Changes how notes and rests are written. Uses the same
-            transcription. Experimental is opt-in and not claimed to be better.
-          </p>
-          {!regenAvailable ? (
-            <p className="ns-notation-note" role="status">
-              {regenReason ||
-                "Notation version switching is unavailable for this score."}
-            </p>
-          ) : null}
-        </div>
-      </div>
       <div className="ns-notation-row">
         <div className="ns-notation-control">
           <p className="ns-notation-control-label">Interpretation</p>
           <SegmentedControl
             label="Notation interpretation"
             value={settings.interpretation}
-            disabled={busy || !regenAvailable}
-            onChange={(interpretation) =>
+            disabled={selectorDisabled}
+            onChange={(interpretation: "literal" | "readable") => {
+              if (interpretation === settings.interpretation) return;
               void apply({
                 ...settings,
-                interpretation,
-                algorithm_version: settings.algorithm_version,
-              })
-            }
+                ...patchForInterpretation(interpretation),
+              });
+            }}
             options={[
               { value: "readable", label: "Readable" },
               { value: "literal", label: "Literal" },
             ]}
           />
+          <p className="ns-notation-note">
+            Readable infers conventional written rhythm from the performance.
+            Literal keeps performed onsets and releases as closely as notation
+            allows. Changing this regenerates the derived score.
+          </p>
+          {!regenAvailable ? (
+            <p className="ns-notation-note" role="status">
+              {regenReason ||
+                "Interpretation switching is unavailable for this score."}
+            </p>
+          ) : null}
         </div>
         <div className="ns-notation-control">
           <p className="ns-notation-control-label">Display grid</p>
@@ -294,7 +255,7 @@ export default function NotationInterpretationPanel({
       </div>
       <p className="ns-notation-note">
         These controls rewrite the derived score only. Original performance MIDI
-        and playback stay unchanged.
+        stays byte-identical. Score playback follows the written interpretation.
         {provenance ? ` ${provenance}` : ""}
       </p>
       {fallback ? (

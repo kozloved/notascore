@@ -738,17 +738,20 @@ def _duration(
         named.add(to_bar)
     # max_dots changes spelling (ties), not the selected musical duration.
     if preserve:
-        exact = min(named, key=lambda d: abs(float(d) - raw))
-        if abs(float(exact) - raw) < 1e-7:
-            return exact
+        return min(
+            named,
+            key=lambda d: (abs(float(d) - raw), d.denominator, d),
+        )
     # Preserve-overlap wins over an inferred pedal-tail cutoff.
+    # A performed hold longer than the next same-pitch attack is an overlapping
+    # unison, not a replacement; do not steal that release.
     if (
         settings.overlap_handling != OverlapHandling.PRESERVE
         and release_reason in {"pedal_tail", "reattack"}
         and isinstance(release_at, Fraction)
     ):
         cap = release_at - onset
-        if cap > 0:
+        if cap > 0 and float(raw) <= float(cap) + 0.12:
             return cap
     if isinstance(next_onset, Fraction) or next_onset is None:
         effective_next = next_onset
@@ -779,6 +782,7 @@ def _duration(
         release_reason=release_reason,
         settings=settings,
         local_pulse=local_pulse if family == "triplet" else None,
+        beat_length=beat_length,
     )
     if filled is not None:
         return filled
@@ -804,20 +808,19 @@ def _readable_v2_fill_small_release_gap(
     release_reason,
     settings,
     local_pulse=None,
+    beat_length=None,
 ):
-    """Opt-in readable-v2: leftover gaps that are articulation, not rests.
+    """Readable: leftover gaps that are articulation, not rests.
 
-    Case A (detached quarters with ~80ms releases) should be written as quarters.
-    Case B and short_rests_repeats keep visible rests. A leftover smaller than
-    a sixteenth is not enough by itself. Independent holds are left alone.
-    This never extends a note past the next attack or past the barline, and it
-    does not run on the default engine.
+    Detached regular notes fill to the next attack, beat, or bar when the
+    leftover is a small fraction of that slot and smaller than the sounding
+    note. Intentional short notes plus rests (remaining ≥ sounding duration)
+    stay distinct. Independent holds are left alone. Never extend past the
+    next attack or the barline.
 
-    When a triplet group ends (no next onset, or the next attack is too far
-    to be this pulse), the preceding triplet interval is a virtual IOI. The
-    last note then uses the same remaining < sixteenth rule as its siblings.
-    Already-notated tuplets are not inferred here; they are preserved by
-    ``as_score_fraction`` / locked timing.
+    ``performance-score-1`` does not run this pass (saved-score compatibility).
+    Tuplets use ``local_pulse`` for group endings; locked timing is preserved
+    by ``as_score_fraction`` before this function is called.
     """
     if not settings.uses_improved_readable():
         return None
@@ -830,11 +833,11 @@ def _readable_v2_fill_small_release_gap(
     }:
         return None
     sixteenth = 0.25
+    slots = []
     if next_onset is not None:
         ioi = Fraction(next_onset) - Fraction(onset)
-        remaining = float(ioi) - float(raw)
-        if _readable_v2_gap_is_articulation(raw, remaining, float(ioi), sixteenth):
-            return ioi
+        if ioi > 0:
+            slots.append(ioi)
     pulse = _triplet_local_pulse(local_pulse)
     if pulse is not None:
         remaining = float(pulse) - float(raw)
@@ -842,30 +845,55 @@ def _readable_v2_fill_small_release_gap(
             written_end = Fraction(onset) + pulse
             if next_onset is None or written_end <= Fraction(next_onset) + Fraction(1, 10**9):
                 return pulse
+    if beat_length is not None and Fraction(beat_length) > 0:
+        unit = Fraction(beat_length)
+        step = 1
+        limit = Fraction(to_bar) if to_bar is not None and Fraction(to_bar) > 0 else unit * 8
+        while True:
+            slot = unit * step
+            if slot > limit + Fraction(1, 10**9):
+                break
+            slots.append(slot)
+            step += 1
+            if step > 16:
+                break
     if to_bar is not None and Fraction(to_bar) > 0:
-        remaining = float(to_bar) - float(raw)
-        if _readable_v2_gap_is_articulation(raw, remaining, float(to_bar), sixteenth):
-            return Fraction(to_bar)
-    return None
+        slots.append(Fraction(to_bar))
+    best = None
+    for slot in slots:
+        if slot <= 0:
+            continue
+        if next_onset is not None and Fraction(onset) + slot > Fraction(next_onset) + Fraction(1, 10**9):
+            continue
+        remaining = float(slot) - float(raw)
+        if _readable_v2_gap_is_articulation(raw, remaining, float(slot), sixteenth):
+            if best is None or slot < best:
+                best = slot
+    return best
 
 
 def _readable_v2_gap_is_articulation(raw, remaining, slot, sixteenth):
-    """A small absolute leftover is not enough to prove detached playing.
+    """Leftover is performance release, not a written rest.
 
-    Detached quarters (80ms of a beat) fill. A sixteenth plus a rest that
-    happens to leave less than a sixteenth of leftover stays a rest.
-    Triplet group-ends use ``local_pulse`` and do not go through this test.
-    Boundary leftover ratios are treated as ambiguous and keep the rest.
+    Detached quarters (small leftover on a beat) fill. A note that is as
+    short as the leftover (sixteenth plus rest) stays a rest. Relative leftover
+    must stay under one-fifth of the written slot so 1.75→2.0 can fill while
+    0.75+rest on a quarter does not. Triplet group-ends use ``local_pulse``.
     """
     raw_f = Fraction(raw).limit_denominator(64)
     rem_f = Fraction(remaining).limit_denominator(64)
     slot_f = Fraction(slot).limit_denominator(64)
-    sixteenth_f = Fraction(sixteenth).limit_denominator(64)
-    if slot_f <= 0 or rem_f < 0 or rem_f >= sixteenth_f:
+    if slot_f <= 0 or rem_f < 0:
         return False
     if rem_f >= raw_f:
         return False
-    return rem_f / slot_f < Fraction(1, 5)
+    if rem_f / slot_f >= Fraction(1, 5):
+        return False
+    # An eighth rest (0.5) is already a written rest, not a release. Allow
+    # 1.75→2.0 (0.25 leftover) without filling 2.5→3.0.
+    if rem_f >= Fraction(7, 16):
+        return False
+    return True
 
 
 _SHARED_BEAT_WINDOW = 0.13
@@ -1023,7 +1051,35 @@ def _compact_chord_coincidence(cluster):
         return []
     if len({ev.pitch for ev in members}) != len(members):
         return []
+    if not _members_overlap_as_chord(members):
+        return []
     return members
+
+
+def _members_overlap_as_chord(members) -> bool:
+    """True when staggered attacks share a release, not a consecutive run.
+
+    Pitches 60/64/67 at 0, 1/16, 1/8 each lasting 1/16 are a run: duration
+    does not outlast the onset spread and overlap is empty. A humanized
+    C–E–G with ~2-beat members and 30–50ms stagger overlaps substantially.
+    """
+    if len(members) < 2:
+        return False
+    ordered = sorted(members, key=lambda e: (e.start_beat, e.pitch, e.note_id))
+    spread = ordered[-1].start_beat - ordered[0].start_beat
+    min_dur = min(float(e.duration_beats) for e in ordered)
+    if min_dur <= spread + 1e-9:
+        return False
+    first = ordered[0]
+    first_end = first.start_beat + first.duration_beats
+    for other in ordered[1:]:
+        other_end = other.start_beat + other.duration_beats
+        overlap = min(first_end, other_end) - max(first.start_beat, other.start_beat)
+        if overlap <= 0:
+            return False
+        if overlap < 0.5 * min(first.duration_beats, other.duration_beats):
+            return False
+    return True
 
 
 def _readable_unify_chord_durations(events, exact, settings):
@@ -1043,6 +1099,9 @@ def _readable_unify_chord_durations(events, exact, settings):
         groups[(ev.hand, line, onset)].append(ev)
     new_exact = dict(exact)
     for members in groups.values():
+        members = [
+            ev for ev in members if not getattr(ev, "score_timing_locked", False)
+        ]
         if len(members) < 2:
             continue
         pitches = [m.pitch for m in members]
@@ -1242,7 +1301,9 @@ def _release_hypothesis(ev, ordered_same_hand, *, settings=None, pedal=None):
         nxt_pedal = pedal_down_at(pedal, getattr(nxt, "start_time_sec", None))
         if nxt.pitch == ev.pitch and under_sustain:
             # Near-simultaneous or independently sustained repeated pitch.
-            if gap <= 0.12 or raw >= gap * 4.0:
+            # A hold that continues through a same-pitch interrupter (duration
+            # at least twice the gap) is two voices, not a pulsed re-strike.
+            if gap <= 0.12 or raw >= gap * 2.0:
                 return None, "overlapping_repeat", None
             # Same-pitch re-attack while this key is still down. Write to the
             # next attack; never tie across a genuine re-strike. CC64 is not
@@ -1732,7 +1793,7 @@ def quantize_notation(
                 nxt,
                 overlaps,
                 family,
-                preserve=ev.source_backend == "midi",
+                preserve=local_settings.preserve_performed_durations(),
                 measure_length=measure_length,
                 beat_length=beat_length,
                 release_reason=release_reason,

@@ -7,7 +7,7 @@ from xml.etree import ElementTree as ET
 import pytest
 
 from mir.notation_regen import NotationEditConflict, recompute_notation
-from mir.notation_settings import ALGORITHM_VERSION_CURRENT, NotationSettings
+from mir.notation_settings import ALGORITHM_VERSION_READABLE, NotationSettings
 from tests.test_shared_engraving import _context_for, _sid, _write_midi
 
 
@@ -198,11 +198,11 @@ def test_unspellable_mixed_ownership_is_an_explicit_conflict():
 
 def test_default_settings_stay_on_current_algorithm():
     settings = NotationSettings()
-    assert settings.algorithm_version == ALGORITHM_VERSION_CURRENT
-    assert settings.uses_improved_readable() is False
+    assert settings.algorithm_version == ALGORITHM_VERSION_READABLE
+    assert settings.uses_improved_readable() is True
     readable = NotationSettings.from_dict({"interpretation": "readable"})
-    assert readable.algorithm_version == ALGORITHM_VERSION_CURRENT
-    assert NotationSettings.readable_opt_in().algorithm_version == "performance-score-2"
+    assert readable.algorithm_version == ALGORITHM_VERSION_READABLE
+    assert NotationSettings.legacy_readable().algorithm_version == "performance-score-1"
 
 
 def hashlib_unchanged(digest, midi_bytes):

@@ -334,7 +334,7 @@ def build_case(
 
     v1, ingested = _build(
         midi_path,
-        NotationSettings(),
+        NotationSettings.legacy_readable(),
         meter=writer.meter,
         tempo=writer.tempo,
     )
@@ -1061,7 +1061,7 @@ def write_supplemental_p2b_evidence(
         _write_multichannel_midi(midi_path, spec["notes"], tempo=120.0)
         original = midi_path.read_bytes()
         v1, _ingested = _build(
-            midi_path, NotationSettings(), meter="4/4", tempo=120.0
+            midi_path, NotationSettings.legacy_readable(), meter="4/4", tempo=120.0
         )
         assert midi_path.read_bytes() == original
         v2, _ = _build(

@@ -1,5 +1,6 @@
 from mir.notation_settings import (
     ALGORITHM_VERSION_CURRENT,
+    ALGORITHM_VERSION_DEFAULT,
     ALGORITHM_VERSION_READABLE,
     DisplayGrid,
     Interpretation,
@@ -19,9 +20,13 @@ def test_defaults_match_current_engine():
     assert settings.syncopation.value == "preserve"
     assert settings.overlap_handling.value == "contextual"
     assert settings.max_dots == 1
-    assert settings.algorithm_version == ALGORITHM_VERSION_CURRENT
-    assert settings.uses_current_vocabulary() is True
-    assert settings.uses_improved_readable() is False
+    assert settings.algorithm_version == ALGORITHM_VERSION_DEFAULT
+    assert settings.algorithm_version == ALGORITHM_VERSION_READABLE
+    assert settings.uses_current_vocabulary() is False
+    assert settings.uses_improved_readable() is True
+    legacy = NotationSettings.legacy_readable()
+    assert legacy.algorithm_version == ALGORITHM_VERSION_CURRENT
+    assert legacy.uses_improved_readable() is False
 
 
 def test_contradictory_overrides_are_rejected():
@@ -54,18 +59,19 @@ def test_compatible_overrides_merge():
 
 
 def test_cache_key_includes_algorithm_and_settings():
-    a = NotationSettings()
+    a = NotationSettings.legacy_readable()
     b = NotationSettings.readable_opt_in()
     assert a.cache_key("abc") != b.cache_key("abc")
     assert a.cache_key("abc") != a.cache_key("def")
     assert a.algorithm_version == ALGORITHM_VERSION_CURRENT
     assert b.algorithm_version == ALGORITHM_VERSION_READABLE
     assert parse_notation_settings(a.to_dict()).to_dict() == a.to_dict()
+    assert NotationSettings().cache_key("abc") == b.cache_key("abc")
 
 
-def test_readable_without_version_keeps_current_engine():
+def test_saved_readable_keeps_stored_algorithm_until_explicit_version():
     patched = merge_notation_settings(
-        NotationSettings(),
+        NotationSettings.legacy_readable(),
         {"interpretation": "readable"},
         fields_set={"interpretation"},
     )

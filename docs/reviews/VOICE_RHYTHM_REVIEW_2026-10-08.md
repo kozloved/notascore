@@ -80,7 +80,8 @@ untouched.
 ## Counterexamples retained
 
 - Intentional short notes + rests (case B, short_rests_repeats)
-- Detached quarters fill only on opt-in v2 (case A)
+- Detached quarters fill on current Readable; saved `performance-score-1` jobs keep the rest until regenerate
+- Consecutive 16th run 60/64/67 at 0, 1/16, 1/8 is not a staggered chord
 - Syncopation, mixed tuplets, pickups, user-locked hand/voice/timing
 - Broken-chord left-hand waltz under melody
 - Bass above middle C stays left; melody below middle C stays right
@@ -112,7 +113,8 @@ Until that lands, ornaments stay decision + `articulation="ornament"` only.
 
 ## What this is not
 
-- Not musician-validated quality. Not a v2 default promotion.
+- Not musician-validated quality. New scores default to Readable
+  (`performance-score-2`); existing jobs are not auto-migrated.
 - 138 remains unlabeled development MIDI. Chord-coincidence spelling on that
   file is a printed-lane / duration change, not musician-validated quality.
 - Filename-specific heuristics were not added.

@@ -453,16 +453,17 @@ reviews. Default remains `performance-score-1`; v2 stays opt-in.
 
 ## P3 — Controlled readable-v2 rollout
 
-**User problem.** Readable-v2 can write more conventional durations, but
-turning it on by default would silently change existing jobs and may erase
-intentional rests.
+**User problem.** Users need a conventional written score from performance
+MIDI, without silently rewriting saved jobs.
 
 **Current implementation and evidence.**
 
-- Default `performance-score-1`. Opt-in `performance-score-2`.
-- Broader comparison and corrected metrics published in PR #76 / #77.
-- Promotion must require no preservation regressions and documented
-  musical benefit. That benefit is not yet musician-reviewed.
+- New scores default to Readable on `performance-score-2`.
+- Existing jobs keep stored `algorithm_version` until explicit regenerate.
+- User-facing modes are Literal and Readable. Algorithm version stays
+  internal for cache identity and compatibility.
+- P1 musician reviews remain 0/15. Do not treat synthetic cleanliness as
+  musician-validated quality.
 
 **Modules.** `mir/notation_settings.py`, `evaluation/readable_v2_rollout.py`,
 job settings persistence.

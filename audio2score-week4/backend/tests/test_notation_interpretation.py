@@ -16,7 +16,7 @@ from evaluation.notation_fixtures import FIXTURES
 from mir.models import MeterHypothesis, PlannedNote, PlannedRest
 from mir.notation_regen import recompute_job_dir, recompute_notation
 from mir.notation_settings import (
-    ALGORITHM_VERSION_CURRENT,
+    ALGORITHM_VERSION_READABLE,
     NotationSettings,
 )
 from mir.performance_cli import convert
@@ -56,7 +56,7 @@ def test_default_settings_match_historical_quantize():
     )
     assert [e.start_beat for e in out_legacy] == [e.start_beat for e in out_default]
     assert [e.duration_beats for e in out_legacy] == [e.duration_beats for e in out_default]
-    assert report_default.summary["algorithm_version"] == ALGORITHM_VERSION_CURRENT
+    assert report_default.summary["algorithm_version"] == ALGORITHM_VERSION_READABLE
     assert report_default.summary["engine"] == "performance"
     assert "onset_error_ms" in dec_default[0]
     assert "local_tempo_bpm" in dec_default[0]
@@ -73,7 +73,7 @@ def test_fixtures_preserve_midi_hash_and_attack_inventory(tmp_path, name):
     report = convert(source, output)
     assert source.read_bytes() == original
     settings = json.loads((tmp_path / f"{name}.notation_settings.json").read_text())
-    assert settings["algorithm_version"] == ALGORITHM_VERSION_CURRENT
+    assert settings["algorithm_version"] == ALGORITHM_VERSION_READABLE
     assert settings["midi_sha256"] == digest
     assert settings["notation_cache_key"]
     decisions = json.loads(report.read_text())
@@ -379,7 +379,7 @@ def test_notation_settings_api_does_not_resubmit_transcription(tmp_path):
     with TestClient(app_main.app) as client:
         listed = client.get(f"/jobs/{job_id}/notation-settings")
         assert listed.status_code == 200
-        assert listed.json()["algorithm_version"] == ALGORITHM_VERSION_CURRENT
+        assert listed.json()["algorithm_version"] == ALGORITHM_VERSION_READABLE
         posted = client.post(
             f"/jobs/{job_id}/notation-settings",
             json={"interpretation": "literal", "revision": 0},

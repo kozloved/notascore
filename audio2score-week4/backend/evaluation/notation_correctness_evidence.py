@@ -79,6 +79,8 @@ def context_from_ingest(ingested, *, meter: str | None = None, display_bpm: floa
 def _settings(kind: str) -> NotationSettings:
     if kind == "readable_v2":
         return NotationSettings.readable_opt_in()
+    if kind in {"legacy", "readable_v1", "notation_v1"}:
+        return NotationSettings.legacy_readable()
     return NotationSettings()
 
 
