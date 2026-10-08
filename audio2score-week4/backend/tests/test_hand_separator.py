@@ -249,6 +249,36 @@ def test_ambiguous_isolated_middle_register():
     assert decision.competing_hand in ("left", "right")
 
 
+def test_sustained_inner_voice_stays_with_moving_treble_line():
+    """G4/E4 holds under a treble melody are inner voices, not a left-hand bass.
+
+    Counterexample: a real bass under the same melody remains left.
+    """
+    inner_g = [
+        _ev(67, 0.0, dur=3.9, note_id="inner"),
+        _ev(76, 0.0, dur=0.84, note_id="m0"),
+        _ev(77, 1.0, dur=0.84, note_id="m1"),
+        _ev(78, 2.0, dur=0.84, note_id="m2"),
+        _ev(79, 3.0, dur=0.84, note_id="m3"),
+    ]
+    out = HandSeparator().separate(inner_g)
+    by_id = {e.note_id: e.hand for e in out}
+    assert by_id["inner"] == Hand.RIGHT
+    assert {by_id[f"m{i}"] for i in range(4)} == {Hand.RIGHT}
+
+    bass_and_melody = [
+        _ev(48, 0.0, dur=4.0, note_id="bass"),
+        _ev(76, 0.0, dur=0.84, note_id="m0"),
+        _ev(77, 1.0, dur=0.84, note_id="m1"),
+        _ev(79, 2.0, dur=0.84, note_id="m2"),
+        _ev(81, 3.0, dur=0.84, note_id="m3"),
+    ]
+    split = HandSeparator().separate(bass_and_melody)
+    by_split = {e.note_id: e.hand for e in split}
+    assert by_split["bass"] == Hand.LEFT
+    assert {by_split[f"m{i}"] for i in range(4)} == {Hand.RIGHT}
+
+
 def test_same_pitch_depends_on_surrounding_context():
     melody_ctx = []
     for i in range(4):

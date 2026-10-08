@@ -570,13 +570,34 @@ class HandSeparator:
     def _centroids(
         self, notes: list[MusicalEvent], assign: tuple[int, ...]
     ) -> tuple[Optional[float], Optional[float]]:
-        groups: list[list[int]] = [[], []]
+        groups: list[list[MusicalEvent]] = [[], []]
         for n, a in zip(notes, assign):
-            groups[a].append(n.pitch)
+            groups[a].append(n)
         return (
-            mean(groups[0]) if groups[0] else None,
-            mean(groups[1]) if groups[1] else None,
+            self._representative_pitch(groups[0]),
+            self._representative_pitch(groups[1]),
         )
+
+    @staticmethod
+    def _representative_pitch(notes: list[MusicalEvent]) -> Optional[float]:
+        """Motion anchor for one hand in a frame.
+
+        A sustained inner voice under a moving line must not pull the centroid
+        halfway between them; later melody attacks then look like a jump and
+        the hold is parked on the other staff. Mixed-duration frames follow
+        the moving notes. Compact equal-duration chords keep the mean.
+        """
+        if not notes:
+            return None
+        if len(notes) == 1:
+            return float(notes[0].pitch)
+        durs = [float(n.duration_beats) for n in notes]
+        spread = max(durs) - min(durs)
+        if spread >= 0.5:
+            movers = [n for n in notes if float(n.duration_beats) <= min(durs) + 0.25]
+            if movers:
+                return mean(n.pitch for n in movers)
+        return mean(n.pitch for n in notes)
 
     def _update_reps(
         self,

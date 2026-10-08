@@ -52,6 +52,28 @@ def test_velocity_edit_preserves_musical_identity(tmp_path):
     assert int(edited_vel["velocity"]) == 108
 
 
+def test_held_inner_voice_stays_on_the_same_staff_as_the_melody(tmp_path):
+    """G_held construction: inner G4 under treble quarters is same-staff polyphony."""
+    path = tmp_path / "G.mid"
+    READABLE_V2_CASES["G_held_voice_same_staff"](path)
+    original = path.read_bytes()
+    ingested = ingest_midi(path)
+    auto = recompute_notation(
+        midi_bytes=original,
+        settings=NotationSettings(),
+        performance=ingested.performance,
+        context=_context_for(ingested),
+    )
+    assert path.read_bytes() == original
+    assign = _assignments(auto)
+    hold = next(note for note in assign["notes"] if note["pitch"] == 67)
+    moving = [note for note in assign["notes"] if note["pitch"] != 67]
+    assert moving
+    assert all(note["staff"] == hold["staff"] for note in moving)
+    assert all(note["musical_voice"] != hold["musical_voice"] for note in moving)
+    assert len({note["musical_voice"] for note in moving}) == 1
+
+
 def test_readable_v2_duration_changes_preserve_independent_held_voices(tmp_path):
     row = compare_case(
         "G_held_voice_same_staff",

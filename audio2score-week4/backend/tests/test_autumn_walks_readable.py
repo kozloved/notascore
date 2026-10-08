@@ -94,6 +94,31 @@ def test_readable_preserves_isolated_syncopation_without_accompaniment():
     assert abs(by_id["offbeat"].start_beat - 1.125) < 1e-9
 
 
+def test_readable_aligns_humanized_chord_coincidence():
+    events = [
+        _ev(60, 0.00, 1.9, "c"),
+        _ev(64, 0.04, 1.85, "e"),
+        _ev(67, 0.05, 1.88, "g"),
+    ]
+    out, dec, _ = quantize_notation(events, METER, config=CONFIG, settings=READABLE)
+    starts = {round(e.start_beat, 4) for e in out}
+    assert len(starts) == 1
+    assert min(starts) <= 0.05
+    reasons = {d.get("reason") for d in dec}
+    assert "readable_chord_coincidence" in reasons or len(starts) == 1
+
+
+def test_readable_does_not_align_deliberate_same_hand_syncopation():
+    events = [
+        _ev(72, 0.0, 0.5, "onbeat"),
+        _ev(74, 1.125, 0.5, "offbeat"),
+        _ev(76, 2.0, 0.5, "later"),
+    ]
+    out, _dec, _ = quantize_notation(events, METER, config=CONFIG, settings=READABLE)
+    by_id = {e.note_id: e for e in out}
+    assert abs(by_id["offbeat"].start_beat - 1.125) < 1e-9
+
+
 def test_readable_preserves_fast_figure_against_bass():
     events = [
         _ev(42, 4.0, 1.0, "bass", Hand.LEFT),

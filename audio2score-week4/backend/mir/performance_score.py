@@ -869,15 +869,23 @@ def _readable_v2_gap_is_articulation(raw, remaining, slot, sixteenth):
 
 
 _SHARED_BEAT_WINDOW = 0.13
+_CHORD_COINCIDENCE_WINDOW = 0.08
+_CHORD_UNIFY_SPREAD = 0.5
+_CHORD_UNIFY_RELATIVE = 0.18
+_CHORD_COMPACT_SPAN = 14
 
 
 def _voice_is_fast_near(ev, ordered_same_voice, *, window=0.35) -> bool:
-    """True when the local same-voice stream is a rapid figure, not a held tone."""
+    """True when the local same-voice stream is a rapid figure, not a held tone.
+
+    Simultaneous chord mates do not count; only sequential attacks in the
+    local window are a fast figure.
+    """
     neighbors = sum(
         1
         for other in ordered_same_voice
         if other.note_id != ev.note_id
-        and abs(other.start_beat - ev.start_beat) < window
+        and _CHORD_COINCIDENCE_WINDOW < abs(other.start_beat - ev.start_beat) < window
     )
     return neighbors >= 2
 
@@ -928,22 +936,28 @@ def _readable_align_shared_onsets(
             {"melody"} & role_names
             and role_names & {"bass", "accompaniment"}
         )
+        members = cluster
+        reason = "readable_shared_beat"
         if not cross_line:
-            continue
+            members = _compact_chord_coincidence(cluster)
+            if len(members) < 2:
+                continue
+            reason = "readable_chord_coincidence"
         if any(
             _voice_is_fast_near(ev, by_voice[(ev.hand, ev.voice, ev.source_track_id)])
-            for ev in cluster
+            for ev in members
         ):
             continue
-        current = [onset_by_id[ev.note_id] for ev in cluster]
+        current = [onset_by_id[ev.note_id] for ev in members]
         if len(set(current)) == 1:
             continue
-        # Do not flatten an already-exact tuplet spelling.
-        if any(onset.denominator % 3 == 0 for onset in current):
+        # Do not flatten an already-exact tuplet spelling. Humanized chord
+        # members can land on a 1/24 grid without being a tuplet figure.
+        if cross_line and any(onset.denominator % 3 == 0 for onset in current):
             continue
 
-        raw_min = min(ev.start_beat for ev in cluster)
-        raw_mean = mean(ev.start_beat for ev in cluster)
+        raw_min = min(ev.start_beat for ev in members)
+        raw_mean = mean(ev.start_beat for ev in members)
         anchors = set(current)
         for center in (raw_min, raw_mean):
             for denominator in (1, 2, 4):
@@ -954,20 +968,20 @@ def _readable_align_shared_onsets(
         for cand in anchors:
             if cand < 0 or cand.denominator % 3 == 0:
                 continue
-            if any(abs(float(cand) - ev.start_beat) > max_move for ev in cluster):
+            if any(abs(float(cand) - ev.start_beat) > max_move for ev in members):
                 continue
-            cost = sum(abs(float(cand) - ev.start_beat) for ev in cluster)
+            cost = sum(abs(float(cand) - ev.start_beat) for ev in members)
             cost += 0.012 * max(0, cand.denominator - 1)
             if any(
                 onset_by_id[ev.note_id] == cand and cand.denominator <= 2
-                for ev in cluster
+                for ev in members
             ):
                 cost -= 0.05
             role_boost = any(
                 roles.get(ev.note_id, ("",))[0] in {"bass", "accompaniment"}
                 and abs(float(cand) - ev.start_beat)
                 <= abs(float(onset_by_id[ev.note_id]) - ev.start_beat) + 1e-9
-                for ev in cluster
+                for ev in members
             )
             if role_boost and cand.denominator <= 2:
                 cost -= 0.03
@@ -975,7 +989,7 @@ def _readable_align_shared_onsets(
                 best, best_cost = cand, cost
         if best is None:
             continue
-        for ev in cluster:
+        for ev in members:
             prev = onset_by_id[ev.note_id]
             if prev == best:
                 continue
@@ -983,9 +997,92 @@ def _readable_align_shared_onsets(
             adjustments[ev.note_id] = {
                 "from": float(prev),
                 "to": float(best),
-                "reason": "readable_shared_beat",
+                "reason": reason,
             }
     return onset_by_id, adjustments
+
+
+def _compact_chord_coincidence(cluster):
+    """Humanized same-hand chord members, not a 32nd displacement or mixed-release.
+
+    Window is tighter than cross-line shared-beat alignment so deliberate
+    syncopation and fast figures stay put.
+    """
+    if len({ev.hand for ev in cluster}) != 1:
+        return []
+    ordered = sorted(cluster, key=lambda e: (e.start_beat, e.pitch, e.note_id))
+    first = ordered[0].start_beat
+    members = [ev for ev in ordered if ev.start_beat - first <= _CHORD_COINCIDENCE_WINDOW]
+    if len(members) < 2:
+        return []
+    pitches = [ev.pitch for ev in members]
+    if max(pitches) - min(pitches) > _CHORD_COMPACT_SPAN:
+        return []
+    durs = [float(ev.duration_beats) for ev in members]
+    if max(durs) - min(durs) >= 0.85:
+        return []
+    if len({ev.pitch for ev in members}) != len(members):
+        return []
+    return members
+
+
+def _readable_unify_chord_durations(events, exact, settings):
+    """Give humanized chord mates one written duration when evidence agrees.
+
+    Independent mixed-release holds, overlapping unisons, and tuplets of
+    different families stay distinct. Literal mode does not rewrite durations.
+    """
+    settings = _settings(settings)
+    adjustments = {}
+    if settings.interpretation != Interpretation.READABLE:
+        return events, exact, adjustments
+    groups = defaultdict(list)
+    for ev in events:
+        onset = exact[ev.note_id][0]
+        line = ev.musical_voice if ev.musical_voice is not None else ev.voice
+        groups[(ev.hand, line, onset)].append(ev)
+    new_exact = dict(exact)
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        pitches = [m.pitch for m in members]
+        if max(pitches) - min(pitches) > _CHORD_COMPACT_SPAN:
+            continue
+        if len(set(pitches)) != len(members):
+            continue
+        families = {new_exact[m.note_id][2] for m in members}
+        if len(families) > 1:
+            continue
+        durs = [new_exact[m.note_id][1] for m in members]
+        mind, maxd = min(durs), max(durs)
+        if maxd - mind <= Fraction(1, 10**9):
+            continue
+        spread = float(maxd - mind)
+        if spread >= _CHORD_UNIFY_SPREAD:
+            continue
+        if spread / max(float(maxd), 0.25) > _CHORD_UNIFY_RELATIVE:
+            continue
+        chosen = maxd
+        for ev in members:
+            onset, duration, family, group_id = new_exact[ev.note_id]
+            if duration == chosen:
+                continue
+            new_exact[ev.note_id] = (onset, chosen, family, group_id)
+            adjustments[ev.note_id] = {
+                "from": float(duration),
+                "to": float(chosen),
+                "reason": "readable_chord_duration",
+            }
+    if not adjustments:
+        return events, exact, adjustments
+    updated = []
+    for ev in events:
+        if ev.note_id not in adjustments:
+            updated.append(ev)
+            continue
+        duration = new_exact[ev.note_id][1]
+        updated.append(copy_event(ev, duration_beats=float(duration)))
+    return updated, new_exact, adjustments
 
 
 _ORNAMENT_MAX_RAW_DURATION = 0.35
@@ -1646,6 +1743,9 @@ def quantize_notation(
             exact[ev.note_id] = (onset, duration, family, f"{key[0]}:{key[1]}:{group_index}")
             out.append(copy_event(ev, start_beat=float(onset), duration_beats=float(duration),
                                   role=role, phrase_id=phrase))
+    out, exact, chord_duration_adjustments = _readable_unify_chord_durations(
+        out, exact, settings
+    )
     out = _stable_lanes(out, exact, profile.grand_staff)
     out = _conservative_articulations(out, settings=settings)
     raw_by_id = {e.note_id: e for e in raw}
@@ -1682,7 +1782,9 @@ def quantize_notation(
         ))
         reason = "bounded_voice_search"
         if ev.note_id in shared_beat_adjustments:
-            reason = "readable_shared_beat"
+            reason = shared_beat_adjustments[ev.note_id].get("reason") or "readable_shared_beat"
+        elif ev.note_id in chord_duration_adjustments:
+            reason = "readable_chord_duration"
         decision = {
             "note_id": ev.note_id, "raw_start": source.start_beat,
             "source_track_id": source.source_track_id, "source_program": source.source_program,
@@ -1722,6 +1824,8 @@ def quantize_notation(
         }
         if ev.note_id in shared_beat_adjustments:
             decision["shared_beat"] = shared_beat_adjustments[ev.note_id]
+        if ev.note_id in chord_duration_adjustments:
+            decision["chord_duration"] = chord_duration_adjustments[ev.note_id]
         if ev.note_id in ornament_marks:
             decision["ornament"] = ornament_marks[ev.note_id]
         decisions.append(decision)

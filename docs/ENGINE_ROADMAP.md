@@ -415,16 +415,38 @@ reviews. Default remains `performance-score-1`; v2 stays opt-in.
    - OSMD HTML renders present; PNG/SVG not produced in this environment
      (documented limitation — playback MIDI + MusicXML remain).
 
+**P2 increment (this branch, base `71b4c18` / PR #100).**
+
+1. **138 staff/voice DIFF regenerated.** Printed-lane adjustment after
+   duration/onset fill; musical grouping and staff unchanged. Not a
+   musical-line regression. Development MIDI, not musician-reviewed.
+2. **Independent lines vs compact chords.** Production `prefer_simple_chords`
+   no longer swallows the first attack of contrary homorhythmic lines.
+   Repeating triads and parallel octaves stay one chord.
+3. **Overlapping unisons.** Same-pitch cluster members are independent
+   voices; attacks preserved. Monophonic repeats stay one voice.
+4. **Inner hold under treble melody.** Mixed-duration hand centroids follow
+   the moving line, so G4/E4 holds stay on the treble staff. C3 bass under
+   the same melody stays left. `G_held_voice_same_staff` is same-staff
+   polyphony on the MIDI path.
+5. **Humanized chord coincidence.** Readable may align compact same-hand
+   members inside 0.08 beats and unify articulation-scale durations.
+   Syncopation, fast figures, mixed-release holds, and Autumn Walks bounds
+   retained. v2 stays opt-in.
+6. **Grace notes.** Interpretation remains editable only. MusicXML grace
+   engraving, playback ownership, and reject-on-regen are documented in
+   `docs/reviews/VOICE_RHYTHM_REVIEW_2026-10-08.md` — not claimed done.
+
 **Remaining P2 work.**
 
 1. Rubato + sub-beat tempo knots under further scale transforms — keep
    playback fidelity green; no new heuristic without a pair.
-2. Further P2b continuity only with paired evidence — not 138 lane movement.
-3. Musician review of any interpretation claim — blocked on P1 ratings.
-4. Auto-infer path still needs measured downs without a preceding barline;
+2. Musician review of any interpretation claim — blocked on P1 ratings.
+3. Auto-infer path still needs measured downs without a preceding barline;
    do not invent pickups from incomplete openings alone.
-5. Collect real-sample reviews via checklist + existing `review.json`
+4. Collect real-sample reviews via checklist + existing `review.json`
    schema; do not invent ratings.
+5. Grace-note MusicXML + editor reject contract (see review).
 
 ## P3 — Controlled readable-v2 rollout
 

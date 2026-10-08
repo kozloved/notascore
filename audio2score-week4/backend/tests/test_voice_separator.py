@@ -127,6 +127,60 @@ def test_two_independent_lines_are_two_voices():
     assert len({e.voice for e in out}) == 2
 
 
+def test_score_voices_does_not_absorb_independent_homorhythmic_lines():
+    """Production scoring uses prefer_simple_chords; contrary lines must still split.
+
+    Compact repeating C-E-G stays one voice. The first attack of two independently
+    moving lines must not be swallowed as a chord.
+    """
+    from mir.performance_score import _score_voices
+
+    lines = []
+    for i, (u, lo) in enumerate(zip([72, 74, 76, 77], [60, 59, 57, 55])):
+        lines.append(MusicalEvent(u, float(i), 1.0, hand=Hand.RIGHT, note_id=f"u{i}", velocity=80))
+        lines.append(MusicalEvent(lo, float(i), 1.0, hand=Hand.RIGHT, note_id=f"l{i}", velocity=70))
+    out = _score_voices(lines, VoiceSeparator())
+    by_id = {e.note_id: e for e in out}
+    assert {by_id[f"u{i}"].musical_voice for i in range(4)} == {by_id["u0"].musical_voice}
+    assert {by_id[f"l{i}"].musical_voice for i in range(4)} == {by_id["l0"].musical_voice}
+    assert by_id["u0"].musical_voice != by_id["l0"].musical_voice
+
+    chords = []
+    for i in range(4):
+        for pitch, name in ((60, "c"), (64, "e"), (67, "g")):
+            chords.append(
+                MusicalEvent(pitch, float(i), 1.0, hand=Hand.RIGHT, note_id=f"{name}{i}", velocity=80)
+            )
+    chord_out = _score_voices(chords, VoiceSeparator())
+    assert len({e.musical_voice for e in chord_out}) == 1
+
+
+def test_overlapping_unisons_are_independent_voices():
+    events = [
+        MusicalEvent(67, 0.0, 2.0, hand=Hand.RIGHT, note_id="a", velocity=80),
+        MusicalEvent(67, 0.02, 2.0, hand=Hand.RIGHT, note_id="b", velocity=74),
+    ]
+    out = VoiceSeparator().separate(events)
+    by_id = {e.note_id: e for e in out}
+    assert by_id["a"].musical_voice != by_id["b"].musical_voice
+    from mir.performance_score import _score_voices
+
+    scored = _score_voices(events, VoiceSeparator())
+    scored_id = {e.note_id: e for e in scored}
+    assert scored_id["a"].musical_voice != scored_id["b"].musical_voice
+
+
+def test_parallel_octave_doubling_stays_one_chord_on_score_voices():
+    from mir.performance_score import _score_voices
+
+    events = []
+    for i in range(4):
+        events.append(MusicalEvent(60, float(i), 1.0, hand=Hand.RIGHT, note_id=f"lo{i}", velocity=70))
+        events.append(MusicalEvent(72, float(i), 1.0, hand=Hand.RIGHT, note_id=f"hi{i}", velocity=80))
+    out = _score_voices(events, VoiceSeparator())
+    assert len({e.musical_voice for e in out}) == 1
+
+
 def test_tiny_release_overlap_does_not_create_a_voice():
     from mir.performance_score import _score_voices
 
