@@ -9,7 +9,11 @@ import {
   type NotationSettings,
   type PolicyException,
 } from "../../lib/jobs";
-import { patchForInterpretation } from "../../lib/notation-style";
+import {
+  needsCurrentReadableEngine,
+  patchForCurrentReadable,
+  patchForInterpretation,
+} from "../../lib/notation-style";
 import Button from "../ui/Button";
 import SegmentedControl from "../ui/SegmentedControl";
 
@@ -163,6 +167,25 @@ export default function NotationInterpretationPanel({
             Literal keeps performed onsets and releases as closely as notation
             allows. Changing this regenerates the derived score.
           </p>
+          {needsCurrentReadableEngine(settings) ? (
+            <p className="ns-notation-note">
+              This score uses a saved Readable engine. Apply the current
+              Readable interpretation to regenerate it. Manual edits are kept.
+              <button
+                type="button"
+                className="ns-text-link"
+                disabled={selectorDisabled}
+                onClick={() =>
+                  void apply({
+                    ...settings,
+                    ...patchForCurrentReadable(),
+                  })
+                }
+              >
+                Apply current Readable
+              </button>
+            </p>
+          ) : null}
           {!regenAvailable ? (
             <p className="ns-notation-note" role="status">
               {regenReason ||

@@ -738,10 +738,14 @@ def _duration(
         named.add(to_bar)
     # max_dots changes spelling (ties), not the selected musical duration.
     if preserve:
-        return min(
+        nearest = min(
             named,
             key=lambda d: (abs(float(d) - raw), d.denominator, d),
         )
+        # Literal always keeps the nearest named value. Saved v1 Readable
+        # only short-circuits on an exact named duration, matching main.
+        if settings.preserve_performed_durations() or abs(float(nearest) - raw) < 1e-7:
+            return nearest
     # Reattack / pedal-tail means write to the next accepted attack. Independent
     # overlapping unisons and long holds through a same-pitch interrupter are
     # classified as overlapping_repeat before this point, so they never cap.
@@ -783,6 +787,7 @@ def _duration(
         settings=settings,
         local_pulse=local_pulse if family == "triplet" else None,
         beat_length=beat_length,
+        measure_length=measure_length,
     )
     if filled is not None:
         return filled
@@ -799,6 +804,44 @@ def _duration(
     )
 
 
+def _metrical_duration_slots(onset, to_bar, beat_length, next_onset, measure_length):
+    """Release targets on actual beats and bars, not onset + N beats.
+
+    An offbeat onset of 0.25 plus one beat lands at 1.25, which is not a
+    metrical boundary. Candidates are the next attack, the next beat or bar
+    *position*, and the remaining distance to the barline.
+    """
+    slots = []
+    onset = Fraction(onset)
+    if next_onset is not None:
+        ioi = Fraction(next_onset) - onset
+        if ioi > 0:
+            slots.append(ioi)
+    if beat_length is not None and Fraction(beat_length) > 0 and measure_length is not None:
+        measure_length = Fraction(measure_length)
+        beat = Fraction(beat_length)
+        if measure_length > 0:
+            bar_pos = onset % measure_length
+            bar_start = onset - bar_pos
+            k = 1
+            limit = Fraction(to_bar) if to_bar is not None and Fraction(to_bar) > 0 else measure_length
+            while k <= 32:
+                target = bar_start + beat * k
+                if target <= onset + Fraction(1, 10**9):
+                    k += 1
+                    continue
+                dur = target - onset
+                if next_onset is not None and onset + dur > Fraction(next_onset) + Fraction(1, 10**9):
+                    break
+                slots.append(dur)
+                if dur >= limit - Fraction(1, 10**9):
+                    break
+                k += 1
+    if to_bar is not None and Fraction(to_bar) > 0:
+        slots.append(Fraction(to_bar))
+    return slots
+
+
 def _readable_v2_fill_small_release_gap(
     raw,
     onset,
@@ -809,6 +852,7 @@ def _readable_v2_fill_small_release_gap(
     settings,
     local_pulse=None,
     beat_length=None,
+    measure_length=None,
 ):
     """Readable: leftover gaps that are articulation, not rests.
 
@@ -834,10 +878,6 @@ def _readable_v2_fill_small_release_gap(
         return None
     sixteenth = 0.25
     slots = []
-    if next_onset is not None:
-        ioi = Fraction(next_onset) - Fraction(onset)
-        if ioi > 0:
-            slots.append(ioi)
     pulse = _triplet_local_pulse(local_pulse)
     if pulse is not None:
         remaining = float(pulse) - float(raw)
@@ -845,20 +885,31 @@ def _readable_v2_fill_small_release_gap(
             written_end = Fraction(onset) + pulse
             if next_onset is None or written_end <= Fraction(next_onset) + Fraction(1, 10**9):
                 return pulse
-    if beat_length is not None and Fraction(beat_length) > 0:
-        unit = Fraction(beat_length)
-        step = 1
-        limit = Fraction(to_bar) if to_bar is not None and Fraction(to_bar) > 0 else unit * 8
-        while True:
-            slot = unit * step
-            if slot > limit + Fraction(1, 10**9):
-                break
-            slots.append(slot)
-            step += 1
-            if step > 16:
-                break
-    if to_bar is not None and Fraction(to_bar) > 0:
-        slots.append(Fraction(to_bar))
+    if settings.uses_phrase_readable():
+        slots.extend(
+            _metrical_duration_slots(
+                onset, to_bar, beat_length, next_onset, measure_length
+            )
+        )
+    else:
+        if next_onset is not None:
+            ioi = Fraction(next_onset) - Fraction(onset)
+            if ioi > 0:
+                slots.append(ioi)
+        if beat_length is not None and Fraction(beat_length) > 0:
+            unit = Fraction(beat_length)
+            step = 1
+            limit = Fraction(to_bar) if to_bar is not None and Fraction(to_bar) > 0 else unit * 8
+            while True:
+                slot = unit * step
+                if slot > limit + Fraction(1, 10**9):
+                    break
+                slots.append(slot)
+                step += 1
+                if step > 16:
+                    break
+        if to_bar is not None and Fraction(to_bar) > 0:
+            slots.append(Fraction(to_bar))
     best = None
     for slot in slots:
         if slot <= 0:
@@ -894,6 +945,172 @@ def _readable_v2_gap_is_articulation(raw, remaining, slot, sixteenth):
     if rem_f >= Fraction(7, 16):
         return False
     return True
+
+
+_PHRASE_PULSES = (
+    Fraction(1),
+    Fraction(1, 2),
+    Fraction(1, 4),
+    Fraction(1, 8),
+    Fraction(1, 3),
+    Fraction(2, 3),
+    Fraction(1, 6),
+    Fraction(3, 4),
+    Fraction(3, 2),
+    Fraction(2),
+    Fraction(3),
+    Fraction(4),
+)
+
+
+def _snap_phrase_pulse(ioi):
+    if ioi is None or ioi <= 0:
+        return None
+    best = None
+    for pulse in _PHRASE_PULSES:
+        err = abs(float(ioi) - float(pulse))
+        if err <= 0.08 and (best is None or err < best[0]):
+            best = (err, pulse)
+    return None if best is None else best[1]
+
+
+def _split_voice_phrases(ordered, exact):
+    """Split a voice on irregular onset gaps, not on small release leftovers."""
+    if not ordered:
+        return []
+    if len(ordered) == 1:
+        return [list(ordered)]
+    onsets = [float(exact[ev.note_id][0]) for ev in ordered]
+    iois = [b - a for a, b in zip(onsets, onsets[1:])]
+    phrases = []
+    current = [ordered[0]]
+    seen = []
+    for ev, ioi in zip(ordered[1:], iois):
+        recent = seen[-3:] or [ioi]
+        typical = sorted(recent)[len(recent) // 2]
+        if typical > 0 and ioi >= max(2.0, typical * 1.85) and ioi - typical >= 0.75:
+            phrases.append(current)
+            current = [ev]
+            seen = []
+        else:
+            current.append(ev)
+            seen.append(ioi)
+    phrases.append(current)
+    return phrases
+
+
+def _phrase_ioi(ev, nxt, exact, pulse, to_bar):
+    onset = exact[ev.note_id][0]
+    if nxt is not None:
+        ioi = exact[nxt.note_id][0] - onset
+        if ioi > 0:
+            return Fraction(ioi)
+    if pulse is not None and pulse > 0:
+        if to_bar is None or pulse <= Fraction(to_bar) + Fraction(1, 10**9):
+            return pulse
+    return None
+
+
+def _is_phrase_detached(raw, ioi):
+    """True when a leftover looks like articulation of a repeated written value."""
+    if ioi is None or ioi <= 0:
+        return False
+    rem = float(ioi) - float(raw)
+    if rem < -1e-9:
+        return False
+    if rem >= float(raw) - 1e-9:
+        return False
+    if float(raw) / float(ioi) < 0.55:
+        return False
+    return True
+
+
+def _readable_phrase_unify_durations(
+    events,
+    exact,
+    settings,
+    raw_by_id,
+    *,
+    measure_length=Fraction(4),
+    beat_length=Fraction(1),
+):
+    """Rewrite a voice's written durations jointly over a measure or short phrase.
+
+    Local leftover thresholds can alternate 0.75 and 1.0 on a detached quarter
+    line. When neighboring notes share pulse and similar release ratios, prefer
+    one conventional value. Isolated shorts, independent holds, locked timing,
+    and substantial pauses stay put.
+    """
+    settings = _settings(settings)
+    adjustments = {}
+    if not settings.uses_phrase_readable():
+        return events, exact, adjustments
+    measure_length = Fraction(measure_length)
+    groups = defaultdict(list)
+    for ev in events:
+        if getattr(ev, "score_timing_locked", False):
+            continue
+        line = ev.musical_voice if ev.musical_voice is not None else ev.voice
+        groups[(ev.hand, line, ev.source_track_id)].append(ev)
+    new_exact = dict(exact)
+    for group in groups.values():
+        ordered = sorted(group, key=lambda e: (exact[e.note_id][0], e.pitch, e.note_id))
+        for phrase in _split_voice_phrases(ordered, exact):
+            if len(phrase) < 2:
+                continue
+            snapped_iois = []
+            for ev, nxt in zip(phrase, phrase[1:]):
+                snapped = _snap_phrase_pulse(exact[nxt.note_id][0] - exact[ev.note_id][0])
+                if snapped is not None:
+                    snapped_iois.append(snapped)
+            if not snapped_iois:
+                continue
+            pulse = max(set(snapped_iois), key=snapped_iois.count)
+            needed = max(2, (len(phrase) * 3 + 4) // 5)
+            if snapped_iois.count(pulse) < needed:
+                continue
+            candidates = []
+            for index, ev in enumerate(phrase):
+                nxt = phrase[index + 1] if index + 1 < len(phrase) else None
+                onset = new_exact[ev.note_id][0]
+                bar_pos = onset % measure_length if measure_length > 0 else Fraction(0)
+                to_bar = measure_length - bar_pos if measure_length > 0 else None
+                ioi = _phrase_ioi(ev, nxt, new_exact, pulse, to_bar)
+                source = raw_by_id.get(ev.note_id)
+                raw = source.duration_beats if source is not None else float(ev.duration_beats)
+                if ioi is None or not _is_phrase_detached(raw, ioi):
+                    continue
+                if nxt is None and float(ioi) - float(raw) >= 0.5:
+                    continue
+                candidates.append((ev, ioi, raw))
+            if len(candidates) < max(2, (len(phrase) * 3 + 4) // 5):
+                continue
+            ratios = [c[2] / float(c[1]) for c in candidates]
+            if max(ratios) - min(ratios) > 0.22:
+                continue
+            for ev, ioi, raw in candidates:
+                onset, duration, family, group_id = new_exact[ev.note_id]
+                chosen = Fraction(ioi).limit_denominator(48)
+                if chosen <= 0 or abs(float(chosen) - float(duration)) <= 1e-9:
+                    continue
+                new_exact[ev.note_id] = (onset, chosen, family, group_id)
+                adjustments[ev.note_id] = {
+                    "from": float(duration),
+                    "to": float(chosen),
+                    "reason": "readable_phrase_duration",
+                    "pulse": float(pulse),
+                    "performed": float(raw),
+                }
+    if not adjustments:
+        return events, exact, adjustments
+    updated = []
+    for ev in events:
+        if ev.note_id not in adjustments:
+            updated.append(ev)
+            continue
+        duration = new_exact[ev.note_id][1]
+        updated.append(copy_event(ev, duration_beats=float(duration)))
+    return updated, new_exact, adjustments
 
 
 _SHARED_BEAT_WINDOW = 0.13
@@ -934,7 +1151,7 @@ def _readable_align_shared_onsets(
     """
     settings = _settings(settings)
     adjustments = {}
-    if settings.interpretation != Interpretation.READABLE:
+    if not settings.uses_improved_readable():
         return onset_by_id, adjustments
 
     by_voice = defaultdict(list)
@@ -1090,7 +1307,7 @@ def _readable_unify_chord_durations(events, exact, settings):
     """
     settings = _settings(settings)
     adjustments = {}
-    if settings.interpretation != Interpretation.READABLE:
+    if not settings.uses_improved_readable():
         return events, exact, adjustments
     groups = defaultdict(list)
     for ev in events:
@@ -1793,23 +2010,37 @@ def quantize_notation(
                 nxt,
                 overlaps,
                 family,
-                preserve=local_settings.preserve_performed_durations(),
+                preserve=(
+                    local_settings.preserve_performed_durations()
+                    or (
+                        ev.source_backend == "midi"
+                        and not local_settings.uses_improved_readable()
+                    )
+                ),
                 measure_length=measure_length,
                 beat_length=beat_length,
                 release_reason=release_reason,
-                release_at=release_at,
                 settings=local_settings,
+                release_at=release_at,
                 local_pulse=prev_interval if family == "triplet" else None,
             )
             exact[ev.note_id] = (onset, duration, family, f"{key[0]}:{key[1]}:{group_index}")
             out.append(copy_event(ev, start_beat=float(onset), duration_beats=float(duration),
                                   role=role, phrase_id=phrase))
+    raw_by_id = {e.note_id: e for e in raw}
+    out, exact, phrase_duration_adjustments = _readable_phrase_unify_durations(
+        out,
+        exact,
+        settings,
+        raw_by_id,
+        measure_length=measure_length,
+        beat_length=beat_length,
+    )
     out, exact, chord_duration_adjustments = _readable_unify_chord_durations(
         out, exact, settings
     )
     out = _stable_lanes(out, exact, profile.grand_staff)
     out = _conservative_articulations(out, settings=settings)
-    raw_by_id = {e.note_id: e for e in raw}
     ornament_marks = _readable_mark_ornaments(
         out, onset_by_id, exact, roles, settings, raw_by_id
     )
@@ -1844,6 +2075,8 @@ def quantize_notation(
         reason = "bounded_voice_search"
         if ev.note_id in shared_beat_adjustments:
             reason = shared_beat_adjustments[ev.note_id].get("reason") or "readable_shared_beat"
+        elif ev.note_id in phrase_duration_adjustments:
+            reason = "readable_phrase_duration"
         elif ev.note_id in chord_duration_adjustments:
             reason = "readable_chord_duration"
         decision = {
@@ -1885,6 +2118,8 @@ def quantize_notation(
         }
         if ev.note_id in shared_beat_adjustments:
             decision["shared_beat"] = shared_beat_adjustments[ev.note_id]
+        if ev.note_id in phrase_duration_adjustments:
+            decision["phrase_duration"] = phrase_duration_adjustments[ev.note_id]
         if ev.note_id in chord_duration_adjustments:
             decision["chord_duration"] = chord_duration_adjustments[ev.note_id]
         if ev.note_id in ornament_marks:

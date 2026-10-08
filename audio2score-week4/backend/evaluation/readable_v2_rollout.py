@@ -1,6 +1,6 @@
 """Broader readable-v1 vs current Readable comparison on evaluation material.
 
-New scores default to `performance-score-2`. Existing jobs keep stored
+New scores default to `performance-score-3`. Existing jobs keep stored
 `algorithm_version` until explicit regenerate. Real-audio transcription
 accuracy is out of scope. Fewer rests or ties are reported, not scored as
 better.
@@ -845,7 +845,7 @@ def recommend(report: dict) -> dict:
     return {
         "decision": "new_job_default",
         "rationale": (
-            "New scores default to Readable on performance-score-2. Existing "
+            "New scores default to Readable on performance-score-3. Existing "
             "jobs keep their stored algorithm_version until explicit "
             "regeneration. Remaining comparison diffs are listed when present. "
             f"Licensed performances available: {licensed}. "
@@ -867,7 +867,7 @@ def _markdown(report: dict) -> str:
     lines = [
         "# readable-v2 rollout comparison",
         "",
-        "New scores default to Readable (`performance-score-2`). Existing jobs keep stored `algorithm_version`.",
+        "New scores default to Readable (`performance-score-3`). Existing jobs keep stored `algorithm_version`.",
         "Fewer rests or ties are not treated as better. Real-audio transcription is out of scope.",
         "",
         "## Provenance",

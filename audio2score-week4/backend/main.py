@@ -642,6 +642,7 @@ class NotationSettingsIn(BaseModel):
     first_downbeat_beat: float | None = Field(default=None, ge=0, le=10000)
     measure_overrides: list[dict] | None = None
     reset: bool = False
+    apply_current_readable: bool = False
     revision: int | None = Field(default=None, ge=0)
 
 
@@ -2023,6 +2024,8 @@ def job_notation_settings_post(
 ):
     """Recompute derived notation. Does not resubmit audio transcription."""
     from mir.notation_settings import (
+        ALGORITHM_VERSION_READABLE,
+        Interpretation,
         NotationSettingsError,
         merge_notation_settings,
         settings_for_reset,
@@ -2051,6 +2054,11 @@ def job_notation_settings_post(
         else:
             current = _notation_settings_payload(job)["notation_settings"]
             settings = merge_notation_settings(current, dumped, fields_set=fields_set)
+            if body.apply_current_readable:
+                settings = settings.replace(
+                    interpretation=Interpretation.READABLE,
+                    algorithm_version=ALGORITHM_VERSION_READABLE,
+                )
         payload = _recompute_notation_revision(
             job,
             settings,

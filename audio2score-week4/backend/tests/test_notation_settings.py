@@ -2,6 +2,7 @@ from mir.notation_settings import (
     ALGORITHM_VERSION_CURRENT,
     ALGORITHM_VERSION_DEFAULT,
     ALGORITHM_VERSION_READABLE,
+    ALGORITHM_VERSION_READABLE_V2,
     DisplayGrid,
     Interpretation,
     NotationSettings,
@@ -22,11 +23,19 @@ def test_defaults_match_current_engine():
     assert settings.max_dots == 1
     assert settings.algorithm_version == ALGORITHM_VERSION_DEFAULT
     assert settings.algorithm_version == ALGORITHM_VERSION_READABLE
+    assert settings.algorithm_version == "performance-score-3"
     assert settings.uses_current_vocabulary() is False
     assert settings.uses_improved_readable() is True
+    assert settings.uses_phrase_readable() is True
     legacy = NotationSettings.legacy_readable()
     assert legacy.algorithm_version == ALGORITHM_VERSION_CURRENT
     assert legacy.uses_improved_readable() is False
+    assert legacy.uses_phrase_readable() is False
+    saved_v2 = NotationSettings.readable_v2()
+    assert saved_v2.algorithm_version == ALGORITHM_VERSION_READABLE_V2
+    assert saved_v2.uses_improved_readable() is True
+    assert saved_v2.uses_phrase_readable() is False
+    assert NotationSettings.literal().uses_phrase_readable() is False
 
 
 def test_contradictory_overrides_are_rejected():
@@ -77,12 +86,19 @@ def test_saved_readable_keeps_stored_algorithm_until_explicit_version():
     )
     assert patched.interpretation == Interpretation.READABLE
     assert patched.algorithm_version == ALGORITHM_VERSION_CURRENT
+    kept_v2 = merge_notation_settings(
+        NotationSettings.readable_v2(),
+        {"interpretation": "readable"},
+        fields_set={"interpretation"},
+    )
+    assert kept_v2.algorithm_version == ALGORITHM_VERSION_READABLE_V2
     opted = merge_notation_settings(
         patched,
         {"algorithm_version": ALGORITHM_VERSION_READABLE},
         fields_set={"algorithm_version"},
     )
     assert opted.uses_improved_readable() is True
+    assert opted.uses_phrase_readable() is True
     assert opted.algorithm_version == ALGORITHM_VERSION_READABLE
 
 

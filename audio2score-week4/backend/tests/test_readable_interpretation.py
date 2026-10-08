@@ -15,7 +15,7 @@ from mir.cmr_builder import notes_to_events
 from mir.midi_ingest import ingest_midi
 from mir.models import MeterHypothesis
 from mir.notation_regen import recompute_notation
-from mir.notation_settings import NotationSettings
+from mir.notation_settings import ALGORITHM_VERSION_READABLE, NotationSettings
 from mir.performance_score import quantize_notation
 from mir.quantizer import QuantizerConfig
 from mir.types import Hand, MusicalEvent
@@ -50,6 +50,8 @@ def test_literal_vs_readable_pairs_have_independent_expected_notation():
     ids = {row["id"] for row in PAIRS}
     assert "A_detached_regular_line" in ids
     assert "B_short_notes_with_rests" in ids
+    assert "mixed_release_quarters" in ids
+    assert "isolated_rest_in_phrase" in ids
     assert "humanized_ceg_chord" in ids
     assert "rapid_sixteenth_run" in ids
     for row in PAIRS:
@@ -377,3 +379,183 @@ def test_legacy_saved_readable_does_not_fill_detached_quarters():
     current, _, _ = _quantize(events, READABLE)
     assert all(e.duration_beats < 0.95 for e in legacy)
     assert [round(e.duration_beats, 4) for e in current] == [1.0] * 4
+
+
+def test_mixed_release_quarter_phrase_is_consistent_in_readable():
+    durs = [0.77, 0.79, 0.81, 0.83, 0.77, 0.79, 0.81, 0.83]
+    events = [_ev(72 + (i % 3) * 2, float(i), durs[i], f"n{i}") for i in range(8)]
+    readable, dec, _ = _quantize(events, READABLE)
+    v2, _, _ = _quantize(events, NotationSettings.readable_v2())
+    legacy, _, _ = _quantize(events, LEGACY)
+    assert [round(e.duration_beats, 4) for e in readable] == [1.0] * 8
+    assert [round(e.start_beat, 4) for e in readable] == [float(i) for i in range(8)]
+    assert [round(e.duration_beats, 4) for e in v2] == [
+        0.75, 0.75, 1.0, 1.0, 0.75, 0.75, 1.0, 1.0
+    ]
+    assert all(e.duration_beats <= 0.8125 + 1e-9 for e in legacy)
+    assert {row.get("reason") for row in dec} & {"readable_phrase_duration", "bounded_voice_search"}
+
+
+def test_isolated_rest_inside_connected_phrase_stays_a_rest():
+    durs = [0.82, 0.80, 0.18, 0.81]
+    events = [_ev(72 + i, float(i), durs[i], f"n{i}") for i in range(4)]
+    out, _, _ = _quantize(events, READABLE)
+    assert [round(e.duration_beats, 4) for e in out] == [1.0, 1.0, 0.1875, 1.0]
+
+
+def test_repeated_phrases_with_uneven_releases_share_written_rhythm():
+    first = [0.77, 0.80, 0.83, 0.79]
+    second = [0.74, 0.86, 0.78, 0.82]
+    events = [_ev(72 + (i % 3), float(i), (first + second)[i], f"n{i}") for i in range(8)]
+    out, _, _ = _quantize(events, READABLE)
+    assert [round(e.duration_beats, 4) for e in out] == [1.0] * 8
+
+
+def test_phrase_ending_before_substantial_silence_keeps_the_rest():
+    events = [
+        _ev(72, 0.0, 0.82, "a"),
+        _ev(74, 1.0, 0.80, "b"),
+        _ev(76, 2.0, 0.40, "end"),
+    ]
+    out, _, _ = _quantize(events, READABLE)
+    by_id = {e.note_id: e for e in out}
+    assert round(by_id["a"].duration_beats, 4) == 1.0
+    assert round(by_id["b"].duration_beats, 4) == 1.0
+    assert by_id["end"].duration_beats <= 0.5 + 1e-9
+
+
+def test_saved_legacy_readable_keeps_one_point_seventy_five():
+    events = [_ev(72, 0.0, 1.75, "n")]
+    v1, _, _ = _quantize(events, NotationSettings.from_dict(
+        {"interpretation": "readable", "algorithm_version": "performance-score-1"}
+    ))
+    v2, _, _ = _quantize(events, NotationSettings.readable_v2())
+    current, _, _ = _quantize(events, READABLE)
+    assert abs(v1[0].duration_beats - 1.75) < 1e-9
+    assert round(v2[0].duration_beats, 4) == 2.0
+    assert round(current[0].duration_beats, 4) == 2.0
+
+
+def test_unrelated_edit_does_not_reinterpret_saved_legacy_score(tmp_path):
+    path = tmp_path / "legacy.mid"
+    midi = pretty_midi.PrettyMIDI(initial_tempo=120)
+    inst = pretty_midi.Instrument(0, name="Piano")
+    inst.notes.append(pretty_midi.Note(velocity=80, pitch=72, start=0.0, end=1.75 * 0.5))
+    midi.instruments.append(inst)
+    midi.write(str(path))
+    original = path.read_bytes()
+    ingested = ingest_midi(path)
+    context = _context_for(ingested)
+    legacy = NotationSettings.from_dict(
+        {"interpretation": "readable", "algorithm_version": "performance-score-1"}
+    )
+    first = recompute_notation(
+        midi_bytes=original, settings=legacy, performance=ingested.performance, context=context
+    )
+    sid = first.editor_model["notes"][0].get("source_note_id") or first.editor_model["notes"][0]["id"]
+    edited = recompute_notation(
+        midi_bytes=original,
+        settings=legacy,
+        performance=ingested.performance,
+        context=context,
+        corrections=[{"source_note_id": sid, "velocity": 99}],
+    )
+    assert path.read_bytes() == original
+    row = next(
+        note
+        for note in edited.editor_model["notes"]
+        if (note.get("source_note_id") or note["id"]) == sid
+    )
+    assert int(row["velocity"]) == 99
+    assert abs(float(row["duration"]) - 1.75) < 1e-6
+    assert edited.settings.algorithm_version == "performance-score-1"
+    assert first.cache_key != READABLE.cache_key(ingested.performance.midi_sha256)
+
+
+def test_current_readable_cache_key_differs_from_saved_engines():
+    midi = "abc"
+    v1 = NotationSettings.legacy_readable().cache_key(midi)
+    v2 = NotationSettings.readable_v2().cache_key(midi)
+    v3 = NotationSettings().cache_key(midi)
+    assert len({v1, v2, v3}) == 3
+    assert NotationSettings().algorithm_version == ALGORITHM_VERSION_READABLE
+
+
+def test_mixed_release_quarter_phrase_survives_midi_ingest(tmp_path):
+    source = tmp_path / "mixed.mid"
+    READABLE_V2_CASES["mixed_release_quarters"](source)
+    original = source.read_bytes()
+    ingested = ingest_midi(source)
+    events = notes_to_events(ingested.notes, ingested.tempo_map, source_backend="midi")
+    readable, _, _ = _quantize(events, READABLE)
+    literal, _, _ = _quantize(events, LITERAL)
+    assert source.read_bytes() == original
+    assert [round(e.duration_beats, 4) for e in readable] == [1.0] * 8
+    assert [round(e.start_beat, 4) for e in readable] == [float(i) for i in range(8)]
+    assert any(e.duration_beats < 0.95 for e in literal)
+    result = recompute_notation(
+        midi_bytes=original,
+        settings=READABLE,
+        performance=ingested.performance,
+        context=_context_for(ingested),
+    )
+    assert source.read_bytes() == original
+    written = [round(float(n["duration"]), 4) for n in result.editor_model["notes"]]
+    assert written == [1.0] * 8
+    score = pretty_midi.PrettyMIDI(BytesIO(result.score_midi))
+    played = sorted(n.end - n.start for inst in score.instruments for n in inst.notes)
+    assert played
+    assert all(abs(dur - 0.5) < 0.05 for dur in played)
+
+
+def test_genuine_short_rest_pattern_stays_short_through_midi(tmp_path):
+    source = tmp_path / "shorts.mid"
+    READABLE_V2_CASES["B_short_notes_with_rests"](source)
+    original = source.read_bytes()
+    ingested = ingest_midi(source)
+    events = notes_to_events(ingested.notes, ingested.tempo_map, source_backend="midi")
+    readable, _, _ = _quantize(events, READABLE)
+    literal, _, _ = _quantize(events, LITERAL)
+    assert source.read_bytes() == original
+    assert all(e.duration_beats <= 0.25 + 1e-9 for e in readable)
+    assert [round(e.duration_beats, 4) for e in readable] == [
+        round(e.duration_beats, 4) for e in literal
+    ]
+
+
+def test_waltz_mixed_release_phrase_is_consistent():
+    durs = [0.77, 0.79, 0.81, 0.83, 0.77, 0.79]
+    events = [_ev(72 + (i % 3) * 2, float(i), durs[i], f"w{i}") for i in range(6)]
+    out, _, _ = _quantize(events, READABLE, meter=METER_34)
+    assert [round(e.start_beat, 4) for e in out] == [float(i) for i in range(6)]
+    assert [round(e.duration_beats, 4) for e in out] == [1.0] * 6
+
+
+def test_offbeat_release_targets_use_metrical_positions_not_onset_plus_beat():
+    from mir.performance_score import _metrical_duration_slots
+
+    slots = [float(s) for s in _metrical_duration_slots(0.25, 3.75, 1.0, None, 4.0)]
+    assert 0.75 in slots
+    assert 1.75 in slots
+    assert 1.0 not in slots
+    events = [_ev(72, 0.25, 0.62, "off")]
+    out, _, _ = _quantize(events, READABLE)
+    assert abs(out[0].start_beat - 0.25) < 1e-6
+    assert round(out[0].duration_beats, 4) == 0.75
+    assert round(out[0].start_beat + out[0].duration_beats, 4) == 1.0
+
+
+def test_isolated_interior_rest_survives_midi_ingest(tmp_path):
+    source = tmp_path / "rest.mid"
+    READABLE_V2_CASES["isolated_rest_in_phrase"](source)
+    original = source.read_bytes()
+    ingested = ingest_midi(source)
+    events = notes_to_events(ingested.notes, ingested.tempo_map, source_backend="midi")
+    out, _, _ = _quantize(sorted(events, key=lambda e: e.start_beat), READABLE)
+    assert source.read_bytes() == original
+    durs = [round(e.duration_beats, 4) for e in sorted(out, key=lambda e: e.start_beat)]
+    assert durs[0] == 1.0
+    assert durs[1] == 1.0
+    assert durs[2] <= 0.25 + 1e-9
+    assert durs[3] == 1.0
+

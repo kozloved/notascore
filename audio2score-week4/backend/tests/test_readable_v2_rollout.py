@@ -35,8 +35,11 @@ from evaluation.readable_v2_rollout import (
 
 def test_new_scores_default_to_current_readable_engine():
     assert NotationSettings().algorithm_version == ALGORITHM_VERSION_READABLE
-    assert NotationSettings().algorithm_version == "performance-score-2"
+    assert NotationSettings().algorithm_version == "performance-score-3"
     assert NotationSettings().uses_improved_readable() is True
+    assert NotationSettings().uses_phrase_readable() is True
+    assert NotationSettings.readable_v2().algorithm_version == "performance-score-2"
+    assert NotationSettings.readable_v2().uses_phrase_readable() is False
     legacy = NotationSettings.legacy_readable()
     assert legacy.algorithm_version == ALGORITHM_VERSION_CURRENT
     assert legacy.algorithm_version == "performance-score-1"
@@ -219,7 +222,7 @@ def test_heldout_final_short_preserves_midi(tmp_path):
     assert row["measure_integrity"]["v1_musical_valid"] is True
     assert row["measure_integrity"]["v2_musical_valid"] is True
     assert row["v1"]["algorithm_version"] == "performance-score-1"
-    assert row["v2"]["algorithm_version"] == "performance-score-2"
+    assert row["v2"]["algorithm_version"] == ALGORITHM_VERSION_READABLE
     # The last attack is the intentional short note.
     assert row["v1"]["assignments"]["pitches"][-1] == 74
     assert row["v2"]["assignments"]["pitches"][-1] == 74
@@ -262,7 +265,7 @@ def test_locked_timing_survives_both_versions():
 
 def test_rollout_run_writes_report_and_keeps_v2_opt_in(tmp_path):
     report = run(tmp_path / "out", render=False)
-    assert report["inventory"]["default_algorithm_version"] == "performance-score-2"
+    assert report["inventory"]["default_algorithm_version"] == ALGORITHM_VERSION_READABLE
     assert all(row["source_midi_unchanged"] for row in report["cases"])
     assert all(row["source_midi_unchanged"] for row in report["corpus"])
     labels = {row["label"] for row in report["cases"]}

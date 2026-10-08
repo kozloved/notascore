@@ -104,7 +104,7 @@ def main():
     parser.add_argument(
         "--readable-v2",
         action="store_true",
-        help="Pin performance-score-2 (the default Readable engine)",
+        help="Pin performance-score-2 (saved Readable engine before phrase-level fill)",
     )
     args = parser.parse_args()
     payload = {}

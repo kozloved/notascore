@@ -21,8 +21,9 @@ with comparative evidence:
 - Keep performance, musical interpretation, notation, and user corrections distinct.
 - Automatic and edited scores use the shared planner.
 - Preserve exact tuplets, ties, articulation ownership, and accepted corrections.
-- New scores default to Readable (`performance-score-2`). Existing jobs keep
-  stored `algorithm_version` until the user explicitly regenerates.
+- New scores default to Readable (`performance-score-3`). Existing jobs keep
+  stored `algorithm_version` until the user explicitly regenerates. `performance-score-1`
+  and `performance-score-2` remain saved-score compatibility identities.
 - Do not treat synthetic fixtures or export success as musician-reviewed quality.
 
 Live product code is `audio2score-week4/`. Status values: **verified**,
@@ -227,14 +228,16 @@ voice continuity make a score unusable even when export is valid.
 
 - Performance engine: `mir/performance_score.py`, shared planner
   `notation_engine/plan.py`. User-facing modes are Literal and Readable.
-  Readable uses `performance-score-2` by default; `performance-score-1`
-  remains a saved-score compatibility identity. Last-note triplet pulse
-  and relative leftover fill are tested. Independent holds are not clipped
-  on synthetic cases.
+  Readable uses `performance-score-3` by default; `performance-score-1`
+  and `performance-score-2` remain saved-score compatibility identities.
+  Phrase-level duration unify, last-note triplet pulse, and relative leftover
+  fill are tested. Independent holds are not clipped on synthetic cases.
 - Editor **Interpretation** control (Literal / Readable) regenerates from
   existing performance MIDI via `/jobs/{id}/notation-settings` — no
   retranscription and no extra transcription credit. Selecting Readable
-  pins the current engine. Algorithm version is not a user-facing label.
+  from Literal pins the current engine. Saved Readable jobs keep their stored
+  engine until **Apply current Readable**. Algorithm version is not a
+  user-facing label.
 - 138: musical voice unchanged; printed lanes move after duration fill.
   Not a P2 musical-line bug. Residual duration spelling on that
   development file is unverified musically.
@@ -266,7 +269,7 @@ do not claim musician-validated improvement.
 
 **Status.** Partially implemented as deterministic correctness work —
 **not P2 complete**, **not musician-validated**. P1 still 0/15 attributed
-reviews. New scores default to Readable (`performance-score-2`); existing
+reviews. New scores default to Readable (`performance-score-3`); existing
 jobs are not auto-migrated.
 
 **P2a increment (PR #84 @ `e9dca18`).**
@@ -460,7 +463,7 @@ MIDI, without silently rewriting saved jobs.
 
 **Current implementation and evidence.**
 
-- New scores default to Readable on `performance-score-2`.
+- New scores default to Readable on `performance-score-3`.
 - Existing jobs keep stored `algorithm_version` until explicit regenerate.
 - User-facing modes are Literal and Readable. Algorithm version stays
   internal for cache identity and compatibility.
@@ -482,7 +485,7 @@ diverges on those examples.
 
 **Acceptance criteria.**
 
-- New scores default to Readable (`performance-score-2`).
+- New scores default to Readable (`performance-score-3`).
 - Existing jobs stay on their stored version until regenerate/reset.
 - P1 musician reviews remain required before claiming musical quality.
 

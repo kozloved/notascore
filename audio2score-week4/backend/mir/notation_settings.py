@@ -1,9 +1,10 @@
 """Explicit, reversible notation settings for the derived score only.
 
 These never rewrite original MIDI bytes, source note IDs, or performed
-seconds. New scores default to Readable using `performance-score-2`.
+seconds. New scores default to Readable using `performance-score-3`.
 Saved jobs keep their stored `algorithm_version` until the user explicitly
-regenerates. `performance-score-1` remains a compatibility identity.
+regenerates. `performance-score-1` and `performance-score-2` remain
+compatibility identities.
 """
 
 from __future__ import annotations
@@ -15,10 +16,12 @@ from enum import Enum
 from typing import Any, Iterable
 
 ALGORITHM_VERSION_CURRENT = "performance-score-1"
-ALGORITHM_VERSION_READABLE = "performance-score-2"
+ALGORITHM_VERSION_READABLE_V2 = "performance-score-2"
+ALGORITHM_VERSION_READABLE = "performance-score-3"
 ALGORITHM_VERSION_DEFAULT = ALGORITHM_VERSION_READABLE
 SUPPORTED_ALGORITHM_VERSIONS = (
     ALGORITHM_VERSION_CURRENT,
+    ALGORITHM_VERSION_READABLE_V2,
     ALGORITHM_VERSION_READABLE,
 )
 
@@ -342,6 +345,14 @@ class NotationSettings:
                 raise NotationSettingsError(message)
 
     def uses_improved_readable(self) -> bool:
+        """Fill, chord coincidence, and duration unify (v2 and current)."""
+        return self.interpretation == Interpretation.READABLE and self.algorithm_version in {
+            ALGORITHM_VERSION_READABLE_V2,
+            ALGORITHM_VERSION_READABLE,
+        }
+
+    def uses_phrase_readable(self) -> bool:
+        """Joint phrase-duration inference (current Readable only)."""
         return (
             self.interpretation == Interpretation.READABLE
             and self.algorithm_version == ALGORITHM_VERSION_READABLE
@@ -524,7 +535,7 @@ class NotationSettings:
 
     @classmethod
     def readable_opt_in(cls, base: "NotationSettings | None" = None) -> "NotationSettings":
-        """User-facing Readable: current assertive engine."""
+        """User-facing Readable: current phrase-level engine."""
         source = base or cls()
         return source.replace(
             interpretation=Interpretation.READABLE,
@@ -538,6 +549,15 @@ class NotationSettings:
         return source.replace(
             interpretation=Interpretation.READABLE,
             algorithm_version=ALGORITHM_VERSION_CURRENT,
+        )
+
+    @classmethod
+    def readable_v2(cls, base: "NotationSettings | None" = None) -> "NotationSettings":
+        """Saved-score compatibility: Readable on performance-score-2."""
+        source = base or cls()
+        return source.replace(
+            interpretation=Interpretation.READABLE,
+            algorithm_version=ALGORITHM_VERSION_READABLE_V2,
         )
 
     @classmethod

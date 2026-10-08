@@ -845,7 +845,7 @@ def test_http_readable_defaults_to_current_engine_and_preserves_legacy(isolated_
     with _client() as client:
         listed = client.get(f"/jobs/{job_id}/notation-settings")
         assert listed.status_code == 200
-        assert listed.json()["algorithm_version"] == "performance-score-2"
+        assert listed.json()["algorithm_version"] == "performance-score-3"
         assert listed.json()["notation_settings"]["interpretation"] == "readable"
         assert listed.json()["regeneration_available"] is True
         assert listed.json().get("regeneration_unavailable_reason") in (None, "")
@@ -855,8 +855,8 @@ def test_http_readable_defaults_to_current_engine_and_preserves_legacy(isolated_
             json={"interpretation": "readable", "revision": 0},
         )
         assert readable.status_code == 200, readable.text
-        assert readable.json()["algorithm_version"] == "performance-score-2"
-        assert readable.json()["notation_settings"]["algorithm_version"] == "performance-score-2"
+        assert readable.json()["algorithm_version"] == "performance-score-3"
+        assert readable.json()["notation_settings"]["algorithm_version"] == "performance-score-3"
         assert readable.json()["transcribed"] is False
         assert readable.json()["regeneration_available"] is True
 
@@ -876,16 +876,39 @@ def test_http_readable_defaults_to_current_engine_and_preserves_legacy(isolated_
         assert persisted.json()["notation_settings"]["interpretation"] == "readable"
         assert persisted.json()["regeneration_available"] is True
 
-        current = client.post(
+        same_mode = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={
+                "interpretation": "readable",
+                "revision": legacy.json()["edit_revision"],
+            },
+        )
+        assert same_mode.status_code == 200, same_mode.text
+        assert same_mode.json()["algorithm_version"] == "performance-score-1"
+
+        saved_v2 = client.post(
             f"/jobs/{job_id}/notation-settings",
             json={
                 "interpretation": "readable",
                 "algorithm_version": "performance-score-2",
-                "revision": legacy.json()["edit_revision"],
+                "revision": same_mode.json()["edit_revision"],
+            },
+        )
+        assert saved_v2.status_code == 200, saved_v2.text
+        assert saved_v2.json()["algorithm_version"] == "performance-score-2"
+        assert saved_v2.json()["transcribed"] is False
+
+        current = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={
+                "interpretation": "readable",
+                "algorithm_version": "performance-score-3",
+                "apply_current_readable": True,
+                "revision": saved_v2.json()["edit_revision"],
             },
         )
         assert current.status_code == 200, current.text
-        assert current.json()["algorithm_version"] == "performance-score-2"
+        assert current.json()["algorithm_version"] == "performance-score-3"
         assert current.json()["transcribed"] is False
 
         literal = client.post(
@@ -903,7 +926,105 @@ def test_http_readable_defaults_to_current_engine_and_preserves_legacy(isolated_
             json={"reset": True, "revision": literal.json()["edit_revision"]},
         )
         assert reset.status_code == 200, reset.text
-        assert reset.json()["algorithm_version"] == "performance-score-2"
+        assert reset.json()["algorithm_version"] == "performance-score-3"
         assert reset.json()["notation_settings"]["interpretation"] == "readable"
         assert (isolated_db / f"{job_id}.raw.mid").read_bytes() == original
+
+
+def _prepare_legacy_readable_duration_job(tmp_path, job_id: str):
+    import database as db
+    from mir.performance_cli import convert
+    from tests.test_notation_revision_safety import _job_row, _midi_bytes
+
+    source = tmp_path / f"{job_id}.mid"
+    source.write_bytes(_midi_bytes([(72, 0.0, 0.875)], tempo=120))
+    original = source.read_bytes()
+    xml_path = tmp_path / f"{job_id}.musicxml"
+    convert(
+        source,
+        xml_path,
+        settings={
+            "interpretation": "readable",
+            "algorithm_version": "performance-score-1",
+        },
+    )
+    (tmp_path / f"{job_id}.raw.mid").write_bytes(original)
+    db.create_job(_job_row(job_id, result_storage_key=str(xml_path), edit_revision=0))
+    return xml_path, original
+
+
+def test_http_apply_current_readable_upgrades_saved_legacy_without_round_trip(
+    isolated_db, monkeypatch
+):
+    _fail_if_transcribe(monkeypatch)
+    job_id = f"apply-{uuid.uuid4().hex[:12]}"
+    _xml_path, original = _prepare_legacy_readable_duration_job(isolated_db, job_id)
+    with _client() as client:
+        listed = client.get(f"/jobs/{job_id}/notation-settings")
+        assert listed.status_code == 200
+        assert listed.json()["algorithm_version"] == "performance-score-1"
+        assert listed.json()["notation_settings"]["interpretation"] == "readable"
+
+        loaded = client.get(f"/scores/{job_id}/edits")
+        assert loaded.status_code == 200, loaded.text
+        note = loaded.json()["notes"][0]
+        sid = note.get("source_note_id") or note["id"]
+        assert float(note["duration"]) == pytest.approx(1.75, abs=1e-3)
+
+        edited_notes = [dict(row) for row in loaded.json()["notes"]]
+        edited_notes[0]["velocity"] = 99
+        saved = _save_notes(client, job_id, loaded.json(), edited_notes)
+        assert saved.status_code == 200, saved.text
+        assert int(_note(saved.json(), sid)["velocity"]) == 99
+        assert float(_note(saved.json(), sid)["duration"]) == pytest.approx(1.75, abs=1e-3)
+
+        grid = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={"display_grid": "sixteenth", "revision": saved.json()["revision"]},
+        )
+        assert grid.status_code == 200, grid.text
+        assert grid.json()["algorithm_version"] == "performance-score-1"
+        after_grid = client.get(f"/scores/{job_id}/edits")
+        assert float(_note(after_grid.json(), sid)["duration"]) == pytest.approx(1.75, abs=1e-3)
+        assert int(_note(after_grid.json(), sid)["velocity"]) == 99
+
+        stale = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={
+                "apply_current_readable": True,
+                "revision": 0,
+            },
+        )
+        assert stale.status_code == 409
+        assert stale.json()["detail"]["code"] == "stale_revision"
+        assert client.get(f"/jobs/{job_id}/notation-settings").json()["algorithm_version"] == (
+            "performance-score-1"
+        )
+
+        retry = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={
+                "interpretation": "readable",
+                "apply_current_readable": True,
+                "revision": after_grid.json()["revision"],
+            },
+        )
+        assert retry.status_code == 200, retry.text
+        assert retry.json()["algorithm_version"] == "performance-score-3"
+        assert retry.json()["notation_settings"]["interpretation"] == "readable"
+        assert retry.json()["transcribed"] is False
+        upgraded = client.get(f"/scores/{job_id}/edits")
+        assert float(_note(upgraded.json(), sid)["duration"]) == pytest.approx(2.0, abs=1e-3)
+        assert int(_note(upgraded.json(), sid)["velocity"]) == 99
+        persisted = client.get(f"/jobs/{job_id}/notation-settings")
+        assert persisted.json()["algorithm_version"] == "performance-score-3"
+        assert (isolated_db / f"{job_id}.raw.mid").read_bytes() == original
+        _assert_artifacts_agree(
+            client,
+            job_id,
+            upgraded.json(),
+            sid=sid,
+            duration=2.0,
+            velocity=99,
+        )
 

@@ -4,8 +4,10 @@ Reviewed main at `71b4c18` (PR #100, canonical rests + independent playback
 tempo). This increment stays on the shared production path
 (`assign_pipeline_layout` → `quantize_notation` → `build_exact_measures` →
 writer/playback/regen). User-facing modes are Literal and Readable. New
-scores default to Readable (`performance-score-2`). Saved jobs keep stored
-`algorithm_version` until explicit regenerate.
+scores default to Readable (`performance-score-3`). Saved jobs keep stored
+`algorithm_version` until explicit regenerate. `performance-score-1` and
+`performance-score-2` remain compatibility identities. Apply current Readable
+upgrades a saved Readable score without a Literal round trip.
 
 Development MIDI is labeled as such. P1 musician reviews remain 0/15.
 
@@ -73,7 +75,25 @@ cross-line Autumn Walks bounds are unchanged. Decisions expose
 Pair: staggered C–E–G vs off-beat 1.125 vs mixed-release inner hold vs rapid
 RH against bass.
 
-### 5. PR #100 rest and tempo contracts
+### 5. Phrase-level written rhythm
+
+Local leftover thresholds alternate 0.75 and 1.0 on a detached quarter line
+whose performed releases sit around 0.77–0.83. `_readable_phrase_unify_durations`
+scores a voice jointly over a short phrase: recurring onset pulse, similar
+release ratios, and conventional IOI fill. Isolated interior shorts, genuine
+short-note/rest patterns, syncopation, phrase-ending silence, and locked
+timing stay put. Release targets use actual beat and bar positions, not
+onset plus N beats.
+
+Identity: current Readable is `performance-score-3`. Saved
+`performance-score-1` keeps 1.75 exactly; `performance-score-2` keeps the
+previous local fill (including the mixed-release alternation). Unrelated
+edits do not reinterpret a stored engine.
+
+Pair: mixed-release quarters vs sixteenths-plus-rests vs one interior rest
+vs repeated slightly different phrases vs last-note silence.
+
+### 6. PR #100 rest and tempo contracts
 
 Meter-aware rests, visible primary measure rests, hidden secondary fillers,
 byte-identical source MIDI, and independent printed vs playback tempo are
@@ -82,7 +102,8 @@ untouched.
 ## Counterexamples retained
 
 - Intentional short notes + rests (case B, short_rests_repeats)
-- Detached quarters fill on current Readable; saved `performance-score-1` jobs keep the rest until regenerate
+- Detached quarters fill on current Readable; saved `performance-score-1` jobs keep the rest until Apply current Readable / regenerate
+- Mixed-release 0.77–0.83 quarters become eight quarters on v3; v2 still alternates 0.75/1.0; v1 stays short
 - Consecutive 16th run 60/64/67 at 0, 1/16, 1/8 is not a staggered chord
 - Syncopation, mixed tuplets, pickups, user-locked hand/voice/timing
 - Broken-chord left-hand waltz under melody
@@ -116,7 +137,7 @@ Until that lands, ornaments stay decision + `articulation="ornament"` only.
 ## What this is not
 
 - Not musician-validated quality. New scores default to Readable
-  (`performance-score-2`); existing jobs are not auto-migrated.
+  (`performance-score-3`); existing jobs are not auto-migrated.
 - Reattack / pedal-tail writes to the next accepted attack. Independent
   overlapping unisons and long same-pitch holds stay `overlapping_repeat`.
 - Literal vs Readable OSMD/PDF of the same MIDI is the visual evidence for

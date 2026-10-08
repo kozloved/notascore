@@ -229,6 +229,31 @@ def case_early_release_whole(path: Path) -> str:
     return _write(path, [(72, 0.0, 1.925, 80)])
 
 
+def case_mixed_release_quarters(path: Path) -> str:
+    """Eight detached quarters with slightly different releases.
+
+    Expected Readable: eight quarters. Do not alternate 0.75 and 1.0 from
+    independent leftover thresholds.
+    """
+    durs = [0.385, 0.395, 0.405, 0.415, 0.385, 0.395, 0.405, 0.415]
+    notes = [(72 + (i % 3) * 2, i * 0.5, i * 0.5 + durs[i], 82) for i in range(8)]
+    return _write(path, notes)
+
+
+def case_isolated_rest_in_phrase(path: Path) -> str:
+    """Connected quarter phrase with one intentional short rest.
+
+    Expected: three quarters and one short note plus rest on beat 3.
+    """
+    notes = [
+        (72, 0.0, 0.41, 82),
+        (74, 0.5, 0.90, 82),
+        (76, 1.0, 1.09, 86),
+        (77, 1.5, 1.905, 82),
+    ]
+    return _write(path, notes)
+
+
 def case_uneven_chord_releases(path: Path) -> str:
     """Chord members with slightly different performed releases.
 
@@ -363,6 +388,8 @@ READABLE_V2_CASES = {
     "rapid_sixteenth_run": case_rapid_sixteenth_run,
     "early_release_whole": case_early_release_whole,
     "uneven_chord_releases": case_uneven_chord_releases,
+    "mixed_release_quarters": case_mixed_release_quarters,
+    "isolated_rest_in_phrase": case_isolated_rest_in_phrase,
 }
 
 # Held-out investigation material. None of these were used to tune the
@@ -467,6 +494,16 @@ EXPECTED_NOTATION = {
         "onset": "C3–E3–G3 nearly together.",
         "release": "Performed 1.82, 1.94, 2.01 beats.",
         "engraving": "Readable: one half-note chord. Do not stretch an independent hold.",
+    },
+    "mixed_release_quarters": {
+        "onset": "Eight attacks on successive quarter beats.",
+        "release": "Performed 0.77–0.83 beats. The variation is articulation.",
+        "engraving": "Eight quarters. Do not alternate filled and unfilled leftovers.",
+    },
+    "isolated_rest_in_phrase": {
+        "onset": "Four attacks on successive quarter beats.",
+        "release": "Beats 1, 2, and 4 are detached quarters; beat 3 is a short rest.",
+        "engraving": "Keep the interior rest. Fill the neighboring quarters.",
     },
     "mixed_tuplets": {
         "onset": "Four quarters, then six triplet-eighth attacks starting at beat 4.",

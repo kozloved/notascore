@@ -76,6 +76,22 @@ PAIRS = [
         "expected": EXPECTED_NOTATION["uneven_chord_releases"],
     },
     {
+        "id": "mixed_release_quarters",
+        "builder": READABLE_V2_CASES["mixed_release_quarters"],
+        "meter": "4/4",
+        "tempo": 120.0,
+        "kind": "synthetic",
+        "expected": EXPECTED_NOTATION["mixed_release_quarters"],
+    },
+    {
+        "id": "isolated_rest_in_phrase",
+        "builder": READABLE_V2_CASES["isolated_rest_in_phrase"],
+        "meter": "4/4",
+        "tempo": 120.0,
+        "kind": "synthetic",
+        "expected": EXPECTED_NOTATION["isolated_rest_in_phrase"],
+    },
+    {
         "id": "G_held_voice_same_staff",
         "builder": READABLE_V2_CASES["G_held_voice_same_staff"],
         "meter": "4/4",
