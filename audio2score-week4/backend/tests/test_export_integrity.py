@@ -304,6 +304,57 @@ def test_old_job_download_keeps_ties_and_real_repeats(tmp_path):
     assert len(attacks) == 2
 
 
+def test_light_sixteenth_swing_does_not_overlap_unison_sustain(tmp_path):
+    """Seeds 3/5/6 failed when an invented 1.15 sixteenth swing shifted a
+    long sustain's start while keeping its duration, so it overlapped a later
+    same-pitch re-attack in one MIDI lane.
+
+    Playback must not move long notes that were never swing-pair participants.
+    """
+    from mir.swing import InterpretationSpan, apply_playback_timing, _ratio_from_fraction
+    from mir.types import copy_event
+
+    assert _ratio_from_fraction(0.5) == 1.0
+
+    held = copy_event(
+        event("held", pitch=59, start=3.75, duration=5.0, voice=0),
+        performed_start_beat=3.75,
+        performed_duration_beats=5.0,
+    )
+    later = copy_event(
+        event("later", pitch=59, start=8.75, duration=0.25, voice=0),
+        performed_start_beat=8.75,
+        performed_duration_beats=0.25,
+    )
+    span = InterpretationSpan(
+        start_beat=0.0,
+        end_beat=16.0,
+        feel="swing_sixteenths",
+        subdivision_unit=0.25,
+        ratio=1.15,
+        confidence=0.84,
+        evidence_count=12,
+        origin="inferred",
+        maps_written_timing=True,
+    )
+    sounded = apply_playback_timing([held, later], [span])
+    by_id = {row.note_id: row for row in sounded}
+    assert by_id["held"].start_beat == pytest.approx(3.75, abs=1e-9)
+    assert by_id["held"].duration_beats == pytest.approx(5.0, abs=1e-9)
+    assert by_id["later"].start_beat == pytest.approx(8.75, abs=1e-9)
+    held_end = by_id["held"].start_beat + by_id["held"].duration_beats
+    assert held_end <= by_id["later"].start_beat + 1e-9
+
+    writer = NotationWriter()
+    write(writer, [held, later], tmp_path)
+    assert writer.last_export_integrity == {
+        "status": "passed",
+        "expected_attacks": 2,
+        "musicxml_attacks": 2,
+        "midi_attacks": 2,
+    }
+
+
 @pytest.mark.parametrize("seed", range(8))
 def test_generated_polyphony_preserves_all_attacks(tmp_path, seed):
     rng = Random(seed)

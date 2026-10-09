@@ -269,9 +269,9 @@ def inject_swing_metadata(
     for span in parsed_spans:
         label = indication_for_span(span, previous_feel=previous)
         previous = span.feel
-        if span.feel in {"swing_eighths", "swing_sixteenths", "shuffle"} and not span.maps_written_timing:
+        if label is None:
             continue
-        if label is None and span.feel not in {"swing_eighths", "swing_sixteenths", "shuffle"}:
+        if span.feel in {"swing_eighths", "swing_sixteenths", "shuffle"} and not span.maps_written_timing:
             continue
         markings.append((span, label))
     if not markings:

@@ -96,6 +96,7 @@ export function applyPlaybackTiming<T extends { start: number; duration: number 
     if (!isSwingSpan(span) || !shouldSwingWritten(note.start, span)) return note;
     const ratio = Number(span.ratio);
     const pair = pairLength(span);
+    if (note.duration > pair * 1.25) return note;
     const start = mapBeatThroughSwing(note.start, pair, ratio, true);
     let duration = note.duration;
     if (note.duration <= pair * 1.25) {

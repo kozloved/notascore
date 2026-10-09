@@ -209,6 +209,87 @@ def fixture_swing_then_straight(path: Path) -> str:
     return _write(path, notes)
 
 
+def fixture_swing_straight_swing(path: Path) -> str:
+    notes = []
+    for beat in range(4):
+        down = _q(beat)
+        off = _q(beat + 2.0 / 3.0)
+        notes.append((76, down, off - 0.01, 84))
+        notes.append((77, off, _q(beat + 1.0) - 0.01, 78))
+    for i in range(8):
+        start = _q(4.0 + i * 0.5)
+        notes.append((72, start, start + _q(0.42), 80))
+    for beat in range(8, 12):
+        down = _q(beat)
+        off = _q(beat + 2.0 / 3.0)
+        notes.append((76, down, off - 0.01, 84))
+        notes.append((77, off, _q(beat + 1.0) - 0.01, 78))
+    return _write(path, notes)
+
+
+def fixture_straight_swing_straight(path: Path) -> str:
+    notes = []
+    for i in range(8):
+        start = _q(i * 0.5)
+        notes.append((72, start, start + _q(0.42), 80))
+    for beat in range(4, 8):
+        down = _q(beat)
+        off = _q(beat + 2.0 / 3.0)
+        notes.append((76, down, off - 0.01, 84))
+        notes.append((77, off, _q(beat + 1.0) - 0.01, 78))
+    for i in range(8):
+        start = _q(8.0 + i * 0.5)
+        notes.append((72, start, start + _q(0.42), 80))
+    return _write(path, notes)
+
+
+def fixture_sparse_bridge(path: Path) -> str:
+    notes = []
+    for beat in range(4):
+        down = _q(beat)
+        off = _q(beat + 2.0 / 3.0)
+        notes.append((76, down, off - 0.01, 84))
+        notes.append((77, off, _q(beat + 1.0) - 0.01, 78))
+    for beat in range(4, 8):
+        notes.append((60, _q(beat), _q(beat) + _q(0.85), 70))
+    for beat in range(8, 12):
+        down = _q(beat)
+        off = _q(beat + 2.0 / 3.0)
+        notes.append((76, down, off - 0.01, 84))
+        notes.append((77, off, _q(beat + 1.0) - 0.01, 78))
+    return _write(path, notes)
+
+
+def fixture_straight_then_swing_sixteenths(path: Path) -> str:
+    notes = []
+    for i in range(8):
+        start = _q(i * 0.5)
+        notes.append((72, start, start + _q(0.42), 80))
+    off_frac = 2.0 / 3.0 * 0.5
+    for i in range(8, 16):
+        start = _q(i * 0.5)
+        off = _q(i * 0.5 + off_frac)
+        notes.append((72, start, off - 0.005, 84))
+        notes.append((74, off, _q((i + 1) * 0.5) - 0.005, 78))
+    return _write(path, notes)
+
+
+def fixture_short_convincing_swing(path: Path) -> str:
+    notes = []
+    for i in range(16):
+        start = _q(i * 0.5)
+        notes.append((72, start, start + _q(0.42), 80))
+    for beat in range(8, 12):
+        down = _q(beat)
+        off = _q(beat + 2.0 / 3.0)
+        notes.append((76, down, off - 0.01, 84))
+        notes.append((77, off, _q(beat + 1.0) - 0.01, 78))
+    for i in range(16):
+        start = _q(12.0 + i * 0.5)
+        notes.append((72, start, start + _q(0.42), 80))
+    return _write(path, notes)
+
+
 def fixture_polyphony_chords_ties(path: Path) -> str:
     notes = []
     for beat in range(8):
@@ -239,4 +320,9 @@ SWING_FIXTURES = {
     "genuine_triplets": fixture_genuine_triplets,
     "independent_voices": fixture_independent_voices,
     "swing_then_straight": fixture_swing_then_straight,
+    "swing_straight_swing": fixture_swing_straight_swing,
+    "straight_swing_straight": fixture_straight_swing_straight,
+    "sparse_bridge": fixture_sparse_bridge,
+    "short_convincing_swing": fixture_short_convincing_swing,
+    "straight_then_swing_sixteenths": fixture_straight_then_swing_sixteenths,
 }

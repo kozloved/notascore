@@ -27,6 +27,11 @@ CASES = (
     ("straight_to_swing", "4/4"),
     ("swing_then_straight", "4/4"),
     ("sparse_swing", "4/4"),
+    ("swing_straight_swing", "4/4"),
+    ("straight_swing_straight", "4/4"),
+    ("sparse_bridge", "4/4"),
+    ("short_convincing_swing", "4/4"),
+    ("straight_then_swing_sixteenths", "4/4"),
     ("compound_6_8", "6/8"),
     ("polyphony_chords_ties", "4/4"),
 )

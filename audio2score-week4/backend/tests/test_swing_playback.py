@@ -13,7 +13,7 @@ from mir.types import Hand, MusicalEvent
 from notation_engine.playback import playback_score
 
 
-def _event(pitch, start, duration, ident):
+def _event(pitch, start, duration, ident, **extra):
     return MusicalEvent(
         pitch,
         start,
@@ -23,8 +23,7 @@ def _event(pitch, start, duration, ident):
         velocity=80,
         start_time_sec=float(start) * 0.5,
         end_time_sec=(float(start) + float(duration)) * 0.5,
-        performed_start_beat=float(start),
-        performed_duration_beats=float(duration),
+        **extra,
     )
 
 
@@ -89,6 +88,54 @@ def test_exported_score_midi_swings_and_raw_midi_does_not(tmp_path):
     nodes = assert_swing_metadata_placement(xml)
     assert nodes
     assert nodes[0]["swing_type"] == "eighth"
+
+
+def test_long_sustain_is_not_reverse_mapped_into_a_later_unison():
+    held = _event(59, 3.75, 5.0, "held")
+    later = _event(59, 8.75, 0.25, "later")
+    spans = [
+        {
+            "start_beat": 0.0,
+            "end_beat": 16.0,
+            "feel": "swing_sixteenths",
+            "subdivision_unit": 0.25,
+            "ratio": 1.15,
+            "confidence": 0.84,
+            "evidence_count": 12,
+            "origin": "inferred",
+            "maps_written_timing": True,
+        }
+    ]
+    sounded = apply_playback_timing([held, later], spans)
+    assert sounded[0].start_beat == pytest.approx(3.75)
+    assert sounded[0].start_beat + sounded[0].duration_beats <= sounded[1].start_beat + 1e-9
+
+
+def test_straight_exception_inside_swing_is_not_swung_on_playback():
+    events = [
+        _event(72, 0.0, 0.5, "d0", performed_start_beat=0.0, performed_duration_beats=2.0 / 3.0),
+        _event(74, 0.5, 0.5, "straight", performed_start_beat=0.5, performed_duration_beats=0.5),
+        _event(72, 1.0, 0.5, "d1", performed_start_beat=1.0, performed_duration_beats=2.0 / 3.0),
+        _event(74, 1.5, 0.5, "o1", performed_start_beat=1.0 + 2.0 / 3.0, performed_duration_beats=1.0 / 3.0),
+    ]
+    spans = [
+        {
+            "start_beat": 0.0,
+            "end_beat": 4.0,
+            "feel": "swing_eighths",
+            "subdivision_unit": 0.5,
+            "ratio": 2.0,
+            "confidence": 1.0,
+            "evidence_count": 4,
+            "origin": "inferred",
+            "maps_written_timing": True,
+        }
+    ]
+    sounded = apply_playback_timing(events, spans)
+    by_id = {e.note_id: e for e in sounded}
+    assert by_id["straight"].start_beat == pytest.approx(0.5)
+    assert by_id["o1"].start_beat == pytest.approx(1.0 + 2.0 / 3.0)
+    assert by_id["d0"].start_beat == pytest.approx(0.0)
 
 
 def test_straight_score_midi_places_offbeat_at_250ms(tmp_path):

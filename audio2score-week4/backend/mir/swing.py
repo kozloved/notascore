@@ -258,7 +258,15 @@ def _piece_span(onsets: list[float], meter) -> tuple[float, float]:
 
 
 def _ratio_from_fraction(fraction: float) -> float:
-    f = min(max(float(fraction), 0.51), 0.82)
+    """Long:short ratio implied by an offbeat pair fraction.
+
+    Even or early offbeats (f <= 1/2) are ratio 1:1, not a swing floor.
+    Clamping 0.50 up to 0.51 previously invented 1.15:1 from straight 16ths.
+    """
+    f = float(fraction)
+    if f <= STRAIGHT_FRAC + 1e-9:
+        return 1.0
+    f = min(f, 0.82)
     return f / max(1.0 - f, 1e-6)
 
 
@@ -404,7 +412,7 @@ def _hypothesis_for_window(
     target_ratio = profile.swing_ratio
     if target_ratio is None and fractions:
         raw_ratio = median(_ratio_from_fraction(f) for f in fractions)
-        if raw_ratio > MAX_RATIO:
+        if raw_ratio < MIN_RATIO or raw_ratio > MAX_RATIO:
             return {
                 "feel": feel,
                 "score": 0.0,
@@ -433,8 +441,10 @@ def _hypothesis_for_window(
         straight_res = sum(abs(f - STRAIGHT_FRAC) for f in fractions) / n
         if dotted_res + 0.02 < swing_res:
             score *= 0.35
+            conf *= 0.35
         if straight_res + 0.03 < swing_res:
             score *= 0.4
+            conf *= 0.4
     return {
         "feel": feel,
         "score": score,
@@ -463,6 +473,14 @@ def _candidates_for_pair_fractions(
             pair_length=PAIR_EIGHTH,
             feel="straight",
             required=required_eighth,
+        ),
+        _hypothesis_for_window(
+            sixteenth_fractions,
+            prior=prior,
+            profile=profile,
+            pair_length=PAIR_SIXTEENTH,
+            feel="straight",
+            required=required_sixteenth,
         ),
         _hypothesis_for_window(
             eighth_fractions,
@@ -573,7 +591,10 @@ def _select_candidate(
         return best
     ranked = sorted(candidates, key=lambda c: c["score"], reverse=True)
     best = _prefer_swing_eighths(candidates, dict(ranked[0]))
-    straight = next(c for c in candidates if c["feel"] == "straight")
+    straight = max(
+        (c for c in candidates if c["feel"] == "straight"),
+        key=lambda c: c["score"],
+    )
     min_conf = prior.min_confidence + extra_min_confidence
     margin = prior.apply_margin + extra_margin
     if profile.timing == TimingFeel.EXPRESSIVE:
@@ -584,7 +605,7 @@ def _select_candidate(
     strong = (
         float(best["confidence"]) >= 0.72
         and int(best["evidence_count"]) >= 3
-        and float(best["score"]) > float(straight["score"])
+        and float(best["score"]) >= float(straight["score"]) + margin
     )
     if swingish and not strong and (
         best["evidence_count"] < required
@@ -700,8 +721,25 @@ def _pick_window(
     return picked
 
 
+def _insufficient_evidence(row: dict[str, Any]) -> bool:
+    """True when the window lacks positive evidence for its own feel."""
+    n = int(row.get("evidence_count") or 0)
+    conf = float(row.get("confidence") or 0.0)
+    feel = str(row.get("feel") or "straight")
+    if row.get("origin") == "user_override":
+        return False
+    if feel in SWING_FEELS:
+        return n < 2 or conf < 0.55 or row.get("ratio") is None
+    return n < 2 or conf < 0.45
+
+
 def _stabilize_windows(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Absorb a lone disagreeing window so markings do not flicker every bar."""
+    """Smooth only ambiguous lone windows. Keep positive short contrasts.
+
+    A one-bar straight passage inside swing, or a short but repeated swing
+    passage inside straight music, must not inherit the neighbours' feel
+    merely because it has fewer attacks.
+    """
     if len(windows) < 3:
         return windows
     out = [dict(row) for row in windows]
@@ -709,15 +747,15 @@ def _stabilize_windows(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         prev, cur, nxt = out[index - 1], out[index], out[index + 1]
         if prev["feel"] != nxt["feel"] or cur["feel"] == prev["feel"]:
             continue
-        if float(cur.get("confidence") or 0.0) + 0.08 >= max(
-            float(prev.get("confidence") or 0.0),
-            float(nxt.get("confidence") or 0.0),
-        ) and int(cur.get("evidence_count") or 0) >= int(prev.get("evidence_count") or 0):
+        if not _insufficient_evidence(cur):
             continue
         cur["feel"] = prev["feel"]
         cur["ratio"] = prev.get("ratio")
         cur["subdivision_unit"] = prev.get("subdivision_unit")
         cur["origin"] = prev.get("origin") or "inferred"
+        cur["absorbed"] = True
+        cur["evidence_count"] = 0
+        cur["confidence"] = float(prev.get("confidence") or 0.0)
     return out
 
 
@@ -734,9 +772,17 @@ def _merge_windows(windows: list[dict[str, Any]]) -> list[InterpretationSpan]:
             and set(merged[-1].get("unmapped_streams") or ()) == set(row.get("unmapped_streams") or ())
         ):
             merged[-1]["end"] = row["end"]
-            merged[-1]["evidence_count"] += int(row["evidence_count"])
-            merged[-1]["confidence"] = max(float(merged[-1]["confidence"]), float(row["confidence"]))
-            if row.get("ratio") and merged[-1].get("ratio"):
+            if not row.get("absorbed"):
+                left_n = int(merged[-1]["evidence_count"])
+                right_n = int(row["evidence_count"])
+                total = left_n + right_n
+                if total:
+                    merged[-1]["confidence"] = (
+                        float(merged[-1]["confidence"]) * left_n
+                        + float(row["confidence"]) * right_n
+                    ) / total
+                merged[-1]["evidence_count"] = total
+            if row.get("ratio") and merged[-1].get("ratio") and not row.get("absorbed"):
                 merged[-1]["ratio"] = (float(merged[-1]["ratio"]) + float(row["ratio"])) / 2.0
             trips = list(merged[-1].get("triplet_exceptions") or ())
             for item in row.get("triplet_exceptions") or ():
@@ -1028,37 +1074,64 @@ def _map_event(event, spans: list[InterpretationSpan], *, reverse: bool):
         "performed_start_beat": perf_start,
         "performed_duration_beats": perf_dur,
     }
-    classifier = _classify_written_for_playback if reverse else _classify_onset
-    if not _maps_span(span) or classifier(lookup, span, stream) in {
-        "exception",
-        "triplet",
-        "dotted",
-        "straight",
-        "ambiguous",
-    }:
+    if not _maps_span(span):
         return copy_event(event, **changes)
-    mapped_start = map_beat_through_swing(
-        origin_start, pair_length=span.pair_length(), ratio=span.ratio, reverse=reverse
-    )
     pair = span.pair_length()
+    if max(origin_dur, perf_dur) > pair * 1.25:
+        return copy_event(event, **changes)
+    if reverse:
+        written_kind = _classify_written_for_playback(lookup, span, stream)
+        if written_kind not in {"downbeat", "swing_offbeat"}:
+            return copy_event(event, **changes)
+        # Independent performed evidence: a note left at a straight, dotted,
+        # or tuplet slot must not be reverse-mapped. Score-only events omit
+        # performed_* and follow the written swing spelling.
+        raw_performed = getattr(event, "performed_start_beat", None)
+        if raw_performed is not None:
+            participant = _classify_onset(float(raw_performed), span, stream)
+            if participant in {
+                "exception",
+                "triplet",
+                "dotted",
+                "straight",
+                "ambiguous",
+            }:
+                return copy_event(event, **changes)
+    else:
+        participant = _classify_onset(perf_start, span, stream)
+        if participant in {
+            "exception",
+            "triplet",
+            "dotted",
+            "straight",
+            "ambiguous",
+        }:
+            return copy_event(event, **changes)
+    mapped_start = map_beat_through_swing(
+        origin_start, pair_length=pair, ratio=span.ratio, reverse=reverse
+    )
     origin_end = origin_start + max(origin_dur, 1e-6)
     if origin_dur <= pair * 1.25:
-            end_span = span_at(spans, origin_end) or span
-            end_class = (
-                classifier(origin_end, end_span, stream)
-                if _maps_span(end_span)
-                else "exception"
+        end_span = span_at(spans, origin_end) or span
+        end_class = (
+            (
+                _classify_written_for_playback(origin_end, end_span, stream)
+                if reverse
+                else _classify_onset(origin_end, end_span, stream)
             )
-            if _maps_span(end_span) and end_class in {"downbeat", "swing_offbeat"}:
-                mapped_end = map_beat_through_swing(
-                    origin_end,
-                    pair_length=end_span.pair_length(),
-                    ratio=end_span.ratio,
-                    reverse=reverse,
-                )
-            else:
-                mapped_end = mapped_start + origin_dur
-            mapped_dur = max(mapped_end - mapped_start, 1e-4)
+            if _maps_span(end_span)
+            else "exception"
+        )
+        if _maps_span(end_span) and end_class in {"downbeat", "swing_offbeat"}:
+            mapped_end = map_beat_through_swing(
+                origin_end,
+                pair_length=end_span.pair_length(),
+                ratio=end_span.ratio,
+                reverse=reverse,
+            )
+        else:
+            mapped_end = mapped_start + origin_dur
+        mapped_dur = max(mapped_end - mapped_start, 1e-4)
     else:
         mapped_dur = max(origin_dur, 1e-4)
     return copy_event(
@@ -1097,6 +1170,12 @@ def mark_spans_mapping(spans: list[InterpretationSpan], *, enabled: bool) -> lis
     out = []
     for span in spans:
         maps = bool(enabled) and span.feel in SWING_FEELS and span.ratio is not None
+        if (
+            maps
+            and span.origin != "user_override"
+            and float(span.confidence) < 0.55
+        ):
+            maps = False
         if span.maps_written_timing == maps:
             out.append(span)
             continue
@@ -1129,7 +1208,8 @@ def summarize_spans(spans: list[InterpretationSpan]) -> dict[str, Any]:
             "maps_written_timing": False,
         }
     swing = [s for s in spans if s.feel in SWING_FEELS]
-    if swing and len(swing) == len(spans):
+    swing_kinds = {s.feel for s in swing}
+    if swing and len(swing) == len(spans) and len(swing_kinds) == 1:
         dominant = max(swing, key=lambda s: s.end_beat - s.start_beat)
         feel = dominant.feel
     elif swing:
@@ -1163,7 +1243,19 @@ def feel_user_summary(summary: dict[str, Any] | None) -> str | None:
     confidence = float(summary.get("confidence") or 0.0)
     if confidence < 0.55 and str(summary.get("origin") or "") != "user_override":
         return None
-    if feel in {"swing_eighths", "shuffle", "mixed"}:
+    swing_feels = {
+        str(item.get("feel") or "")
+        for item in (summary.get("spans") or ())
+        if str(item.get("feel") or "") in SWING_FEELS
+        and item.get("maps_written_timing", True)
+    }
+    if feel == "mixed":
+        if swing_feels == {"swing_sixteenths"}:
+            return "Swing 16ths detected — shown using conventional sixteenth-note notation."
+        if swing_feels <= {"swing_eighths", "shuffle"} and swing_feels:
+            return "Swing detected — shown using conventional eighth-note notation."
+        return "Mixed subdivision feel detected — shown using conventional notation."
+    if feel in {"swing_eighths", "shuffle"}:
         return "Swing detected — shown using conventional eighth-note notation."
     if feel == "swing_sixteenths":
         return "Swing 16ths detected — shown using conventional sixteenth-note notation."
