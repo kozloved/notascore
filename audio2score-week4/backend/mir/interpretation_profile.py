@@ -154,8 +154,10 @@ class StylePrior:
         )
 
 
-# Style is a prior, not a genre rule. Jazz does not always swing; classical
-# is not strictly quantized; contemporary art is not assumed to be simple.
+# Style is a prior, not a genre rule. AUTO infers feel from timing evidence
+# and must succeed without the user choosing Jazz. Jazz does not always
+# swing; classical is not strictly quantized; contemporary art is not
+# assumed to be simple.
 STYLE_PRIORS: dict[SourceStyle, StylePrior] = {
     SourceStyle.AUTO: StylePrior(),
     SourceStyle.JAZZ: StylePrior(

@@ -239,6 +239,8 @@ export type DetectedInterpretation = {
   origin?: string | null;
   evidence_count?: number;
   ratio?: number | null;
+  maps_written_timing?: boolean;
+  user_summary?: string | null;
   spans?: Record<string, unknown>[];
 };
 

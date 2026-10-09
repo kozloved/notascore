@@ -69,9 +69,7 @@ def test_exported_score_midi_swings_and_raw_midi_does_not(tmp_path):
     convert(
         source,
         output,
-        settings=NotationSettings.from_dict(
-            {"rhythmic_feel": "swing_eighths", "swing_ratio": 2.0, "interpretation": "readable"}
-        ),
+        settings=NotationSettings(),
     )
     assert source.read_bytes() == original
     assert digest
@@ -100,7 +98,7 @@ def test_straight_score_midi_places_offbeat_at_250ms(tmp_path):
     convert(
         source,
         output,
-        settings=NotationSettings.from_dict({"rhythmic_feel": "straight"}),
+        settings=NotationSettings(),
     )
     score = pretty_midi.PrettyMIDI(str(output.with_suffix(".score.mid")))
     onsets = sorted(n.start for inst in score.instruments for n in inst.notes)

@@ -1279,6 +1279,13 @@ body::before {
   color: var(--ns-text-muted);
 }
 
+.ns-notation-summary {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 550;
+  color: var(--ns-text-primary);
+}
+
 .ns-notation-advanced {
   border-top: 1px solid var(--ns-border);
   padding-top: 8px;

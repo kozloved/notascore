@@ -1,8 +1,14 @@
 """Swing-aware feel inference and reversible written/playback mapping.
 
 Work is in normalized beat coordinates from the tempo map, never in fixed
-millisecond thresholds. Genre/style is a prior. User overrides win. Sparse or
-conflicting evidence falls back to straight notation.
+millisecond thresholds. Automatic detection is the default path: the engine
+infers subdivision feel from the performance. Genre/style is only a prior.
+User overrides are optional advanced corrections. Sparse or conflicting
+evidence falls back to straight notation without a confident Swing mark.
+
+Swing and syncopation are independent. Mapping a swung offbeat onto its
+written eighth (or sixteenth) must not move a syncopated attack onto a
+strong beat.
 
 Written vs performed mapping (ratio r:1, subdivision pair length P = 2U)::
 
@@ -499,6 +505,44 @@ def _candidates_for_pair_fractions(
     return candidates
 
 
+def _tempo_uncertainty(tempo_map) -> tuple[float, float]:
+    """Extra (min_confidence, apply_margin) when the beat grid is unreliable.
+
+    Constant MIDI tempo maps are certain. Sparse or wildly varying BPM
+    estimates make long-short pairs cheaper to explain as timing error.
+    """
+    if tempo_map is None:
+        return 0.04, 0.04
+    points = list(getattr(tempo_map, "points", None) or ())
+    bpms = [float(getattr(pt, "bpm", 0.0) or 0.0) for pt in points]
+    bpms = [b for b in bpms if b > 1.0]
+    if len(bpms) <= 1:
+        return 0.0, 0.0
+    mean = sum(bpms) / len(bpms)
+    spread = pstdev(bpms) if len(bpms) > 1 else 0.0
+    rel = spread / max(mean, 1e-6)
+    if rel > 0.12:
+        return 0.08, 0.06
+    if rel > 0.06:
+        return 0.04, 0.03
+    return 0.0, 0.0
+
+
+def _prefer_swing_eighths(candidates: list[dict[str, Any]], best: dict[str, Any]) -> dict[str, Any]:
+    """Shuffle is a user-facing override, not a competing AUTO label for 2:1."""
+    if best.get("feel") != "shuffle":
+        return best
+    eighths = next((c for c in candidates if c["feel"] == "swing_eighths"), None)
+    if eighths is None:
+        return best
+    if float(eighths["score"]) + 0.04 >= float(best["score"]):
+        chosen = dict(eighths)
+        if chosen.get("ratio") is None:
+            chosen["ratio"] = best.get("ratio")
+        return chosen
+    return best
+
+
 def _select_candidate(
     candidates: list[dict[str, Any]],
     *,
@@ -506,6 +550,8 @@ def _select_candidate(
     profile: InterpretationProfile,
     compound: bool,
     required: int,
+    extra_min_confidence: float = 0.0,
+    extra_margin: float = 0.0,
 ) -> dict[str, Any]:
     override = profile.user_feel_override()
     if override is not None and not compound:
@@ -526,13 +572,15 @@ def _select_candidate(
         best["origin"] = "user_override" if override else "inferred"
         return best
     ranked = sorted(candidates, key=lambda c: c["score"], reverse=True)
-    best = dict(ranked[0])
+    best = _prefer_swing_eighths(candidates, dict(ranked[0]))
     straight = next(c for c in candidates if c["feel"] == "straight")
-    min_conf = prior.min_confidence
-    margin = prior.apply_margin
+    min_conf = prior.min_confidence + extra_min_confidence
+    margin = prior.apply_margin + extra_margin
     if profile.timing == TimingFeel.EXPRESSIVE:
         min_conf = min(0.95, min_conf + 0.05)
     swingish = best["feel"] in SWING_FEELS
+    # Repeated long-short evidence can beat a conservative AUTO prior.
+    # Isolated or competing explanations still fall back to straight.
     strong = (
         float(best["confidence"]) >= 0.72
         and int(best["evidence_count"]) >= 3
@@ -564,6 +612,8 @@ def _pick_window(
     profile: InterpretationProfile,
     stream_triplets: dict[str, tuple],
     compound: bool,
+    extra_min_confidence: float = 0.0,
+    extra_margin: float = 0.0,
 ) -> dict[str, Any]:
     window_beats = max(end - start, 1e-6)
     required_eighth = _required_observations(prior, window_beats, PAIR_EIGHTH)
@@ -597,6 +647,8 @@ def _pick_window(
             profile=profile,
             compound=compound,
             required=max(2, min(required_eighth, max(len(eighth_streams.get(key, [])), 2))),
+            extra_min_confidence=extra_min_confidence,
+            extra_margin=extra_margin,
         )
     picked = _select_candidate(
         _candidates_for_pair_fractions(
@@ -612,6 +664,8 @@ def _pick_window(
         profile=profile,
         compound=compound,
         required=required_eighth,
+        extra_min_confidence=extra_min_confidence,
+        extra_margin=extra_margin,
     )
     # If streams disagree, keep swing from swinging voices and leave the
     # others unmapped instead of inventing a global compromise rhythm.
@@ -644,6 +698,27 @@ def _pick_window(
                 local_trips.append(item)
     picked["triplet_exceptions"] = tuple(local_trips)
     return picked
+
+
+def _stabilize_windows(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Absorb a lone disagreeing window so markings do not flicker every bar."""
+    if len(windows) < 3:
+        return windows
+    out = [dict(row) for row in windows]
+    for index in range(1, len(out) - 1):
+        prev, cur, nxt = out[index - 1], out[index], out[index + 1]
+        if prev["feel"] != nxt["feel"] or cur["feel"] == prev["feel"]:
+            continue
+        if float(cur.get("confidence") or 0.0) + 0.08 >= max(
+            float(prev.get("confidence") or 0.0),
+            float(nxt.get("confidence") or 0.0),
+        ) and int(cur.get("evidence_count") or 0) >= int(prev.get("evidence_count") or 0):
+            continue
+        cur["feel"] = prev["feel"]
+        cur["ratio"] = prev.get("ratio")
+        cur["subdivision_unit"] = prev.get("subdivision_unit")
+        cur["origin"] = prev.get("origin") or "inferred"
+    return out
 
 
 def _merge_windows(windows: list[dict[str, Any]]) -> list[InterpretationSpan]:
@@ -729,9 +804,9 @@ def infer_interpretation_spans(
     list are never treated as a pair; pairing and triplet detection are
     per stream in beat space, then support is aggregated.
     """
-    del tempo_map
     profile = profile or InterpretationProfile()
     prior = profile.style_prior()
+    extra_min_confidence, extra_margin = _tempo_uncertainty(tempo_map)
     streams = _streams_from_events(events)
     onsets = sorted(v for group in streams.values() for v in group)
     start, end = _piece_span(onsets, meter)
@@ -758,6 +833,8 @@ def infer_interpretation_spans(
             profile=profile,
             stream_triplets=stream_triplets,
             compound=compound,
+            extra_min_confidence=extra_min_confidence,
+            extra_margin=extra_margin,
         )
         picked["start"] = cursor
         picked["end"] = window_end
@@ -824,7 +901,7 @@ def infer_interpretation_spans(
                 maps_written_timing=False,
             )
         ]
-    return _merge_windows(windows)
+    return _merge_windows(_stabilize_windows(windows))
 
 
 def _classify_written_for_playback(
@@ -858,6 +935,12 @@ def _classify_written_for_playback(
 
 
 def _classify_onset(beat: float, span: InterpretationSpan, stream_key_value: str | None = None) -> str:
+    """Classify a performed onset for written mapping.
+
+    Syncopated offbeats stay offbeats: a note near the swung 'and' maps to
+    the written 'and' (1/2), never onto the following downbeat. Dotted
+    figures, straight exceptions, and tuplets are left unmapped.
+    """
     if span.feel == "straight" or span.ratio is None:
         return "exception"
     if span.stream_unmapped(stream_key_value):
@@ -1057,7 +1140,7 @@ def summarize_spans(spans: list[InterpretationSpan]) -> dict[str, Any]:
     origin = "user_override" if origins == {"user_override"} else (
         "mixed" if len(origins) > 1 else next(iter(origins))
     )
-    return {
+    payload = {
         "rhythmic_feel": feel,
         "confidence": max((s.confidence for s in spans), default=0.0),
         "spans": [s.to_dict() for s in spans],
@@ -1066,11 +1149,36 @@ def summarize_spans(spans: list[InterpretationSpan]) -> dict[str, Any]:
         "ratio": next((s.ratio for s in swing if s.ratio is not None), None),
         "maps_written_timing": any(s.maps_written_timing and s.feel in SWING_FEELS for s in spans),
     }
+    payload["user_summary"] = feel_user_summary(payload)
+    return payload
+
+
+def feel_user_summary(summary: dict[str, Any] | None) -> str | None:
+    """Optional result copy. Empty when feel is uncertain or unmapped."""
+    if not summary:
+        return None
+    if not summary.get("maps_written_timing"):
+        return None
+    feel = str(summary.get("rhythmic_feel") or "")
+    confidence = float(summary.get("confidence") or 0.0)
+    if confidence < 0.55 and str(summary.get("origin") or "") != "user_override":
+        return None
+    if feel in {"swing_eighths", "shuffle", "mixed"}:
+        return "Swing detected — shown using conventional eighth-note notation."
+    if feel == "swing_sixteenths":
+        return "Swing 16ths detected — shown using conventional sixteenth-note notation."
+    return None
 
 
 def indication_for_span(span: InterpretationSpan, *, previous_feel: str | None) -> str | None:
     """Visible marking at a section boundary. Whole-piece straight stays unmarked."""
     if span.feel in SWING_FEELS and not span.maps_written_timing:
+        return None
+    if (
+        span.origin != "user_override"
+        and span.feel in SWING_FEELS
+        and float(span.confidence) < 0.55
+    ):
         return None
     if span.feel in {"swing_eighths", "shuffle"}:
         return "Swing"

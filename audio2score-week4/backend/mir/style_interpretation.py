@@ -24,6 +24,7 @@ from mir.swing import (
     InterpretationSpan,
     apply_written_timing,
     feel_limitations,
+    feel_user_summary,
     infer_interpretation_spans,
     mark_spans_mapping,
     summarize_spans,
@@ -102,6 +103,7 @@ def interpret_for_notation(
     summary = summarize_spans(spans)
     summary["profile"] = profile.to_dict()
     summary["maps_written_timing"] = bool(maps_written and summary.get("maps_written_timing"))
+    summary["user_summary"] = feel_user_summary(summary)
     summary["limitations"] = feel_limitations(meter, profile)
     return ordered, spans, summary
 

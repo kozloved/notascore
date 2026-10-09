@@ -105,7 +105,7 @@ def test_straight_eighths_with_jitter_stay_straight():
 
 def test_repeated_2_to_1_swing_writes_eighths():
     events = _swing_pair_events(bars=2, ratio=2.0)
-    settings = NotationSettings.from_dict({"source_style": "jazz"})
+    settings = NotationSettings()
     out, spans, summary = interpret_for_notation(events, METER_44, settings)
     assert summary["rhythmic_feel"] == "swing_eighths"
     assert any(s.feel == "swing_eighths" for s in spans)
@@ -133,7 +133,7 @@ def test_swing_sixteenths_are_detected_from_sixteenth_pairs():
         n += 1
         events.append(_event(74, start + f, 0.5 - f, f"o{n}"))
         n += 1
-    settings = NotationSettings.from_dict({"source_style": "jazz"})
+    settings = NotationSettings()
     _out, spans, summary = interpret_for_notation(events, METER_44, settings)
     assert summary["rhythmic_feel"] == "swing_sixteenths"
     assert any(s.feel == "swing_sixteenths" for s in spans)
@@ -141,7 +141,7 @@ def test_swing_sixteenths_are_detected_from_sixteenth_pairs():
 
 def test_lighter_3_to_2_swing_estimates_ratio():
     events = _swing_pair_events(bars=2, ratio=1.5)
-    settings = NotationSettings.from_dict({"source_style": "jazz"})
+    settings = NotationSettings()
     _out, spans, summary = interpret_for_notation(events, METER_44, settings)
     swing = [s for s in spans if s.feel == "swing_eighths"]
     assert swing
@@ -162,7 +162,7 @@ def test_genuine_triplets_inside_swing_are_preserved():
     for beat in range(5, 8):
         events.append(_event(72, float(beat), f, f"d5{beat}"))
         events.append(_event(74, float(beat) + f, 1.0 - f, f"o5{beat}"))
-    settings = NotationSettings.from_dict({"source_style": "jazz"})
+    settings = NotationSettings()
     quantized, _dec, report = quantize_notation(
         events, METER_44, config=CONFIG, settings=settings
     )
@@ -227,7 +227,7 @@ def test_straight_to_swing_section_transition():
         n += 1
         events.append(_event(77, float(beat) + f, 1.0 - f, f"swo{n}"))
         n += 1
-    settings = NotationSettings.from_dict({"source_style": "jazz"})
+    settings = NotationSettings()
     spans = infer_interpretation_spans(events, METER_44, settings.interpretation_profile)
     feels = [s.feel for s in spans]
     assert "straight" in feels
@@ -254,7 +254,7 @@ def test_chords_voices_and_barline_sustain_keep_identity():
             )
     events.append(_event(48, 0.0, 6.2, "pedal", hand=Hand.LEFT))
     before = [(e.note_id, e.pitch, e.start_time_sec, e.end_time_sec) for e in events]
-    settings = NotationSettings.from_dict({"source_style": "jazz"})
+    settings = NotationSettings()
     out, spans, _summary = interpret_for_notation(events, METER_44, settings)
     assert [(e.note_id, e.pitch, e.start_time_sec, e.end_time_sec) for e in out] == before
     assert len(out) == len(events)
@@ -269,7 +269,7 @@ def test_chords_voices_and_barline_sustain_keep_identity():
     assert report.summary["source_notes"] == len(events)
 
 
-def test_user_override_forces_swing_and_old_defaults_do_not():
+def test_user_override_forces_swing_and_defaults_still_auto_profile():
     events = _swing_pair_events(bars=2, ratio=2.0)
     auto = interpret_for_notation(events, METER_44, NotationSettings())[2]
     forced = NotationSettings.from_dict({"rhythmic_feel": "swing_eighths", "swing_ratio": 2.0})
@@ -280,8 +280,11 @@ def test_user_override_forces_swing_and_old_defaults_do_not():
     _o2, spans2, summary2 = interpret_for_notation(events, METER_44, straight)
     assert summary2["rhythmic_feel"] == "straight"
     assert all(s.origin == "user_override" for s in spans2)
-    # Defaults remain a valid empty request.
     assert auto["profile"]["rhythmic_feel"] == "auto"
+    assert auto["rhythmic_feel"] == "swing_eighths"
+    assert auto["user_summary"] == (
+        "Swing detected — shown using conventional eighth-note notation."
+    )
 
 
 def test_long_notes_are_not_shortened_to_swing_slots():
@@ -362,7 +365,7 @@ def test_midi_fixtures_preserve_source_bytes_and_note_count(tmp_path, name):
     original = source.read_bytes()
     assert _midi_hash(source) == digest
     output = tmp_path / f"{name}.musicxml"
-    settings = NotationSettings.from_dict({"source_style": "jazz"}) if "swing" in name or name == "polyphony_chords_ties" else NotationSettings()
+    settings = NotationSettings()
     report = convert(source, output, meter="6/8" if "6_8" in name else "4/4", settings=settings)
     assert source.read_bytes() == original
     midi_notes = _inventory(source)
@@ -386,9 +389,7 @@ def test_swing_fixture_has_fewer_tuplets_than_unmapped_literal(tmp_path):
     convert(
         source,
         swing_out,
-        settings=NotationSettings.from_dict(
-            {"source_style": "jazz", "rhythmic_feel": "swing_eighths", "swing_ratio": 2.0}
-        ),
+        settings=NotationSettings(),
     )
     convert(
         source,
@@ -418,13 +419,28 @@ def test_apply_written_timing_does_not_drop_or_duplicate_notes():
 
 def test_literal_auto_detects_swing_without_rewriting_onsets():
     events = _swing_pair_events(bars=2, ratio=2.0)
-    settings = NotationSettings.from_dict({"interpretation": "literal", "source_style": "jazz"})
+    settings = NotationSettings.from_dict({"interpretation": "literal"})
     out, spans, summary = interpret_for_notation(events, METER_44, settings)
     assert summary["rhythmic_feel"] == "swing_eighths"
     assert summary["maps_written_timing"] is False
+    assert summary.get("user_summary") in (None, "")
     assert all(s.maps_written_timing is False for s in spans)
     off = next(e for e in out if e.note_id.startswith("o"))
     assert abs((off.start_beat % 1.0) - (2.0 / 3.0)) < 0.04
+
+
+def test_literal_score_omits_swing_words(tmp_path):
+    source = tmp_path / "swing.mid"
+    SWING_FIXTURES["swing_2_to_1"](source)
+    output = tmp_path / "literal.musicxml"
+    convert(
+        source,
+        output,
+        settings=NotationSettings.from_dict({"interpretation": "literal"}),
+    )
+    xml = output.read_text(encoding="utf-8")
+    assert "Swing" not in xml
+    assert "<swing>" not in xml
 
 
 def test_clear_swing_detected_under_every_source_style():
@@ -447,7 +463,7 @@ def test_cross_voice_thirds_are_not_a_triplet():
         events.append(
             _event(74, float(beat) + 2.0 / 3.0, 0.3, f"a{beat}o", hand=Hand.RIGHT, voice=1)
         )
-    settings = NotationSettings.from_dict({"source_style": "jazz"})
+    settings = NotationSettings()
     _out, spans, summary = interpret_for_notation(events, METER_44, settings)
     assert summary["rhythmic_feel"] in {"swing_eighths", "mixed"}
     assert not any(span.triplet_exception_at(0.0) for span in spans)
@@ -461,7 +477,7 @@ def test_triplet_in_one_hand_does_not_block_swing_in_the_other():
         _event(50, 1.0 / 3.0, 1.0 / 3.0, "t1", hand=Hand.LEFT),
         _event(52, 2.0 / 3.0, 1.0 / 3.0, "t2", hand=Hand.LEFT),
     ]
-    settings = NotationSettings.from_dict({"source_style": "jazz"})
+    settings = NotationSettings()
     out, spans, summary = interpret_for_notation(events, METER_44, settings)
     assert summary["rhythmic_feel"] in {"swing_eighths", "mixed"}
     right_off = next(e for e in out if e.note_id.startswith("o"))
@@ -485,9 +501,9 @@ def test_duplicated_tracks_do_not_inflate_evidence():
                 source_track_id="copy",
             )
         )
-    jazz = NotationSettings.from_dict({"source_style": "jazz"}).interpretation_profile
-    single = infer_interpretation_spans(events, METER_44, jazz)
-    both = infer_interpretation_spans(doubled, METER_44, jazz)
+    auto = NotationSettings().interpretation_profile
+    single = infer_interpretation_spans(events, METER_44, auto)
+    both = infer_interpretation_spans(doubled, METER_44, auto)
     assert single[0].evidence_count == both[0].evidence_count
 
 

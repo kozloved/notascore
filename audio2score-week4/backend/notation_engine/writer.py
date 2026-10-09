@@ -1248,24 +1248,14 @@ class NotationWriter:
         return list(quant.get("interpretation_spans") or extra.get("interpretation_spans") or ())
 
     def _apply_feel_indications(self, score, plan, *, pickup_shift: float = 0.0) -> None:
-        from mir.swing import InterpretationSpan, indication_for_span
+        from mir.swing import indication_for_span, span_from_dict
 
         previous = None
         pickup = float(pickup_shift)
         for row in self._feel_spans(plan):
-            if isinstance(row, InterpretationSpan):
-                span = row
-            else:
-                span = InterpretationSpan(
-                    start_beat=float(row.get("start_beat") or 0.0),
-                    end_beat=float(row.get("end_beat") or 0.0),
-                    feel=str(row.get("feel") or "straight"),
-                    subdivision_unit=float(row.get("subdivision_unit") or 0.5),
-                    ratio=row.get("ratio"),
-                    confidence=float(row.get("confidence") or 0.0),
-                    evidence_count=int(row.get("evidence_count") or 0),
-                    origin=str(row.get("origin") or "inferred"),
-                )
+            span = span_from_dict(row)
+            if span is None:
+                continue
             label = indication_for_span(span, previous_feel=previous)
             previous = span.feel
             if not label:

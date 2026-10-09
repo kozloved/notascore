@@ -103,17 +103,28 @@ MusicalEvent (performed beats)
 
 Profile fields (`interpretation_profile`, version 1): `source_style`,
 `rhythmic_feel`, `timing`, `output_mode`, optional `swing_ratio`.
-Defaults (`auto` / `faithful`) keep existing jobs compatible.
+Defaults (`auto` / `faithful`) keep existing jobs compatible. The user does
+not choose Swing or Straight before generating a score. Feel is inferred
+from the performance; Jazz is not required. Style and feel remain optional
+advanced corrections after generation and reuse the same transcription.
+
+The engine infers pulse/meter/tempo, then subdivision feel (straight, swung,
+or uncertain), then written placement including syncopation, then local
+exceptions (tuplets, dotted figures, straight passages). Swing and
+syncopation are independent and can coexist. A syncopated attack is never
+moved onto a strong beat to simplify the page.
 
 Swing mapping: for ratio `r:1` the performed offbeat is at `r/(r+1)` of the
 subdivision pair; the written position is `1/2`. Seconds are unchanged. Long
 sustains are not pulled onto swing slots. Compound meters are never classified
 as swing. Genuine triplets inside a swing span stay triplet exceptions.
+Uncertain or sparse evidence stays straight, with no confident Swing mark.
 
-Readable writes conventional swing as even eighths plus a Swing word.
-Literal still detects feel for the editor but does not rewrite performed
-onsets. `output_mode` is an internal spelling nudge (compatibility only);
-Readable/Literal remains the user-facing interpretation axis.
+Readable writes conventional swing as even eighths plus a Swing word
+(or Swing 16ths). Literal still detects feel for the editor but does not
+rewrite performed onsets. `output_mode` is an internal spelling nudge
+(compatibility only); Readable/Literal remains the user-facing
+interpretation axis.
 
 Export puts visible words in `direction-type/words` and playback metadata in
 `direction/sound/swing` (`notation_engine/swing_export.py`), using inherited

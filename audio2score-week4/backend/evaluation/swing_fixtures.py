@@ -151,6 +151,64 @@ def fixture_dotted_inside_swing(path: Path) -> str:
     return _write(path, notes)
 
 
+def fixture_straight_syncopation(path: Path) -> str:
+    notes = []
+    for bar in (0.0, 4.0):
+        notes.append((72, _q(bar), _q(bar + 0.5) - 0.01, 80))
+        notes.append((74, _q(bar + 0.5), _q(bar + 1.5) - 0.01, 82))
+        notes.append((76, _q(bar + 1.5), _q(bar + 2.5) - 0.01, 82))
+        notes.append((77, _q(bar + 2.5), _q(bar + 3.0) - 0.01, 78))
+        notes.append((79, _q(bar + 3.0), _q(bar + 3.5) - 0.01, 80))
+        notes.append((81, _q(bar + 3.5), _q(bar + 4.0) - 0.01, 78))
+    return _write(path, notes)
+
+
+def fixture_swing_plus_syncopation(path: Path) -> str:
+    notes = []
+    off = 2.0 / 3.0
+    for bar in (0.0, 4.0):
+        notes.append((72, _q(bar), _q(bar + off) - 0.01, 84))
+        notes.append((74, _q(bar + off), _q(bar + 1.0 + off) - 0.01, 82))
+        notes.append((76, _q(bar + 1.0 + off), _q(bar + 2.0 + off) - 0.01, 82))
+        notes.append((77, _q(bar + 2.0 + off), _q(bar + 3.0) - 0.01, 78))
+        notes.append((79, _q(bar + 3.0), _q(bar + 3.0 + off) - 0.01, 80))
+        notes.append((81, _q(bar + 3.0 + off), _q(bar + 4.0) - 0.01, 78))
+    return _write(path, notes)
+
+
+def fixture_genuine_triplets(path: Path) -> str:
+    notes = []
+    for beat in range(8):
+        for i, pitch in enumerate((76, 77, 79)):
+            start = _q(beat + i / 3.0)
+            notes.append((pitch, start, start + _q(0.28), 84))
+    return _write(path, notes)
+
+
+def fixture_independent_voices(path: Path) -> str:
+    notes = []
+    for beat in range(8):
+        notes.append((48, _q(beat), _q(beat + 0.95), 70))
+        down = _q(beat)
+        off = _q(beat + 2.0 / 3.0)
+        notes.append((72, down, off - 0.01, 84))
+        notes.append((74, off, _q(beat + 1.0) - 0.01, 78))
+    return _write(path, notes)
+
+
+def fixture_swing_then_straight(path: Path) -> str:
+    notes = []
+    for beat in range(4):
+        down = _q(beat)
+        off = _q(beat + 2.0 / 3.0)
+        notes.append((76, down, off - 0.01, 84))
+        notes.append((77, off, _q(beat + 1.0) - 0.01, 78))
+    for i in range(8):
+        start = _q(4.0 + i * 0.5)
+        notes.append((72, start, start + _q(0.42), 80))
+    return _write(path, notes)
+
+
 def fixture_polyphony_chords_ties(path: Path) -> str:
     notes = []
     for beat in range(8):
@@ -176,4 +234,9 @@ SWING_FIXTURES = {
     "polyphony_chords_ties": fixture_polyphony_chords_ties,
     "swing_sixteenths": fixture_swing_sixteenths,
     "dotted_inside_swing": fixture_dotted_inside_swing,
+    "straight_syncopation": fixture_straight_syncopation,
+    "swing_plus_syncopation": fixture_swing_plus_syncopation,
+    "genuine_triplets": fixture_genuine_triplets,
+    "independent_voices": fixture_independent_voices,
+    "swing_then_straight": fixture_swing_then_straight,
 }

@@ -16,6 +16,7 @@ import {
 import {
   ALGORITHM_VERSION_CURRENT,
   ALGORITHM_VERSION_READABLE_V2,
+  detectedFeelSummary,
   rhythmicFeelLabel,
   type AlgorithmVersionChoice,
 } from "../../lib/notation-style";
@@ -166,6 +167,7 @@ export default function NotationInterpretationPanel({
 
   const algorithmValue = asAlgorithmChoice(settings.algorithm_version);
   const selectorDisabled = busy || !regenAvailable;
+  const feelSummary = detectedFeelSummary(detected);
 
   return (
     <section className="ns-notation-panel" aria-label="Notation interpretation">
@@ -267,68 +269,77 @@ export default function NotationInterpretationPanel({
           </p>
         </div>
       </div>
-      <div className="ns-notation-row">
-        <div className="ns-notation-control">
-          <p className="ns-notation-control-label">Source style</p>
-          <SegmentedControl
-            label="Source style"
-            value={settings.source_style || "auto"}
-            disabled={busy || !regenAvailable}
-            onChange={(source_style: SourceStyle) =>
-              void apply({ ...settings, source_style })
-            }
-            options={[
-              { value: "auto", label: "Auto" },
-              { value: "jazz", label: "Jazz" },
-              { value: "classical", label: "Classical" },
-              { value: "pop_rock", label: "Pop/Rock" },
-              { value: "contemporary_art", label: "Contemporary" },
-            ]}
-          />
-        </div>
-        <div className="ns-notation-control">
-          <p className="ns-notation-control-label">Feel</p>
-          <SegmentedControl
-            label="Rhythmic feel"
-            value={settings.rhythmic_feel || "auto"}
-            disabled={busy || !regenAvailable}
-            onChange={(rhythmic_feel: RhythmicFeel) =>
-              void apply({ ...settings, rhythmic_feel })
-            }
-            options={[
-              { value: "auto", label: "Auto" },
-              { value: "straight", label: "Straight" },
-              { value: "swing_eighths", label: "Swing 8ths" },
-              { value: "swing_sixteenths", label: "Swing 16ths" },
-              { value: "shuffle", label: "Shuffle" },
-            ]}
-          />
-          {detected?.rhythmic_feel ? (
-            <p className="ns-notation-note">
-              Detected {rhythmicFeelLabel(detected.rhythmic_feel)}
-              {settings.rhythmic_feel && settings.rhythmic_feel !== "auto"
-                ? ". Your setting is used instead."
-                : ". You can correct it here."}
-            </p>
-          ) : null}
-        </div>
-        <div className="ns-notation-control">
-          <p className="ns-notation-control-label">Timing</p>
-          <SegmentedControl
-            label="Timing feel"
-            value={settings.timing || "auto"}
-            disabled={busy || !regenAvailable}
-            onChange={(timing: TimingFeel) => void apply({ ...settings, timing })}
-            options={[
-              { value: "auto", label: "Auto" },
-              { value: "steady", label: "Steady" },
-              { value: "expressive", label: "Expressive" },
-            ]}
-          />
-        </div>
-      </div>
+      {feelSummary ? (
+        <p className="ns-notation-summary" role="status">
+          {feelSummary}
+        </p>
+      ) : null}
       <details className="ns-notation-advanced">
-        <summary>Advanced interpretation</summary>
+        <summary>Advanced feel correction</summary>
+        <p className="ns-notation-note">
+          Feel is inferred from the performance. These controls are optional
+          corrections and reuse the same transcription.
+        </p>
+        <div className="ns-notation-row">
+          <div className="ns-notation-control">
+            <p className="ns-notation-control-label">Source style</p>
+            <SegmentedControl
+              label="Source style"
+              value={settings.source_style || "auto"}
+              disabled={busy || !regenAvailable}
+              onChange={(source_style: SourceStyle) =>
+                void apply({ ...settings, source_style })
+              }
+              options={[
+                { value: "auto", label: "Auto" },
+                { value: "jazz", label: "Jazz" },
+                { value: "classical", label: "Classical" },
+                { value: "pop_rock", label: "Pop/Rock" },
+                { value: "contemporary_art", label: "Contemporary" },
+              ]}
+            />
+          </div>
+          <div className="ns-notation-control">
+            <p className="ns-notation-control-label">Feel</p>
+            <SegmentedControl
+              label="Rhythmic feel"
+              value={settings.rhythmic_feel || "auto"}
+              disabled={busy || !regenAvailable}
+              onChange={(rhythmic_feel: RhythmicFeel) =>
+                void apply({ ...settings, rhythmic_feel })
+              }
+              options={[
+                { value: "auto", label: "Auto" },
+                { value: "straight", label: "Straight" },
+                { value: "swing_eighths", label: "Swing 8ths" },
+                { value: "swing_sixteenths", label: "Swing 16ths" },
+                { value: "shuffle", label: "Shuffle" },
+              ]}
+            />
+            {detected?.rhythmic_feel ? (
+              <p className="ns-notation-note">
+                Detected {rhythmicFeelLabel(detected.rhythmic_feel)}
+                {settings.rhythmic_feel && settings.rhythmic_feel !== "auto"
+                  ? ". Your setting is used instead."
+                  : "."}
+              </p>
+            ) : null}
+          </div>
+          <div className="ns-notation-control">
+            <p className="ns-notation-control-label">Timing</p>
+            <SegmentedControl
+              label="Timing feel"
+              value={settings.timing || "auto"}
+              disabled={busy || !regenAvailable}
+              onChange={(timing: TimingFeel) => void apply({ ...settings, timing })}
+              options={[
+                { value: "auto", label: "Auto" },
+                { value: "steady", label: "Steady" },
+                { value: "expressive", label: "Expressive" },
+              ]}
+            />
+          </div>
+        </div>
         <div className="ns-notation-row">
           <label className="ns-notation-field">
             Swing ratio
@@ -401,10 +412,11 @@ export default function NotationInterpretationPanel({
         </Button>
       </div>
       <p className="ns-notation-note">
-        Readable writes conventional swing as even eighths plus a Swing mark;
-        score playback then swings those eighths once. Literal keeps performed
-        timing and still detects feel so you can correct it. Style, feel, and
-        timing never re-run transcription. Original MIDI stays unchanged.
+        Swing and straight feel are inferred automatically. Readable writes
+        conventional swing as even eighths plus a Swing mark; score playback
+        then swings those eighths once. Literal keeps performed timing.
+        Changing interpretation never re-runs transcription. Original MIDI
+        stays unchanged.
         {provenance ? ` ${provenance}` : ""}
       </p>
       {fallback ? (

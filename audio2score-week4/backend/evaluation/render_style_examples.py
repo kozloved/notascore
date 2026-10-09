@@ -16,11 +16,18 @@ CASES = (
     ("swing_2_to_1", "4/4"),
     ("swing_3_to_2", "4/4"),
     ("swing_sixteenths", "4/4"),
+    ("straight_syncopation", "4/4"),
+    ("swing_plus_syncopation", "4/4"),
+    ("genuine_triplets", "4/4"),
     ("triplets_inside_swing", "4/4"),
     ("dotted_rhythms", "4/4"),
     ("dotted_inside_swing", "4/4"),
-    ("compound_6_8", "6/8"),
+    ("straight_eighths_jitter", "4/4"),
+    ("independent_voices", "4/4"),
     ("straight_to_swing", "4/4"),
+    ("swing_then_straight", "4/4"),
+    ("sparse_swing", "4/4"),
+    ("compound_6_8", "6/8"),
     ("polyphony_chords_ties", "4/4"),
 )
 
@@ -68,13 +75,7 @@ def main(out_dir: Path) -> int:
         after = _convert(
             source,
             case_dir / "after.musicxml",
-            NotationSettings.from_dict(
-                {
-                    "source_style": "jazz",
-                    "rhythmic_feel": "auto" if name != "swing_2_to_1" else "swing_eighths",
-                    "swing_ratio": 2.0 if name == "swing_2_to_1" else None,
-                }
-            ),
+            NotationSettings(),
             meter,
         )
         assert source.read_bytes() and digest
