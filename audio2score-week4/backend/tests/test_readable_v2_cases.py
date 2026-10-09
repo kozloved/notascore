@@ -247,7 +247,7 @@ def test_held_voice_on_same_staff_is_not_clipped(tmp_path):
     assert all(e.duration_beats <= 1.0 + 1e-9 for e in moving)
 
 
-def test_mixed_tuplets_v1_stays_sixteenths_v2_fills_last_triplet(tmp_path):
+def test_mixed_tuplets_triplet_articulation_fills_on_default_and_v2(tmp_path):
     from evaluation.notation_fixtures import FIXTURES
 
     source = tmp_path / "mixed_tuplets.mid"
@@ -260,7 +260,7 @@ def test_mixed_tuplets_v1_stays_sixteenths_v2_fills_last_triplet(tmp_path):
     treble2 = [e for e in v2 if e.pitch >= 72]
     assert [round(e.start_beat, 4) for e in treble1] == [round(4 + i / 3, 4) for i in range(6)]
     assert [round(e.start_beat, 4) for e in treble2] == [round(4 + i / 3, 4) for i in range(6)]
-    assert [round(e.duration_beats, 4) for e in treble1] == [0.25] * 6
+    assert [round(e.duration_beats, 4) for e in treble1] == [round(1 / 3, 4)] * 6
     assert [round(e.duration_beats, 4) for e in treble2] == [round(1 / 3, 4)] * 6
     assert dec2[-1]["release_reason"] == "phrase_end"
     assert [round(e.duration_beats, 4) for e in v1 if e.pitch < 72] == [1.0] * 4
@@ -269,7 +269,7 @@ def test_mixed_tuplets_v1_stays_sixteenths_v2_fills_last_triplet(tmp_path):
     assert {row["rhythm_family"] for row in dec2 if row["raw_start"] >= 4} == {"triplet"}
 
 
-def test_detached_triplet_groups_fill_last_note_only_on_v2(tmp_path):
+def test_detached_triplet_groups_fill_articulation_on_default_and_v2(tmp_path):
     source = tmp_path / "I.mid"
     READABLE_V2_CASES["I_detached_triplet_groups"](source)
     original = source.read_bytes()
@@ -278,7 +278,7 @@ def test_detached_triplet_groups_fill_last_note_only_on_v2(tmp_path):
     assert source.read_bytes() == original
     starts = [0.0, 1 / 3, 2 / 3, 2.0, 7 / 3, 8 / 3]
     assert [round(e.start_beat, 4) for e in v2] == [round(s, 4) for s in starts]
-    assert [round(e.duration_beats, 4) for e in v1] == [0.25] * 6
+    assert [round(e.duration_beats, 4) for e in v1] == [round(1 / 3, 4)] * 6
     assert [round(e.duration_beats, 4) for e in v2] == [round(1 / 3, 4)] * 6
 
 
@@ -303,7 +303,7 @@ def test_repeated_triplet_pitches_last_note_matches_siblings_on_v2(tmp_path):
     v2, _dec2, _ = _quantize(source, V2)
     assert source.read_bytes() == original
     assert [n.pitch for n in v2] == [72] * 6
-    assert [round(e.duration_beats, 4) for e in v1] == [0.25] * 6
+    assert [round(e.duration_beats, 4) for e in v1] == [round(1 / 3, 4)] * 6
     assert [round(e.duration_beats, 4) for e in v2] == [round(1 / 3, 4)] * 6
 
 
@@ -320,7 +320,7 @@ def test_held_voice_under_triplets_is_not_clipped(tmp_path):
     assert round(bass2.duration_beats, 4) >= 1.75
     treble2 = [e for e in v2 if e.pitch != 48]
     assert [round(e.duration_beats, 4) for e in treble2] == [round(1 / 3, 4)] * 6
-    assert [round(e.duration_beats, 4) for e in v1 if e.pitch != 48][-1] == 0.25
+    assert [round(e.duration_beats, 4) for e in v1 if e.pitch != 48][-1] == round(1 / 3, 4)
 
 
 def test_foreign_track_pedal_does_not_lengthen_short_notes(tmp_path):
