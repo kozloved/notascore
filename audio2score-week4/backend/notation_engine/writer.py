@@ -353,11 +353,17 @@ class NotationWriter:
             shift = float((self.last_quantization_summary or {}).get("pickup_origin_shift") or 0.0)
             if abs(shift) < 1e-12 and self.last_plan is not None:
                 shift = float((self.last_plan.extra or {}).get("pickup_origin_shift") or 0.0)
+            from mir.swing import apply_playback_timing, spans_from_payload
+
+            sounding = apply_playback_timing(
+                quantized, spans_from_payload(self._feel_spans(self.last_plan))
+            )
             self.last_export_integrity = validate_exports(
                 xml_path,
                 out_dir / f"{job_id}.score.mid",
                 quantized,
                 musicxml_beat_shift=shift,
+                midi_events=sounding,
             )
         else:
             self.last_export_integrity = {
@@ -394,8 +400,12 @@ class NotationWriter:
             points = {float(m.getOffsetInHierarchy(score.parts[0])): float(m.number)
                       for m in score.parts[0].recurse().getElementsByClass(m21tempo.MetronomeMark)
                       if m.number is not None}
-        return playback_score(self.last_quantized_events, self.last_plan.time_signature,
-                              sorted(points.items()))
+        return playback_score(
+            self.last_quantized_events,
+            self.last_plan.time_signature,
+            sorted(points.items()),
+            swing_spans=self._feel_spans(self.last_plan),
+        )
 
     def write_from_events_direct(
         self,
@@ -1279,11 +1289,22 @@ class NotationWriter:
         except Exception:
             mql = 4.0
         pickup = float(extra.get("pickup_origin_shift") or 0.0)
+        measure_map = []
+        if plan is not None:
+            for meas in plan.measures or ():
+                measure_map.append(
+                    {
+                        "number": getattr(meas, "number", None),
+                        "start_beat": float(getattr(meas, "start_beat", 0.0) or 0.0),
+                        "duration_beats": float(getattr(meas, "duration_beats", 0.0) or 0.0),
+                    }
+                )
         return inject_swing_metadata(
             xml,
             list(spans),
             measure_quarter_length=mql,
             pickup_shift=pickup,
+            measure_map=measure_map or None,
         )
 
     def _insert_tempo_text_at_beat(self, score, beat: float, text: str) -> None:

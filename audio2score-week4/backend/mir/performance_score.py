@@ -1543,7 +1543,7 @@ def quantize_notation(
     # resolve release targets to those onsets before duration spelling.
     onset_jobs = []
     onset_by_id = {}
-    policy_exceptions = []
+    policy_exceptions = list(interpretation_summary.get("limitations") or [])
     for key, voice in voices.items():
         groups = []
         for ev in sorted(voice, key=lambda e: (e.start_beat, e.pitch)):

@@ -110,9 +110,16 @@ subdivision pair; the written position is `1/2`. Seconds are unchanged. Long
 sustains are not pulled onto swing slots. Compound meters are never classified
 as swing. Genuine triplets inside a swing span stay triplet exceptions.
 
-Export adds visible Swing/Straight words plus MusicXML `<swing>` metadata
-(`notation_engine/swing_export.py`). Score MIDI playback uses written durations
-and does not apply that metadata, so swing is not delayed twice. OSMD may
-ignore `<swing>` and still show the word mark.
+Readable writes conventional swing as even eighths plus a Swing word.
+Literal still detects feel for the editor but does not rewrite performed
+onsets. `output_mode` is an internal spelling nudge (compatibility only);
+Readable/Literal remains the user-facing interpretation axis.
 
-Fixtures: `evaluation/swing_fixtures.py` and `tests/test_style_interpretation.py`.
+Export puts visible words in `direction-type/words` and playback metadata in
+`direction/sound/swing` (`notation_engine/swing_export.py`), using inherited
+divisions for offsets. Score MIDI and browser score playback apply the
+written→sounded inverse once. Original-performance MIDI is unchanged. OSMD
+may ignore `<swing>` and still show the word mark.
+
+Fixtures: `evaluation/swing_fixtures.py`, `tests/test_style_interpretation.py`,
+and `tests/test_swing_playback.py`.

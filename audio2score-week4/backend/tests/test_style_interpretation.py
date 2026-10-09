@@ -17,15 +17,21 @@ from mir.notation_settings import NotationSettings
 from mir.performance_cli import convert
 from mir.performance_score import quantize_notation
 from mir.quantizer import QuantizerConfig
+from mir.interpretation_profile import SourceStyle, STYLE_PRIORS
 from mir.swing import (
+    apply_playback_timing,
     apply_written_timing,
     infer_interpretation_spans,
     map_pair_fraction,
     performed_offbeat_fraction,
+    span_at,
 )
 from mir.style_interpretation import interpret_for_notation
 from mir.types import Hand, MusicalEvent
-from notation_engine.swing_export import inject_swing_metadata
+from notation_engine.swing_export import (
+    assert_swing_metadata_placement,
+    inject_swing_metadata,
+)
 
 METER_44 = MeterHypothesis("4/4", 4, 4, 4.0, 1.0, 1.0)
 METER_68 = MeterHypothesis("6/8", 6, 8, 3.0, 1.0, 1.0)
@@ -281,24 +287,56 @@ def test_musicxml_swing_metadata_is_injected_without_music21():
     from mir.swing import InterpretationSpan
 
     xml = """<?xml version="1.0"?><score-partwise version="4.0">
-    <part id="P1"><measure number="1"><attributes><divisions>8</divisions></attributes>
-    <note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration></note>
+    <part-list><score-part id="P1"/><score-part id="P2"/></part-list>
+    <part id="P1"><measure number="X1"><attributes><divisions>24</divisions>
+    <time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+    <note><pitch><step>C</step><octave>5</octave></pitch><duration>24</duration></note>
+    </measure></part>
+    <part id="P2"><measure number="X1"><attributes><divisions>24</divisions>
+    <time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+    <note><pitch><step>C</step><octave>3</octave></pitch><duration>24</duration></note>
     </measure></part></score-partwise>"""
     span = InterpretationSpan(
         start_beat=0.0,
         end_beat=4.0,
         feel="swing_eighths",
         subdivision_unit=0.5,
-        ratio=2.0,
+        ratio=1.5,
         confidence=0.9,
         evidence_count=8,
         origin="inferred",
     )
-    out = inject_swing_metadata(xml, [span], measure_quarter_length=4.0)
-    assert "<swing>" in out
-    assert "<first>2</first>" in out
-    root = ET.fromstring(out)
-    assert any(child.tag.endswith("swing") or child.tag == "swing" for child in root.iter())
+    out = inject_swing_metadata(xml, [span])
+    nodes = assert_swing_metadata_placement(out)
+    assert len(nodes) == 2
+    assert {node["part_id"] for node in nodes} == {"P1", "P2"}
+    assert all(node["first"] == "3" and node["second"] == "2" for node in nodes)
+    assert all(node["swing_type"] == "eighth" for node in nodes)
+    assert all(node["swing_in_sound"] and node["words_in_direction_type"] for node in nodes)
+    assert "direction-type" not in out.split("<sound>", 1)[1].split("</sound>")[0]
+
+
+def test_musicxml_offset_uses_inherited_divisions_not_beat_times_eight():
+    from mir.swing import InterpretationSpan
+
+    xml = """<?xml version="1.0"?><score-partwise version="4.0">
+    <part id="P1"><measure number="1"><attributes><divisions>24</divisions>
+    <time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>96</duration></note>
+    </measure></part></score-partwise>"""
+    span = InterpretationSpan(
+        start_beat=1.0,
+        end_beat=4.0,
+        feel="swing_eighths",
+        subdivision_unit=0.5,
+        ratio=2.0,
+        confidence=1.0,
+        evidence_count=4,
+        origin="inferred",
+    )
+    out = inject_swing_metadata(xml, [span])
+    nodes = assert_swing_metadata_placement(out)
+    assert nodes[0]["offset"] == "24"
 
 
 @pytest.mark.parametrize("name", list(SWING_FIXTURES))
@@ -360,3 +398,137 @@ def test_apply_written_timing_does_not_drop_or_duplicate_notes():
     assert [e.pitch for e in mapped] == [e.pitch for e in events]
     off = next(e for e in mapped if e.note_id.startswith("o"))
     assert abs((off.start_beat % 1.0) - 0.5) < 0.08
+
+
+def test_literal_auto_detects_swing_without_rewriting_onsets():
+    events = _swing_pair_events(bars=2, ratio=2.0)
+    settings = NotationSettings.from_dict({"interpretation": "literal", "source_style": "jazz"})
+    out, spans, summary = interpret_for_notation(events, METER_44, settings)
+    assert summary["rhythmic_feel"] == "swing_eighths"
+    assert summary["maps_written_timing"] is False
+    assert all(s.maps_written_timing is False for s in spans)
+    off = next(e for e in out if e.note_id.startswith("o"))
+    assert abs((off.start_beat % 1.0) - (2.0 / 3.0)) < 0.04
+
+
+def test_clear_swing_detected_under_every_source_style():
+    events = _swing_pair_events(bars=2, ratio=2.0)
+    for style in SourceStyle:
+        settings = NotationSettings.from_dict({"source_style": style.value})
+        _out, spans, summary = interpret_for_notation(events, METER_44, settings)
+        assert summary["rhythmic_feel"] in {"swing_eighths", "shuffle"}, style.value
+        assert any(s.feel in {"swing_eighths", "shuffle"} for s in spans), style.value
+
+
+def test_cross_voice_thirds_are_not_a_triplet():
+    events = [
+        _event(72, 0.0, 0.6, "a0", hand=Hand.RIGHT, voice=1),
+        _event(74, 2.0 / 3.0, 0.3, "a1", hand=Hand.RIGHT, voice=1),
+        _event(60, 1.0 / 3.0, 0.3, "b0", hand=Hand.LEFT, voice=1),
+    ]
+    for beat in range(1, 8):
+        events.append(_event(72, float(beat), 0.6, f"a{beat}d", hand=Hand.RIGHT, voice=1))
+        events.append(
+            _event(74, float(beat) + 2.0 / 3.0, 0.3, f"a{beat}o", hand=Hand.RIGHT, voice=1)
+        )
+    settings = NotationSettings.from_dict({"source_style": "jazz"})
+    _out, spans, summary = interpret_for_notation(events, METER_44, settings)
+    assert summary["rhythmic_feel"] in {"swing_eighths", "mixed"}
+    assert not any(span.triplet_exception_at(0.0) for span in spans)
+    assert any(span.feel == "swing_eighths" for span in spans)
+
+
+def test_triplet_in_one_hand_does_not_block_swing_in_the_other():
+    events = _swing_pair_events(bars=2, ratio=2.0)
+    events += [
+        _event(48, 0.0, 1.0 / 3.0, "t0", hand=Hand.LEFT),
+        _event(50, 1.0 / 3.0, 1.0 / 3.0, "t1", hand=Hand.LEFT),
+        _event(52, 2.0 / 3.0, 1.0 / 3.0, "t2", hand=Hand.LEFT),
+    ]
+    settings = NotationSettings.from_dict({"source_style": "jazz"})
+    out, spans, summary = interpret_for_notation(events, METER_44, settings)
+    assert summary["rhythmic_feel"] in {"swing_eighths", "mixed"}
+    right_off = next(e for e in out if e.note_id.startswith("o"))
+    assert abs((right_off.start_beat % 1.0) - 0.5) < 0.08
+    left_mid = next(e for e in out if e.note_id == "t1")
+    assert abs(left_mid.start_beat - (1.0 / 3.0)) < 0.05
+
+
+def test_duplicated_tracks_do_not_inflate_evidence():
+    events = _swing_pair_events(bars=2, ratio=2.0)
+    doubled = []
+    for event in events:
+        doubled.append(event)
+        doubled.append(
+            _event(
+                event.pitch + 12,
+                event.start_beat,
+                event.duration_beats,
+                event.note_id + "-dup",
+                hand=event.hand,
+                source_track_id="copy",
+            )
+        )
+    jazz = NotationSettings.from_dict({"source_style": "jazz"}).interpretation_profile
+    single = infer_interpretation_spans(events, METER_44, jazz)
+    both = infer_interpretation_spans(doubled, METER_44, jazz)
+    assert single[0].evidence_count == both[0].evidence_count
+
+
+def test_dotted_pair_inside_swing_stays_dotted():
+    events = _swing_pair_events(bars=1, ratio=2.0)
+    events += [
+        _event(67, 4.0, 0.75, "dot"),
+        _event(69, 4.75, 0.25, "cut"),
+    ]
+    f = performed_offbeat_fraction(2.0)
+    for beat in range(5, 8):
+        events.append(_event(72, float(beat), f, f"d{beat}"))
+        events.append(_event(74, float(beat) + f, 1.0 - f, f"o{beat}"))
+    settings = NotationSettings.from_dict(
+        {"source_style": "jazz", "rhythmic_feel": "swing_eighths", "swing_ratio": 2.0}
+    )
+    out, spans, summary = interpret_for_notation(events, METER_44, settings)
+    assert summary["rhythmic_feel"] == "swing_eighths"
+    by_id = {e.note_id: e for e in out}
+    assert abs(by_id["cut"].start_beat - 4.75) < 0.04
+    assert abs(by_id["dot"].duration_beats - 0.75) < 0.08
+    off = next(e for e in out if e.note_id.startswith("o") and e.start_beat < 4)
+    assert abs((off.start_beat % 1.0) - 0.5) < 0.08
+
+
+def test_span_at_uses_half_open_boundaries():
+    from mir.swing import InterpretationSpan
+
+    spans = [
+        InterpretationSpan(0.0, 4.0, "straight", 0.5, None, 1.0, 4, "inferred"),
+        InterpretationSpan(4.0, 8.0, "swing_eighths", 0.5, 2.0, 1.0, 4, "inferred"),
+    ]
+    assert span_at(spans, 3.999).feel == "straight"
+    assert span_at(spans, 4.0).feel == "swing_eighths"
+    assert span_at(spans, 8.0) is None
+
+
+def test_compound_override_reports_limitation():
+    events = [_event(64, i * 0.5, 0.45, f"c{i}") for i in range(12)]
+    jazz = NotationSettings.from_dict({"source_style": "jazz", "rhythmic_feel": "swing_eighths"})
+    _out, spans, summary = interpret_for_notation(events, METER_68, jazz)
+    assert all(s.feel == "straight" for s in spans)
+    assert summary["limitations"]
+    assert summary["limitations"][0]["kind"] == "unsupported_feel"
+    assert "6/8" in summary["limitations"][0]["user_message"]
+
+
+def test_style_prior_live_fields_are_the_ones_that_gate_swing():
+    live = set(STYLE_PRIORS[SourceStyle.AUTO].live_fields())
+    assert "min_observations" in live
+    assert "tempo_flexibility" not in live
+    assert "voice_independence" not in live
+
+
+def test_old_output_mode_still_parses_without_changing_defaults():
+    settings = NotationSettings.from_dict({"output_mode": "simplified", "interpretation": "readable"})
+    assert settings.interpretation.value == "readable"
+    assert settings.interpretation_profile.output_mode.value == "simplified"
+    default = NotationSettings.from_dict({"interpretation": "readable"})
+    assert default.interpretation_profile.output_mode.value == "faithful"

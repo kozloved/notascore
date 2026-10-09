@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 
 import { track } from "../../lib/analytics";
+import { getNotationSettings } from "../../lib/jobs";
 import { notesToMidiBytes } from "../../lib/score-midi";
 import { MidiPreviewPlayer } from "../../lib/midiPlayback";
+import type { SwingSpan } from "../../lib/swing-playback";
 import { useScoreEditor } from "../../hooks/useScoreEditor";
 import Button from "../ui/Button";
 import SheetResult from "../SheetResult";
@@ -89,7 +91,21 @@ export default function ScoreEditor({
       setPlaying(false);
       return;
     }
-    const buffer = await notesToMidiBytes(editor.notes, editor.tempoBpm, editor.tempoCurve);
+    let swingSpans: SwingSpan[] = [];
+    try {
+      const payload = await getNotationSettings(jobId);
+      swingSpans = (payload.interpretation_spans ||
+        payload.detected_interpretation?.spans ||
+        []) as SwingSpan[];
+    } catch {
+      swingSpans = [];
+    }
+    const buffer = await notesToMidiBytes(
+      editor.notes,
+      editor.tempoBpm,
+      editor.tempoCurve,
+      swingSpans
+    );
     await player.play(buffer, 0, {
       onEnd: () => setPlaying(false),
     });

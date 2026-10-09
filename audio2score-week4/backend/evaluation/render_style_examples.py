@@ -15,8 +15,10 @@ ROOT = Path(__file__).resolve().parent
 CASES = (
     ("swing_2_to_1", "4/4"),
     ("swing_3_to_2", "4/4"),
+    ("swing_sixteenths", "4/4"),
     ("triplets_inside_swing", "4/4"),
     ("dotted_rhythms", "4/4"),
+    ("dotted_inside_swing", "4/4"),
     ("compound_6_8", "6/8"),
     ("straight_to_swing", "4/4"),
     ("polyphony_chords_ties", "4/4"),

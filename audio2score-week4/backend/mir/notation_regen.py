@@ -48,6 +48,11 @@ def public_policy_exception(row: dict) -> dict:
             payload["user_message"] = (
                 "A finer local grid was needed to keep this attack in place."
             )
+        elif kind == "unsupported_feel":
+            payload["user_message"] = (
+                payload.get("user_message")
+                or "That rhythmic feel cannot be applied to this meter."
+            )
         else:
             payload["user_message"] = payload.get("reason") or (
                 "A local notation exception was required."

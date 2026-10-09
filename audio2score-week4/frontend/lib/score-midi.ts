@@ -1,4 +1,5 @@
 import type { EditableNote, TempoCurvePoint } from "./score-editor";
+import { applyPlaybackTiming, type SwingSpan } from "./swing-playback";
 
 function sortedCurve(
   tempoBpm: number,
@@ -16,7 +17,8 @@ function sortedCurve(
 export async function notesToMidiBytes(
   notes: EditableNote[],
   tempoBpm: number,
-  tempoCurve?: TempoCurvePoint[]
+  tempoCurve?: TempoCurvePoint[],
+  swingSpans?: SwingSpan[] | null
 ): Promise<ArrayBuffer> {
   const { Midi } = await import("@tonejs/midi");
   const midi = new Midi();
@@ -26,8 +28,9 @@ export async function notesToMidiBytes(
     ticks: Math.max(0, Math.round(point.beat * ppq)),
     bpm: point.bpm,
   }));
+  const sounding = applyPlaybackTiming(notes, swingSpans);
   const tracks = new Map<number, ReturnType<typeof midi.addTrack>>();
-  for (const note of notes) {
+  for (const note of sounding) {
     let track = tracks.get(note.track);
     if (!track) {
       track = midi.addTrack();

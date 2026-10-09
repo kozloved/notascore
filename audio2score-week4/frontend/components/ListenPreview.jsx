@@ -276,9 +276,10 @@ export default function ListenPreview({ apiUrl, jobId, filename, revision = 0 })
     <section className="listen" aria-label="Listening previews">
       <h3 className="listen-title">Listen</h3>
       <p className="listen-lead">
-        Compare the original performance with the written score. The two MIDI
-        previews use different timing on purpose. Score playback follows
-        written durations; a Swing mark is not applied a second time.
+        Compare the original performance with the written score. Original
+        MIDI keeps performed timing. Score playback sounds written notes;
+        a Swing indication is applied once so even eighths swing, and is
+        not applied again on top of that.
       </p>
 
       {!isMidiSource && (

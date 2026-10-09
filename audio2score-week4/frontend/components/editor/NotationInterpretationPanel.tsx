@@ -8,7 +8,6 @@ import {
   saveNotationSettings,
   type DetectedInterpretation,
   type NotationSettings,
-  type OutputMode,
   type PolicyException,
   type RhythmicFeel,
   type SourceStyle,
@@ -331,24 +330,6 @@ export default function NotationInterpretationPanel({
       <details className="ns-notation-advanced">
         <summary>Advanced interpretation</summary>
         <div className="ns-notation-row">
-          <div className="ns-notation-control">
-            <p className="ns-notation-control-label">Output</p>
-            <SegmentedControl
-              label="Output mode"
-              value={settings.output_mode || "faithful"}
-              disabled={busy || !regenAvailable}
-              onChange={(output_mode: OutputMode) =>
-                void apply({ ...settings, output_mode })
-              }
-              options={[
-                { value: "faithful", label: "Faithful" },
-                { value: "simplified", label: "Simplified" },
-              ]}
-            />
-            <p className="ns-notation-note">
-              Simplified may prefer coarser spelling. It never deletes notes.
-            </p>
-          </div>
           <label className="ns-notation-field">
             Swing ratio
             <input
@@ -420,8 +401,10 @@ export default function NotationInterpretationPanel({
         </Button>
       </div>
       <p className="ns-notation-note">
-        These controls rewrite the derived score only. Original performance MIDI
-        and playback stay unchanged. Style and feel never re-run transcription.
+        Readable writes conventional swing as even eighths plus a Swing mark;
+        score playback then swings those eighths once. Literal keeps performed
+        timing and still detects feel so you can correct it. Style, feel, and
+        timing never re-run transcription. Original MIDI stays unchanged.
         {provenance ? ` ${provenance}` : ""}
       </p>
       {fallback ? (

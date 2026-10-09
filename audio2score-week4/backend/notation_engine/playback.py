@@ -2,11 +2,18 @@
 
 from music21 import instrument, meter, note, stream, tempo
 
+from mir.swing import apply_playback_timing, spans_from_payload
 
-def playback_score(events, time_signature, tempo_points):
+
+def playback_score(events, time_signature, tempo_points, *, swing_spans=None):
+    """Sound written attacks. Swing spans remap written even values once.
+
+    Do not pass original-performance events through this mapping.
+    """
+    sounding = apply_playback_timing(list(events), spans_from_payload(swing_spans or ()))
     score = stream.Score()
     parts = {}
-    for event in events:
+    for event in sounding:
         key = (event.hand, event.voice, event.source_track_id, event.source_program)
         if key not in parts:
             part = stream.Part()

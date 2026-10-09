@@ -40,6 +40,15 @@ class TimingFeel(str, Enum):
 
 
 class OutputMode(str, Enum):
+    """Internal spelling nudge, not a second interpretation axis.
+
+    Readable/Literal (``NotationSettings.interpretation``) is the user-facing
+    contract from PR #102. ``faithful`` is the default and does not change
+    saved scores. ``simplified`` may prefer coarser candidates under Readable;
+    it never deletes notes. Keep parsing it for compatibility; do not expose
+    it as a competing Faithful/Simplified interpretation control.
+    """
+
     FAITHFUL = "faithful"
     SIMPLIFIED = "simplified"
 
@@ -104,7 +113,18 @@ def _enum_from(value, enum_cls, aliases, field_name):
 
 @dataclass(frozen=True)
 class StylePrior:
-    """Declarative weights. Higher favors that hypothesis; never a hard rule."""
+    """Declarative weights. Higher favors that hypothesis; never a hard rule.
+
+    Live production fields (used by ``mir.swing`` / onset search):
+    ``straight``, ``swing_eighths``, ``swing_sixteenths``, ``shuffle``,
+    ``dotted``, ``apply_margin``, ``min_observations``, ``min_confidence``.
+
+    Reserved / unused in this milestone (do not present as implemented
+    musical capabilities): ``triplet``, ``tempo_flexibility``,
+    ``notation_complexity_penalty``, ``voice_independence``,
+    ``syncopation_preservation``. ``output_mode=simplified`` applies a
+    separate onset-cost nudge in ``performance_score``, not this last field.
+    """
 
     straight: float = 0.55
     swing_eighths: float = 0.20
@@ -119,6 +139,19 @@ class StylePrior:
     apply_margin: float = 0.18
     min_observations: int = 4
     min_confidence: float = 0.55
+
+    @staticmethod
+    def live_fields() -> tuple[str, ...]:
+        return (
+            "straight",
+            "swing_eighths",
+            "swing_sixteenths",
+            "shuffle",
+            "dotted",
+            "apply_margin",
+            "min_observations",
+            "min_confidence",
+        )
 
 
 # Style is a prior, not a genre rule. Jazz does not always swing; classical

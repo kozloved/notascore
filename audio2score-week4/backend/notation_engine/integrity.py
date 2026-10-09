@@ -133,7 +133,14 @@ def _compare_attacks(expected, actual, label, tolerance):
                 raise NotationIntegrityError(f"{label} changed attack timing for pitch {pitch}")
 
 
-def validate_exports(xml_path, midi_path, events, *, musicxml_beat_shift: float = 0.0):
+def validate_exports(
+    xml_path,
+    midi_path,
+    events,
+    *,
+    musicxml_beat_shift: float = 0.0,
+    midi_events=None,
+):
     import mido
 
     try:
@@ -163,7 +170,11 @@ def validate_exports(xml_path, midi_path, events, *, musicxml_beat_shift: float 
                     attacks.append((message.note, active.pop(key), tick / midi.ticks_per_beat))
             if active:
                 raise NotationIntegrityError("MIDI contains unterminated notes")
-        _compare_attacks(expected, attacks, "MIDI", 1 / midi.ticks_per_beat + 1e-9)
+        sounding = midi_events if midi_events is not None else events
+        midi_expected = [
+            (e.pitch, e.start_beat, e.start_beat + e.duration_beats) for e in sounding
+        ]
+        _compare_attacks(midi_expected, attacks, "MIDI", 1 / midi.ticks_per_beat + 1e-9)
         return {"status": "passed", "expected_attacks": len(events),
                 "musicxml_attacks": len(xml), "midi_attacks": len(attacks)}
     except NotationIntegrityError:

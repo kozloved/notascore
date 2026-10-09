@@ -984,9 +984,11 @@ def job_source(
 
 def _musicxml_to_midi_bytes(musicxml_text: str) -> bytes:
     from music21 import converter
+    from mir.swing import apply_playback_timing
     from mir.types import MusicalEvent
     from notation_engine.integrity import score_attacks, validate_exports
     from notation_engine.playback import playback_score
+    from notation_engine.swing_export import spans_from_musicxml
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -1003,10 +1005,17 @@ def _musicxml_to_midi_bytes(musicxml_text: str) -> bytes:
         tempi = {float(m.getOffsetInHierarchy(score)): float(m.number)
                  for m in score.recurse().getElementsByClass("MetronomeMark")
                  if m.number is not None}
-        playback = playback_score(events, signature, sorted(tempi.items()) or [(0, 120)])
+        spans = spans_from_musicxml(musicxml_text)
+        playback = playback_score(
+            events,
+            signature,
+            sorted(tempi.items()) or [(0, 120)],
+            swing_spans=spans,
+        )
         midi_path = Path(tmp) / "score.mid"
         playback.write("midi", fp=str(midi_path))
-        validate_exports(xml_path, midi_path, events)
+        sounding = apply_playback_timing(events, spans)
+        validate_exports(xml_path, midi_path, events, midi_events=sounding)
 
         return midi_path.read_bytes()
 

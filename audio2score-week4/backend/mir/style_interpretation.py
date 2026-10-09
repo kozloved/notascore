@@ -23,7 +23,9 @@ from mir.interpretation_profile import InterpretationProfile, parse_interpretati
 from mir.swing import (
     InterpretationSpan,
     apply_written_timing,
+    feel_limitations,
     infer_interpretation_spans,
+    mark_spans_mapping,
     summarize_spans,
 )
 from mir.types import copy_event
@@ -69,7 +71,15 @@ def interpret_for_notation(
     spans = infer_interpretation_spans(
         source, meter, profile, tempo_map=tempo_map
     )
-    interpreted = apply_written_timing(source, spans)
+    interpretation = getattr(settings, "interpretation", None)
+    if interpretation is None and isinstance(settings, dict):
+        interpretation = settings.get("interpretation")
+    interpretation_name = str(getattr(interpretation, "value", interpretation) or "").lower()
+    # Literal keeps performed timing on the page. Feel is still detected so
+    # the editor can show and correct it. Readable maps swing to written eighths.
+    maps_written = interpretation_name != "literal"
+    spans = mark_spans_mapping(spans, enabled=maps_written)
+    interpreted = apply_written_timing(source, spans) if maps_written else list(source)
     if [
         (
             ev.note_id,
@@ -91,6 +101,8 @@ def interpret_for_notation(
         ordered.append(mapped if mapped is not None else original)
     summary = summarize_spans(spans)
     summary["profile"] = profile.to_dict()
+    summary["maps_written_timing"] = bool(maps_written and summary.get("maps_written_timing"))
+    summary["limitations"] = feel_limitations(meter, profile)
     return ordered, spans, summary
 
 
