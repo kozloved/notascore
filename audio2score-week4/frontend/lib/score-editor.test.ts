@@ -39,11 +39,13 @@ test("duration change uses the rhythmic grid", () => {
   const next = changeDuration(chord, "n-0002", 0.5);
   assert.equal(findNote(next, "n-0002")?.duration, 0.5);
   assert.equal(findNote(next, "n-0000")?.duration, 1);
+  assert.equal(findNote(next, "n-0002")?.score_timing_locked, true);
 });
 
 test("move snaps to a sixteenth and never goes negative", () => {
   const next = moveNote(chord, "n-0001", 1);
   assert.equal(findNote(next, "n-0001")?.start, 0.25);
+  assert.equal(findNote(next, "n-0001")?.score_timing_locked, true);
   assert.equal(moveNote(next, "n-0001", -8)[1].start, 0);
 });
 
@@ -61,6 +63,8 @@ test("add note creates a new stable id and selects it", () => {
   assert.ok(id.startsWith("n-"));
   assert.equal(findNote(notes, id)?.pitch, 62);
   assert.equal(findNote(notes, id)?.start, 2);
+  assert.equal(findNote(notes, id)?.score_timing_locked, true);
+  assert.equal(findNote(notes, id)?.stream_key, "0|right|0");
 });
 
 test("undo redo and reset-equivalent history", () => {

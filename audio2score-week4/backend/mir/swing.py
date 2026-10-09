@@ -61,6 +61,8 @@ UNISON_MATCH = 0.04
 
 COMPOUND_METERS = {"6/8", "9/8", "12/8"}
 SWING_FEELS = {"swing_eighths", "swing_sixteenths", "shuffle"}
+SWING_PARTICIPANTS = {"downbeat", "swing_offbeat"}
+NON_PARTICIPANTS = {"exception", "triplet", "dotted", "straight", "ambiguous"}
 
 
 @dataclass(frozen=True)
@@ -206,11 +208,27 @@ def map_beat_through_swing(beat: float, *, pair_length: float, ratio: float, rev
 
 
 def stream_key(event) -> str:
+    stored = getattr(event, "stream_key", None)
+    if stored:
+        return str(stored)
     hand = getattr(event, "hand", None)
     hand_value = getattr(hand, "value", hand)
     voice = getattr(event, "voice", 0)
     track = str(getattr(event, "source_track_id", "") or "")
     return f"{track}|{hand_value}|{int(voice or 0)}"
+
+
+def parse_stream_key(value: str | None) -> tuple[str, str | None, int]:
+    """Return (source_track_id, hand_value, voice) from a persisted stream key."""
+    text = str(value or "")
+    parts = text.split("|")
+    if len(parts) != 3:
+        return ("", None, 0)
+    try:
+        voice = int(parts[2] or 0)
+    except (TypeError, ValueError):
+        voice = 0
+    return (parts[0], parts[1] or None, voice)
 
 
 def _onset(event) -> float:
@@ -1043,21 +1061,61 @@ def _maps_span(span: InterpretationSpan | None) -> bool:
     )
 
 
+def _onset_participates(event, span: InterpretationSpan | None, stream: str, *, reverse: bool, lookup: float) -> bool:
+    """Whether this attack's start is a swing participant.
+
+    Duration never decides this. Performed timing, when present, is the
+    provenance for exceptions; score-only notes follow written spelling.
+    """
+    if not _maps_span(span):
+        return False
+    if reverse:
+        if _classify_written_for_playback(lookup, span, stream) not in SWING_PARTICIPANTS:
+            return False
+        raw_performed = getattr(event, "performed_start_beat", None)
+        if raw_performed is not None:
+            return _classify_onset(float(raw_performed), span, stream) in SWING_PARTICIPANTS
+        return True
+    return _classify_onset(lookup, span, stream) in SWING_PARTICIPANTS
+
+
+def _map_release(origin_end: float, spans: list[InterpretationSpan], stream: str, *, reverse: bool) -> float:
+    """Map a release only when the endpoint itself participates in that span."""
+    end_span = span_at(spans, origin_end)
+    if not _maps_span(end_span):
+        return float(origin_end)
+    end_class = (
+        _classify_written_for_playback(origin_end, end_span, stream)
+        if reverse
+        else _classify_onset(origin_end, end_span, stream)
+    )
+    if end_class not in SWING_PARTICIPANTS:
+        return float(origin_end)
+    return map_beat_through_swing(
+        origin_end,
+        pair_length=end_span.pair_length(),
+        ratio=end_span.ratio,
+        reverse=reverse,
+    )
+
+
 def _map_event(event, spans: list[InterpretationSpan], *, reverse: bool):
+    """Map one attack. Shared contract with frontend/lib/swing-playback.ts.
+
+    1. Resolve the span at the origin onset using the full span list,
+       including straight spans. Do not drop them before end lookup.
+    2. Stream ownership selects unmapped_streams and triplet owners.
+    3. Onset participation is independent of duration.
+    4. A non-participating end keeps origin_end (no stretch from mapped start).
+    """
     from mir.types import copy_event
 
     if getattr(event, "score_timing_locked", False):
         return event
-    perf_start = getattr(event, "performed_start_beat", None)
-    if perf_start is None:
-        perf_start = float(event.start_beat)
-    else:
-        perf_start = float(perf_start)
-    perf_dur = getattr(event, "performed_duration_beats", None)
-    if perf_dur is None:
-        perf_dur = float(event.duration_beats)
-    else:
-        perf_dur = float(perf_dur)
+    raw_performed = getattr(event, "performed_start_beat", None)
+    perf_start = float(event.start_beat) if raw_performed is None else float(raw_performed)
+    raw_perf_dur = getattr(event, "performed_duration_beats", None)
+    perf_dur = float(event.duration_beats) if raw_perf_dur is None else float(raw_perf_dur)
     source_start = float(event.start_beat)
     source_dur = float(event.duration_beats)
     if reverse:
@@ -1071,69 +1129,20 @@ def _map_event(event, spans: list[InterpretationSpan], *, reverse: bool):
     span = span_at(spans, lookup)
     stream = stream_key(event)
     changes = {
-        "performed_start_beat": perf_start,
-        "performed_duration_beats": perf_dur,
+        "performed_start_beat": None if raw_performed is None else float(raw_performed),
+        "performed_duration_beats": None if raw_perf_dur is None else float(raw_perf_dur),
     }
-    if not _maps_span(span):
+    if changes["performed_start_beat"] is None:
+        changes["performed_start_beat"] = perf_start
+        changes["performed_duration_beats"] = perf_dur
+    if not _onset_participates(event, span, stream, reverse=reverse, lookup=lookup):
         return copy_event(event, **changes)
-    pair = span.pair_length()
-    if max(origin_dur, perf_dur) > pair * 1.25:
-        return copy_event(event, **changes)
-    if reverse:
-        written_kind = _classify_written_for_playback(lookup, span, stream)
-        if written_kind not in {"downbeat", "swing_offbeat"}:
-            return copy_event(event, **changes)
-        # Independent performed evidence: a note left at a straight, dotted,
-        # or tuplet slot must not be reverse-mapped. Score-only events omit
-        # performed_* and follow the written swing spelling.
-        raw_performed = getattr(event, "performed_start_beat", None)
-        if raw_performed is not None:
-            participant = _classify_onset(float(raw_performed), span, stream)
-            if participant in {
-                "exception",
-                "triplet",
-                "dotted",
-                "straight",
-                "ambiguous",
-            }:
-                return copy_event(event, **changes)
-    else:
-        participant = _classify_onset(perf_start, span, stream)
-        if participant in {
-            "exception",
-            "triplet",
-            "dotted",
-            "straight",
-            "ambiguous",
-        }:
-            return copy_event(event, **changes)
     mapped_start = map_beat_through_swing(
-        origin_start, pair_length=pair, ratio=span.ratio, reverse=reverse
+        origin_start, pair_length=span.pair_length(), ratio=span.ratio, reverse=reverse
     )
     origin_end = origin_start + max(origin_dur, 1e-6)
-    if origin_dur <= pair * 1.25:
-        end_span = span_at(spans, origin_end) or span
-        end_class = (
-            (
-                _classify_written_for_playback(origin_end, end_span, stream)
-                if reverse
-                else _classify_onset(origin_end, end_span, stream)
-            )
-            if _maps_span(end_span)
-            else "exception"
-        )
-        if _maps_span(end_span) and end_class in {"downbeat", "swing_offbeat"}:
-            mapped_end = map_beat_through_swing(
-                origin_end,
-                pair_length=end_span.pair_length(),
-                ratio=end_span.ratio,
-                reverse=reverse,
-            )
-        else:
-            mapped_end = mapped_start + origin_dur
-        mapped_dur = max(mapped_end - mapped_start, 1e-4)
-    else:
-        mapped_dur = max(origin_dur, 1e-4)
+    mapped_end = _map_release(origin_end, spans, stream, reverse=reverse)
+    mapped_dur = max(mapped_end - mapped_start, 1e-4)
     return copy_event(
         event,
         start_beat=float(mapped_start),
@@ -1154,16 +1163,49 @@ def apply_playback_timing(events, spans: list[InterpretationSpan]):
     """Map written beats onto sounded beats for score MIDI / browser playback.
 
     Original-performance playback must not use this. Tuplets, dotted pairs,
-    straight exceptions, ties that are already unsplit attacks, and notes in
-    unmapped streams keep their written times.
+    straight exceptions, and notes in unmapped streams keep their written
+    times. Straight spans stay in the list so releases that cross a feel
+    boundary are classified against the span that actually owns the end.
     """
     parsed = spans_from_payload(spans)
     if not parsed or not events:
         return list(events)
-    active = [span for span in parsed if _maps_span(span)]
-    if not active:
+    if not any(_maps_span(span) for span in parsed):
         return list(events)
-    return [_map_event(event, active, reverse=True) for event in events]
+    return [_map_event(event, parsed, reverse=True) for event in events]
+
+
+def allocate_sounding_lanes(events) -> list[int]:
+    """Greedy lanes so overlapping same-pitch sounding notes do not share a MIDI channel."""
+    if not events:
+        return []
+    assigned = [0] * len(events)
+    lane_pitch_end: list[dict[int, float]] = []
+    order = sorted(
+        range(len(events)),
+        key=lambda index: (
+            float(events[index].start_beat),
+            int(events[index].pitch),
+            str(getattr(events[index], "note_id", "") or ""),
+        ),
+    )
+    for index in order:
+        event = events[index]
+        start = float(event.start_beat)
+        end = start + max(float(event.duration_beats), 1e-6)
+        pitch = int(event.pitch)
+        lane = None
+        for candidate, occupied in enumerate(lane_pitch_end):
+            last = occupied.get(pitch)
+            if last is None or last <= start + 1e-9:
+                lane = candidate
+                occupied[pitch] = end
+                break
+        if lane is None:
+            lane = len(lane_pitch_end)
+            lane_pitch_end.append({pitch: end})
+        assigned[index] = lane
+    return assigned
 
 
 def mark_spans_mapping(spans: list[InterpretationSpan], *, enabled: bool) -> list[InterpretationSpan]:

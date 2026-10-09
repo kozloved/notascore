@@ -1,5 +1,5 @@
 import type { EditableNote, TempoCurvePoint } from "./score-editor";
-import { applyPlaybackTiming, type SwingSpan } from "./swing-playback";
+import { allocateSoundingLanes, applyPlaybackTiming, type SwingSpan } from "./swing-playback";
 
 function sortedCurve(
   tempoBpm: number,
@@ -12,6 +12,13 @@ function sortedCurve(
   if (!points.length) return [{ beat: 0, bpm }];
   if (points[0].beat > 0) points.unshift({ beat: 0, bpm: points[0].bpm });
   return points;
+}
+
+function midiChannelForLane(lane: number): number {
+  const index = lane % 15;
+  let channel = index + 1;
+  if (channel >= 10) channel += 1;
+  return Math.max(0, channel - 1);
 }
 
 export async function notesToMidiBytes(
@@ -29,12 +36,15 @@ export async function notesToMidiBytes(
     bpm: point.bpm,
   }));
   const sounding = applyPlaybackTiming(notes, swingSpans);
-  const tracks = new Map<number, ReturnType<typeof midi.addTrack>>();
-  for (const note of sounding) {
-    let track = tracks.get(note.track);
+  const lanes = allocateSoundingLanes(sounding);
+  const tracks = new Map<string, ReturnType<typeof midi.addTrack>>();
+  sounding.forEach((note, index) => {
+    const key = `${note.track}:${lanes[index]}`;
+    let track = tracks.get(key);
     if (!track) {
       track = midi.addTrack();
-      tracks.set(note.track, track);
+      track.channel = midiChannelForLane(lanes[index]);
+      tracks.set(key, track);
     }
     track.addNote({
       midi: note.pitch,
@@ -42,7 +52,7 @@ export async function notesToMidiBytes(
       durationTicks: Math.max(1, Math.round(note.duration * ppq)),
       velocity: Math.max(0.1, Math.min(1, note.velocity / 127)),
     });
-  }
+  });
   if (!midi.tracks.length) midi.addTrack();
   const bytes = midi.toArray();
   const copy = new Uint8Array(bytes.byteLength);

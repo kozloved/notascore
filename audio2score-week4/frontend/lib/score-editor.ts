@@ -14,6 +14,10 @@ export type EditableNote = {
   voice: number;
   start_sec?: number | null;
   end_sec?: number | null;
+  performed_start_beat?: number | null;
+  performed_duration_beats?: number | null;
+  stream_key?: string | null;
+  score_timing_locked?: boolean;
 };
 
 export type TempoCurvePoint = {
@@ -85,7 +89,11 @@ export function notesEqual(left: EditableNote[], right: EditableNote[]): boolean
       note.voice === other.voice &&
       note.source_note_id === other.source_note_id &&
       (note.start_sec ?? null) === (other.start_sec ?? null) &&
-      (note.end_sec ?? null) === (other.end_sec ?? null)
+      (note.end_sec ?? null) === (other.end_sec ?? null) &&
+      (note.performed_start_beat ?? null) === (other.performed_start_beat ?? null) &&
+      (note.performed_duration_beats ?? null) === (other.performed_duration_beats ?? null) &&
+      (note.stream_key ?? null) === (other.stream_key ?? null) &&
+      Boolean(note.score_timing_locked) === Boolean(other.score_timing_locked)
     );
   });
 }
@@ -103,14 +111,16 @@ export function changePitch(notes: EditableNote[], id: string, delta: number): E
 
 export function changeDuration(notes: EditableNote[], id: string, beats: number): EditableNote[] {
   const duration = Math.max(GRID, snapGrid(beats));
-  return notes.map((note) => (note.id === id ? { ...note, duration } : note));
+  return notes.map((note) =>
+    note.id === id ? { ...note, duration, score_timing_locked: true } : note
+  );
 }
 
 export function moveNote(notes: EditableNote[], id: string, steps: number): EditableNote[] {
   return notes.map((note) => {
     if (note.id !== id) return note;
     const start = Math.max(0, snapGrid(note.start + steps * GRID));
-    return { ...note, start };
+    return { ...note, start, score_timing_locked: true };
   });
 }
 
@@ -147,6 +157,7 @@ export function addNote(
   const start = Math.max(0, snapGrid(at.start));
   const track = Math.max(0, Math.min(3, at.track ?? 0));
   const id = nextNoteId(notes);
+  const voice = Math.max(0, at.voice ?? 0);
   const created: EditableNote = {
     id,
     source_note_id: null,
@@ -155,7 +166,9 @@ export function addNote(
     duration: Math.max(GRID, snapGrid(at.duration ?? 1)),
     velocity: 80,
     track,
-    voice: Math.max(0, at.voice ?? 0),
+    voice,
+    stream_key: `${track}|${track === 1 ? "left" : "right"}|${voice}`,
+    score_timing_locked: true,
   };
   return { notes: [...notes, created], id };
 }

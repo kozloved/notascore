@@ -1217,6 +1217,7 @@ def editor_model_from_events(
     printed_marks=None,
     time_map=None,
 ) -> dict:
+    from mir.swing import stream_key as swing_stream_key
     from score_edits import (
         ID_RE,
         MAX_DURATION,
@@ -1256,6 +1257,10 @@ def editor_model_from_events(
                 "start_sec": getattr(ev, "start_time_sec", None),
                 "end_sec": getattr(ev, "end_time_sec", None),
                 "articulation": getattr(ev, "articulation", None) or None,
+                "performed_start_beat": getattr(ev, "performed_start_beat", None),
+                "performed_duration_beats": getattr(ev, "performed_duration_beats", None),
+                "stream_key": swing_stream_key(ev),
+                "score_timing_locked": bool(getattr(ev, "score_timing_locked", False)),
             }
         )
     notes = (

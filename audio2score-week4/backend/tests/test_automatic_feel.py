@@ -691,6 +691,8 @@ def test_save_reload_regeneration_keeps_automatic_feel(tmp_path):
     assert detected.get("rhythmic_feel") == "swing_eighths"
     starts = sorted(round(float(n["start"]), 4) for n in first.editor_model["notes"])
     assert starts[:6] == [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
+    assert all(n.get("stream_key") for n in first.editor_model["notes"])
+    assert all(n.get("performed_start_beat") is not None for n in first.editor_model["notes"])
     reloaded = recompute_notation(
         midi_bytes=original,
         settings=DEFAULT,

@@ -259,6 +259,8 @@ class MusicalEvent:
     # coordinates. Seconds (start_time_sec / end_time_sec) remain the source.
     performed_start_beat: Optional[float] = None
     performed_duration_beats: Optional[float] = None
+    # Voice-aware feel ownership. Prefer this over reconstructing from track/hand/voice.
+    stream_key: Optional[str] = None
 
 
 def copy_event(event: MusicalEvent, **changes: Any) -> MusicalEvent:

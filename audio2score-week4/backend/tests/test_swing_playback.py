@@ -91,8 +91,22 @@ def test_exported_score_midi_swings_and_raw_midi_does_not(tmp_path):
 
 
 def test_long_sustain_is_not_reverse_mapped_into_a_later_unison():
-    held = _event(59, 3.75, 5.0, "held")
-    later = _event(59, 8.75, 0.25, "later")
+    held = _event(
+        59,
+        3.75,
+        5.0,
+        "held",
+        performed_start_beat=3.75,
+        performed_duration_beats=5.0,
+    )
+    later = _event(
+        59,
+        8.75,
+        0.25,
+        "later",
+        performed_start_beat=8.75,
+        performed_duration_beats=0.25,
+    )
     spans = [
         {
             "start_beat": 0.0,

@@ -601,6 +601,10 @@ class ScoreNoteIn(BaseModel):
     start_sec: float | None = Field(default=None, ge=0, le=10000)
     end_sec: float | None = Field(default=None, ge=0, le=10000)
     articulation: str | None = Field(default=None, max_length=32)
+    performed_start_beat: float | None = None
+    performed_duration_beats: float | None = Field(default=None, gt=0)
+    stream_key: str | None = Field(default=None, max_length=256)
+    score_timing_locked: bool = False
 
 
 class TempoCurvePointIn(BaseModel):

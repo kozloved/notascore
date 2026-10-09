@@ -290,6 +290,24 @@ def fixture_short_convincing_swing(path: Path) -> str:
     return _write(path, notes)
 
 
+def fixture_long_swung_offbeat(path: Path) -> str:
+    notes = []
+    notes.append((72, _q(0.0), _q(2.0 / 3.0) - 0.01, 84))
+    notes.append((74, _q(2.0 / 3.0), _q(4.0) - 0.01, 78))
+    for beat in range(1, 4):
+        down = _q(beat)
+        off = _q(beat + 2.0 / 3.0)
+        notes.append((60, down, off - 0.01, 70))
+        notes.append((62, off, _q(beat + 1.0) - 0.01, 70))
+    for beat in range(4, 8):
+        down = _q(beat)
+        off = _q(beat + 2.0 / 3.0)
+        notes.append((72, down, off - 0.01, 84))
+        notes.append((76, off, _q(beat + 1.0) - 0.01, 78))
+    notes.append((67, _q(4.5), _q(7.5) - 0.01, 70))
+    return _write(path, notes)
+
+
 def fixture_polyphony_chords_ties(path: Path) -> str:
     notes = []
     for beat in range(8):
@@ -325,4 +343,5 @@ SWING_FIXTURES = {
     "sparse_bridge": fixture_sparse_bridge,
     "short_convincing_swing": fixture_short_convincing_swing,
     "straight_then_swing_sixteenths": fixture_straight_then_swing_sixteenths,
+    "long_swung_offbeat": fixture_long_swung_offbeat,
 }
