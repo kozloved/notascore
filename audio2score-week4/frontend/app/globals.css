@@ -1279,6 +1279,21 @@ body::before {
   color: var(--ns-text-muted);
 }
 
+.ns-notation-advanced {
+  border-top: 1px solid var(--ns-border);
+  padding-top: 8px;
+}
+
+.ns-notation-advanced summary {
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ns-text-muted);
+  margin-bottom: 8px;
+}
+
 .ns-note-toolbar {
   position: sticky;
   bottom: 12px;

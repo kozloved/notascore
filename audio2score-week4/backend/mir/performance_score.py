@@ -356,6 +356,15 @@ def _onset_vocab(settings: NotationSettings, *, allow_finer=False):
             (denom, family, cost * (0.85 if family == "triplet" else 1.0))
             for denom, family, cost in search
         ]
+    profile = getattr(settings, "interpretation_profile", None)
+    if profile is not None and getattr(profile, "output_mode", None) is not None:
+        from mir.interpretation_profile import OutputMode
+
+        if profile.output_mode == OutputMode.SIMPLIFIED:
+            search = [
+                (denom, family, cost * (1.12 if denom >= 8 or family == "triplet" else 1.0))
+                for denom, family, cost in search
+            ]
     if not exact:
         exact = [
             (denom, family) for denom, family in _ONSET_EXACT
@@ -1511,7 +1520,15 @@ def quantize_notation(
     score_input = [copy_event(ev, start_beat=ev.start_beat + offset) for ev in raw]
     score_input, profile, collapse_warning = collapse_for_solo_notation(score_input)
     layout = resolve_layout(score_input, profile)
-    interpreted = layout.events
+    from mir.style_interpretation import interpret_for_notation, stamp_performed_timing
+
+    laid_out = stamp_performed_timing(layout.events)
+    interpreted, interpretation_spans, interpretation_summary = interpret_for_notation(
+        laid_out,
+        meter,
+        settings,
+        tempo_map=tempo_map,
+    )
     layout_source = layout.layout_source
     measure_length = Fraction(str(meter.measure_quarter_length)).limit_denominator(48)
     beat_length = _beat_length_for_meter(meter)
@@ -1714,6 +1731,8 @@ def quantize_notation(
             "release_target_id": target_id,
             "release_at": None if release_at is None else float(release_at),
             "pedal_source": pedal_source,
+            "performed_start_beat": getattr(ev, "performed_start_beat", None),
+            "performed_duration_beats": getattr(ev, "performed_duration_beats", None),
             "source_ids": [ev.note_id],
             "policy_exceptions": [
                 row for row in policy_exceptions
@@ -1742,5 +1761,7 @@ def quantize_notation(
                    algorithm_version=settings.algorithm_version,
                    policy_exceptions=list(policy_exceptions),
                    score_profile=profile.to_dict(),
-                   voice_diagnostics=list(layout.diagnostics))
+                   voice_diagnostics=list(layout.diagnostics),
+                   interpretation_spans=[span.to_dict() for span in interpretation_spans],
+                   detected_interpretation=dict(interpretation_summary))
     return out, decisions, PerformanceReport(summary, tuple(notes), decisions)

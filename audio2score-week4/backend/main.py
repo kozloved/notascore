@@ -641,6 +641,12 @@ class NotationSettingsIn(BaseModel):
     pickup_beats: float | None = Field(default=None, ge=0, le=16)
     first_downbeat_beat: float | None = Field(default=None, ge=0, le=10000)
     measure_overrides: list[dict] | None = None
+    interpretation_profile: dict | None = None
+    source_style: str | None = None
+    rhythmic_feel: str | None = None
+    timing: str | None = None
+    output_mode: str | None = None
+    swing_ratio: float | None = Field(default=None, ge=1.0, le=4.0)
     reset: bool = False
     revision: int | None = Field(default=None, ge=0)
 
@@ -1989,6 +1995,8 @@ def _notation_settings_payload(job: dict) -> dict:
                 "fallback": stored.get("fallback"),
                 "policy_exceptions": stored.get("policy_exceptions") or [],
                 "has_edits": _overlay_has_edits(job),
+                "detected_interpretation": stored.get("detected_interpretation"),
+                "interpretation_spans": stored.get("interpretation_spans") or [],
             }
         except Exception:
             pass
@@ -2001,6 +2009,8 @@ def _notation_settings_payload(job: dict) -> dict:
         "fallback": None,
         "policy_exceptions": [],
         "has_edits": _overlay_has_edits(job) if job.get("edited_result_storage_key") else False,
+        "detected_interpretation": None,
+        "interpretation_spans": [],
     }
 
 
@@ -2086,6 +2096,8 @@ def job_notation_settings_post(
         "policy_exceptions": result.policy_exceptions,
         "regeneration_available": regen_ok,
         "regeneration_unavailable_reason": None if regen_ok else regen_reason,
+        "detected_interpretation": (result.summary or {}).get("detected_interpretation"),
+        "interpretation_spans": (result.summary or {}).get("interpretation_spans") or [],
     }
 
 

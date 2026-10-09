@@ -2,8 +2,23 @@
 
 The transcription (provider MIDI / `raw.mid`) is immutable. This pass only
 reinterprets **score time**: tempo scale, meter, written duration, voices,
-hands, pickups. Source `note_id`, pitch, velocity, and performed seconds
-never change.
+hands, pickups, and style-aware rhythmic feel. Source `note_id`, pitch,
+velocity, and performed seconds never change.
+
+## Interpretation vs simplification vs arrangement
+
+1. **Interpretation** recovers intended notation from a performance (this
+   milestone). Example: swung eighths become ordinary eighths plus a Swing
+   indication.
+2. **Simplification** is an explicit `output_mode=simplified` reduction for
+   readability. It may prefer coarser spelling. It does not delete notes.
+3. **Arrangement** would change harmony, texture, or instrumentation into a
+   **separate** derived score. It is not implemented. The extension point is
+   `mir/arrangement.py`. Do not expose a target-style control until it works.
+
+Style and feel are priors for scoring, not hard quantization rules and not
+acoustic note detection. Changing them regenerates notation from `{job}.raw.mid`
+without GPU transcription.
 
 ## What is scored
 
@@ -74,3 +89,30 @@ comparison. OSMD is what customers see.
 
 Federation (RoFormer, Transkun, Beat This!, stem AMT, Gemini MIDI edits)
 stays off. Interpretation must work on a single good MIDI first.
+
+## Style-aware feel (production slice)
+
+Inserted in `quantize_notation` after layout, before onset search:
+
+```
+MusicalEvent (performed beats)
+  → infer_interpretation_spans (beat-space windows)
+  → apply_written_timing (reversible r:1 map)
+  → candidate search / NotationPlan / MusicXML
+```
+
+Profile fields (`interpretation_profile`, version 1): `source_style`,
+`rhythmic_feel`, `timing`, `output_mode`, optional `swing_ratio`.
+Defaults (`auto` / `faithful`) keep existing jobs compatible.
+
+Swing mapping: for ratio `r:1` the performed offbeat is at `r/(r+1)` of the
+subdivision pair; the written position is `1/2`. Seconds are unchanged. Long
+sustains are not pulled onto swing slots. Compound meters are never classified
+as swing. Genuine triplets inside a swing span stay triplet exceptions.
+
+Export adds visible Swing/Straight words plus MusicXML `<swing>` metadata
+(`notation_engine/swing_export.py`). Score MIDI playback uses written durations
+and does not apply that metadata, so swing is not delayed twice. OSMD may
+ignore `<swing>` and still show the word mark.
+
+Fixtures: `evaluation/swing_fixtures.py` and `tests/test_style_interpretation.py`.

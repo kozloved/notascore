@@ -255,6 +255,10 @@ class MusicalEvent:
     # True when start_beat/duration_beats were set by an accepted score-beat edit.
     # Automatic quantization must leave those values unchanged.
     score_timing_locked: bool = False
+    # Beat-space performance timing, kept when start_beat is rewritten to written
+    # coordinates. Seconds (start_time_sec / end_time_sec) remain the source.
+    performed_start_beat: Optional[float] = None
+    performed_duration_beats: Optional[float] = None
 
 
 def copy_event(event: MusicalEvent, **changes: Any) -> MusicalEvent:

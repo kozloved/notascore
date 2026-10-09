@@ -714,6 +714,7 @@ class NotationWriter:
                 meta,
                 score_beat_offset=score_beat_offset - pickup_shift,
             )
+            self._apply_feel_indications(score, plan, pickup_shift=pickup_shift)
         # Re-assert planned lengths after metronome/tempo inserts — music21 may
         # widen an incomplete pickup when a mark is placed with barDuration.
         by_number = {m.number: float(m.duration_beats) for m in plan.measures}
@@ -1231,6 +1232,60 @@ class NotationWriter:
             if bpm:
                 self._insert_metronome_at_beat(score, beat, int(round(float(bpm))))
 
+    def _feel_spans(self, plan) -> list:
+        extra = (plan.extra or {}) if plan is not None else {}
+        quant = extra.get("quantization") or {}
+        return list(quant.get("interpretation_spans") or extra.get("interpretation_spans") or ())
+
+    def _apply_feel_indications(self, score, plan, *, pickup_shift: float = 0.0) -> None:
+        from mir.swing import InterpretationSpan, indication_for_span
+
+        previous = None
+        pickup = float(pickup_shift)
+        for row in self._feel_spans(plan):
+            if isinstance(row, InterpretationSpan):
+                span = row
+            else:
+                span = InterpretationSpan(
+                    start_beat=float(row.get("start_beat") or 0.0),
+                    end_beat=float(row.get("end_beat") or 0.0),
+                    feel=str(row.get("feel") or "straight"),
+                    subdivision_unit=float(row.get("subdivision_unit") or 0.5),
+                    ratio=row.get("ratio"),
+                    confidence=float(row.get("confidence") or 0.0),
+                    evidence_count=int(row.get("evidence_count") or 0),
+                    origin=str(row.get("origin") or "inferred"),
+                )
+            label = indication_for_span(span, previous_feel=previous)
+            previous = span.feel
+            if not label:
+                continue
+            beat = max(0.0, float(span.start_beat) - pickup)
+            self._insert_tempo_text_at_beat(score, beat, label)
+
+    def _inject_swing_metadata(self, xml: str) -> str:
+        from notation_engine.swing_export import inject_swing_metadata
+
+        plan = self.last_plan
+        if plan is None:
+            return xml
+        extra = plan.extra or {}
+        quant = extra.get("quantization") or {}
+        spans = quant.get("interpretation_spans") or extra.get("interpretation_spans") or ()
+        try:
+            mql = float(str(plan.time_signature).split("/")[0]) * (
+                4.0 / float(str(plan.time_signature).split("/")[1])
+            )
+        except Exception:
+            mql = 4.0
+        pickup = float(extra.get("pickup_origin_shift") or 0.0)
+        return inject_swing_metadata(
+            xml,
+            list(spans),
+            measure_quarter_length=mql,
+            pickup_shift=pickup,
+        )
+
     def _insert_tempo_text_at_beat(self, score, beat: float, text: str) -> None:
         """Place an expressive tempo word without inventing a new BPM label."""
         from music21 import expressions as m21expr
@@ -1344,6 +1399,7 @@ class NotationWriter:
         cleaned = _ensure_member_articulations_in_musicxml(
             _strip_forced_musicxml_layout(xml), score
         )
+        cleaned = self._inject_swing_metadata(cleaned)
         if cleaned != xml:
             xml_path.write_text(cleaned, encoding="utf-8")
 

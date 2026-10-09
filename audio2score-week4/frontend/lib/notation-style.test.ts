@@ -7,6 +7,7 @@ import {
   algorithmVersionLabel,
   patchForReadableGapStyle,
   readableGapStyle,
+  rhythmicFeelLabel,
 } from "./notation-style.ts";
 
 test("algorithm version labels stay Standard vs Experimental", () => {
@@ -53,4 +54,9 @@ test("Literal never looks like the v2 preset", () => {
     }),
     "current"
   );
+});
+
+test("feel labels stay musician-facing", () => {
+  assert.equal(rhythmicFeelLabel("swing_eighths"), "Swing eighths");
+  assert.equal(rhythmicFeelLabel("straight"), "Straight");
 });

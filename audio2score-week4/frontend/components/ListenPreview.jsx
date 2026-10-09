@@ -277,7 +277,8 @@ export default function ListenPreview({ apiUrl, jobId, filename, revision = 0 })
       <h3 className="listen-title">Listen</h3>
       <p className="listen-lead">
         Compare the original performance with the written score. The two MIDI
-        previews use different timing on purpose.
+        previews use different timing on purpose. Score playback follows
+        written durations; a Swing mark is not applied a second time.
       </p>
 
       {!isMidiSource && (

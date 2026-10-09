@@ -1709,6 +1709,12 @@ def recompute_job_dir(out_dir: Path, job_id: str, settings: NotationSettings | d
                 "output_identity": result.output_identity,
                 "identity_role": "regenerated_output",
                 "fallback": result.fallback,
+                "detected_interpretation": (result.summary or {}).get(
+                    "detected_interpretation"
+                ),
+                "interpretation_spans": (result.summary or {}).get(
+                    "interpretation_spans"
+                ),
             },
             indent=2,
         )

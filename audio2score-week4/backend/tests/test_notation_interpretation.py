@@ -391,3 +391,18 @@ def test_notation_settings_api_does_not_resubmit_transcription(tmp_path):
         assert body["notation_settings"]["interpretation"] == "literal"
         assert (tmp_path / f"{job_id}.raw.mid").read_bytes() == original
         assert client.get(f"/jobs/{job_id}/result?format=notation_settings").status_code == 200
+        feel = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={
+                "source_style": "jazz",
+                "rhythmic_feel": "swing_eighths",
+                "revision": int(body.get("edit_revision") or 0),
+            },
+        )
+        assert feel.status_code == 200, feel.text
+        feel_body = feel.json()
+        assert feel_body["transcribed"] is False
+        assert feel_body["midi_sha256"] == digest
+        assert feel_body["notation_settings"]["rhythmic_feel"] == "swing_eighths"
+        assert feel_body["notation_settings"]["source_style"] == "jazz"
+        assert (tmp_path / f"{job_id}.raw.mid").read_bytes() == original
