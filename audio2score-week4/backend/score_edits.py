@@ -756,7 +756,6 @@ def events_from_editor_model(
     quantization_summary: dict | None = None,
     instrument=None,
 ) -> list:
-    from mir.swing import parse_stream_key
     from mir.types import Hand, InstrumentKind, MusicalEvent
 
     profile = editor_score_profile(data, quantization_summary=quantization_summary)
@@ -770,15 +769,6 @@ def events_from_editor_model(
         source_track_id = str(track)
         hand = Hand.LEFT if track == 1 else Hand.RIGHT
         stored_key = item.get("stream_key")
-        if stored_key:
-            parsed_track, parsed_hand, parsed_voice = parse_stream_key(str(stored_key))
-            source_track_id = parsed_track
-            if parsed_hand:
-                try:
-                    hand = Hand(parsed_hand)
-                except ValueError:
-                    hand = Hand.LEFT if parsed_hand == "left" else hand
-            voice = parsed_voice
         note_id = str(item.get("source_note_id") or item["id"])
         events.append(
             MusicalEvent(
