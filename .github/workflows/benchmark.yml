@@ -79,6 +79,7 @@ jobs:
             tests/test_export_integrity.py \
             tests/test_export_integrity_audio.py \
             tests/test_readable_swing_integration.py \
+            tests/test_readable_swing_http.py \
             tests/test_automatic_feel.py \
             tests/test_swing_playback.py \
             tests/test_swing_playback_parity.py
