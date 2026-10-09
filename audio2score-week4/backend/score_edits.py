@@ -168,6 +168,21 @@ def validate_notes(raw_notes: Any) -> list[dict]:
             end_sec = float(end_sec)
             if not isfinite(end_sec) or (start_sec is not None and end_sec <= start_sec):
                 raise EditError("Note end_sec is out of range.")
+        performed_start = item.get("performed_start_beat")
+        performed_dur = item.get("performed_duration_beats")
+        if performed_start is not None:
+            performed_start = float(performed_start)
+            if not isfinite(performed_start):
+                raise EditError("Note performed_start_beat is out of range.")
+        if performed_dur is not None:
+            performed_dur = float(performed_dur)
+            if not isfinite(performed_dur) or performed_dur <= 0:
+                raise EditError("Note performed_duration_beats is out of range.")
+        stream_key = item.get("stream_key")
+        if stream_key is not None:
+            stream_key = str(stream_key)
+            if "|" not in stream_key:
+                raise EditError("Note stream_key is invalid.")
         notes.append(
             {
                 "id": note_id,
@@ -182,6 +197,10 @@ def validate_notes(raw_notes: Any) -> list[dict]:
                 "end_sec": end_sec,
                 "articulation": validate_articulation(item.get("articulation")),
                 "articulation_source": _articulation_source(item.get("articulation_source")),
+                "performed_start_beat": performed_start,
+                "performed_duration_beats": performed_dur,
+                "stream_key": stream_key,
+                "score_timing_locked": bool(item.get("score_timing_locked") or False),
             }
         )
     notes.sort(key=lambda note: (note["start"], note["track"], note["pitch"], note["id"]))
@@ -759,7 +778,10 @@ def events_from_editor_model(
     events = []
     for item in data["notes"]:
         track = int(item.get("track") or 0)
+        voice = int(item.get("voice") or 0)
+        source_track_id = str(track)
         hand = Hand.LEFT if track == 1 else Hand.RIGHT
+        stored_key = item.get("stream_key")
         note_id = str(item.get("source_note_id") or item["id"])
         events.append(
             MusicalEvent(
@@ -768,16 +790,21 @@ def events_from_editor_model(
                 float(item["duration"]),
                 velocity=int(item["velocity"]),
                 note_id=note_id,
-                voice=int(item.get("voice") or 0),
+                voice=voice,
                 musical_voice=int(item.get("voice") or 0),
                 hand=hand,
                 voice_assigned=True,
-                source_track_id=str(track),
+                source_track_id=source_track_id,
                 source_program=program if program is not None else None,
                 instrument=instrument,
                 start_time_sec=item.get("start_sec"),
                 end_time_sec=item.get("end_sec"),
                 articulation=item.get("articulation") or None,
+                articulation_source=str(item.get("articulation_source") or ""),
+                performed_start_beat=item.get("performed_start_beat"),
+                performed_duration_beats=item.get("performed_duration_beats"),
+                score_timing_locked=bool(item.get("score_timing_locked") or False),
+                stream_key=str(stored_key) if stored_key else None,
             )
         )
     return events

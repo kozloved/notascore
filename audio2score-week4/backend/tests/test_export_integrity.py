@@ -304,6 +304,57 @@ def test_old_job_download_keeps_ties_and_real_repeats(tmp_path):
     assert len(attacks) == 2
 
 
+def test_light_sixteenth_swing_does_not_overlap_unison_sustain(tmp_path):
+    """Seeds 3/5/6 failed when an invented 1.15 sixteenth swing shifted a
+    long sustain's start while keeping its duration, so it overlapped a later
+    same-pitch re-attack in one MIDI lane.
+
+    Playback must not move long notes that were never swing-pair participants.
+    """
+    from mir.swing import InterpretationSpan, apply_playback_timing, _ratio_from_fraction
+    from mir.types import copy_event
+
+    assert _ratio_from_fraction(0.5) == 1.0
+
+    held = copy_event(
+        event("held", pitch=59, start=3.75, duration=5.0, voice=0),
+        performed_start_beat=3.75,
+        performed_duration_beats=5.0,
+    )
+    later = copy_event(
+        event("later", pitch=59, start=8.75, duration=0.25, voice=0),
+        performed_start_beat=8.75,
+        performed_duration_beats=0.25,
+    )
+    span = InterpretationSpan(
+        start_beat=0.0,
+        end_beat=16.0,
+        feel="swing_sixteenths",
+        subdivision_unit=0.25,
+        ratio=1.15,
+        confidence=0.84,
+        evidence_count=12,
+        origin="inferred",
+        maps_written_timing=True,
+    )
+    sounded = apply_playback_timing([held, later], [span])
+    by_id = {row.note_id: row for row in sounded}
+    assert by_id["held"].start_beat == pytest.approx(3.75, abs=1e-9)
+    assert by_id["held"].duration_beats == pytest.approx(5.0, abs=1e-9)
+    assert by_id["later"].start_beat == pytest.approx(8.75, abs=1e-9)
+    held_end = by_id["held"].start_beat + by_id["held"].duration_beats
+    assert held_end <= by_id["later"].start_beat + 1e-9
+
+    writer = NotationWriter()
+    write(writer, [held, later], tmp_path)
+    assert writer.last_export_integrity == {
+        "status": "passed",
+        "expected_attacks": 2,
+        "musicxml_attacks": 2,
+        "midi_attacks": 2,
+    }
+
+
 @pytest.mark.parametrize("seed", range(8))
 def test_generated_polyphony_preserves_all_attacks(tmp_path, seed):
     rng = Random(seed)
@@ -325,6 +376,115 @@ def test_generated_polyphony_preserves_all_attacks(tmp_path, seed):
 
 
 CORPUS = Path(__file__).resolve().parents[1] / "benchmark" / "corpus"
+
+
+def _local_tag(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+
+def test_swing_words_share_opening_metronome_direction(tmp_path):
+    from evaluation.swing_fixtures import SWING_FIXTURES
+    from mir.performance_cli import convert
+
+    source = tmp_path / "swing.mid"
+    SWING_FIXTURES["swing_2_to_1"](source)
+    original = source.read_bytes()
+    output = tmp_path / "swing.musicxml"
+    convert(source, output)
+    assert source.read_bytes() == original
+    xml = output.read_text(encoding="utf-8")
+    root = ET.fromstring(xml)
+    measure = next(
+        elem for elem in root.iter() if _local_tag(elem.tag) == "measure"
+    )
+    swing_dirs = []
+    for direction in list(measure):
+        if _local_tag(direction.tag) != "direction":
+            continue
+        words = [
+            (elem.text or "").strip()
+            for elem in direction.iter()
+            if _local_tag(elem.tag) == "words" and (elem.text or "").strip()
+        ]
+        has_metro = any(_local_tag(elem.tag) == "metronome" for elem in direction.iter())
+        has_swing_sound = any(_local_tag(elem.tag) == "swing" for elem in direction.iter())
+        if "Swing" in words or has_swing_sound:
+            swing_dirs.append((words, has_metro, has_swing_sound))
+    assert swing_dirs
+    assert any(has_metro and "Swing" in words for words, has_metro, _sound in swing_dirs)
+    assert sum(1 for words, _metro, _sound in swing_dirs if "Swing" in words) == 1
+
+
+def test_even_exception_is_printed_and_readable_from_musicxml(tmp_path):
+    from evaluation.swing_fixtures import SWING_FIXTURES
+    from mir.performance_cli import convert
+    from notation_engine.swing_export import spans_from_musicxml
+
+    source = tmp_path / "even.mid"
+    SWING_FIXTURES["swing_with_even_exception"](source)
+    original = source.read_bytes()
+    output = tmp_path / "even.musicxml"
+    convert(source, output)
+    assert source.read_bytes() == original
+    xml = output.read_text(encoding="utf-8")
+    words = [
+        (elem.text or "").strip()
+        for elem in ET.fromstring(xml).iter()
+        if _local_tag(elem.tag) == "words" and (elem.text or "").strip()
+    ]
+    assert "Swing" in words
+    assert "even" in words
+    spans = spans_from_musicxml(xml)
+    assert any(span.feel == "straight" and abs(span.start_beat - 1.5) < 0.08 for span in spans)
+
+
+@pytest.mark.app
+def test_musicxml_fallback_honors_printed_even_exception(tmp_path):
+    from io import BytesIO
+
+    import pretty_midi
+
+    from evaluation.swing_fixtures import SWING_FIXTURES
+    from main import MUSICXML_PLAYBACK_LIMITS, _musicxml_to_midi_bytes
+    from mir.performance_cli import convert
+
+    source = tmp_path / "even.mid"
+    SWING_FIXTURES["swing_with_even_exception"](source)
+    output = tmp_path / "even.musicxml"
+    convert(source, output)
+    xml = output.read_text(encoding="utf-8")
+    midi = pretty_midi.PrettyMIDI(BytesIO(_musicxml_to_midi_bytes(xml)))
+    onsets = sorted(note.start for inst in midi.instruments for note in inst.notes)
+    assert onsets[1] == pytest.approx(1.0 / 3.0, abs=0.04)
+    even = next(t for t in onsets if 0.65 < t < 0.85)
+    assert even == pytest.approx(0.75, abs=0.04)
+    assert "performed_*" in MUSICXML_PLAYBACK_LIMITS
+
+
+def test_triplets_inside_swing_do_not_invent_32nd_rests(tmp_path):
+    from evaluation.swing_fixtures import SWING_FIXTURES
+    from mir.performance_cli import convert
+
+    source = tmp_path / "trips.mid"
+    SWING_FIXTURES["triplets_inside_swing"](source)
+    original = source.read_bytes()
+    output = tmp_path / "trips.musicxml"
+    convert(source, output)
+    assert source.read_bytes() == original
+    xml = output.read_text(encoding="utf-8")
+    rest_types = []
+    for note in ET.fromstring(xml).iter():
+        if _local_tag(note.tag) != "note":
+            continue
+        if not any(_local_tag(child.tag) == "rest" for child in list(note)):
+            continue
+        typ = next(
+            (child.text or "" for child in list(note) if _local_tag(child.tag) == "type"),
+            "",
+        )
+        rest_types.append(typ)
+    assert "32nd" not in rest_types
+    assert xml.lower().count("<time-modification>") >= 3
 
 
 @pytest.mark.parametrize("source", sorted(CORPUS.rglob("input.mid")),

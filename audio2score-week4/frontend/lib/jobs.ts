@@ -206,6 +206,44 @@ export async function resetScoreEdits(
   return (await response.json()) as ScoreEditsPayload;
 }
 
+export type SourceStyle =
+  | "auto"
+  | "jazz"
+  | "classical"
+  | "pop_rock"
+  | "contemporary_art";
+
+export type RhythmicFeel =
+  | "auto"
+  | "straight"
+  | "swing_eighths"
+  | "swing_sixteenths"
+  | "shuffle";
+
+export type TimingFeel = "auto" | "steady" | "expressive";
+
+export type OutputMode = "faithful" | "simplified";
+
+export type InterpretationProfile = {
+  version: number;
+  source_style: SourceStyle;
+  rhythmic_feel: RhythmicFeel;
+  timing: TimingFeel;
+  output_mode: OutputMode;
+  swing_ratio: number | null;
+};
+
+export type DetectedInterpretation = {
+  rhythmic_feel?: string | null;
+  confidence?: number;
+  origin?: string | null;
+  evidence_count?: number;
+  ratio?: number | null;
+  maps_written_timing?: boolean;
+  user_summary?: string | null;
+  spans?: Record<string, unknown>[];
+};
+
 export type NotationSettings = {
   display_grid: "auto" | "eighth" | "sixteenth" | "thirty-second";
   triplet_policy: "auto" | "enabled" | "disabled";
@@ -219,6 +257,12 @@ export type NotationSettings = {
   pickup_beats: number | null;
   first_downbeat_beat: number | null;
   measure_overrides: Record<string, unknown>[];
+  interpretation_profile?: InterpretationProfile;
+  source_style?: SourceStyle;
+  rhythmic_feel?: RhythmicFeel;
+  timing?: TimingFeel;
+  output_mode?: OutputMode;
+  swing_ratio?: number | null;
 };
 
 export type PolicyException = {
@@ -240,6 +284,8 @@ export type NotationSettingsPayload = {
   policy_exceptions?: PolicyException[];
   regeneration_available?: boolean;
   regeneration_unavailable_reason?: string | null;
+  detected_interpretation?: DetectedInterpretation | null;
+  interpretation_spans?: Record<string, unknown>[];
 };
 
 export async function getNotationSettings(id: string): Promise<NotationSettingsPayload> {

@@ -11,9 +11,15 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable
+
+from mir.interpretation_profile import (
+    InterpretationProfile,
+    InterpretationProfileError,
+    parse_interpretation_profile,
+)
 
 ALGORITHM_VERSION_CURRENT = "performance-score-1"
 ALGORITHM_VERSION_READABLE_V2 = "performance-score-2"
@@ -121,6 +127,15 @@ _PRINTED_TEMPO_ALIASES = {
 
 class NotationSettingsError(ValueError):
     """Invalid or contradictory notation settings."""
+
+
+PROFILE_FLAT_FIELDS = (
+    "source_style",
+    "rhythmic_feel",
+    "timing",
+    "output_mode",
+    "swing_ratio",
+)
 
 
 def _enum_from(value, enum_cls, aliases, field_name):
@@ -295,6 +310,9 @@ class NotationSettings:
     pickup_beats: float | None = None
     first_downbeat_beat: float | None = None
     measure_overrides: tuple[MeasureOverride, ...] = field(default_factory=tuple)
+    interpretation_profile: InterpretationProfile = field(
+        default_factory=InterpretationProfile
+    )
 
     def __post_init__(self):
         if self.algorithm_version not in SUPPORTED_ALGORITHM_VERSIONS:
@@ -302,6 +320,8 @@ class NotationSettings:
                 f"Unknown algorithm_version={self.algorithm_version!r}. "
                 f"Use {' | '.join(SUPPORTED_ALGORITHM_VERSIONS)}."
             )
+        if not isinstance(self.interpretation_profile, InterpretationProfile):
+            raise NotationSettingsError("interpretation_profile must be an object.")
         if not 0 <= int(self.max_dots) <= 3:
             raise NotationSettingsError("max_dots must be between 0 and 3.")
         if self.pickup_beats is not None and self.pickup_beats < 0:
@@ -410,6 +430,10 @@ class NotationSettings:
             changes["printed_tempo_detail"], PrintedTempoDetail
         ):
             payload["printed_tempo_detail"] = changes["printed_tempo_detail"].value
+        if "interpretation_profile" in changes and isinstance(
+            changes["interpretation_profile"], InterpretationProfile
+        ):
+            payload["interpretation_profile"] = changes["interpretation_profile"].to_dict()
         return NotationSettings.from_dict(payload)
 
     def to_dict(self) -> dict[str, Any]:
@@ -426,6 +450,12 @@ class NotationSettings:
             "pickup_beats": self.pickup_beats,
             "first_downbeat_beat": self.first_downbeat_beat,
             "measure_overrides": [item.to_dict() for item in self.measure_overrides],
+            "interpretation_profile": self.interpretation_profile.to_dict(),
+            "source_style": self.interpretation_profile.source_style.value,
+            "rhythmic_feel": self.interpretation_profile.rhythmic_feel.value,
+            "timing": self.interpretation_profile.timing.value,
+            "output_mode": self.interpretation_profile.output_mode.value,
+            "swing_ratio": self.interpretation_profile.swing_ratio,
         }
 
     def identity_payload(self) -> dict[str, Any]:
@@ -531,6 +561,7 @@ class NotationSettings:
             measure_overrides=tuple(
                 MeasureOverride.from_dict(item) for item in overrides_raw
             ),
+            interpretation_profile=_profile_from_settings_dict(data),
         )
 
     @classmethod
@@ -578,7 +609,13 @@ def parse_notation_settings(value: NotationSettings | dict | None = None) -> Not
     return NotationSettings.from_dict(value)
 
 
-CLEARABLE_SETTINGS_FIELDS = {"pickup_beats", "first_downbeat_beat", "meter", "measure_overrides"}
+CLEARABLE_SETTINGS_FIELDS = {
+    "pickup_beats",
+    "first_downbeat_beat",
+    "meter",
+    "measure_overrides",
+    "swing_ratio",
+}
 PATCHABLE_SETTINGS_FIELDS = {
     "display_grid",
     "triplet_policy",
@@ -591,6 +628,12 @@ PATCHABLE_SETTINGS_FIELDS = {
     "pickup_beats",
     "first_downbeat_beat",
     "measure_overrides",
+    "interpretation_profile",
+    "source_style",
+    "rhythmic_feel",
+    "timing",
+    "output_mode",
+    "swing_ratio",
 }
 
 
@@ -618,7 +661,31 @@ def merge_notation_settings(
             base[name] = [] if name == "measure_overrides" else None
         else:
             base[name] = value
+    if "interpretation_profile" in present:
+        nested = incoming.get("interpretation_profile") or {}
+        try:
+            parsed = parse_interpretation_profile(nested)
+        except InterpretationProfileError as exc:
+            raise NotationSettingsError(str(exc)) from exc
+        base["interpretation_profile"] = parsed.to_dict()
+        for name in PROFILE_FLAT_FIELDS:
+            if name not in present:
+                base[name] = parsed.to_dict()[name]
     return NotationSettings.from_dict(base)
+
+
+def _profile_from_settings_dict(data: dict[str, Any]) -> InterpretationProfile:
+    nested = data.get("interpretation_profile")
+    payload = dict(nested) if isinstance(nested, dict) else {}
+    for name in PROFILE_FLAT_FIELDS:
+        if name in data and data.get(name) is not None:
+            payload[name] = data.get(name)
+        elif name in data and data.get(name) is None and name == "swing_ratio":
+            payload[name] = None
+    try:
+        return parse_interpretation_profile(payload or None)
+    except InterpretationProfileError as exc:
+        raise NotationSettingsError(str(exc)) from exc
 
 
 def notation_settings_from_meta(meta) -> NotationSettings:

@@ -356,6 +356,15 @@ def _onset_vocab(settings: NotationSettings, *, allow_finer=False):
             (denom, family, cost * (0.85 if family == "triplet" else 1.0))
             for denom, family, cost in search
         ]
+    profile = getattr(settings, "interpretation_profile", None)
+    if profile is not None and getattr(profile, "output_mode", None) is not None:
+        from mir.interpretation_profile import OutputMode
+
+        if profile.output_mode == OutputMode.SIMPLIFIED:
+            search = [
+                (denom, family, cost * (1.12 if denom >= 8 or family == "triplet" else 1.0))
+                for denom, family, cost in search
+            ]
     if not exact:
         exact = [
             (denom, family) for denom, family in _ONSET_EXACT
@@ -778,6 +787,16 @@ def _duration(
                 named.add(cap)
     if not named:
         named = {max(unit, round(raw / float(unit)) * unit)}
+    if family == "triplet":
+        triplet_fill = _triplet_family_articulation_fill(
+            raw,
+            onset,
+            effective_next,
+            local_pulse,
+            release_reason=release_reason,
+        )
+        if triplet_fill is not None:
+            return triplet_fill
     filled = _readable_v2_fill_small_release_gap(
         raw,
         onset,
@@ -840,6 +859,77 @@ def _metrical_duration_slots(onset, to_bar, beat_length, next_onset, measure_len
     if to_bar is not None and Fraction(to_bar) > 0:
         slots.append(Fraction(to_bar))
     return slots
+
+
+def _triplet_slot_candidate(interval):
+    """Named triplet pulse for an IOI or preceding interval, or None."""
+    pulse = _triplet_local_pulse(interval)
+    if pulse is not None:
+        return pulse
+    if interval is None:
+        return None
+    value = float(interval)
+    if value <= 0:
+        return None
+    for candidate in (Fraction(1, 3), Fraction(2, 3), Fraction(1, 6), Fraction(1, 12)):
+        if abs(value - float(candidate)) <= 0.04:
+            return candidate
+    return None
+
+
+def _triplet_leftover_is_articulation(raw, leftover, slot, sixteenth=0.25) -> bool:
+    """True when leftover is a performed release, not a written rest.
+
+    leftover < 16th, leftover/slot < 1/4, leftover < sounding length.
+    Default-engine MIDI preserve otherwise spells 0.28 as a 16th plus a
+    32nd tuplet rest inside a genuine triplet group.
+    """
+    if slot <= 0 or leftover < 0 or leftover >= sixteenth:
+        return False
+    if leftover >= float(raw) - 1e-9:
+        return False
+    return leftover / slot < 0.25
+
+
+def _triplet_family_articulation_fill(
+    raw,
+    onset,
+    next_onset,
+    local_pulse,
+    *,
+    release_reason=None,
+):
+    """Fill tiny triplet leftovers on the default engine, not only readable-v2.
+
+    Does not delete legitimate rests, change onsets, or retune swing.
+    """
+    if release_reason in {
+        "independent_hold",
+        "multi_attack_hold",
+        "overlapping_repeat",
+        "pedal_tail",
+        "reattack",
+    }:
+        return None
+    if next_onset is not None:
+        ioi = Fraction(next_onset) - Fraction(onset)
+        slot = _triplet_slot_candidate(ioi)
+        if slot is not None:
+            leftover = float(slot) - float(raw)
+            if _triplet_leftover_is_articulation(raw, leftover, float(slot)):
+                written_end = Fraction(onset) + slot
+                if written_end <= Fraction(next_onset) + Fraction(1, 10**9):
+                    return slot
+    pulse = _triplet_slot_candidate(local_pulse)
+    if pulse is None:
+        return None
+    leftover = float(pulse) - float(raw)
+    if not _triplet_leftover_is_articulation(raw, leftover, float(pulse)):
+        return None
+    written_end = Fraction(onset) + pulse
+    if next_onset is not None and written_end > Fraction(next_onset) + Fraction(1, 10**9):
+        return None
+    return pulse
 
 
 def _readable_v2_fill_small_release_gap(
@@ -2341,7 +2431,18 @@ def quantize_notation(
     score_input = [copy_event(ev, start_beat=ev.start_beat + offset) for ev in raw]
     score_input, profile, collapse_warning = collapse_for_solo_notation(score_input)
     layout = resolve_layout(score_input, profile)
-    interpreted = layout.events
+    from mir.style_interpretation import interpret_for_notation, stamp_performed_timing
+
+    # Processing order: preserve performed beat timing, interpret swing into
+    # written coordinates, then apply Readable/Literal duration spelling.
+    # Score playback later maps those written values through swing once.
+    laid_out = stamp_performed_timing(layout.events)
+    interpreted, interpretation_spans, interpretation_summary = interpret_for_notation(
+        laid_out,
+        meter,
+        settings,
+        tempo_map=tempo_map,
+    )
     layout_source = layout.layout_source
     measure_length = Fraction(str(meter.measure_quarter_length)).limit_denominator(48)
     beat_length = _beat_length_for_meter(meter)
@@ -2356,7 +2457,7 @@ def quantize_notation(
     # resolve release targets to those onsets before duration spelling.
     onset_jobs = []
     onset_by_id = {}
-    policy_exceptions = []
+    policy_exceptions = list(interpretation_summary.get("limitations") or [])
     for key, voice in voices.items():
         groups = []
         for ev in sorted(voice, key=lambda e: (e.start_beat, e.pitch)):
@@ -2585,6 +2686,8 @@ def quantize_notation(
             "release_target_id": target_id,
             "release_at": None if release_at is None else float(release_at),
             "pedal_source": pedal_source,
+            "performed_start_beat": getattr(ev, "performed_start_beat", None),
+            "performed_duration_beats": getattr(ev, "performed_duration_beats", None),
             "source_ids": [ev.note_id],
             "policy_exceptions": [
                 row for row in policy_exceptions
@@ -2617,5 +2720,7 @@ def quantize_notation(
                    algorithm_version=settings.algorithm_version,
                    policy_exceptions=list(policy_exceptions),
                    score_profile=profile.to_dict(),
-                   voice_diagnostics=list(layout.diagnostics))
+                   voice_diagnostics=list(layout.diagnostics),
+                   interpretation_spans=[span.to_dict() for span in interpretation_spans],
+                   detected_interpretation=dict(interpretation_summary))
     return out, decisions, PerformanceReport(summary, tuple(notes), decisions)

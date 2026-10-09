@@ -1,4 +1,5 @@
 import type { EditableNote, TempoCurvePoint } from "./score-editor";
+import { allocateSoundingLanes, applyPlaybackTiming, type SwingSpan } from "./swing-playback";
 
 /** Keep in sync with notation_engine.playback.STACCATO_PLAYBACK_FRACTION. */
 export const STACCATO_PLAYBACK_FRACTION = 0.5;
@@ -27,10 +28,18 @@ function sortedCurve(
   return points;
 }
 
+function midiChannelForLane(lane: number): number {
+  const index = lane % 15;
+  let channel = index + 1;
+  if (channel >= 10) channel += 1;
+  return Math.max(0, channel - 1);
+}
+
 export async function notesToMidiBytes(
   notes: EditableNote[],
   tempoBpm: number,
-  tempoCurve?: TempoCurvePoint[]
+  tempoCurve?: TempoCurvePoint[],
+  swingSpans?: SwingSpan[] | null
 ): Promise<ArrayBuffer> {
   const { Midi } = await import("@tonejs/midi");
   const midi = new Midi();
@@ -40,12 +49,16 @@ export async function notesToMidiBytes(
     ticks: Math.max(0, Math.round(point.beat * ppq)),
     bpm: point.bpm,
   }));
-  const tracks = new Map<number, ReturnType<typeof midi.addTrack>>();
-  for (const note of notes) {
-    let track = tracks.get(note.track);
+  const sounding = applyPlaybackTiming(notes, swingSpans);
+  const lanes = allocateSoundingLanes(sounding);
+  const tracks = new Map<string, ReturnType<typeof midi.addTrack>>();
+  sounding.forEach((note, index) => {
+    const key = `${note.track}:${lanes[index]}`;
+    let track = tracks.get(key);
     if (!track) {
       track = midi.addTrack();
-      tracks.set(note.track, track);
+      track.channel = midiChannelForLane(lanes[index]);
+      tracks.set(key, track);
     }
     track.addNote({
       midi: note.pitch,
@@ -53,7 +66,7 @@ export async function notesToMidiBytes(
       durationTicks: Math.max(1, Math.round(playbackDurationBeats(note) * ppq)),
       velocity: Math.max(0.1, Math.min(1, note.velocity / 127)),
     });
-  }
+  });
   if (!midi.tracks.length) midi.addTrack();
   const bytes = midi.toArray();
   const copy = new Uint8Array(bytes.byteLength);

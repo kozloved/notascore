@@ -6,13 +6,19 @@ import {
   conflictMessage,
   getNotationSettings,
   saveNotationSettings,
+  type DetectedInterpretation,
   type NotationSettings,
   type PolicyException,
+  type RhythmicFeel,
+  type SourceStyle,
+  type TimingFeel,
 } from "../../lib/jobs";
 import {
+  detectedFeelSummary,
   needsCurrentReadableEngine,
   patchForCurrentReadable,
   patchForInterpretation,
+  rhythmicFeelLabel,
 } from "../../lib/notation-style";
 import Button from "../ui/Button";
 import SegmentedControl from "../ui/SegmentedControl";
@@ -52,6 +58,8 @@ export default function NotationInterpretationPanel({
   const [exceptions, setExceptions] = useState<PolicyException[]>([]);
   const [regenAvailable, setRegenAvailable] = useState(true);
   const [regenReason, setRegenReason] = useState<string | null>(null);
+  const [detected, setDetected] = useState<DetectedInterpretation | null>(null);
+  const [swingRatio, setSwingRatio] = useState("");
   const requestGen = useRef(0);
   const revisionRef = useRef(revision);
   revisionRef.current = revision;
@@ -72,6 +80,12 @@ export default function NotationInterpretationPanel({
         setExceptions(payload.policy_exceptions || []);
         setRegenAvailable(payload.regeneration_available !== false);
         setRegenReason(payload.regeneration_unavailable_reason || null);
+        setDetected(payload.detected_interpretation || null);
+        setSwingRatio(
+          payload.notation_settings.swing_ratio == null
+            ? ""
+            : String(payload.notation_settings.swing_ratio)
+        );
       })
       .catch(() => {
         if (!cancelled) setStatus("Could not load notation settings.");
@@ -115,6 +129,12 @@ export default function NotationInterpretationPanel({
       }
       setRegenAvailable(saved.regeneration_available !== false);
       setRegenReason(saved.regeneration_unavailable_reason || null);
+      setDetected(saved.detected_interpretation || null);
+      setSwingRatio(
+        saved.notation_settings.swing_ratio == null
+          ? ""
+          : String(saved.notation_settings.swing_ratio)
+      );
       await onApplied();
       if (gen !== requestGen.current) return;
       setStatus(
@@ -140,6 +160,7 @@ export default function NotationInterpretationPanel({
   }
 
   const selectorDisabled = busy || !regenAvailable;
+  const feelSummary = detectedFeelSummary(detected);
 
   return (
     <section className="ns-notation-panel" aria-label="Notation interpretation">
@@ -232,6 +253,104 @@ export default function NotationInterpretationPanel({
           </p>
         </div>
       </div>
+      {feelSummary ? (
+        <p className="ns-notation-summary" role="status">
+          {feelSummary}
+        </p>
+      ) : null}
+      <details className="ns-notation-advanced">
+        <summary>Advanced feel correction</summary>
+        <p className="ns-notation-note">
+          Feel is inferred from the performance. These controls are optional
+          corrections and reuse the same transcription.
+        </p>
+        <div className="ns-notation-row">
+          <div className="ns-notation-control">
+            <p className="ns-notation-control-label">Source style</p>
+            <SegmentedControl
+              label="Source style"
+              value={settings.source_style || "auto"}
+              disabled={busy || !regenAvailable}
+              onChange={(source_style: SourceStyle) =>
+                void apply({ ...settings, source_style })
+              }
+              options={[
+                { value: "auto", label: "Auto" },
+                { value: "jazz", label: "Jazz" },
+                { value: "classical", label: "Classical" },
+                { value: "pop_rock", label: "Pop/Rock" },
+                { value: "contemporary_art", label: "Contemporary" },
+              ]}
+            />
+          </div>
+          <div className="ns-notation-control">
+            <p className="ns-notation-control-label">Feel</p>
+            <SegmentedControl
+              label="Rhythmic feel"
+              value={settings.rhythmic_feel || "auto"}
+              disabled={busy || !regenAvailable}
+              onChange={(rhythmic_feel: RhythmicFeel) =>
+                void apply({ ...settings, rhythmic_feel })
+              }
+              options={[
+                { value: "auto", label: "Auto" },
+                { value: "straight", label: "Straight" },
+                { value: "swing_eighths", label: "Swing 8ths" },
+                { value: "swing_sixteenths", label: "Swing 16ths" },
+                { value: "shuffle", label: "Shuffle" },
+              ]}
+            />
+            {detected?.rhythmic_feel ? (
+              <p className="ns-notation-note">
+                Detected {rhythmicFeelLabel(detected.rhythmic_feel)}
+                {settings.rhythmic_feel && settings.rhythmic_feel !== "auto"
+                  ? ". Your setting is used instead."
+                  : "."}
+              </p>
+            ) : null}
+          </div>
+          <div className="ns-notation-control">
+            <p className="ns-notation-control-label">Timing</p>
+            <SegmentedControl
+              label="Timing feel"
+              value={settings.timing || "auto"}
+              disabled={busy || !regenAvailable}
+              onChange={(timing: TimingFeel) => void apply({ ...settings, timing })}
+              options={[
+                { value: "auto", label: "Auto" },
+                { value: "steady", label: "Steady" },
+                { value: "expressive", label: "Expressive" },
+              ]}
+            />
+          </div>
+        </div>
+        <div className="ns-notation-row">
+          <label className="ns-notation-field">
+            Swing ratio
+            <input
+              value={swingRatio}
+              onChange={(event) => setSwingRatio(event.target.value)}
+              disabled={busy || !regenAvailable}
+              inputMode="decimal"
+              placeholder="auto"
+              aria-label="Swing ratio override"
+            />
+          </label>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={busy || !regenAvailable}
+            onClick={() =>
+              void apply({
+                ...settings,
+                swing_ratio: swingRatio.trim() === "" ? null : Number(swingRatio),
+              })
+            }
+          >
+            Apply ratio
+          </Button>
+        </div>
+      </details>
       <div className="ns-notation-row">
         <label className="ns-notation-field">
           Meter
@@ -277,8 +396,11 @@ export default function NotationInterpretationPanel({
         </Button>
       </div>
       <p className="ns-notation-note">
-        These controls rewrite the derived score only. Original performance MIDI
-        stays byte-identical. Score playback follows the written interpretation.
+        Swing and straight feel are inferred automatically. Readable writes
+        conventional swing as even eighths plus a Swing mark; score playback
+        then swings those eighths once. Literal keeps performed timing.
+        These controls rewrite the derived score only and never re-run
+        transcription. Original MIDI stays byte-identical.
         {provenance ? ` ${provenance}` : ""}
       </p>
       {fallback ? (

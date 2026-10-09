@@ -257,6 +257,12 @@ class MusicalEvent:
     score_timing_locked: bool = False
     # "supplied" from MIDI/user input, "inferred" from Readable, "user_edit" from a correction.
     articulation_source: str = ""
+    # Beat-space performance timing, kept when start_beat is rewritten to written
+    # coordinates. Seconds (start_time_sec / end_time_sec) remain the source.
+    performed_start_beat: Optional[float] = None
+    performed_duration_beats: Optional[float] = None
+    # Voice-aware feel ownership. Prefer this over reconstructing from track/hand/voice.
+    stream_key: Optional[str] = None
 
 
 def copy_event(event: MusicalEvent, **changes: Any) -> MusicalEvent:

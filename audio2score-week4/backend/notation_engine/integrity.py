@@ -133,16 +133,24 @@ def _compare_attacks(expected, actual, label, tolerance):
                 raise NotationIntegrityError(f"{label} changed attack timing for pitch {pitch}")
 
 
-def validate_exports(xml_path, midi_path, events, *, musicxml_beat_shift: float = 0.0):
+def validate_exports(
+    xml_path,
+    midi_path,
+    events,
+    *,
+    musicxml_beat_shift: float = 0.0,
+    midi_events=None,
+):
     import mido
     from notation_engine.playback import playback_duration_beats
 
     try:
         xml = musicxml_attacks(xml_path)
         expected = [(e.pitch, e.start_beat, e.start_beat + e.duration_beats) for e in events]
+        sounding = midi_events if midi_events is not None else events
         midi_expected = [
             (e.pitch, e.start_beat, e.start_beat + playback_duration_beats(e))
-            for e in events
+            for e in sounding
         ]
         xml_expected = expected
         if abs(float(musicxml_beat_shift)) > 1e-9:

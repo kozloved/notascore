@@ -75,6 +75,12 @@ def convert(source: Path, output: Path, meter=None, settings=None):
                     ingested.performance.midi_sha256, context_digest=context_digest
                 ),
                 "interpretation_context_digest": context_digest,
+                "detected_interpretation": (
+                    writer.last_quantization_summary or {}
+                ).get("detected_interpretation"),
+                "interpretation_spans": (
+                    writer.last_quantization_summary or {}
+                ).get("interpretation_spans"),
             },
             indent=2,
         )
@@ -106,6 +112,19 @@ def main():
         action="store_true",
         help="Pin performance-score-2 (saved Readable engine before phrase-level fill)",
     )
+    parser.add_argument(
+        "--source-style",
+        choices=("auto", "jazz", "classical", "pop_rock", "contemporary_art"),
+    )
+    parser.add_argument(
+        "--feel",
+        dest="rhythmic_feel",
+        choices=("auto", "straight", "swing_eighths", "swing_sixteenths", "shuffle"),
+    )
+    parser.add_argument(
+        "--timing",
+        choices=("auto", "steady", "expressive"),
+    )
     args = parser.parse_args()
     payload = {}
     if args.interpretation:
@@ -117,6 +136,12 @@ def main():
     if args.readable_v2:
         payload["algorithm_version"] = "performance-score-2"
         payload["interpretation"] = payload.get("interpretation") or "readable"
+    if args.source_style:
+        payload["source_style"] = args.source_style
+    if args.rhythmic_feel:
+        payload["rhythmic_feel"] = args.rhythmic_feel
+    if args.timing:
+        payload["timing"] = args.timing
     report = convert(args.source, args.output, args.meter, settings=payload or None)
     print(f"Score: {args.output}\nDecisions: {report}")
 

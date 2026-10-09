@@ -1336,6 +1336,12 @@ class UnderstandingPipeline:
                     "quantization_mode_fallback": (self.config.extra or {}).get(
                         "quantization_mode_fallback"
                     ),
+                    "detected_interpretation": (
+                        getattr(self.notation, "last_quantization_summary", None) or {}
+                    ).get("detected_interpretation"),
+                    "interpretation_spans": (
+                        getattr(self.notation, "last_quantization_summary", None) or {}
+                    ).get("interpretation_spans"),
                 },
                 indent=2,
             )

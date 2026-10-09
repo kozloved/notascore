@@ -48,6 +48,11 @@ def public_policy_exception(row: dict) -> dict:
             payload["user_message"] = (
                 "A finer local grid was needed to keep this attack in place."
             )
+        elif kind == "unsupported_feel":
+            payload["user_message"] = (
+                payload.get("user_message")
+                or "That rhythmic feel cannot be applied to this meter."
+            )
         else:
             payload["user_message"] = payload.get("reason") or (
                 "A local notation exception was required."
@@ -1214,6 +1219,7 @@ def editor_model_from_events(
     printed_marks=None,
     time_map=None,
 ) -> dict:
+    from mir.swing import stream_key as swing_stream_key
     from score_edits import (
         ID_RE,
         MAX_DURATION,
@@ -1254,6 +1260,10 @@ def editor_model_from_events(
                 "end_sec": getattr(ev, "end_time_sec", None),
                 "articulation": getattr(ev, "articulation", None) or None,
                 "articulation_source": getattr(ev, "articulation_source", "") or None,
+                "performed_start_beat": getattr(ev, "performed_start_beat", None),
+                "performed_duration_beats": getattr(ev, "performed_duration_beats", None),
+                "stream_key": swing_stream_key(ev),
+                "score_timing_locked": bool(getattr(ev, "score_timing_locked", False)),
             }
         )
     notes = (
@@ -1712,6 +1722,12 @@ def recompute_job_dir(out_dir: Path, job_id: str, settings: NotationSettings | d
                 "output_identity": result.output_identity,
                 "identity_role": "regenerated_output",
                 "fallback": result.fallback,
+                "detected_interpretation": (result.summary or {}).get(
+                    "detected_interpretation"
+                ),
+                "interpretation_spans": (result.summary or {}).get(
+                    "interpretation_spans"
+                ),
             },
             indent=2,
         )
