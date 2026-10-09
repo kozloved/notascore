@@ -483,6 +483,14 @@ def _search(groups, max_move, beam_width=24, settings=None, measure_length=None,
     dominant = max(set(families), key=families.count)
     if families.count(dominant) < max(2, (len(families) + 1) // 2):
         return path
+    # A contiguous tuplet island inside a mostly-binary swing line is a local
+    # exception. The downbeat is often an integer, so two consecutive triplet
+    # offbeats are enough to keep the group. Do not disable triplets for the
+    # whole voice to unify spelling.
+    if dominant == "binary" and _longest_family_run(path, "triplet") >= 2:
+        return path
+    if dominant == "triplet" and _longest_family_run(path, "binary") >= 3:
+        return path
     preferred = _settings(settings.to_dict())
     if dominant == "triplet" and preferred.triplet_policy == TripletPolicy.AUTO:
         preferred = preferred.replace(triplet_policy=TripletPolicy.ENABLED)
@@ -499,6 +507,19 @@ def _search(groups, max_move, beam_width=24, settings=None, measure_length=None,
     if len(alt) != len(path):
         return path
     return alt
+
+
+def _longest_family_run(path, family: str) -> int:
+    longest = 0
+    current = 0
+    for _onset, row_family in path:
+        if row_family == family:
+            current += 1
+            if current > longest:
+                longest = current
+        else:
+            current = 0
+    return longest
 
 
 def _search_beam(groups, max_move, beam_width, settings, measure_length=None, exceptions=None):
