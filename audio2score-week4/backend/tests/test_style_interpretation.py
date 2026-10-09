@@ -123,6 +123,22 @@ def test_repeated_2_to_1_swing_writes_eighths():
     assert {e.pitch for e in quantized} == {e.pitch for e in events}
 
 
+def test_swing_sixteenths_are_detected_from_sixteenth_pairs():
+    events = []
+    f = performed_offbeat_fraction(2.0) * 0.5
+    n = 0
+    for i in range(16):
+        start = i * 0.5
+        events.append(_event(72, start, f, f"d{n}"))
+        n += 1
+        events.append(_event(74, start + f, 0.5 - f, f"o{n}"))
+        n += 1
+    settings = NotationSettings.from_dict({"source_style": "jazz"})
+    _out, spans, summary = interpret_for_notation(events, METER_44, settings)
+    assert summary["rhythmic_feel"] == "swing_sixteenths"
+    assert any(s.feel == "swing_sixteenths" for s in spans)
+
+
 def test_lighter_3_to_2_swing_estimates_ratio():
     events = _swing_pair_events(bars=2, ratio=1.5)
     settings = NotationSettings.from_dict({"source_style": "jazz"})

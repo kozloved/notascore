@@ -439,8 +439,9 @@ def _hypothesis_for_window(
     }
 
 
-def _candidates_for_fractions(
-    fractions: list[float],
+def _candidates_for_pair_fractions(
+    eighth_fractions: list[float],
+    sixteenth_fractions: list[float],
     *,
     prior: StylePrior,
     profile: InterpretationProfile,
@@ -450,7 +451,7 @@ def _candidates_for_fractions(
 ) -> list[dict[str, Any]]:
     candidates = [
         _hypothesis_for_window(
-            fractions,
+            eighth_fractions,
             prior=prior,
             profile=profile,
             pair_length=PAIR_EIGHTH,
@@ -458,7 +459,7 @@ def _candidates_for_fractions(
             required=required_eighth,
         ),
         _hypothesis_for_window(
-            fractions,
+            eighth_fractions,
             prior=prior,
             profile=profile,
             pair_length=PAIR_EIGHTH,
@@ -470,7 +471,7 @@ def _candidates_for_fractions(
         candidates.extend(
             [
                 _hypothesis_for_window(
-                    fractions,
+                    eighth_fractions,
                     prior=prior,
                     profile=profile,
                     pair_length=PAIR_EIGHTH,
@@ -478,7 +479,7 @@ def _candidates_for_fractions(
                     required=required_eighth,
                 ),
                 _hypothesis_for_window(
-                    fractions,
+                    eighth_fractions,
                     prior=prior,
                     profile=profile,
                     pair_length=PAIR_EIGHTH,
@@ -486,7 +487,7 @@ def _candidates_for_fractions(
                     required=required_eighth,
                 ),
                 _hypothesis_for_window(
-                    fractions,
+                    sixteenth_fractions,
                     prior=prior,
                     profile=profile,
                     pair_length=PAIR_SIXTEENTH,
@@ -567,33 +568,40 @@ def _pick_window(
     window_beats = max(end - start, 1e-6)
     required_eighth = _required_observations(prior, window_beats, PAIR_EIGHTH)
     required_sixteenth = _required_observations(prior, window_beats, PAIR_SIXTEENTH)
-    per_stream: dict[str, list[float]] = {}
+
+    def _fractions(pair_length: float) -> tuple[list[float], dict[str, list[float]]]:
+        pooled: list[float] = []
+        per_stream: dict[str, list[float]] = {}
+        for key, onsets in streams.items():
+            local = [o for o in onsets if start - 1e-9 <= o < end]
+            fracs = _offbeat_fractions(local, pair_length, stream_triplets.get(key, ()))
+            per_stream[key] = fracs
+            pooled.extend(fracs)
+        return pooled, per_stream
+
+    eighth_pooled, eighth_streams = _fractions(PAIR_EIGHTH)
+    sixteenth_pooled, sixteenth_streams = _fractions(PAIR_SIXTEENTH)
     stream_picks: dict[str, dict[str, Any]] = {}
-    for key, onsets in streams.items():
-        local = [o for o in onsets if start - 1e-9 <= o < end]
-        trips = stream_triplets.get(key, ())
-        fracs = _offbeat_fractions(local, PAIR_EIGHTH, trips)
-        per_stream[key] = fracs
+    for key in streams:
         stream_picks[key] = _select_candidate(
-            _candidates_for_fractions(
-                fracs,
+            _candidates_for_pair_fractions(
+                eighth_streams.get(key, []),
+                sixteenth_streams.get(key, []),
                 prior=prior,
                 profile=profile,
-                required_eighth=max(2, min(required_eighth, max(len(fracs), 2))),
-                required_sixteenth=required_sixteenth,
+                required_eighth=max(2, min(required_eighth, max(len(eighth_streams.get(key, [])), 2))),
+                required_sixteenth=max(2, min(required_sixteenth, max(len(sixteenth_streams.get(key, [])), 2))),
                 compound=compound,
             ),
             prior=prior,
             profile=profile,
             compound=compound,
-            required=max(2, min(required_eighth, max(len(fracs), 2))),
+            required=max(2, min(required_eighth, max(len(eighth_streams.get(key, [])), 2))),
         )
-    pooled = []
-    for fracs in per_stream.values():
-        pooled.extend(fracs)
     picked = _select_candidate(
-        _candidates_for_fractions(
-            pooled,
+        _candidates_for_pair_fractions(
+            eighth_pooled,
+            sixteenth_pooled,
             prior=prior,
             profile=profile,
             required_eighth=required_eighth,
