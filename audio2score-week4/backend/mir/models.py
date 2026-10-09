@@ -239,6 +239,8 @@ class PlannedNote:
     dynamic: Optional[str] = None
     beams: list[tuple[str, Optional[str]]] = field(default_factory=list)
     tuplet: Optional[PlannedTuplet] = None
+    # "up" / "down" / "none" when this staff has independent voices; otherwise unset.
+    stem: Optional[str] = None
 
     # Parallel to pitches/event_ids, including every fragment of a tied chord.
     velocities: list[int] = field(default_factory=list)

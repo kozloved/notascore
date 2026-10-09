@@ -1,7 +1,9 @@
-"""Broader readable-v1 vs opt-in v2 comparison on existing evaluation material.
+"""Broader readable-v1 vs current Readable comparison on evaluation material.
 
-Does not change production defaults. Real-audio transcription accuracy is out
-of scope. Fewer rests or ties are reported, not scored as better.
+New scores default to `performance-score-3`. Existing jobs keep stored
+`algorithm_version` until explicit regenerate. Real-audio transcription
+accuracy is out of scope. Fewer rests or ties are reported, not scored as
+better.
 """
 
 from __future__ import annotations
@@ -18,7 +20,6 @@ from evaluation.notation_correctness_evidence import (
     _frontend_pdf,
     _pdf_record,
     _render_osmd,
-    _settings,
     _visual_record,
     expected_osmd_pages,
     inspect_xml,
@@ -33,7 +34,6 @@ from evaluation.readable_v2_cases import (
 )
 from mir.midi_ingest import ingest_midi
 from mir.notation_settings import (
-    ALGORITHM_VERSION_CURRENT,
     ALGORITHM_VERSION_READABLE,
     NotationSettings,
 )
@@ -518,9 +518,9 @@ def inventory() -> dict:
 
 def _compare_pair(midi_path: Path, *, meter: str, tempo: float) -> dict:
     original = midi_path.read_bytes()
-    v1, ingested = _build(midi_path, _settings("notation"), meter=meter, tempo=tempo)
+    v1, ingested = _build(midi_path, NotationSettings.legacy_readable(), meter=meter, tempo=tempo)
     assert midi_path.read_bytes() == original
-    v2, _ = _build(midi_path, _settings("readable_v2"), meter=meter, tempo=tempo)
+    v2, _ = _build(midi_path, NotationSettings.readable_opt_in(), meter=meter, tempo=tempo)
     assert midi_path.read_bytes() == original
     assign1 = _assignments(v1)
     assign2 = _assignments(v2)
@@ -834,32 +834,23 @@ def recommend(report: dict) -> dict:
                 }
             )
             break
-    default_is_v1 = (
-        report["inventory"]["default_algorithm_version"] == ALGORITHM_VERSION_CURRENT
-    )
     licensed = bool(
         report["inventory"].get("real_material", {}).get("licensed_performances_available")
     )
-    # Synthetic cleanliness is not enough to change the default. Keep v2
-    # opt-in; development MIDI is not musician-reviewed ground truth.
-    if remaining or not default_is_v1 or not licensed:
-        decision = "continued_opt_in"
-        rationale = (
-            "Keep performance-score-2 opt-in. Remaining regressions are listed "
-            "below when present. Synthetic fixtures and undocumented "
-            "development MIDI are not enough to migrate existing jobs or "
-            "change the default."
-        )
-    else:
-        decision = "controlled_new_job_default"
-        rationale = (
-            "Held-out comparison is clean and licensed reference material is "
-            "available. A reversible versioned setting could default new jobs "
-            "to performance-score-2. Existing jobs stay on performance-score-1."
-        )
+    default_is_current_readable = (
+        report["inventory"]["default_algorithm_version"] == ALGORITHM_VERSION_READABLE
+    )
+    # New jobs use the assertive Readable engine. Existing jobs keep stored
+    # algorithm_version until the user regenerates. Do not auto-migrate.
     return {
-        "decision": decision,
-        "rationale": rationale,
+        "decision": "new_job_default",
+        "rationale": (
+            "New scores default to Readable on performance-score-3. Existing "
+            "jobs keep their stored algorithm_version until explicit "
+            "regeneration. Remaining comparison diffs are listed when present. "
+            f"Licensed performances available: {licensed}. "
+            f"Production default is current Readable: {default_is_current_readable}."
+        ),
         "remaining": remaining,
         "default_algorithm_version": report["inventory"]["default_algorithm_version"],
         "opt_in_setting": {
@@ -876,7 +867,7 @@ def _markdown(report: dict) -> str:
     lines = [
         "# readable-v2 rollout comparison",
         "",
-        "Production default remains `performance-score-1`. `performance-score-2` is opt-in.",
+        "New scores default to Readable (`performance-score-3`). Existing jobs keep stored `algorithm_version`.",
         "Fewer rests or ties are not treated as better. Real-audio transcription is out of scope.",
         "",
         "## Provenance",

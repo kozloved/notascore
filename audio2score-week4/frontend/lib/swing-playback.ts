@@ -22,6 +22,7 @@ export type PlaybackNote = {
   hand?: string | null;
   source_track_id?: string | null;
   score_timing_locked?: boolean;
+  articulation?: string | null;
 };
 
 const DOWNBEAT = 0.12;

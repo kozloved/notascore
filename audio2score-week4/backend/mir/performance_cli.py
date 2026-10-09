@@ -100,7 +100,7 @@ def main():
     parser.add_argument(
         "--interpretation",
         choices=("readable", "literal"),
-        help="Notation interpretation (default: readable / current engine)",
+        help="Notation interpretation (default: readable)",
     )
     parser.add_argument(
         "--display-grid",
@@ -110,7 +110,7 @@ def main():
     parser.add_argument(
         "--readable-v2",
         action="store_true",
-        help="Opt in to improved readable policies (performance-score-2)",
+        help="Pin performance-score-2 (saved Readable engine before phrase-level fill)",
     )
     parser.add_argument(
         "--source-style",

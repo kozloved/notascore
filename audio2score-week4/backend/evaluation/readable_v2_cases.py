@@ -28,10 +28,11 @@ def case_a_detached_regular_line(path: Path) -> str:
 
 
 def case_b_short_notes_with_rests(path: Path) -> str:
-    """B. Deliberate short notes followed by meaningful rests.
+    """B. Four regular on-beat shorts with consistent releases.
 
-    Expected: sixteenth notes on the beat with visible rests filling the rest
-    of each quarter. Do not extend each attack to the next downbeat.
+    Current Readable writes staccato quarters: attack count is not evidence
+    of a rest figure. Saved v1/v2 engines keep the short notes. Literal
+    remains available for a rest spelling.
     """
     notes = []
     for i in range(4):
@@ -188,6 +189,283 @@ def case_d_independent_sustain(path: Path) -> str:
     return _write(path, notes)
 
 
+def case_humanized_ceg_chord(path: Path) -> str:
+    """Humanized C–E–G: slightly staggered attacks, substantial overlap.
+
+    Expected Readable: one half-note chord. Members overlap and share a
+    likely release. Literal may keep the performed stagger.
+    """
+    return _write(
+        path,
+        [
+            (60, 0.00, 0.95, 80),
+            (64, 0.02, 0.945, 78),
+            (67, 0.025, 0.94, 82),
+        ],
+    )
+
+
+def case_rapid_sixteenth_run(path: Path) -> str:
+    """Consecutive short C–E–G attacks, not a staggered chord.
+
+    Expected in both modes: three successive 16ths. Duration equals the
+    onset spread; there is no shared sustain.
+    """
+    # 120 BPM: 16th = 0.125s.
+    return _write(
+        path,
+        [
+            (60, 0.0, 0.03125, 84),
+            (64, 0.03125, 0.0625, 84),
+            (67, 0.0625, 0.09375, 84),
+        ],
+    )
+
+
+def case_early_release_whole(path: Path) -> str:
+    """Single attack from beat 0 that releases at 3.85 in 4/4.
+
+    Expected Readable: a whole note. Literal keeps the performed length.
+    """
+    return _write(path, [(72, 0.0, 1.925, 80)])
+
+
+def case_mixed_release_chords(path: Path) -> str:
+    """Eight detached C–E–G chords with slightly different releases.
+
+    Expected Readable: eight quarter-note chords. Each attack is one pulse,
+    not three sequential leftover decisions.
+    """
+    durs = [0.385, 0.395, 0.405, 0.415, 0.385, 0.395, 0.405, 0.415]
+    notes = []
+    for i, dur in enumerate(durs):
+        start = i * 0.5
+        for pitch in (60, 64, 67):
+            notes.append((pitch, start, start + dur, 82))
+    return _write(path, notes)
+
+
+def case_short_chords_with_rests(path: Path) -> str:
+    """Four regular on-beat C–E–G shorts. Current Readable writes quarters."""
+    notes = []
+    for i in range(4):
+        start = i * 0.5
+        for pitch in (60, 64, 67):
+            notes.append((pitch, start, start + 0.10, 88))
+    return _write(path, notes)
+
+
+def case_hold_under_mixed_release_chords(path: Path) -> str:
+    """Inner G4 hold under mixed-release upper dyads.
+
+    Expected: the hold lasts the bar; moving attacks become quarters.
+    """
+    notes = [(67, 0.0, 2.0, 70)]
+    durs = [0.385, 0.395, 0.405, 0.415]
+    for i, dur in enumerate(durs):
+        start = i * 0.5
+        notes.append((72, start, start + dur, 82))
+        notes.append((76, start, start + dur, 80))
+    return _write(path, notes)
+
+
+def case_mixed_release_quarters(path: Path) -> str:
+    """Eight detached quarters with slightly different releases.
+
+    Expected Readable: eight quarters. Do not alternate 0.75 and 1.0 from
+    independent leftover thresholds.
+    """
+    durs = [0.385, 0.395, 0.405, 0.415, 0.385, 0.395, 0.405, 0.415]
+    notes = [(72 + (i % 3) * 2, i * 0.5, i * 0.5 + durs[i], 82) for i in range(8)]
+    return _write(path, notes)
+
+
+def case_isolated_rest_in_phrase(path: Path) -> str:
+    """Connected quarter phrase with one intentional short rest.
+
+    Expected: three quarters and one short note plus rest on beat 3.
+    """
+    notes = [
+        (72, 0.0, 0.41, 82),
+        (74, 0.5, 0.90, 82),
+        (76, 1.0, 1.09, 86),
+        (77, 1.5, 1.905, 82),
+    ]
+    return _write(path, notes)
+
+
+def case_strongly_detached_quarters(path: Path) -> str:
+    """Eight strongly detached scale degrees on a quarter pulse.
+
+    Performed ~0.10s (0.20 of the beat). Readable convention: eight written
+    quarters, optionally staccato — not sixteenths plus rests. Four otherwise
+    similar on-beat shorts use the same convention.
+    """
+    pitches = [72, 74, 76, 77, 79, 81, 83, 84]
+    notes = []
+    for i, pitch in enumerate(pitches):
+        start = i * 0.5
+        notes.append((pitch, start, start + 0.10, 84))
+    return _write(path, notes)
+
+
+def case_strongly_detached_chords(path: Path) -> str:
+    """Eight short C–E–G attacks on a quarter pulse.
+
+    Repeating block-chord pattern is written as quarters. Four otherwise
+    similar chords use the same convention.
+    """
+    notes = []
+    for i in range(8):
+        start = i * 0.5
+        for pitch in (60, 64, 67):
+            notes.append((pitch, start, start + 0.10, 86))
+    return _write(path, notes)
+
+
+def case_detached_bass_chord_pulse(path: Path) -> str:
+    """Bass octaves alternating with upper dyads, all short, quarter pulse.
+
+    Construction analogue of a detached accompaniment. Meter is supplied 4/4;
+    do not infer 3/4 from texture.
+    """
+    notes = []
+    for i in range(8):
+        start = i * 0.5
+        if i % 3 == 0:
+            notes.append((38, start, start + 0.11, 78))
+            notes.append((50, start, start + 0.11, 76))
+        else:
+            notes.append((54, start, start + 0.09, 80))
+            notes.append((57, start, start + 0.10, 82))
+    return _write(path, notes)
+
+
+def case_detached_phrase_with_pause(path: Path) -> str:
+    """Detached quarter line with one skipped beat.
+
+    Expected: written quarters around a visible rest. Do not fill across the
+    pause or absorb it as leftover articulation.
+    """
+    pitches = [72, 74, 76, 77, 79, 81, 83, 84]
+    beats = [0, 1, 2, 3, 5, 6, 7, 8]
+    notes = []
+    for pitch, beat in zip(pitches, beats):
+        start = beat * 0.5
+        notes.append((pitch, start, start + 0.10, 84))
+    return _write(path, notes)
+
+
+def case_hold_under_strongly_detached(path: Path) -> str:
+    """Inner G4 hold under eight short upper dyads.
+
+    Expected: the hold lasts the phrase; moving attacks become quarters.
+    """
+    notes = [(67, 0.0, 4.0, 70)]
+    for i in range(8):
+        start = i * 0.5
+        notes.append((72, start, start + 0.10, 84))
+        notes.append((76, start, start + 0.10, 82))
+    return _write(path, notes)
+
+
+def case_ambiguous_five_shorts(path: Path) -> str:
+    """Five identical short attacks on a quarter pulse.
+
+    Metrical position, a repeated pulse, and consistent releases are enough
+    for current Readable to write staccato quarters. Literal remains the
+    rest-figure spelling if the user wants it.
+    """
+    notes = []
+    for i in range(5):
+        start = i * 0.5
+        notes.append((76, start, start + 0.10, 88))
+    return _write(path, notes)
+
+
+def case_detached_melody_with_offbeat_accompaniment(path: Path) -> str:
+    """Right-hand detached quarters with left-hand offbeat shorts.
+
+    The melody stays written quarters. Offbeat accompaniment is a separate
+    stream and must not truncate the right-hand pulse.
+    """
+    notes = []
+    for i in range(8):
+        start = i * 0.5
+        notes.append((72 + i, start, start + 0.10, 84))
+        notes.append((48, start + 0.25, start + 0.35, 70))
+    return _write(path, notes)
+
+
+def case_detached_same_staff_independent_voices(path: Path) -> str:
+    """Two independent same-staff streams: high quarters, low offbeats.
+
+    Register-separated complementary onsets stay independent. The melody
+    keeps its quarter interpretation.
+    """
+    notes = []
+    for i in range(8):
+        start = i * 0.5
+        notes.append((76 + (i % 3), start, start + 0.10, 86))
+        notes.append((67, start + 0.25, start + 0.35, 72))
+    return _write(path, notes)
+
+
+def case_offbeat_quarters_crossing_barline(path: Path) -> str:
+    """Eight offbeat detached attacks, pulse one quarter.
+
+    Interior notes keep the inferred quarter across the barline and print as
+    tied eighths. The last attack is a phrase ending at the bar.
+    """
+    notes = []
+    for i in range(8):
+        start = i * 0.5 + 0.25
+        notes.append((48, start, start + 0.10, 72))
+    return _write(path, notes)
+
+
+def case_phrase_ending_visible_rest(path: Path) -> str:
+    """Three detached on-beat quarters, then silence through the barline.
+
+    Expected: three staccato quarters and a visible rest on beat 4.
+    """
+    notes = []
+    for i in range(3):
+        start = i * 0.5
+        notes.append((72, start, start + 0.10, 84))
+    return _write(path, notes)
+
+
+def case_early_release_chord_to_bar(path: Path) -> str:
+    """Early-released C–E–G intended to occupy the bar.
+
+    Expected Readable: one whole-note chord. Literal keeps the performed ends.
+    """
+    return _write(
+        path,
+        [
+            (60, 0.00, 1.85, 80),
+            (64, 0.01, 1.89, 78),
+            (67, 0.02, 1.925, 82),
+        ],
+    )
+
+
+def case_uneven_chord_releases(path: Path) -> str:
+    """Chord members with slightly different performed releases.
+
+    Expected Readable: one half-note chord. Literal may keep 1.82/1.94/2.01.
+    """
+    return _write(
+        path,
+        [
+            (60, 0.00, 0.91, 80),
+            (64, 0.015, 0.97, 78),
+            (67, 0.02, 1.005, 82),
+        ],
+    )
+
+
 def case_final_short_then_silence(path: Path) -> str:
     """Held-out: four quarters, then a short attack followed by silence.
 
@@ -303,6 +581,26 @@ READABLE_V2_CASES = {
     "J_intentional_short_triplet_rests": case_j_intentional_short_triplet_rests,
     "K_repeated_triplet_pitches": case_k_repeated_triplet_pitches,
     "L_held_voice_under_triplets": case_l_held_voice_under_triplets,
+    "humanized_ceg_chord": case_humanized_ceg_chord,
+    "rapid_sixteenth_run": case_rapid_sixteenth_run,
+    "early_release_whole": case_early_release_whole,
+    "uneven_chord_releases": case_uneven_chord_releases,
+    "mixed_release_quarters": case_mixed_release_quarters,
+    "mixed_release_chords": case_mixed_release_chords,
+    "short_chords_with_rests": case_short_chords_with_rests,
+    "hold_under_mixed_release_chords": case_hold_under_mixed_release_chords,
+    "isolated_rest_in_phrase": case_isolated_rest_in_phrase,
+    "strongly_detached_quarters": case_strongly_detached_quarters,
+    "strongly_detached_chords": case_strongly_detached_chords,
+    "detached_bass_chord_pulse": case_detached_bass_chord_pulse,
+    "detached_phrase_with_pause": case_detached_phrase_with_pause,
+    "hold_under_strongly_detached": case_hold_under_strongly_detached,
+    "ambiguous_five_shorts": case_ambiguous_five_shorts,
+    "detached_melody_with_offbeat_accompaniment": case_detached_melody_with_offbeat_accompaniment,
+    "detached_same_staff_independent_voices": case_detached_same_staff_independent_voices,
+    "offbeat_quarters_crossing_barline": case_offbeat_quarters_crossing_barline,
+    "phrase_ending_visible_rest": case_phrase_ending_visible_rest,
+    "early_release_chord_to_bar": case_early_release_chord_to_bar,
 }
 
 # Held-out investigation material. None of these were used to tune the
@@ -335,8 +633,8 @@ EXPECTED_NOTATION = {
     },
     "B_short_notes_with_rests": {
         "onset": "Four attacks on successive quarter beats.",
-        "release": "Sounding sixteenths with visible rests through each quarter.",
-        "engraving": "Do not fill to the next attack. The rest is the music.",
+        "release": "Performed ~0.20 of the pulse, consistent across the phrase.",
+        "engraving": "Current Readable: four staccato quarters. v1/v2 keep shorts. Literal remains available.",
     },
     "C_repeated_attacks_under_pedal": {
         "onset": "Four repeated G4 attacks, one per quarter.",
@@ -388,6 +686,86 @@ EXPECTED_NOTATION = {
         "release": "Bass lasts its span; treble last note is a triplet eighth.",
         "engraving": "Two independent voices. Do not clip the hold.",
     },
+    "humanized_ceg_chord": {
+        "onset": "C3–E3–G3 with a few hundredths of a beat of stagger.",
+        "release": "Members overlap substantially and share a likely half-note release.",
+        "engraving": "Readable: one half-note chord. Literal may keep the stagger.",
+    },
+    "rapid_sixteenth_run": {
+        "onset": "C4, E4, G4 at beats 0, 1/16, 1/8.",
+        "release": "Each lasts a 16th. No shared sustain.",
+        "engraving": "Consecutive short attacks in both modes, not a staggered chord.",
+    },
+    "early_release_whole": {
+        "onset": "One attack at beat 0.",
+        "release": "Performed 3.85 beats in 4/4.",
+        "engraving": "Readable: whole note. Literal: near 3.85, not forced to 4.",
+    },
+    "uneven_chord_releases": {
+        "onset": "C3–E3–G3 nearly together.",
+        "release": "Performed 1.82, 1.94, 2.01 beats.",
+        "engraving": "Readable: one half-note chord. Do not stretch an independent hold.",
+    },
+    "mixed_release_quarters": {
+        "onset": "Eight attacks on successive quarter beats.",
+        "release": "Performed 0.77–0.83 beats. The variation is articulation.",
+        "engraving": "Eight quarters. Do not alternate filled and unfilled leftovers.",
+    },
+    "mixed_release_chords": {
+        "onset": "Eight C–E–G attacks on successive quarter beats.",
+        "release": "Each chord's members share a performed duration of 0.77–0.83.",
+        "engraving": "Eight quarter-note chords. A chord is one attack, not three leftover fills.",
+    },
+    "short_chords_with_rests": {
+        "onset": "Four C–E–G attacks on successive quarter beats.",
+        "release": "Performed ~0.20 of the pulse, consistent across the phrase.",
+        "engraving": "Current Readable: four staccato quarter chords. v1/v2 keep shorts.",
+    },
+    "hold_under_mixed_release_chords": {
+        "onset": "Held G4 plus four upper dyads on successive quarters.",
+        "release": "The hold lasts the bar; dyads become quarters.",
+        "engraving": "Independent inner hold. Do not absorb it into the chords.",
+    },
+    "literal_measure_then_readable": {
+        "onset": "Eight mixed-release quarters; measure 1 is Literal, measure 2 Readable.",
+        "release": "Measure 1 keeps performed leftovers. Measure 2 writes quarters.",
+        "engraving": "Override boundaries stay. Do not fill through the Literal bar.",
+    },
+    "isolated_rest_in_phrase": {
+        "onset": "Four attacks on successive quarter beats.",
+        "release": "Beats 1, 2, and 4 are detached quarters; beat 3 is a short rest.",
+        "engraving": "Keep the interior rest. Fill the neighboring quarters.",
+    },
+    "strongly_detached_quarters": {
+        "onset": "Eight scale degrees on successive quarter beats.",
+        "release": "Performed ~0.20 of the pulse. Readable writes quarters; the shortness is articulation.",
+        "engraving": "Quarter line, optionally staccato. Not sixteenths plus rests.",
+    },
+    "strongly_detached_chords": {
+        "onset": "Eight C–E–G attacks on successive quarter beats.",
+        "release": "Performed ~0.20 of the pulse, similar across the phrase.",
+        "engraving": "Eight quarter-note chords. Four similar chords use the same convention.",
+    },
+    "detached_bass_chord_pulse": {
+        "onset": "Eight quarter-pulse attacks: bass octaves alternating with dyads.",
+        "release": "All members ~0.18–0.22 of the pulse. Roles stay separate.",
+        "engraving": "Written quarters under supplied 4/4. Do not retune meter from texture.",
+    },
+    "detached_phrase_with_pause": {
+        "onset": "Eight attacks on a quarter grid with beat 5 skipped.",
+        "release": "Each sounding attack is short; the skipped beat is a rest.",
+        "engraving": "Quarters around a visible pause. Do not fill across the gap.",
+    },
+    "hold_under_strongly_detached": {
+        "onset": "Held G4 plus eight upper dyads on successive quarters.",
+        "release": "The hold lasts the phrase; dyads become detached quarters.",
+        "engraving": "Independent inner hold. Do not clip it or absorb it into the dyads.",
+    },
+    "ambiguous_five_shorts": {
+        "onset": "Five identical short attacks on successive quarter beats.",
+        "release": "On-beat, repeated pulse, consistent releases.",
+        "engraving": "Current Readable: five staccato quarters. Literal remains the rest-figure spelling.",
+    },
     "mixed_tuplets": {
         "onset": "Four quarters, then six triplet-eighth attacks starting at beat 4.",
         "release": "v1: sixteenths at triplet onsets. v2: all six written 1/3, including the last.",
@@ -432,5 +810,30 @@ EXPECTED_NOTATION = {
         "onset": "Sixteenth attacks with a deliberate rest, then repeated sixteenths.",
         "release": "Keep the rest. A leftover smaller than a sixteenth is not enough intent to fill.",
         "engraving": "Paired against detached quarters: short notes plus a rest stay short.",
+    },
+    "detached_melody_with_offbeat_accompaniment": {
+        "onset": "Eight right-hand attacks on beats 0–7 plus left-hand offbeats.",
+        "release": "Both streams performed ~0.20 of a quarter.",
+        "engraving": "Melody stays staccato quarters. Offbeat accompaniment keeps interior quarters across the barline, printed as ties.",
+    },
+    "detached_same_staff_independent_voices": {
+        "onset": "High on-beat stream plus a low offbeat stream on one staff.",
+        "release": "Both streams performed ~0.20 of a quarter.",
+        "engraving": "Independent voices. Interior offbeats stay quarters across the barline.",
+    },
+    "offbeat_quarters_crossing_barline": {
+        "onset": "Eight left-hand attacks on beats 0.5, 1.5, …, 7.5.",
+        "release": "Each performed 0.20 of a quarter.",
+        "engraving": "Interior logical quarters, including 3.5. Print the barline crossing as tied eighths. Last attack is a phrase ending.",
+    },
+    "phrase_ending_visible_rest": {
+        "onset": "Three on-beat detached attacks, then silence.",
+        "release": "Each performed 0.20 of a quarter.",
+        "engraving": "Three staccato quarters and a visible rest before the barline.",
+    },
+    "early_release_chord_to_bar": {
+        "onset": "C3–E3–G3 together at beat 0.",
+        "release": "Performed about 3.70–3.85 beats in 4/4.",
+        "engraving": "Readable: one whole-note chord. Literal keeps the early releases.",
     },
 }

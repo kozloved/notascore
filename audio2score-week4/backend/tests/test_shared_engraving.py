@@ -418,7 +418,7 @@ def test_supplied_articulation_survives_velocity_edit_and_rest_is_not_staccato(t
         tmp_path / "marks.mid",
         [
             (76, 0.0, 0.10, 88),
-            (77, 0.5, 0.60, 88),
+            (77, 0.5, 0.95, 88),
             (79, 1.0, 1.45, 80),
         ],
     )

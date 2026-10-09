@@ -14,6 +14,8 @@ export type EditableNote = {
   voice: number;
   start_sec?: number | null;
   end_sec?: number | null;
+  articulation?: string | null;
+  articulation_source?: string | null;
   performed_start_beat?: number | null;
   performed_duration_beats?: number | null;
   stream_key?: string | null;
@@ -50,6 +52,33 @@ export const DURATION_PRESETS = [
   { beats: 0.5, label: "Eighth", symbol: "♪" },
   { beats: 0.25, label: "Sixteenth", symbol: "16" },
 ] as const;
+
+export const ARTICULATION_OPTIONS = [
+  { value: null, label: "None" },
+  { value: "staccato", label: "Staccato" },
+  { value: "tenuto", label: "Tenuto" },
+] as const;
+
+export type ArticulationMark = (typeof ARTICULATION_OPTIONS)[number]["value"];
+
+export function articulationStatus(
+  note: Pick<EditableNote, "articulation" | "articulation_source">
+): string {
+  const source = note.articulation_source || "";
+  if (source === "user_edit") {
+    return note.articulation ? "Chosen by you" : "Chosen by you: no mark";
+  }
+  if (source === "inferred") {
+    return "Inferred by Readable";
+  }
+  if (source === "supplied") {
+    return "From the performance";
+  }
+  if (note.articulation) {
+    return "From the performance";
+  }
+  return "No articulation mark";
+}
 
 const PITCH_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
 
@@ -90,6 +119,8 @@ export function notesEqual(left: EditableNote[], right: EditableNote[]): boolean
       note.source_note_id === other.source_note_id &&
       (note.start_sec ?? null) === (other.start_sec ?? null) &&
       (note.end_sec ?? null) === (other.end_sec ?? null) &&
+      (note.articulation ?? null) === (other.articulation ?? null) &&
+      (note.articulation_source ?? null) === (other.articulation_source ?? null) &&
       (note.performed_start_beat ?? null) === (other.performed_start_beat ?? null) &&
       (note.performed_duration_beats ?? null) === (other.performed_duration_beats ?? null) &&
       (note.stream_key ?? null) === (other.stream_key ?? null) &&
@@ -113,6 +144,16 @@ export function changeDuration(notes: EditableNote[], id: string, beats: number)
   const duration = Math.max(GRID, snapGrid(beats));
   return notes.map((note) =>
     note.id === id ? { ...note, duration, score_timing_locked: true } : note
+  );
+}
+
+export function changeArticulation(
+  notes: EditableNote[],
+  id: string,
+  mark: string | null
+): EditableNote[] {
+  return notes.map((note) =>
+    note.id === id ? { ...note, articulation: mark, articulation_source: "user_edit" } : note
   );
 }
 

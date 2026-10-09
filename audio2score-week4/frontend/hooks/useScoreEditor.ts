@@ -6,6 +6,7 @@ import { track } from "../lib/analytics";
 import { ApiRequestError, conflictMessage, getScoreEdits, resetScoreEdits, saveScoreEdits } from "../lib/jobs";
 import {
   addNote,
+  changeArticulation,
   changeDuration,
   changePitch,
   cloneNotes,
@@ -234,6 +235,21 @@ export function useScoreEditor(scoreId: string | null) {
     [apply, selectedId]
   );
 
+  const onArticulation = useCallback(
+    (mark: string | null) => {
+      if (!selectedId) return;
+      const current = findNote(notesRef.current, selectedId);
+      if (!current) return;
+      if ((current.articulation ?? null) === mark) return;
+      apply(
+        changeArticulation(notesRef.current, selectedId, mark),
+        "note_articulation_changed",
+        selectedId
+      );
+    },
+    [apply, selectedId]
+  );
+
   const onMove = useCallback(
     (steps: number) => {
       if (!selectedId) return;
@@ -390,6 +406,7 @@ export function useScoreEditor(scoreId: string | null) {
     selectPosition,
     onPitch,
     onDuration,
+    onArticulation,
     onMove,
     onDelete,
     onAdd,

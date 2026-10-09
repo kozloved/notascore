@@ -220,12 +220,13 @@ def test_crossing_lines_keep_two_streams():
     assert len(set(groups.values())) >= 2
 
 
-def test_simultaneous_unison_has_no_unique_line_identity():
-    """Ambiguous: two unlabeled same-pitch attacks at once — any single voice is valid."""
+def test_simultaneous_unison_keeps_independent_attacks():
+    """Overlapping same-pitch attacks are two lines; monophonic repeats stay one."""
     events = [_ev(60, 0.0, 1.0, "x0"), _ev(60, 0.0, 1.0, "x1")]
     groups = _musical_groups(events)
-    # Documented outcome: merged to one voice; not proof of correct musical reading.
-    assert groups["x0"] == groups["x1"]
+    assert groups["x0"] != groups["x1"]
+    mono = _musical_groups([_ev(72, float(i), 0.5, f"m{i}") for i in range(4)])
+    assert len(set(mono.values())) == 1
 
 
 def test_user_voice_lock_survives_competing_duration_preference():

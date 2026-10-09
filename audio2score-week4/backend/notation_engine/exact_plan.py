@@ -1,6 +1,7 @@
 """Exact score-to-notation lowering for the performance engine."""
 
 from collections import defaultdict
+from dataclasses import replace
 from fractions import Fraction
 
 from mir.models import PlannedMeasure, PlannedNote, PlannedRest, PlannedStaff, PlannedVoice, PlannedTuplet
@@ -148,6 +149,101 @@ def _pieces(start, duration, beat_length=Fraction(1), settings=None, measure_len
         yield cursor, piece
         cursor += piece
         remaining -= piece
+
+
+_STEMLESS_QL = Fraction(4)
+
+
+def _note_span(element):
+    start = Fraction(element.start_q)
+    return start, start + Fraction(element.duration_q)
+
+
+def split_stemless_polyphonic_holds(voices) -> None:
+    """Split stemless whole notes that share a staff with a shorter voice.
+
+    OSMD/Vexflow draws a whole note on the same x as the first simultaneous
+    shorter chord, so a held inner G looks like a triad member. Tied halves
+    keep opposite stems visible. Logical editor events stay unsplit.
+    """
+    pitched = [
+        voice
+        for voice in voices
+        if any(isinstance(element, PlannedNote) for element in voice.elements)
+    ]
+    if len(pitched) < 2:
+        return
+    for voice in pitched:
+        rewritten = []
+        for element in voice.elements:
+            if not (
+                isinstance(element, PlannedNote)
+                and Fraction(element.duration_q) == _STEMLESS_QL
+            ):
+                rewritten.append(element)
+                continue
+            hold_start, hold_end = _note_span(element)
+            overlaps_shorter = False
+            for other in pitched:
+                if other is voice:
+                    continue
+                for peer in other.elements:
+                    if not isinstance(peer, PlannedNote):
+                        continue
+                    if Fraction(peer.duration_q) >= _STEMLESS_QL:
+                        continue
+                    peer_start, peer_end = _note_span(peer)
+                    if peer_start < hold_end and peer_end > hold_start:
+                        overlaps_shorter = True
+                        break
+                if overlaps_shorter:
+                    break
+            if not overlaps_shorter:
+                rewritten.append(element)
+                continue
+            half = _STEMLESS_QL / 2
+            ties = tie_chain(2, element.tie)
+            rewritten.append(replace(element, duration_q=half, tie=ties[0]))
+            rewritten.append(
+                replace(
+                    element,
+                    start_q=hold_start + half,
+                    duration_q=half,
+                    tie=ties[1],
+                    articulations=[],
+                )
+            )
+        voice.elements = rewritten
+
+
+def assign_polyphonic_stems(voices) -> None:
+    """Opposite stems for independent voices that share a staff.
+
+    A sustained inner whole note and a moving line must not print as one
+    stacked chord. Highest-pitch voice takes stems up; the others take stems
+    down. Single-voice staves stay unspecified so auto stems remain conventional.
+    Stemless whole notes that overlap a shorter voice are split into tied
+    halves first so OSMD can draw the stem direction.
+    """
+    split_stemless_polyphonic_holds(voices)
+    pitched = []
+    for voice in voices:
+        pitches = [
+            int(pitch)
+            for element in voice.elements
+            if isinstance(element, PlannedNote)
+            for pitch in (element.pitches or [])
+        ]
+        if pitches:
+            pitched.append((sum(pitches) / len(pitches), voice))
+    if len(pitched) < 2:
+        return
+    pitched.sort(key=lambda row: (-row[0], row[1].voice_id))
+    for index, (_mean, voice) in enumerate(pitched):
+        direction = "up" if index == 0 else "down"
+        for element in voice.elements:
+            if isinstance(element, PlannedNote) and not element.stem:
+                element.stem = direction
 
 
 def _rest(offset, length, voice, *, hidden=False, structural=False):
@@ -367,6 +463,7 @@ def build_exact_measures(events, report, meter, key_name):
                 voices.append(PlannedVoice(key[1], elements))
             if not voices:
                 voices = [PlannedVoice(0, [_rest(Fraction(0), bar_len, 0)])]
+            assign_polyphonic_stems(voices)
             clef = (
                 ("treble" if staff == 0 else "bass")
                 if profile["grand_staff"]

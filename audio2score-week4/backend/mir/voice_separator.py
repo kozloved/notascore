@@ -63,8 +63,9 @@ class VoiceSeparator:
         ordered = sorted(events, key=lambda e: (e.start_beat, e.pitch))
         clusters = self._cluster(ordered)
         prepared: list[dict] = []
-        for cluster in clusters:
-            for group in self._split_cluster(cluster):
+        for index, cluster in enumerate(clusters):
+            later = clusters[index + 1 :]
+            for group in self._split_cluster(cluster, later):
                 prepared.append(
                     {
                         "events": group,
@@ -254,10 +255,44 @@ class VoiceSeparator:
                 clusters.append([ev])
         return clusters
 
-    def _split_cluster(self, cluster: list[MusicalEvent]) -> list[list[MusicalEvent]]:
+    def _split_cluster(
+        self,
+        cluster: list[MusicalEvent],
+        later_clusters: list[list[MusicalEvent]] | None = None,
+    ) -> list[list[MusicalEvent]]:
         if len(cluster) <= 1:
             return [cluster]
-        ordered = sorted(cluster, key=lambda e: e.pitch)
+        # Same-pitch attacks cannot share a chord; they are independent unisons.
+        body, extras = self._extract_unison_extras(cluster)
+        parts: list[list[MusicalEvent]] = []
+        if body:
+            parts.extend(self._split_unique_cluster(body, later_clusters or []))
+        parts.extend(extras)
+        return parts or [cluster]
+
+    def _extract_unison_extras(
+        self, cluster: list[MusicalEvent]
+    ) -> tuple[list[MusicalEvent], list[list[MusicalEvent]]]:
+        """Keep one note per pitch in the harmonic body; extras become own groups."""
+        by_pitch: dict[int, list[MusicalEvent]] = {}
+        for ev in sorted(cluster, key=lambda e: (e.pitch, e.start_beat, e.note_id or "")):
+            by_pitch.setdefault(ev.pitch, []).append(ev)
+        body: list[MusicalEvent] = []
+        extras: list[list[MusicalEvent]] = []
+        for pitch in sorted(by_pitch):
+            notes = by_pitch[pitch]
+            body.append(notes[0])
+            extras.extend([[note] for note in notes[1:]])
+        return body, extras
+
+    def _split_unique_cluster(
+        self,
+        ordered: list[MusicalEvent],
+        later_clusters: list[list[MusicalEvent]],
+    ) -> list[list[MusicalEvent]]:
+        if len(ordered) <= 1:
+            return [ordered]
+        ordered = sorted(ordered, key=lambda e: e.pitch)
         span = ordered[-1].pitch - ordered[0].pitch
         role_split = (
             self.config.use_role_hints
@@ -265,6 +300,7 @@ class VoiceSeparator:
             and ordered[1].role
             and ordered[0].role != ordered[1].role
         )
+        independent = self._lookahead_independent_motion(ordered, later_clusters)
         if (
             len(ordered) == 2
             and ordered[1].pitch - ordered[0].pitch >= 6
@@ -272,6 +308,7 @@ class VoiceSeparator:
                 not self.config.prefer_simple_chords
                 or abs(ordered[1].duration_beats - ordered[0].duration_beats) > 0.20
                 or role_split
+                or independent
             )
         ):
             return [[ordered[0]], [ordered[1]]]
@@ -294,6 +331,48 @@ class VoiceSeparator:
             if parts:
                 return parts
         return self._split_by_gap(ordered)
+
+    def _lookahead_independent_motion(
+        self,
+        ordered: list[MusicalEvent],
+        later_clusters: list[list[MusicalEvent]],
+    ) -> bool:
+        """True when a two-note stack continues as independently moving lines.
+
+        Compact repeating blocks and parallel doubling stay chords. Contrary or
+        independently stepping continuations are lines, even when
+        ``prefer_simple_chords`` would otherwise keep the first attack together.
+        """
+        if len(ordered) != 2:
+            return False
+        lo, hi = ordered[0], ordered[1]
+        onset = min(e.start_beat for e in ordered)
+        next_lo = None
+        next_hi = None
+        for cluster in later_clusters:
+            if not cluster:
+                continue
+            c_onset = min(e.start_beat for e in cluster)
+            if c_onset <= onset + 1e-9:
+                continue
+            if next_lo is None:
+                cand = min(cluster, key=lambda e: abs(e.pitch - lo.pitch))
+                if abs(cand.pitch - lo.pitch) <= 7 and c_onset <= lo.start_beat + lo.duration_beats + 2.0:
+                    next_lo = cand
+            if next_hi is None:
+                cand = min(cluster, key=lambda e: abs(e.pitch - hi.pitch))
+                if abs(cand.pitch - hi.pitch) <= 7 and c_onset <= hi.start_beat + hi.duration_beats + 2.0:
+                    next_hi = cand
+            if next_lo is not None and next_hi is not None:
+                break
+        if next_lo is None or next_hi is None or next_lo is next_hi:
+            return False
+        d_lo = next_lo.pitch - lo.pitch
+        d_hi = next_hi.pitch - hi.pitch
+        # Rigid / near-parallel block (octaves, repeating fifths) stay a chord.
+        if abs(d_lo - d_hi) <= 1:
+            return False
+        return True
 
     def _split_by_gap(self, ordered: list[MusicalEvent]) -> list[list[MusicalEvent]]:
         groups: list[list[MusicalEvent]] = [[ordered[0]]]

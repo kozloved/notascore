@@ -1129,6 +1129,50 @@ class UnderstandingPipeline:
             )
         self.last_debug.write_json(out_dir / f"{job_id}.debug.json")
         self._write_interpretation_context(job_id, out_dir)
+        self._write_editor_model_sidecar(job_id, out_dir)
+
+    def _write_editor_model_sidecar(self, job_id: str, out_dir: Path) -> None:
+        """Publish the written editor model next to MusicXML.
+
+        First editor open reads this sidecar. Without it, GET /edits falls
+        back to raw performance.json and the piano roll disagrees with OSMD.
+        """
+        events = list(self.last_quantized_events or [])
+        if not events:
+            return
+        from mir.notation_regen import editor_model_from_events
+        from score_edits import dumps_edits
+
+        meta = getattr(self, "last_score_meta", None)
+        tempo_bpm = 120.0
+        time_signature = "4/4"
+        printed = []
+        if meta is not None:
+            extra = dict(getattr(meta, "extra", None) or {})
+            if extra.get("display_bpm_exact") is not None:
+                tempo_bpm = float(extra["display_bpm_exact"])
+            elif getattr(meta, "display_tempo_bpm", None):
+                tempo_bpm = float(meta.display_tempo_bpm)
+            if getattr(meta, "time_sig_hint", None):
+                time_signature = str(meta.time_sig_hint)
+            marks = extra.get("printed_tempo") or []
+            printed = [dict(row) for row in marks if isinstance(row, dict)]
+        time_map = None
+        if self.last_timing is not None:
+            time_map = self.last_timing.time_map
+        elif getattr(self, "last_musical_time_map", None) is not None:
+            time_map = self.last_musical_time_map
+        model = editor_model_from_events(
+            events,
+            tempo_bpm=tempo_bpm,
+            time_signature=time_signature,
+            printed_marks=printed,
+            time_map=time_map,
+        )
+        (Path(out_dir) / f"{job_id}.edits.json").write_text(
+            dumps_edits(model),
+            encoding="utf-8",
+        )
 
     def _write_interpretation_context(self, job_id: str, out_dir: Path) -> None:
         """Persist the seconds-to-score-beats map used to build this score."""

@@ -483,6 +483,14 @@ def _search(groups, max_move, beam_width=24, settings=None, measure_length=None,
     dominant = max(set(families), key=families.count)
     if families.count(dominant) < max(2, (len(families) + 1) // 2):
         return path
+    # A contiguous tuplet island inside a mostly-binary swing line is a local
+    # exception. The downbeat is often an integer, so two consecutive triplet
+    # offbeats are enough to keep the group. Do not disable triplets for the
+    # whole voice to unify spelling.
+    if dominant == "binary" and _longest_family_run(path, "triplet") >= 2:
+        return path
+    if dominant == "triplet" and _longest_family_run(path, "binary") >= 3:
+        return path
     preferred = _settings(settings.to_dict())
     if dominant == "triplet" and preferred.triplet_policy == TripletPolicy.AUTO:
         preferred = preferred.replace(triplet_policy=TripletPolicy.ENABLED)
@@ -499,6 +507,19 @@ def _search(groups, max_move, beam_width=24, settings=None, measure_length=None,
     if len(alt) != len(path):
         return path
     return alt
+
+
+def _longest_family_run(path, family: str) -> int:
+    longest = 0
+    current = 0
+    for _onset, row_family in path:
+        if row_family == family:
+            current += 1
+            if current > longest:
+                longest = current
+        else:
+            current = 0
+    return longest
 
 
 def _search_beam(groups, max_move, beam_width, settings, measure_length=None, exceptions=None):
@@ -747,10 +768,17 @@ def _duration(
         named.add(to_bar)
     # max_dots changes spelling (ties), not the selected musical duration.
     if preserve:
-        exact = min(named, key=lambda d: abs(float(d) - raw))
-        if abs(float(exact) - raw) < 1e-7:
-            return exact
-    # Preserve-overlap wins over an inferred pedal-tail cutoff.
+        nearest = min(
+            named,
+            key=lambda d: (abs(float(d) - raw), d.denominator, d),
+        )
+        # Literal always keeps the nearest named value. Saved v1 Readable
+        # only short-circuits on an exact named duration, matching main.
+        if settings.preserve_performed_durations() or abs(float(nearest) - raw) < 1e-7:
+            return nearest
+    # Reattack / pedal-tail means write to the next accepted attack. Independent
+    # overlapping unisons and long holds through a same-pitch interrupter are
+    # classified as overlapping_repeat before this point, so they never cap.
     if (
         settings.overlap_handling != OverlapHandling.PRESERVE
         and release_reason in {"pedal_tail", "reattack"}
@@ -798,6 +826,8 @@ def _duration(
         release_reason=release_reason,
         settings=settings,
         local_pulse=local_pulse if family == "triplet" else None,
+        beat_length=beat_length,
+        measure_length=measure_length,
     )
     if filled is not None:
         return filled
@@ -812,6 +842,44 @@ def _duration(
             beat_length=beat_length,
         ),
     )
+
+
+def _metrical_duration_slots(onset, to_bar, beat_length, next_onset, measure_length):
+    """Release targets on actual beats and bars, not onset + N beats.
+
+    An offbeat onset of 0.25 plus one beat lands at 1.25, which is not a
+    metrical boundary. Candidates are the next attack, the next beat or bar
+    *position*, and the remaining distance to the barline.
+    """
+    slots = []
+    onset = Fraction(onset)
+    if next_onset is not None:
+        ioi = Fraction(next_onset) - onset
+        if ioi > 0:
+            slots.append(ioi)
+    if beat_length is not None and Fraction(beat_length) > 0 and measure_length is not None:
+        measure_length = Fraction(measure_length)
+        beat = Fraction(beat_length)
+        if measure_length > 0:
+            bar_pos = onset % measure_length
+            bar_start = onset - bar_pos
+            k = 1
+            limit = Fraction(to_bar) if to_bar is not None and Fraction(to_bar) > 0 else measure_length
+            while k <= 32:
+                target = bar_start + beat * k
+                if target <= onset + Fraction(1, 10**9):
+                    k += 1
+                    continue
+                dur = target - onset
+                if next_onset is not None and onset + dur > Fraction(next_onset) + Fraction(1, 10**9):
+                    break
+                slots.append(dur)
+                if dur >= limit - Fraction(1, 10**9):
+                    break
+                k += 1
+    if to_bar is not None and Fraction(to_bar) > 0:
+        slots.append(Fraction(to_bar))
+    return slots
 
 
 def _triplet_slot_candidate(interval):
@@ -894,20 +962,20 @@ def _readable_v2_fill_small_release_gap(
     release_reason,
     settings,
     local_pulse=None,
+    beat_length=None,
+    measure_length=None,
 ):
-    """Opt-in readable-v2: leftover gaps that are articulation, not rests.
+    """Readable: leftover gaps that are articulation, not rests.
 
-    Case A (detached quarters with ~80ms releases) should be written as quarters.
-    Case B and short_rests_repeats keep visible rests. A leftover smaller than
-    a sixteenth is not enough by itself. Independent holds are left alone.
-    This never extends a note past the next attack or past the barline, and it
-    does not run on the default engine.
+    Detached regular notes fill to the next attack, beat, or bar when the
+    leftover is a small fraction of that slot and smaller than the sounding
+    note. Intentional short notes plus rests (remaining ≥ sounding duration)
+    stay distinct. Independent holds are left alone. Never extend past the
+    next attack or the barline.
 
-    When a triplet group ends (no next onset, or the next attack is too far
-    to be this pulse), the preceding triplet interval is a virtual IOI. The
-    last note then uses the same remaining < sixteenth rule as its siblings.
-    Already-notated tuplets are not inferred here; they are preserved by
-    ``as_score_fraction`` / locked timing.
+    ``performance-score-1`` does not run this pass (saved-score compatibility).
+    Tuplets use ``local_pulse`` for group endings; locked timing is preserved
+    by ``as_score_fraction`` before this function is called.
     """
     if not settings.uses_improved_readable():
         return None
@@ -920,11 +988,7 @@ def _readable_v2_fill_small_release_gap(
     }:
         return None
     sixteenth = 0.25
-    if next_onset is not None:
-        ioi = Fraction(next_onset) - Fraction(onset)
-        remaining = float(ioi) - float(raw)
-        if _readable_v2_gap_is_articulation(raw, remaining, float(ioi), sixteenth):
-            return ioi
+    slots = []
     pulse = _triplet_local_pulse(local_pulse)
     if pulse is not None:
         remaining = float(pulse) - float(raw)
@@ -932,42 +996,680 @@ def _readable_v2_fill_small_release_gap(
             written_end = Fraction(onset) + pulse
             if next_onset is None or written_end <= Fraction(next_onset) + Fraction(1, 10**9):
                 return pulse
-    if to_bar is not None and Fraction(to_bar) > 0:
-        remaining = float(to_bar) - float(raw)
-        if _readable_v2_gap_is_articulation(raw, remaining, float(to_bar), sixteenth):
-            return Fraction(to_bar)
-    return None
+    if settings.uses_phrase_readable():
+        slots.extend(
+            _metrical_duration_slots(
+                onset, to_bar, beat_length, next_onset, measure_length
+            )
+        )
+    else:
+        if next_onset is not None:
+            ioi = Fraction(next_onset) - Fraction(onset)
+            if ioi > 0:
+                slots.append(ioi)
+        if beat_length is not None and Fraction(beat_length) > 0:
+            unit = Fraction(beat_length)
+            step = 1
+            limit = Fraction(to_bar) if to_bar is not None and Fraction(to_bar) > 0 else unit * 8
+            while True:
+                slot = unit * step
+                if slot > limit + Fraction(1, 10**9):
+                    break
+                slots.append(slot)
+                step += 1
+                if step > 16:
+                    break
+        if to_bar is not None and Fraction(to_bar) > 0:
+            slots.append(Fraction(to_bar))
+    best = None
+    for slot in slots:
+        if slot <= 0:
+            continue
+        if next_onset is not None and Fraction(onset) + slot > Fraction(next_onset) + Fraction(1, 10**9):
+            continue
+        remaining = float(slot) - float(raw)
+        if _readable_v2_gap_is_articulation(raw, remaining, float(slot), sixteenth):
+            if best is None or slot < best:
+                best = slot
+    return best
 
 
 def _readable_v2_gap_is_articulation(raw, remaining, slot, sixteenth):
-    """A small absolute leftover is not enough to prove detached playing.
+    """Leftover is performance release, not a written rest.
 
-    Detached quarters (80ms of a beat) fill. A sixteenth plus a rest that
-    happens to leave less than a sixteenth of leftover stays a rest.
-    Triplet group-ends use ``local_pulse`` and do not go through this test.
-    Boundary leftover ratios are treated as ambiguous and keep the rest.
+    Detached quarters (small leftover on a beat) fill. A note that is as
+    short as the leftover (sixteenth plus rest) stays a rest. Relative leftover
+    must stay under one-fifth of the written slot so 1.75→2.0 can fill while
+    0.75+rest on a quarter does not. Triplet group-ends use ``local_pulse``.
     """
     raw_f = Fraction(raw).limit_denominator(64)
     rem_f = Fraction(remaining).limit_denominator(64)
     slot_f = Fraction(slot).limit_denominator(64)
-    sixteenth_f = Fraction(sixteenth).limit_denominator(64)
-    if slot_f <= 0 or rem_f < 0 or rem_f >= sixteenth_f:
+    if slot_f <= 0 or rem_f < 0:
         return False
     if rem_f >= raw_f:
         return False
-    return rem_f / slot_f < Fraction(1, 5)
+    if rem_f / slot_f >= Fraction(1, 5):
+        return False
+    # An eighth rest (0.5) is already a written rest, not a release. Allow
+    # 1.75→2.0 (0.25 leftover) without filling 2.5→3.0.
+    if rem_f >= Fraction(7, 16):
+        return False
+    return True
 
 
 _SHARED_BEAT_WINDOW = 0.13
+_CHORD_COINCIDENCE_WINDOW = 0.08
+_CHORD_UNIFY_SPREAD = 0.5
+_CHORD_UNIFY_RELATIVE = 0.18
+_CHORD_COMPACT_SPAN = 14
+
+_PHRASE_PULSES = (
+    Fraction(1),
+    Fraction(1, 2),
+    Fraction(1, 4),
+    Fraction(1, 8),
+    Fraction(1, 3),
+    Fraction(2, 3),
+    Fraction(1, 6),
+    Fraction(3, 4),
+    Fraction(3, 2),
+    Fraction(2),
+    Fraction(3),
+    Fraction(4),
+)
+
+
+def _snap_phrase_pulse(ioi):
+    if ioi is None or ioi <= 0:
+        return None
+    best = None
+    for pulse in _PHRASE_PULSES:
+        err = abs(float(ioi) - float(pulse))
+        if err <= 0.08 and (best is None or err < best[0]):
+            best = (err, pulse)
+    return None if best is None else best[1]
+
+
+def _measure_number(onset, measure_length) -> int:
+    if measure_length is None:
+        return 1
+    length = Fraction(measure_length)
+    if length <= 0:
+        return 1
+    return int(Fraction(onset) / length) + 1
+
+
+def _settings_at_onset(settings, onset, measure_length) -> NotationSettings:
+    return settings.resolved_for_measure(_measure_number(onset, measure_length))
+
+
+def _has_readable_override(settings) -> bool:
+    return any(
+        override.interpretation == Interpretation.READABLE
+        for override in (settings.measure_overrides or ())
+        if override.interpretation is not None
+    )
+
+
+def _attack_groups_in_voice(ordered, exact):
+    """Same-onset different-pitch members in one musical voice are one attack.
+
+    Overlapping unisons (same pitch) stay separate. A long inner hold that
+    merely shares an onset with shorter chord mates is not one attack: duration
+    spread is the evidence that the lines are independent.
+    """
+    groups = []
+    for ev in ordered:
+        onset = exact[ev.note_id][0]
+        duration = exact[ev.note_id][1]
+        if groups:
+            prev = groups[-1]
+            prev_onset = exact[prev[0].note_id][0]
+            if abs(float(onset) - float(prev_onset)) <= 1e-9 and all(
+                ev.pitch != other.pitch for other in prev
+            ):
+                durs = [exact[other.note_id][1] for other in prev] + [duration]
+                spread = float(max(durs) - min(durs))
+                if spread < _CHORD_UNIFY_SPREAD:
+                    prev.append(ev)
+                    continue
+        groups.append([ev])
+    return groups
+
+
+def _phrase_readable_at(attack, exact, settings, measure_length) -> bool:
+    onset = exact[attack[0].note_id][0]
+    return _settings_at_onset(settings, onset, measure_length).uses_phrase_readable()
+
+
+def _is_phrase_protected(ev, exact, settings, measure_length) -> bool:
+    if getattr(ev, "score_timing_locked", False):
+        return True
+    return not _settings_at_onset(
+        settings, exact[ev.note_id][0], measure_length
+    ).uses_phrase_readable()
+
+
+def _next_later_attack(phrase, index, exact):
+    onset = exact[phrase[index][0].note_id][0]
+    for later in phrase[index + 1 :]:
+        later_onset = exact[later[0].note_id][0]
+        if later_onset > onset:
+            return later[0]
+    return None
+
+
+def _split_voice_phrases(attacks, exact, settings=None, measure_length=None):
+    """Split a voice on irregular onset gaps and interpretation boundaries."""
+    if not attacks:
+        return []
+    if len(attacks) == 1:
+        return [list(attacks)]
+    phrases = []
+    current = [attacks[0]]
+    seen = []
+    prev_flag = (
+        _phrase_readable_at(attacks[0], exact, settings, measure_length)
+        if settings is not None
+        else True
+    )
+    for attack in attacks[1:]:
+        onset = float(exact[attack[0].note_id][0])
+        prev_onset = float(exact[current[-1][0].note_id][0])
+        ioi = onset - prev_onset
+        flag = (
+            _phrase_readable_at(attack, exact, settings, measure_length)
+            if settings is not None
+            else prev_flag
+        )
+        recent = seen[-3:] or ([ioi] if ioi > 0 else [0.0])
+        typical = sorted(recent)[len(recent) // 2]
+        gap = (
+            ioi > 0
+            and typical > 0
+            and ioi >= max(2.0, typical * 1.85)
+            and ioi - typical >= 0.75
+        )
+        if flag != prev_flag or gap:
+            phrases.append(current)
+            current = [attack]
+            seen = []
+        else:
+            current.append(attack)
+            if ioi > 0:
+                seen.append(ioi)
+        prev_flag = flag
+    phrases.append(current)
+    return phrases
+
+
+def _phrase_ioi(ev, nxt, exact, pulse, to_bar):
+    onset = exact[ev.note_id][0]
+    if nxt is not None:
+        ioi = exact[nxt.note_id][0] - onset
+        if ioi > 0:
+            return Fraction(ioi)
+    if pulse is not None and pulse > 0:
+        if to_bar is None or pulse <= Fraction(to_bar) + Fraction(1, 10**9):
+            return pulse
+    return None
+
+
+def _is_phrase_detached(raw, ioi):
+    """True when a leftover looks like articulation of a repeated written value.
+
+    Mixed-release quarters (0.74–0.83 of the pulse) fill. Short notes with a
+    real rest (~0.64 of an irregular IOI, or remaining ≥ sounding duration)
+    stay short. This is stricter than the local leftover threshold so a
+    phrase of similar releases can still unify 0.77/0.83 without absorbing
+    genuine short-note/rest patterns.
+    """
+    if ioi is None or ioi <= 0:
+        return False
+    rem = float(ioi) - float(raw)
+    if rem < -1e-9:
+        return False
+    if rem >= float(raw) - 1e-9:
+        return False
+    if float(raw) / float(ioi) < 0.74:
+        return False
+    return True
+
+
+def _readable_phrase_unify_durations(
+    events,
+    exact,
+    settings,
+    raw_by_id,
+    *,
+    measure_length=Fraction(4),
+    beat_length=Fraction(1),
+):
+    """Rewrite a voice's written durations jointly over a measure or short phrase.
+
+    Local leftover thresholds can alternate 0.75 and 1.0 on a detached quarter
+    line. When neighboring attacks share pulse and similar release ratios,
+    prefer one conventional value. A chord is one attack. Isolated shorts,
+    independent holds, locked timing, Literal override measures, and
+    substantial pauses stay put and cap neighbors.
+    """
+    settings = _settings(settings)
+    adjustments = {}
+    if not settings.uses_phrase_readable() and not _has_readable_override(settings):
+        return events, exact, adjustments
+    measure_length = Fraction(measure_length)
+    groups = defaultdict(list)
+    for ev in events:
+        line = ev.musical_voice if ev.musical_voice is not None else ev.voice
+        groups[(ev.hand, line, ev.source_track_id)].append(ev)
+    new_exact = dict(exact)
+    for group in groups.values():
+        ordered = sorted(group, key=lambda e: (exact[e.note_id][0], e.pitch, e.note_id))
+        attacks = _attack_groups_in_voice(ordered, exact)
+        for phrase in _split_voice_phrases(
+            attacks, exact, settings=settings, measure_length=measure_length
+        ):
+            if len(phrase) < 2:
+                continue
+            snapped_iois = []
+            for attack, nxt in zip(phrase, phrase[1:]):
+                delta = exact[nxt[0].note_id][0] - exact[attack[0].note_id][0]
+                if delta <= 0:
+                    continue
+                snapped = _snap_phrase_pulse(delta)
+                if snapped is not None:
+                    snapped_iois.append(snapped)
+            if not snapped_iois:
+                continue
+            pulse = max(set(snapped_iois), key=snapped_iois.count)
+            needed = max(2, (len(phrase) * 3 + 4) // 5)
+            if snapped_iois.count(pulse) < needed:
+                continue
+            eligible = []
+            for index, attack in enumerate(phrase):
+                nxt = _next_later_attack(phrase, index, new_exact)
+                onset = new_exact[attack[0].note_id][0]
+                bar_pos = onset % measure_length if measure_length > 0 else Fraction(0)
+                to_bar = measure_length - bar_pos if measure_length > 0 else None
+                ioi = _phrase_ioi(attack[0], nxt, new_exact, pulse, to_bar)
+                members = []
+                for ev in attack:
+                    if _is_phrase_protected(ev, new_exact, settings, measure_length):
+                        continue
+                    source = raw_by_id.get(ev.note_id)
+                    raw = source.duration_beats if source is not None else float(ev.duration_beats)
+                    if ioi is None or not _is_phrase_detached(raw, ioi):
+                        continue
+                    if nxt is None and float(ioi) - float(raw) >= 0.5:
+                        continue
+                    members.append((ev, ioi, raw))
+                if members:
+                    eligible.append(members)
+            if len(eligible) < needed:
+                continue
+            candidates = [item for members in eligible for item in members]
+            ratios = [c[2] / float(c[1]) for c in candidates]
+            if max(ratios) - min(ratios) > 0.22:
+                continue
+            for ev, ioi, raw in candidates:
+                onset, duration, family, group_id = new_exact[ev.note_id]
+                chosen = Fraction(ioi).limit_denominator(48)
+                if chosen <= 0 or abs(float(chosen) - float(duration)) <= 1e-9:
+                    continue
+                new_exact[ev.note_id] = (onset, chosen, family, group_id)
+                adjustments[ev.note_id] = {
+                    "from": float(duration),
+                    "to": float(chosen),
+                    "reason": "readable_phrase_duration",
+                    "pulse": float(pulse),
+                    "performed": float(raw),
+                }
+    if not adjustments:
+        return events, exact, adjustments
+    updated = []
+    for ev in events:
+        if ev.note_id not in adjustments:
+            updated.append(ev)
+            continue
+        duration = new_exact[ev.note_id][1]
+        updated.append(copy_event(ev, duration_beats=float(duration)))
+    return updated, new_exact, adjustments
+
+
+_DETACHED_PULSE_MIN_ATTACKS = 2
+_DETACHED_PULSE_MIN_ELIGIBLE_ONSETS = 2
+_DETACHED_PULSE_ELIGIBLE_SHARE = 0.5
+_DETACHED_RATIO_LO = 0.12
+_DETACHED_RATIO_HI = 0.45
+_DETACHED_RATIO_SPREAD = 0.30
+_DETACHED_PITCH_GAP = 8
+
+
+def _cluster_unique_onsets(exact, events):
+    clustered = []
+    for onset in sorted(Fraction(exact[ev.note_id][0]) for ev in events):
+        if clustered and abs(float(onset) - float(clustered[-1])) <= _CHORD_COINCIDENCE_WINDOW:
+            continue
+        clustered.append(onset)
+    return clustered
+
+
+def _next_clustered_onset(onsets, current):
+    for onset in onsets:
+        if float(onset) > float(current) + 1e-9:
+            return onset
+    return None
+
+
+def _detached_line_key(ev) -> tuple:
+    line = ev.musical_voice if ev.musical_voice is not None else ev.voice
+    return (ev.hand, line, ev.source_track_id)
+
+
+def _on_pulse_grid(onset, pulse, phase=0):
+    if pulse is None or pulse <= 0:
+        return False
+    width = float(pulse)
+    rel = (float(onset) - float(phase)) % width
+    return min(rel, width - rel) <= _CHORD_COINCIDENCE_WINDOW
+
+
+def _onset_phase(onsets, pulse):
+    if not onsets or pulse is None or pulse <= 0:
+        return 0
+    return float(onsets[0]) % float(pulse)
+
+
+def _detached_pulse_of(onsets):
+    iois = [later - earlier for earlier, later in zip(onsets, onsets[1:]) if later > earlier]
+    snapped = []
+    for ioi in iois:
+        value = _snap_phrase_pulse(ioi)
+        if value is not None:
+            snapped.append(value)
+    if not snapped:
+        return None
+    pulse = max(set(snapped), key=snapped.count)
+    needed = max(1, (len(snapped) * 3 + 4) // 5)
+    if snapped.count(pulse) < needed:
+        return None
+    return pulse
+
+
+def _written_detached_pulse(stream_pulse, onsets, beat_length):
+    """Prefer the metrical beat when a sparse on-beat stream's IOI is longer.
+
+    Bass every three beats still writes quarters plus rests. A regular
+    subdivision faster than the beat keeps that subdivision.
+    """
+    beat = Fraction(beat_length) if beat_length and beat_length > 0 else None
+    if stream_pulse is None:
+        if beat is not None and onsets and all(_on_pulse_grid(onset, beat) for onset in onsets):
+            return beat
+        return None
+    if (
+        beat is not None
+        and stream_pulse > beat + Fraction(1, 10**9)
+        and all(_on_pulse_grid(onset, beat) for onset in onsets)
+    ):
+        return beat
+    return stream_pulse
+
+
+def _is_detached_hold(ev, raw, pulse, onset, next_onset, exact):
+    if float(raw) >= 2.0 * float(pulse) - 1e-9:
+        return True
+    written = exact[ev.note_id][1]
+    if float(written) >= 2.0 * float(pulse) - 1e-9:
+        return True
+    if next_onset is not None and float(onset) + float(raw) > float(next_onset) + 0.04:
+        return True
+    return False
+
+
+def _pitch_bands(events, *, gap=_DETACHED_PITCH_GAP):
+    pitches = sorted({ev.pitch for ev in events})
+    if not pitches:
+        return []
+    cuts = [0]
+    for index, (prev, cur) in enumerate(zip(pitches, pitches[1:]), start=1):
+        if cur - prev >= gap:
+            cuts.append(index)
+    cuts.append(len(pitches))
+    bands = []
+    for start, end in zip(cuts, cuts[1:]):
+        band_pitches = set(pitches[start:end])
+        bands.append([ev for ev in events if ev.pitch in band_pitches])
+    return [band for band in bands if band]
+
+
+def _band_onset_keys(band, exact):
+    return {round(float(onset), 4) for onset in _cluster_unique_onsets(exact, band)}
+
+
+def _median_onset_leap(events):
+    by_onset = defaultdict(list)
+    for ev in events:
+        by_onset[round(ev.start_beat, 4)].append(ev.pitch)
+    contour = [mean(pitches) for _, pitches in sorted(by_onset.items())]
+    leaps = [abs(later - earlier) for earlier, later in zip(contour, contour[1:])]
+    if not leaps:
+        return 0.0
+    leaps.sort()
+    return leaps[len(leaps) // 2]
+
+
+def _split_interlocking_layers(events, exact):
+    """Split complementary registers that do not share attacks.
+
+    Coordinated chords and octaves share onsets and stay one stream. A
+    connected arpeggio (small time-ordered leaps) also stays one stream.
+    Offbeat accompaniment in another register is a separate rhythmic stream
+    even on the same staff or musical_voice.
+    """
+    bands = _pitch_bands(events)
+    if len(bands) <= 1:
+        return [events]
+    parent = list(range(len(bands)))
+
+    def find(index):
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left, right):
+        root_left, root_right = find(left), find(right)
+        if root_left != root_right:
+            parent[root_right] = root_left
+
+    keys = [_band_onset_keys(band, exact) for band in bands]
+    for i in range(len(bands)):
+        for j in range(i + 1, len(bands)):
+            if keys[i] & keys[j]:
+                union(i, j)
+    merged = defaultdict(list)
+    for index, band in enumerate(bands):
+        merged[find(index)].extend(band)
+    layers = list(merged.values())
+    if len(layers) <= 1:
+        return [events]
+    if _median_onset_leap(events) <= _DETACHED_PITCH_GAP:
+        return [events]
+    return layers
+
+
+def _detached_stream_groups(events, exact):
+    groups = defaultdict(list)
+    for ev in events:
+        groups[_detached_line_key(ev)].append(ev)
+    streams = []
+    for group in groups.values():
+        streams.extend(_split_interlocking_layers(group, exact))
+    return streams
+
+
+def _detached_mark(ev):
+    if (ev.articulation_source or "") == "user_edit":
+        return ev.articulation or None, "user_edit"
+    if ev.articulation:
+        source = ev.articulation_source or "supplied"
+        return ev.articulation, source
+    return "staccato", "inferred"
+
+
+def _readable_unify_detached_pulse(
+    events,
+    exact,
+    settings,
+    raw_by_id,
+    *,
+    measure_length=Fraction(4),
+    beat_length=Fraction(1),
+):
+    """Rewrite strongly detached pulse playing as conventional written values.
+
+    Pulse and duration are inferred inside coherent streams: a chord is one
+    attack, and a foreign voice must not truncate the written value. Short
+    phrases fill when metrical position, a repeated pulse, and release
+    consistency agree. Skipped beats, mixed-release interiors, locked timing,
+    and Literal measures stay put. Readable convention, not recovered intent.
+    """
+    settings = _settings(settings)
+    adjustments = {}
+    if not settings.uses_phrase_readable() and not _has_readable_override(settings):
+        return events, exact, adjustments
+    measure_length = Fraction(measure_length)
+    beat_length = Fraction(beat_length) if beat_length else Fraction(1)
+    new_exact = dict(exact)
+    updated_by_id = {}
+    for stream in _detached_stream_groups(events, exact):
+        ordered = sorted(stream, key=lambda e: (exact[e.note_id][0], e.pitch, e.note_id))
+        attacks = _attack_groups_in_voice(ordered, exact)
+        pulse_hint = None
+        hint_phase = 0.0
+        for phrase in _split_voice_phrases(
+            attacks, exact, settings=settings, measure_length=measure_length
+        ):
+            members = [ev for attack in phrase for ev in attack]
+            onsets = _cluster_unique_onsets(new_exact, members)
+            neighbor = pulse_hint is not None
+            if len(onsets) < (_DETACHED_PULSE_MIN_ATTACKS if not neighbor else 1):
+                pulse_hint = None
+                continue
+            stream_pulse = _detached_pulse_of(onsets)
+            pulse = _written_detached_pulse(stream_pulse, onsets, beat_length)
+            if pulse is None and neighbor:
+                pulse = pulse_hint
+            if pulse is None or pulse <= 0:
+                pulse_hint = None
+                continue
+            phase = _onset_phase(onsets, pulse) if not neighbor else hint_phase
+            eligible = []
+            eligible_onsets = set()
+            for ev in members:
+                if _is_phrase_protected(ev, new_exact, settings, measure_length):
+                    continue
+                onset = new_exact[ev.note_id][0]
+                if not _on_pulse_grid(onset, pulse, phase):
+                    continue
+                nxt = _next_clustered_onset(onsets, onset)
+                source = raw_by_id.get(ev.note_id)
+                raw = source.duration_beats if source is not None else float(ev.duration_beats)
+                if _is_detached_hold(ev, raw, pulse, onset, nxt, new_exact):
+                    continue
+                ratio = float(raw) / float(pulse)
+                if ratio < _DETACHED_RATIO_LO or ratio > _DETACHED_RATIO_HI:
+                    continue
+                eligible.append((ev, onset, nxt, raw, ratio))
+                eligible_onsets.add(round(float(onset), 6))
+            min_eligible = 1 if neighbor else _DETACHED_PULSE_MIN_ELIGIBLE_ONSETS
+            if len(eligible_onsets) < min_eligible:
+                pulse_hint = None
+                continue
+            if not neighbor and len(eligible_onsets) / len(onsets) < _DETACHED_PULSE_ELIGIBLE_SHARE - 1e-9:
+                pulse_hint = None
+                continue
+            ratios = [item[4] for item in eligible]
+            if max(ratios) - min(ratios) > _DETACHED_RATIO_SPREAD:
+                pulse_hint = None
+                continue
+            filled = False
+            for ev, onset, nxt, raw, _ratio in eligible:
+                bar_pos = onset % measure_length if measure_length > 0 else Fraction(0)
+                to_bar = measure_length - bar_pos if measure_length > 0 else None
+                chosen = Fraction(pulse).limit_denominator(48)
+                truncated_by_stream = False
+                if nxt is not None:
+                    until_next = Fraction(nxt) - Fraction(onset)
+                    if until_next < chosen:
+                        chosen = until_next
+                        truncated_by_stream = True
+                # A barline is an engraving boundary. Duration inference stays
+                # on the logical note; canonical spelling splits it into ties.
+                # The last attack of a phrase does not invent a continuation
+                # into empty following space.
+                if nxt is None and to_bar is not None and to_bar > 0:
+                    chosen = min(chosen, Fraction(to_bar))
+                if chosen <= 0:
+                    continue
+                if truncated_by_stream and float(chosen) < float(pulse) * 0.75 - 1e-9:
+                    continue
+                current_onset, duration, family, group_id = new_exact[ev.note_id]
+                mark, source = _detached_mark(ev)
+                filled = True
+                if abs(float(chosen) - float(duration)) <= 1e-9:
+                    if source != "user_edit" and not ev.articulation:
+                        updated_by_id[ev.note_id] = copy_event(
+                            ev, articulation=mark, articulation_source=source
+                        )
+                    continue
+                new_exact[ev.note_id] = (current_onset, chosen, family, group_id)
+                if source == "user_edit":
+                    updated = copy_event(ev, duration_beats=float(chosen))
+                else:
+                    updated = copy_event(
+                        ev,
+                        duration_beats=float(chosen),
+                        articulation=mark,
+                        articulation_source=source,
+                    )
+                updated_by_id[ev.note_id] = updated
+                adjustments[ev.note_id] = {
+                    "from": float(duration),
+                    "to": float(chosen),
+                    "reason": "readable_detached_pulse",
+                    "pulse": float(pulse),
+                    "performed": float(raw),
+                    "articulation": updated.articulation,
+                    "articulation_source": updated.articulation_source,
+                }
+            if filled:
+                pulse_hint = pulse
+                hint_phase = phase
+            else:
+                pulse_hint = None
+    if not adjustments and not updated_by_id:
+        return events, exact, adjustments
+    updated = []
+    for ev in events:
+        replacement = updated_by_id.get(ev.note_id)
+        updated.append(replacement if replacement is not None else ev)
+    return updated, new_exact, adjustments
 
 
 def _voice_is_fast_near(ev, ordered_same_voice, *, window=0.35) -> bool:
-    """True when the local same-voice stream is a rapid figure, not a held tone."""
+    """True when the local same-voice stream is a rapid figure, not a held tone.
+
+    Simultaneous chord mates do not count; only sequential attacks in the
+    local window are a fast figure.
+    """
     neighbors = sum(
         1
         for other in ordered_same_voice
         if other.note_id != ev.note_id
-        and abs(other.start_beat - ev.start_beat) < window
+        and _CHORD_COINCIDENCE_WINDOW < abs(other.start_beat - ev.start_beat) < window
     )
     return neighbors >= 2
 
@@ -979,17 +1681,26 @@ def _readable_align_shared_onsets(
     *,
     max_move,
     settings,
+    measure_length=None,
 ):
     """Align near-simultaneous cross-line attacks onto one simpler Readable beat.
 
     Covers delayed melody entries against bass/accompaniment when the performed
     gap is within a 32nd-ish window. Literal mode, locked timing, tuplets, and
-    fast local streams are left alone.
+    fast local streams are left alone. Saved v1 Readable still runs this
+    cross-line path; chord coincidence stays on v2 and current.
     """
     settings = _settings(settings)
     adjustments = {}
-    if settings.interpretation != Interpretation.READABLE:
-        return onset_by_id, adjustments
+
+    def _event_local(ev):
+        onset = onset_by_id.get(ev.note_id, ev.start_beat)
+        return _settings_at_onset(settings, onset, measure_length)
+
+    def _onset_readable(ev) -> bool:
+        if getattr(ev, "score_timing_locked", False):
+            return False
+        return _event_local(ev).interpretation == Interpretation.READABLE
 
     by_voice = defaultdict(list)
     for ev in events:
@@ -1000,7 +1711,7 @@ def _readable_align_shared_onsets(
     ordered = sorted(events, key=lambda e: (e.start_beat, e.pitch, e.note_id))
     clusters = []
     for ev in ordered:
-        if getattr(ev, "score_timing_locked", False):
+        if not _onset_readable(ev):
             continue
         if clusters and ev.start_beat - clusters[-1][0].start_beat <= _SHARED_BEAT_WINDOW:
             clusters[-1].append(ev)
@@ -1018,22 +1729,30 @@ def _readable_align_shared_onsets(
             {"melody"} & role_names
             and role_names & {"bass", "accompaniment"}
         )
+        members = cluster
+        reason = "readable_shared_beat"
         if not cross_line:
-            continue
+            if not all(_event_local(ev).uses_improved_readable() for ev in cluster):
+                continue
+            members = _compact_chord_coincidence(cluster)
+            if len(members) < 2:
+                continue
+            reason = "readable_chord_coincidence"
         if any(
             _voice_is_fast_near(ev, by_voice[(ev.hand, ev.voice, ev.source_track_id)])
-            for ev in cluster
+            for ev in members
         ):
             continue
-        current = [onset_by_id[ev.note_id] for ev in cluster]
+        current = [onset_by_id[ev.note_id] for ev in members]
         if len(set(current)) == 1:
             continue
-        # Do not flatten an already-exact tuplet spelling.
-        if any(onset.denominator % 3 == 0 for onset in current):
+        # Do not flatten an already-exact tuplet spelling. Humanized chord
+        # members can land on a 1/24 grid without being a tuplet figure.
+        if cross_line and any(onset.denominator % 3 == 0 for onset in current):
             continue
 
-        raw_min = min(ev.start_beat for ev in cluster)
-        raw_mean = mean(ev.start_beat for ev in cluster)
+        raw_min = min(ev.start_beat for ev in members)
+        raw_mean = mean(ev.start_beat for ev in members)
         anchors = set(current)
         for center in (raw_min, raw_mean):
             for denominator in (1, 2, 4):
@@ -1044,20 +1763,20 @@ def _readable_align_shared_onsets(
         for cand in anchors:
             if cand < 0 or cand.denominator % 3 == 0:
                 continue
-            if any(abs(float(cand) - ev.start_beat) > max_move for ev in cluster):
+            if any(abs(float(cand) - ev.start_beat) > max_move for ev in members):
                 continue
-            cost = sum(abs(float(cand) - ev.start_beat) for ev in cluster)
+            cost = sum(abs(float(cand) - ev.start_beat) for ev in members)
             cost += 0.012 * max(0, cand.denominator - 1)
             if any(
                 onset_by_id[ev.note_id] == cand and cand.denominator <= 2
-                for ev in cluster
+                for ev in members
             ):
                 cost -= 0.05
             role_boost = any(
                 roles.get(ev.note_id, ("",))[0] in {"bass", "accompaniment"}
                 and abs(float(cand) - ev.start_beat)
                 <= abs(float(onset_by_id[ev.note_id]) - ev.start_beat) + 1e-9
-                for ev in cluster
+                for ev in members
             )
             if role_boost and cand.denominator <= 2:
                 cost -= 0.03
@@ -1065,7 +1784,7 @@ def _readable_align_shared_onsets(
                 best, best_cost = cand, cost
         if best is None:
             continue
-        for ev in cluster:
+        for ev in members:
             prev = onset_by_id[ev.note_id]
             if prev == best:
                 continue
@@ -1073,16 +1792,137 @@ def _readable_align_shared_onsets(
             adjustments[ev.note_id] = {
                 "from": float(prev),
                 "to": float(best),
-                "reason": "readable_shared_beat",
+                "reason": reason,
             }
     return onset_by_id, adjustments
+
+
+def _compact_chord_coincidence(cluster):
+    """Humanized same-hand chord members, not a 32nd displacement or mixed-release.
+
+    Window is tighter than cross-line shared-beat alignment so deliberate
+    syncopation and fast figures stay put.
+    """
+    if len({ev.hand for ev in cluster}) != 1:
+        return []
+    ordered = sorted(cluster, key=lambda e: (e.start_beat, e.pitch, e.note_id))
+    first = ordered[0].start_beat
+    members = [ev for ev in ordered if ev.start_beat - first <= _CHORD_COINCIDENCE_WINDOW]
+    if len(members) < 2:
+        return []
+    pitches = [ev.pitch for ev in members]
+    if max(pitches) - min(pitches) > _CHORD_COMPACT_SPAN:
+        return []
+    durs = [float(ev.duration_beats) for ev in members]
+    if max(durs) - min(durs) >= 0.85:
+        return []
+    if len({ev.pitch for ev in members}) != len(members):
+        return []
+    if not _members_overlap_as_chord(members):
+        return []
+    return members
+
+
+def _members_overlap_as_chord(members) -> bool:
+    """True when staggered attacks share a release, not a consecutive run.
+
+    Pitches 60/64/67 at 0, 1/16, 1/8 each lasting 1/16 are a run: duration
+    does not outlast the onset spread and overlap is empty. A humanized
+    C–E–G with ~2-beat members and 30–50ms stagger overlaps substantially.
+    """
+    if len(members) < 2:
+        return False
+    ordered = sorted(members, key=lambda e: (e.start_beat, e.pitch, e.note_id))
+    spread = ordered[-1].start_beat - ordered[0].start_beat
+    min_dur = min(float(e.duration_beats) for e in ordered)
+    if min_dur <= spread + 1e-9:
+        return False
+    first = ordered[0]
+    first_end = first.start_beat + first.duration_beats
+    for other in ordered[1:]:
+        other_end = other.start_beat + other.duration_beats
+        overlap = min(first_end, other_end) - max(first.start_beat, other.start_beat)
+        if overlap <= 0:
+            return False
+        if overlap < 0.5 * min(first.duration_beats, other.duration_beats):
+            return False
+    return True
+
+
+def _readable_unify_chord_durations(events, exact, settings, measure_length=None):
+    """Give humanized chord mates one written duration when evidence agrees.
+
+    Independent mixed-release holds, overlapping unisons, and tuplets of
+    different families stay distinct. Literal mode does not rewrite durations.
+    """
+    settings = _settings(settings)
+    adjustments = {}
+    if not settings.uses_improved_readable() and not _has_readable_override(settings):
+        return events, exact, adjustments
+    groups = defaultdict(list)
+    for ev in events:
+        onset = exact[ev.note_id][0]
+        line = ev.musical_voice if ev.musical_voice is not None else ev.voice
+        groups[(ev.hand, line, onset)].append(ev)
+    new_exact = dict(exact)
+    for members in groups.values():
+        members = [
+            ev
+            for ev in members
+            if not getattr(ev, "score_timing_locked", False)
+            and _settings_at_onset(
+                settings, exact[ev.note_id][0], measure_length
+            ).uses_improved_readable()
+        ]
+        if len(members) < 2:
+            continue
+        pitches = [m.pitch for m in members]
+        if max(pitches) - min(pitches) > _CHORD_COMPACT_SPAN:
+            continue
+        if len(set(pitches)) != len(members):
+            continue
+        families = {new_exact[m.note_id][2] for m in members}
+        if len(families) > 1:
+            continue
+        durs = [new_exact[m.note_id][1] for m in members]
+        mind, maxd = min(durs), max(durs)
+        if maxd - mind <= Fraction(1, 10**9):
+            continue
+        spread = float(maxd - mind)
+        if spread >= _CHORD_UNIFY_SPREAD:
+            continue
+        if spread / max(float(maxd), 0.25) > _CHORD_UNIFY_RELATIVE:
+            continue
+        chosen = maxd
+        for ev in members:
+            onset, duration, family, group_id = new_exact[ev.note_id]
+            if duration == chosen:
+                continue
+            new_exact[ev.note_id] = (onset, chosen, family, group_id)
+            adjustments[ev.note_id] = {
+                "from": float(duration),
+                "to": float(chosen),
+                "reason": "readable_chord_duration",
+            }
+    if not adjustments:
+        return events, exact, adjustments
+    updated = []
+    for ev in events:
+        if ev.note_id not in adjustments:
+            updated.append(ev)
+            continue
+        duration = new_exact[ev.note_id][1]
+        updated.append(copy_event(ev, duration_beats=float(duration)))
+    return updated, new_exact, adjustments
 
 
 _ORNAMENT_MAX_RAW_DURATION = 0.35
 _ORNAMENT_LEAD_WINDOW = 0.30
 
 
-def _readable_mark_ornaments(events, onset_by_id, exact, roles, settings, raw_by_id):
+def _readable_mark_ornaments(
+    events, onset_by_id, exact, roles, settings, raw_by_id, measure_length=None
+):
     """Label short anticipatory notes as editable ornaments (Readable only).
 
     Does not delete source attacks. Written duration stays positive so playback
@@ -1091,7 +1931,10 @@ def _readable_mark_ornaments(events, onset_by_id, exact, roles, settings, raw_by
     """
     settings = _settings(settings)
     marks = {}
-    if settings.interpretation != Interpretation.READABLE:
+    if (
+        settings.interpretation != Interpretation.READABLE
+        and not _has_readable_override(settings)
+    ):
         return marks
 
     by_hand = defaultdict(list)
@@ -1108,6 +1951,11 @@ def _readable_mark_ornaments(events, onset_by_id, exact, roles, settings, raw_by
         for index, ev in enumerate(ordered):
             raw = raw_by_id.get(ev.note_id, ev)
             if getattr(raw, "score_timing_locked", False):
+                continue
+            local = _settings_at_onset(
+                settings, onset_by_id.get(ev.note_id, raw.start_beat), measure_length
+            )
+            if local.interpretation != Interpretation.READABLE:
                 continue
             if float(raw.duration_beats) > _ORNAMENT_MAX_RAW_DURATION:
                 continue
@@ -1235,7 +2083,9 @@ def _release_hypothesis(ev, ordered_same_hand, *, settings=None, pedal=None):
         nxt_pedal = pedal_down_at(pedal, getattr(nxt, "start_time_sec", None))
         if nxt.pitch == ev.pitch and under_sustain:
             # Near-simultaneous or independently sustained repeated pitch.
-            if gap <= 0.12 or raw >= gap * 4.0:
+            # A hold that continues through a same-pitch interrupter (duration
+            # at least twice the gap) is two voices, not a pulsed re-strike.
+            if gap <= 0.12 or raw >= gap * 2.0:
                 return None, "overlapping_repeat", None
             # Same-pitch re-attack while this key is still down. Write to the
             # next attack; never tie across a genuine re-strike. CC64 is not
@@ -1293,11 +2143,12 @@ def _voice_search_events(events):
 
 
 def _conservative_articulations(events, *, settings=None):
-    """Keep supplied marks. Do not guess staccato from a rest.
+    """Keep supplied marks. Do not guess staccato from an isolated rest.
 
-    A rest after a short note is not evidence of staccato. This never invents
-    dynamics, phrase slurs, or pedal marks from duration alone, and it never
-    overwrites a supplied articulation.
+    Phrase-level detached-pulse inference may already have marked staccato
+    with ``articulation_source="inferred"``. This pass never invents
+    dynamics, slurs, or pedal marks, and it never overwrites a supplied
+    or user-edited articulation.
     """
     settings = _settings(settings)
     if settings.interpretation != Interpretation.READABLE:
@@ -1603,6 +2454,9 @@ def quantize_notation(
     layout = resolve_layout(score_input, profile)
     from mir.style_interpretation import interpret_for_notation, stamp_performed_timing
 
+    # Processing order: preserve performed beat timing, interpret swing into
+    # written coordinates, then apply Readable/Literal duration spelling.
+    # Score playback later maps those written values through swing once.
     laid_out = stamp_performed_timing(layout.events)
     interpreted, interpretation_spans, interpretation_summary = interpret_for_notation(
         laid_out,
@@ -1681,6 +2535,7 @@ def quantize_notation(
         roles,
         max_move=config.max_onset_move,
         settings=settings,
+        measure_length=measure_length,
     )
 
     out, exact = [], {}
@@ -1733,22 +2588,54 @@ def quantize_notation(
                 nxt,
                 overlaps,
                 family,
-                preserve=ev.source_backend == "midi",
+                preserve=(
+                    local_settings.preserve_performed_durations()
+                    or (
+                        ev.source_backend == "midi"
+                        and not local_settings.uses_improved_readable()
+                    )
+                ),
                 measure_length=measure_length,
                 beat_length=beat_length,
                 release_reason=release_reason,
-                release_at=release_at,
                 settings=local_settings,
+                release_at=release_at,
                 local_pulse=prev_interval if family == "triplet" else None,
             )
             exact[ev.note_id] = (onset, duration, family, f"{key[0]}:{key[1]}:{group_index}")
             out.append(copy_event(ev, start_beat=float(onset), duration_beats=float(duration),
                                   role=role, phrase_id=phrase))
+    raw_by_id = {e.note_id: e for e in raw}
+    out, exact, phrase_duration_adjustments = _readable_phrase_unify_durations(
+        out,
+        exact,
+        settings,
+        raw_by_id,
+        measure_length=measure_length,
+        beat_length=beat_length,
+    )
+    out, exact, detached_adjustments = _readable_unify_detached_pulse(
+        out,
+        exact,
+        settings,
+        raw_by_id,
+        measure_length=measure_length,
+        beat_length=beat_length,
+    )
+    phrase_duration_adjustments.update(detached_adjustments)
+    out, exact, chord_duration_adjustments = _readable_unify_chord_durations(
+        out, exact, settings, measure_length=measure_length
+    )
     out = _stable_lanes(out, exact, profile.grand_staff)
     out = _conservative_articulations(out, settings=settings)
-    raw_by_id = {e.note_id: e for e in raw}
     ornament_marks = _readable_mark_ornaments(
-        out, onset_by_id, exact, roles, settings, raw_by_id
+        out,
+        onset_by_id,
+        exact,
+        roles,
+        settings,
+        raw_by_id,
+        measure_length=measure_length,
     )
     if ornament_marks:
         tagged = []
@@ -1780,7 +2667,11 @@ def quantize_notation(
         ))
         reason = "bounded_voice_search"
         if ev.note_id in shared_beat_adjustments:
-            reason = "readable_shared_beat"
+            reason = shared_beat_adjustments[ev.note_id].get("reason") or "readable_shared_beat"
+        elif ev.note_id in phrase_duration_adjustments:
+            reason = phrase_duration_adjustments[ev.note_id].get("reason") or "readable_phrase_duration"
+        elif ev.note_id in chord_duration_adjustments:
+            reason = "readable_chord_duration"
         decision = {
             "note_id": ev.note_id, "raw_start": source.start_beat,
             "source_track_id": source.source_track_id, "source_program": source.source_program,
@@ -1808,6 +2699,10 @@ def quantize_notation(
             "max_onset_move_beats": float(config.max_onset_move),
             "max_onset_move_ms": beats_to_ms(config.max_onset_move, bpm),
             "layout_authority": getattr(source, "layout_authority", "") or layout.authority.value,
+            "articulation": ev.articulation or None,
+            "articulation_source": ev.articulation_source or (
+                "supplied" if ev.articulation else ""
+            ),
             "release_reason": release_reason,
             "release_target_id": target_id,
             "release_at": None if release_at is None else float(release_at),
@@ -1822,6 +2717,10 @@ def quantize_notation(
         }
         if ev.note_id in shared_beat_adjustments:
             decision["shared_beat"] = shared_beat_adjustments[ev.note_id]
+        if ev.note_id in phrase_duration_adjustments:
+            decision["phrase_duration"] = phrase_duration_adjustments[ev.note_id]
+        if ev.note_id in chord_duration_adjustments:
+            decision["chord_duration"] = chord_duration_adjustments[ev.note_id]
         if ev.note_id in ornament_marks:
             decision["ornament"] = ornament_marks[ev.note_id]
         decisions.append(decision)

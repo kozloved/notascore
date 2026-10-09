@@ -1,4 +1,4 @@
-"""readable-v2 stays opt-in; rollout comparison preserves MIDI and silence."""
+"""Legacy Readable vs current Readable comparison preserves MIDI and silence."""
 
 from __future__ import annotations
 
@@ -33,12 +33,16 @@ from evaluation.readable_v2_rollout import (
 )
 
 
-def test_default_stays_performance_score_1():
-    assert NotationSettings().algorithm_version == ALGORITHM_VERSION_CURRENT
-    assert NotationSettings().algorithm_version == "performance-score-1"
-    opt = NotationSettings.readable_opt_in()
-    assert opt.algorithm_version == ALGORITHM_VERSION_READABLE
-    assert opt.algorithm_version == "performance-score-2"
+def test_new_scores_default_to_current_readable_engine():
+    assert NotationSettings().algorithm_version == ALGORITHM_VERSION_READABLE
+    assert NotationSettings().algorithm_version == "performance-score-3"
+    assert NotationSettings().uses_improved_readable() is True
+    assert NotationSettings().uses_phrase_readable() is True
+    assert NotationSettings.readable_v2().algorithm_version == "performance-score-2"
+    assert NotationSettings.readable_v2().uses_phrase_readable() is False
+    legacy = NotationSettings.legacy_readable()
+    assert legacy.algorithm_version == ALGORITHM_VERSION_CURRENT
+    assert legacy.algorithm_version == "performance-score-1"
 
 
 def test_inventory_reports_synthetic_provenance_and_real_gap():
@@ -218,7 +222,7 @@ def test_heldout_final_short_preserves_midi(tmp_path):
     assert row["measure_integrity"]["v1_musical_valid"] is True
     assert row["measure_integrity"]["v2_musical_valid"] is True
     assert row["v1"]["algorithm_version"] == "performance-score-1"
-    assert row["v2"]["algorithm_version"] == "performance-score-2"
+    assert row["v2"]["algorithm_version"] == ALGORITHM_VERSION_READABLE
     # The last attack is the intentional short note.
     assert row["v1"]["assignments"]["pitches"][-1] == 74
     assert row["v2"]["assignments"]["pitches"][-1] == 74
@@ -249,7 +253,7 @@ def test_locked_timing_survives_both_versions():
         ),
     ]
     meter = MeterHypothesis("4/4", 4, 4, 4.0, 1.0, 1.0)
-    v1 = NotationSettings()
+    v1 = NotationSettings.legacy_readable()
     v2 = NotationSettings.readable_opt_in()
     out1, _, _ = quantize_notation(events, meter, config=QuantizerConfig(), settings=v1)
     out2, _, _ = quantize_notation(events, meter, config=QuantizerConfig(), settings=v2)
@@ -261,7 +265,7 @@ def test_locked_timing_survives_both_versions():
 
 def test_rollout_run_writes_report_and_keeps_v2_opt_in(tmp_path):
     report = run(tmp_path / "out", render=False)
-    assert report["inventory"]["default_algorithm_version"] == "performance-score-1"
+    assert report["inventory"]["default_algorithm_version"] == ALGORITHM_VERSION_READABLE
     assert all(row["source_midi_unchanged"] for row in report["cases"])
     assert all(row["source_midi_unchanged"] for row in report["corpus"])
     labels = {row["label"] for row in report["cases"]}
@@ -274,7 +278,16 @@ def test_rollout_run_writes_report_and_keeps_v2_opt_in(tmp_path):
     assert "short_rests_repeats" in labels
     short = next(row for row in report["cases"] if row["label"] == "short_rests_repeats")
     irregular = next(row for row in report["cases"] if row["label"] == "irregular_triplet_intervals")
-    assert short["timing"]["durations_equal"] is True
+    # Phrase-level Readable may write consecutive sixteenths consistently; the
+    # interior rest (the skip from beat 0.25 to 0.75) must remain.
+    v2_starts = [round(float(n["start"]), 4) for n in short["v2"]["assignments"]["notes"]]
+    v2_durs = {
+        round(float(n["start"]), 4): round(float(n["duration"]), 4)
+        for n in short["v2"]["assignments"]["notes"]
+    }
+    assert 0.25 in v2_starts
+    assert 0.75 in v2_starts
+    assert v2_durs[0.25] <= 0.25 + 1e-9
     assert irregular["timing"]["durations_equal"] is True
     assert short["measure_integrity"]["v1_musical_valid"] is True
     assert short["measure_integrity"]["v2_musical_valid"] is True
@@ -285,7 +298,7 @@ def test_rollout_run_writes_report_and_keeps_v2_opt_in(tmp_path):
         assert all(row["provenance"]["kind"] == "local_reference_midi" for row in report["reference_midi"])
     rec = recommend(report)
     assert rec["migrate_existing_jobs"] is False
-    assert rec["decision"] == "continued_opt_in"
+    assert rec["decision"] == "new_job_default"
     assert report["inventory"]["real_material"]["licensed_performances_available"] is False
     assert (tmp_path / "out" / "rollout_report.md").exists()
     assert (tmp_path / "out" / "B_short_notes_with_rests" / "v1.musicxml").exists()

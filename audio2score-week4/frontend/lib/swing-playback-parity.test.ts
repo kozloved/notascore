@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { playbackDurationBeats } from "./score-midi.ts";
 import { allocateSoundingLanes, applyPlaybackTiming, type PlaybackNote, type SwingSpan } from "./swing-playback.ts";
 
 const PARITY = JSON.parse(
@@ -18,7 +19,7 @@ const PARITY = JSON.parse(
     name: string;
     notes: Array<PlaybackNote & { id: string; pitch: number }>;
     spans: SwingSpan[];
-    expected: Array<{ id: string; start: number; duration: number }>;
+    expected: Array<{ id: string; start: number; duration: number; sounding_duration?: number }>;
   }>;
 };
 
@@ -44,6 +45,12 @@ for (const fixture of PARITY.cases) {
       );
       assert.equal(ticks(got.start), ticks(row.start), `${row.id} onset ticks`);
       assert.equal(ticks(got.start + got.duration), ticks(row.start + row.duration), `${row.id} release ticks`);
+      if (row.sounding_duration != null) {
+        assert.ok(
+          Math.abs(playbackDurationBeats(got) - row.sounding_duration) <= BEAT_TOL,
+          `${row.id} sounding ${playbackDurationBeats(got)} != ${row.sounding_duration}`
+        );
+      }
     }
   });
 }

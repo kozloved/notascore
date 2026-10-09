@@ -530,6 +530,9 @@ def _load_edit_model(job: dict) -> dict:
     raw = _read_edited_sidecar(job, f"{job['id']}.edits.json", text=True)
     if raw:
         return loads_edits(raw)
+    published = _read_result_sidecar(job, f"{job['id']}.edits.json", text=True)
+    if published:
+        return loads_edits(published)
     performance_raw = _read_result_sidecar(job, f"{job['id']}.performance.json", text=True)
     tempo_raw = _read_result_sidecar(job, f"{job['id']}.tempo.json", text=True)
     if performance_raw:
@@ -602,6 +605,7 @@ class ScoreNoteIn(BaseModel):
     start_sec: float | None = Field(default=None, ge=0, le=10000)
     end_sec: float | None = Field(default=None, ge=0, le=10000)
     articulation: str | None = Field(default=None, max_length=32)
+    articulation_source: str | None = Field(default=None, max_length=32)
     performed_start_beat: float | None = None
     performed_duration_beats: float | None = Field(default=None, gt=0)
     stream_key: str | None = Field(default=None, max_length=256)
@@ -653,6 +657,7 @@ class NotationSettingsIn(BaseModel):
     output_mode: str | None = None
     swing_ratio: float | None = Field(default=None, ge=1.0, le=4.0)
     reset: bool = False
+    apply_current_readable: bool = False
     revision: int | None = Field(default=None, ge=0)
 
 
@@ -2149,6 +2154,8 @@ def job_notation_settings_post(
 ):
     """Recompute derived notation. Does not resubmit audio transcription."""
     from mir.notation_settings import (
+        ALGORITHM_VERSION_READABLE,
+        Interpretation,
         NotationSettingsError,
         merge_notation_settings,
         settings_for_reset,
@@ -2177,6 +2184,11 @@ def job_notation_settings_post(
         else:
             current = _notation_settings_payload(job)["notation_settings"]
             settings = merge_notation_settings(current, dumped, fields_set=fields_set)
+            if body.apply_current_readable:
+                settings = settings.replace(
+                    interpretation=Interpretation.READABLE,
+                    algorithm_version=ALGORITHM_VERSION_READABLE,
+                )
         payload = _recompute_notation_revision(
             job,
             settings,

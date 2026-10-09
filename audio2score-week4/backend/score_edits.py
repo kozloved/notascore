@@ -54,6 +54,18 @@ def validate_articulation(value: Any) -> str | None:
     return text
 
 
+_ARTICULATION_SOURCES = {"inferred", "supplied", "user_edit"}
+
+
+def _articulation_source(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in _ARTICULATION_SOURCES:
+        return text
+    return None
+
+
 def validate_source_note_id(value: Any) -> str | None:
     if value is None:
         return None
@@ -184,6 +196,7 @@ def validate_notes(raw_notes: Any) -> list[dict]:
                 "start_sec": start_sec,
                 "end_sec": end_sec,
                 "articulation": validate_articulation(item.get("articulation")),
+                "articulation_source": _articulation_source(item.get("articulation_source")),
                 "performed_start_beat": performed_start,
                 "performed_duration_beats": performed_dur,
                 "stream_key": stream_key,
@@ -787,6 +800,7 @@ def events_from_editor_model(
                 start_time_sec=item.get("start_sec"),
                 end_time_sec=item.get("end_sec"),
                 articulation=item.get("articulation") or None,
+                articulation_source=str(item.get("articulation_source") or ""),
                 performed_start_beat=item.get("performed_start_beat"),
                 performed_duration_beats=item.get("performed_duration_beats"),
                 score_timing_locked=bool(item.get("score_timing_locked") or False),

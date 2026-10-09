@@ -14,7 +14,7 @@ from mir.performance_cli import convert
 from mir.notation_regen import editor_model_from_events
 from mir.swing import allocate_sounding_lanes, apply_playback_timing, stream_key
 from mir.types import Hand, MusicalEvent
-from notation_engine.playback import playback_score
+from notation_engine.playback import playback_duration_beats, playback_score
 from score_edits import dumps_edits, events_from_editor_model, loads_edits, validate_notes
 
 PARITY = Path(__file__).resolve().parents[1] / "evaluation" / "swing_playback_parity.json"
@@ -50,6 +50,8 @@ def _event_from_case(note):
         performed_duration_beats=note.get("performed_duration_beats"),
         score_timing_locked=bool(note.get("score_timing_locked") or False),
         stream_key=note.get("stream_key"),
+        articulation=note.get("articulation") or None,
+        articulation_source=str(note.get("articulation_source") or ""),
     )
 
 
@@ -74,6 +76,10 @@ def test_parity_case_onsets_and_releases(case):
         assert _ticks(got.start_beat + got.duration_beats) == _ticks(row["start"] + row["duration"])
         assert got.pitch == int(next(n["pitch"] for n in case["notes"] if n["id"] == row["id"]))
         assert got.note_id == row["id"]
+        if "sounding_duration" in row:
+            assert playback_duration_beats(got) == pytest.approx(
+                row["sounding_duration"], abs=BEAT_TOL
+            )
 
 
 def test_http_note_model_keeps_swing_provenance():

@@ -21,8 +21,9 @@ with comparative evidence:
 - Keep performance, musical interpretation, notation, and user corrections distinct.
 - Automatic and edited scores use the shared planner.
 - Preserve exact tuplets, ties, articulation ownership, and accepted corrections.
-- Keep readable-v2 (`performance-score-2`) opt-in until comparative evidence
-  supports a rollout. Do not silently migrate existing jobs.
+- New scores default to Readable (`performance-score-3`). Existing jobs keep
+  stored `algorithm_version` until the user explicitly regenerates. `performance-score-1`
+  and `performance-score-2` remain saved-score compatibility identities.
 - Do not treat synthetic fixtures or export success as musician-reviewed quality.
 
 Live product code is `audio2score-week4/`. Status values: **verified**,
@@ -226,14 +227,17 @@ voice continuity make a score unusable even when export is valid.
 **Current implementation and evidence.**
 
 - Performance engine: `mir/performance_score.py`, shared planner
-  `notation_engine/plan.py`. Readable-v2 is opt-in
-  (`performance-score-2`). Last-note triplet pulse and relative leftover
+  `notation_engine/plan.py`. User-facing modes are Literal and Readable.
+  Readable uses `performance-score-3` by default; `performance-score-1`
+  and `performance-score-2` remain saved-score compatibility identities.
+  Phrase-level duration unify, last-note triplet pulse, and relative leftover
   fill are tested. Independent holds are not clipped on synthetic cases.
-- Editor **Notation version** control (Standard = `performance-score-1`,
-  Experimental = `performance-score-2`) regenerates from existing
-  performance MIDI via `/jobs/{id}/notation-settings` — no retranscription
-  and no extra transcription credit. v2 remains opt-in; the control does
-  not make v2 the default.
+- Editor **Interpretation** control (Literal / Readable) regenerates from
+  existing performance MIDI via `/jobs/{id}/notation-settings` — no
+  retranscription and no extra transcription credit. Selecting Readable
+  from Literal pins the current engine. Saved Readable jobs keep their stored
+  engine until **Apply current Readable**. Algorithm version is not a
+  user-facing label.
 - 138: musical voice unchanged; printed lanes move after duration fill.
   Not a P2 musical-line bug. Residual duration spelling on that
   development file is unverified musically.
@@ -265,7 +269,8 @@ do not claim musician-validated improvement.
 
 **Status.** Partially implemented as deterministic correctness work —
 **not P2 complete**, **not musician-validated**. P1 still 0/15 attributed
-reviews. Default remains `performance-score-1`; v2 stays opt-in.
+reviews. New scores default to Readable (`performance-score-3`); existing
+jobs are not auto-migrated.
 
 **P2a increment (PR #84 @ `e9dca18`).**
 
@@ -415,29 +420,55 @@ reviews. Default remains `performance-score-1`; v2 stays opt-in.
    - OSMD HTML renders present; PNG/SVG not produced in this environment
      (documented limitation — playback MIDI + MusicXML remain).
 
+**P2 increment (this branch, base `71b4c18` / PR #100).**
+
+1. **138 staff/voice DIFF regenerated.** Printed-lane adjustment after
+   duration/onset fill; musical grouping and staff unchanged. Not a
+   musical-line regression. Development MIDI, not musician-reviewed.
+2. **Independent lines vs compact chords.** Production `prefer_simple_chords`
+   no longer swallows the first attack of contrary homorhythmic lines.
+   Repeating triads and parallel octaves stay one chord.
+3. **Overlapping unisons.** Same-pitch cluster members are independent
+   voices; attacks preserved. Monophonic repeats stay one voice.
+4. **Inner hold under treble melody.** Mixed-duration hand centroids follow
+   the moving line, so G4/E4 holds stay on the treble staff. C3 bass under
+   the same melody stays left. `G_held_voice_same_staff` is same-staff
+   polyphony on the MIDI path.
+5. **Humanized chord coincidence.** Readable may align compact same-hand
+   members inside 0.08 beats and unify articulation-scale durations.
+   Syncopation, fast figures, mixed-release holds, and Autumn Walks bounds
+   retained. New scores use this Readable engine by default.
+6. **Grace notes.** Interpretation remains editable only. MusicXML grace
+   engraving, playback ownership, and reject-on-regen are documented in
+   `docs/reviews/VOICE_RHYTHM_REVIEW_2026-10-08.md` — not claimed done.
+
 **Remaining P2 work.**
 
 1. Rubato + sub-beat tempo knots under further scale transforms — keep
    playback fidelity green; no new heuristic without a pair.
-2. Further P2b continuity only with paired evidence — not 138 lane movement.
-3. Musician review of any interpretation claim — blocked on P1 ratings.
-4. Auto-infer path still needs measured downs without a preceding barline;
+2. Musician review of any interpretation claim — blocked on P1 ratings.
+3. Auto-infer path still needs measured downs without a preceding barline;
    do not invent pickups from incomplete openings alone.
-5. Collect real-sample reviews via checklist + existing `review.json`
+4. Collect real-sample reviews via checklist + existing `review.json`
    schema; do not invent ratings.
+5. Grace-note MusicXML + editor reject contract (see review).
+6. Unlabeled MIDI contrary octaves may still staff-split via HandSeparator;
+   the VoiceSeparator lookahead is the same-hand path. Do not collapse those
+   identities.
 
 ## P3 — Controlled readable-v2 rollout
 
-**User problem.** Readable-v2 can write more conventional durations, but
-turning it on by default would silently change existing jobs and may erase
-intentional rests.
+**User problem.** Users need a conventional written score from performance
+MIDI, without silently rewriting saved jobs.
 
 **Current implementation and evidence.**
 
-- Default `performance-score-1`. Opt-in `performance-score-2`.
-- Broader comparison and corrected metrics published in PR #76 / #77.
-- Promotion must require no preservation regressions and documented
-  musical benefit. That benefit is not yet musician-reviewed.
+- New scores default to Readable on `performance-score-3`.
+- Existing jobs keep stored `algorithm_version` until explicit regenerate.
+- User-facing modes are Literal and Readable. Algorithm version stays
+  internal for cache identity and compatibility.
+- P1 musician reviews remain 0/15. Do not treat synthetic cleanliness as
+  musician-validated quality.
 
 **Modules.** `mir/notation_settings.py`, `evaluation/readable_v2_rollout.py`,
 job settings persistence.
@@ -447,20 +478,19 @@ diverges on those examples.
 
 **Implementation tasks.**
 
-1. Write promotion criteria before the next evaluation, including
-   correction effort.
-2. Compare v1/v2 on the reviewed set.
-3. Prepare a reversible new-job-only setting. Do not enable it in this
-   milestone.
+1. Keep existing jobs on stored `algorithm_version` until explicit regenerate.
+2. Compare legacy Readable vs current Readable on the reviewed set when
+   P1 ratings exist.
+3. Do not auto-migrate saved scores.
 
 **Acceptance criteria.**
 
-- Criteria exist before scores are judged.
-- Default remains v1. Existing jobs stay on their stored version.
-- Rollout machinery is reversible and unactivated.
+- New scores default to Readable (`performance-score-3`).
+- Existing jobs stay on their stored version until regenerate/reset.
+- P1 musician reviews remain required before claiming musical quality.
 
-**Status.** Comparison implemented but unverified as a rollout decision.
-Enablement is out of scope.
+**Status.** New-job default enabled. Not musician-validated. Existing jobs
+are not auto-migrated.
 
 ## P4 — Correction workflow and engraving
 
@@ -541,8 +571,8 @@ Real-job review registration is in this branch (base `678d35b`). Use
 results stay under `real_samples/` and do **not** change the synthetic
 15-case P1 completion count. **P1 is still 0/15 attributed reviews** —
 do not mark P1 or P2 complete. Do not invent real jobs or human ratings.
-Keep v1 default / v2 opt-in. Pause speculative interpretation/voice
-heuristics until real attributed reviews arrive.
+Keep existing jobs on stored algorithm version. Pause speculative
+interpretation/voice heuristics until real attributed reviews arrive.
 
 **P1 increment (this branch, base `678d35b`).**
 

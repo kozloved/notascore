@@ -1,13 +1,64 @@
 export const ALGORITHM_VERSION_CURRENT = "performance-score-1";
 export const ALGORITHM_VERSION_READABLE_V2 = "performance-score-2";
+export const ALGORITHM_VERSION_READABLE_V3 = "performance-score-3";
+export const ALGORITHM_VERSION_USER_READABLE = ALGORITHM_VERSION_READABLE_V3;
 
 export type AlgorithmVersionChoice =
   | typeof ALGORITHM_VERSION_CURRENT
-  | typeof ALGORITHM_VERSION_READABLE_V2;
+  | typeof ALGORITHM_VERSION_READABLE_V2
+  | typeof ALGORITHM_VERSION_READABLE_V3;
+
+export type InterpretationChoice = "literal" | "readable";
 
 export function algorithmVersionLabel(version: string): string {
-  if (version === ALGORITHM_VERSION_READABLE_V2) return "Experimental";
-  return "Standard";
+  if (version === ALGORITHM_VERSION_USER_READABLE) return "Readable engine";
+  if (version === ALGORITHM_VERSION_READABLE_V2) return "Saved Readable engine";
+  return "Legacy engine";
+}
+
+export function isCurrentReadableEngine(settings: {
+  interpretation: string;
+  algorithm_version: string;
+}): boolean {
+  return (
+    settings.interpretation === "readable" &&
+    settings.algorithm_version === ALGORITHM_VERSION_USER_READABLE
+  );
+}
+
+export function needsCurrentReadableEngine(settings: {
+  interpretation: string;
+  algorithm_version: string;
+}): boolean {
+  return (
+    settings.interpretation === "readable" &&
+    settings.algorithm_version !== ALGORITHM_VERSION_USER_READABLE
+  );
+}
+
+export function patchForCurrentReadable(): {
+  interpretation: "readable";
+  algorithm_version: string;
+  apply_current_readable: true;
+} {
+  return {
+    interpretation: "readable",
+    algorithm_version: ALGORITHM_VERSION_USER_READABLE,
+    apply_current_readable: true,
+  };
+}
+
+export function patchForInterpretation(interpretation: InterpretationChoice): {
+  interpretation: InterpretationChoice;
+  algorithm_version?: string;
+} {
+  if (interpretation === "readable") {
+    return {
+      interpretation: "readable",
+      algorithm_version: ALGORITHM_VERSION_USER_READABLE,
+    };
+  }
+  return { interpretation: "literal" };
 }
 
 export type ReadableGapStyle = "current" | "fill_tiny_gaps";
@@ -23,7 +74,7 @@ export function readableGapStyle(settings: {
 }): ReadableGapStyle {
   if (
     settings.interpretation === "readable" &&
-    settings.algorithm_version === ALGORITHM_VERSION_READABLE_V2
+    settings.algorithm_version === ALGORITHM_VERSION_USER_READABLE
   ) {
     return "fill_tiny_gaps";
   }
@@ -38,7 +89,7 @@ export function patchForReadableGapStyle(style: ReadableGapStyle): {
     interpretation: "readable",
     algorithm_version:
       style === "fill_tiny_gaps"
-        ? ALGORITHM_VERSION_READABLE_V2
+        ? ALGORITHM_VERSION_USER_READABLE
         : ALGORITHM_VERSION_CURRENT,
   };
 }

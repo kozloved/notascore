@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   addNote,
+  articulationStatus,
+  changeArticulation,
   changeDuration,
   changePitch,
   cloneTempoCurve,
@@ -40,6 +42,51 @@ test("duration change uses the rhythmic grid", () => {
   assert.equal(findNote(next, "n-0002")?.duration, 0.5);
   assert.equal(findNote(next, "n-0000")?.duration, 1);
   assert.equal(findNote(next, "n-0002")?.score_timing_locked, true);
+});
+
+test("articulation keep remove and change stay on the selected note", () => {
+  const inferred = chord.map((note, index) =>
+    index === 0
+      ? { ...note, articulation: "staccato", articulation_source: "inferred" }
+      : note
+  );
+  assert.equal(articulationStatus(inferred[0]), "Inferred by Readable");
+  const kept = changeArticulation(inferred, "n-0000", "staccato");
+  assert.equal(findNote(kept, "n-0000")?.articulation, "staccato");
+  assert.equal(findNote(kept, "n-0000")?.articulation_source, "user_edit");
+  assert.equal(articulationStatus(kept[0]), "Chosen by you");
+  const cleared = changeArticulation(inferred, "n-0000", null);
+  assert.equal(findNote(cleared, "n-0000")?.articulation, null);
+  assert.equal(findNote(cleared, "n-0000")?.articulation_source, "user_edit");
+  assert.equal(articulationStatus(cleared[0]), "Chosen by you: no mark");
+  assert.equal(findNote(cleared, "n-0001")?.articulation, undefined);
+  const tenuto = changeArticulation(inferred, "n-0000", "tenuto");
+  assert.equal(findNote(tenuto, "n-0000")?.articulation, "tenuto");
+  assert.equal(articulationStatus({ articulation: "tenuto", articulation_source: "supplied" }), "From the performance");
+});
+
+test("articulation undo redo restores inferred versus chosen marks", () => {
+  let notes = chord.map((note, index) =>
+    index === 0
+      ? { ...note, articulation: "staccato", articulation_source: "inferred" }
+      : note
+  );
+  let history = emptyHistory();
+  history = pushHistory(history, notes);
+  notes = changeArticulation(notes, "n-0000", null);
+  history = pushHistory(history, notes);
+  notes = changeArticulation(notes, "n-0000", "tenuto");
+  const undone = undoNotes(history, notes);
+  assert.ok(undone);
+  assert.equal(findNote(undone.notes, "n-0000")?.articulation, null);
+  assert.equal(findNote(undone.notes, "n-0000")?.articulation_source, "user_edit");
+  const original = undoNotes(undone.history, undone.notes);
+  assert.ok(original);
+  assert.equal(findNote(original.notes, "n-0000")?.articulation, "staccato");
+  assert.equal(findNote(original.notes, "n-0000")?.articulation_source, "inferred");
+  const redone = redoNotes(original.history, original.notes);
+  assert.ok(redone);
+  assert.equal(findNote(redone.notes, "n-0000")?.articulation, null);
 });
 
 test("move snaps to a sixteenth and never goes negative", () => {

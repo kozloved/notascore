@@ -1,13 +1,21 @@
 "use client";
 
 import Button from "../ui/Button";
-import { DURATION_PRESETS, pitchName, type EditableNote } from "../../lib/score-editor";
+import {
+  ARTICULATION_OPTIONS,
+  articulationStatus,
+  DURATION_PRESETS,
+  pitchName,
+  type ArticulationMark,
+  type EditableNote,
+} from "../../lib/score-editor";
 
 type NoteToolbarProps = {
   note: EditableNote | null;
   insertAt: { start: number; track: number } | null;
   onPitch: (delta: number) => void;
   onDuration: (beats: number) => void;
+  onArticulation: (mark: ArticulationMark) => void;
   onMove: (steps: number) => void;
   onDelete: () => void;
   onAdd: () => void;
@@ -18,6 +26,7 @@ export default function NoteToolbar({
   insertAt,
   onPitch,
   onDuration,
+  onArticulation,
   onMove,
   onDelete,
   onAdd,
@@ -68,6 +77,26 @@ export default function NoteToolbar({
                 <span aria-hidden="true">{preset.symbol}</span>
               </button>
             ))}
+          </div>
+          <div className="ns-note-articulation">
+            <div className="ns-note-articulations" role="group" aria-label="Change articulation">
+              {ARTICULATION_OPTIONS.map((option) => {
+                const active = (note.articulation ?? null) === option.value;
+                return (
+                  <button
+                    key={option.label}
+                    type="button"
+                    className={"ns-note-duration" + (active ? " is-active" : "")}
+                    onClick={() => onArticulation(option.value)}
+                    aria-label={option.label}
+                    aria-pressed={active}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="ns-note-articulation-status">{articulationStatus(note)}</p>
           </div>
           <div className="ns-note-stepper" role="group" aria-label="Move note">
             <Button

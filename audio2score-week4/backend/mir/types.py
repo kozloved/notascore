@@ -255,6 +255,8 @@ class MusicalEvent:
     # True when start_beat/duration_beats were set by an accepted score-beat edit.
     # Automatic quantization must leave those values unchanged.
     score_timing_locked: bool = False
+    # "supplied" from MIDI/user input, "inferred" from Readable, "user_edit" from a correction.
+    articulation_source: str = ""
     # Beat-space performance timing, kept when start_beat is rewritten to written
     # coordinates. Seconds (start_time_sec / end_time_sec) remain the source.
     performed_start_beat: Optional[float] = None

@@ -1,9 +1,10 @@
 """Explicit, reversible notation settings for the derived score only.
 
 These never rewrite original MIDI bytes, source note IDs, or performed
-seconds. Defaults reproduce the production performance-score engine
-(`performance-score-1`). Improved readable policies are opt-in via
-`algorithm_version=performance-score-2`.
+seconds. New scores default to Readable using `performance-score-3`.
+Saved jobs keep their stored `algorithm_version` until the user explicitly
+regenerates. `performance-score-1` and `performance-score-2` remain
+compatibility identities.
 """
 
 from __future__ import annotations
@@ -21,9 +22,12 @@ from mir.interpretation_profile import (
 )
 
 ALGORITHM_VERSION_CURRENT = "performance-score-1"
-ALGORITHM_VERSION_READABLE = "performance-score-2"
+ALGORITHM_VERSION_READABLE_V2 = "performance-score-2"
+ALGORITHM_VERSION_READABLE = "performance-score-3"
+ALGORITHM_VERSION_DEFAULT = ALGORITHM_VERSION_READABLE
 SUPPORTED_ALGORITHM_VERSIONS = (
     ALGORITHM_VERSION_CURRENT,
+    ALGORITHM_VERSION_READABLE_V2,
     ALGORITHM_VERSION_READABLE,
 )
 
@@ -300,7 +304,7 @@ class NotationSettings:
     syncopation: SyncopationPolicy = SyncopationPolicy.PRESERVE
     overlap_handling: OverlapHandling = OverlapHandling.CONTEXTUAL
     max_dots: int = DEFAULT_MAX_DOTS
-    algorithm_version: str = ALGORITHM_VERSION_CURRENT
+    algorithm_version: str = ALGORITHM_VERSION_DEFAULT
     printed_tempo_detail: PrintedTempoDetail = PrintedTempoDetail.EXPRESSIVE
     meter: str | None = None
     pickup_beats: float | None = None
@@ -361,6 +365,14 @@ class NotationSettings:
                 raise NotationSettingsError(message)
 
     def uses_improved_readable(self) -> bool:
+        """Fill, chord coincidence, and duration unify (v2 and current)."""
+        return self.interpretation == Interpretation.READABLE and self.algorithm_version in {
+            ALGORITHM_VERSION_READABLE_V2,
+            ALGORITHM_VERSION_READABLE,
+        }
+
+    def uses_phrase_readable(self) -> bool:
+        """Joint phrase-duration inference (current Readable only)."""
         return (
             self.interpretation == Interpretation.READABLE
             and self.algorithm_version == ALGORITHM_VERSION_READABLE
@@ -527,7 +539,7 @@ class NotationSettings:
                 default=DEFAULT_MAX_DOTS,
             ),
             algorithm_version=str(
-                data.get("algorithm_version") or ALGORITHM_VERSION_CURRENT
+                data.get("algorithm_version") or ALGORITHM_VERSION_DEFAULT
             ).strip(),
             printed_tempo_detail=_enum_from(
                 data.get("printed_tempo_detail", PrintedTempoDetail.EXPRESSIVE),
@@ -554,6 +566,7 @@ class NotationSettings:
 
     @classmethod
     def readable_opt_in(cls, base: "NotationSettings | None" = None) -> "NotationSettings":
+        """User-facing Readable: current phrase-level engine."""
         source = base or cls()
         return source.replace(
             interpretation=Interpretation.READABLE,
@@ -561,12 +574,27 @@ class NotationSettings:
         )
 
     @classmethod
-    def literal(cls, base: "NotationSettings | None" = None) -> "NotationSettings":
+    def legacy_readable(cls, base: "NotationSettings | None" = None) -> "NotationSettings":
+        """Saved-score compatibility: Readable on performance-score-1."""
         source = base or cls()
         return source.replace(
-            interpretation=Interpretation.LITERAL,
+            interpretation=Interpretation.READABLE,
             algorithm_version=ALGORITHM_VERSION_CURRENT,
         )
+
+    @classmethod
+    def readable_v2(cls, base: "NotationSettings | None" = None) -> "NotationSettings":
+        """Saved-score compatibility: Readable on performance-score-2."""
+        source = base or cls()
+        return source.replace(
+            interpretation=Interpretation.READABLE,
+            algorithm_version=ALGORITHM_VERSION_READABLE_V2,
+        )
+
+    @classmethod
+    def literal(cls, base: "NotationSettings | None" = None) -> "NotationSettings":
+        source = base or cls()
+        return source.replace(interpretation=Interpretation.LITERAL)
 
 
 def default_notation_settings() -> NotationSettings:

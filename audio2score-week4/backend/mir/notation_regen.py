@@ -1083,8 +1083,9 @@ def _apply_score_ops(events, ops: list[dict], snapshot: PerformanceSnapshot):
             changes["velocity"] = int(op["velocity"])
         if "articulation" in op:
             mark = op.get("articulation") or None
-            if mark != (ev.articulation or None):
+            if mark != (ev.articulation or None) or (ev.articulation_source or "") != "user_edit":
                 changes["articulation"] = mark
+                changes["articulation_source"] = "user_edit"
         out.append(copy_event(ev, **changes) if changes else ev)
     for op in ops:
         if not op.get("insert"):
@@ -1105,6 +1106,7 @@ def _apply_score_ops(events, ops: list[dict], snapshot: PerformanceSnapshot):
                 hand_locked=True,
                 score_timing_locked=True,
                 articulation=op.get("articulation") or None,
+                articulation_source="user_edit" if "articulation" in op else "",
             )
         )
     return out
@@ -1219,6 +1221,7 @@ def editor_model_from_events(
 ) -> dict:
     from mir.swing import stream_key as swing_stream_key
     from score_edits import (
+        ALLOWED_ARTICULATIONS,
         ID_RE,
         MAX_DURATION,
         PITCH_MAX,
@@ -1244,6 +1247,14 @@ def editor_model_from_events(
             voice = int(musical) if musical is not None else printed
         else:
             voice = printed
+        mark = getattr(ev, "articulation", None) or None
+        if mark:
+            mark = str(mark).strip().lower()
+            if mark not in ALLOWED_ARTICULATIONS:
+                mark = None
+        source = getattr(ev, "articulation_source", "") or None
+        if not mark and source != "user_edit":
+            source = None
         notes.append(
             {
                 "id": note_id if ID_RE.match(note_id) else f"n-{index:04d}",
@@ -1256,7 +1267,8 @@ def editor_model_from_events(
                 "voice": voice,
                 "start_sec": getattr(ev, "start_time_sec", None),
                 "end_sec": getattr(ev, "end_time_sec", None),
-                "articulation": getattr(ev, "articulation", None) or None,
+                "articulation": mark,
+                "articulation_source": source,
                 "performed_start_beat": getattr(ev, "performed_start_beat", None),
                 "performed_duration_beats": getattr(ev, "performed_duration_beats", None),
                 "stream_key": swing_stream_key(ev),

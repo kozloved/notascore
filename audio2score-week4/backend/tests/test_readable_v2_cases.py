@@ -36,6 +36,46 @@ def _quantize(path: Path, settings: NotationSettings):
     return out, decisions, ingested
 
 
+def test_readable_unifies_humanized_chord_durations_not_mixed_release(tmp_path):
+    from mir.types import Hand, MusicalEvent
+
+    def ev(pitch, start, dur, ident):
+        return MusicalEvent(
+            pitch, start, dur, note_id=ident, hand=Hand.RIGHT, hand_locked=True, velocity=80,
+            source_backend="midi",
+        )
+
+    chord = [
+        ev(60, 0.00, 1.92, "c"),
+        ev(64, 0.03, 1.80, "e"),
+        ev(67, 0.04, 1.88, "g"),
+    ]
+    legacy, _, _ = quantize_notation(chord, METER, config=QuantizerConfig(), settings=V1)
+    assert len({round(e.start_beat, 4) for e in legacy}) > 1
+
+    out, dec, _ = quantize_notation(chord, METER, config=QuantizerConfig(), settings=V2)
+    starts = {round(e.start_beat, 4) for e in out}
+    durs = {round(e.duration_beats, 4) for e in out}
+    assert len(starts) == 1
+    assert len(durs) == 1
+    assert min(durs) >= 1.75
+    assert any(row.get("reason") in {"readable_chord_coincidence", "readable_chord_duration", "readable_shared_beat"} or row.get("chord_duration") for row in dec)
+
+    mixed = [
+        MusicalEvent(64, 0.0, 4.0, note_id="inner", velocity=80, source_backend="midi"),
+        MusicalEvent(76, 0.0, 0.84, note_id="m0", velocity=80, source_backend="midi"),
+        MusicalEvent(77, 1.0, 0.84, note_id="m1", velocity=80, source_backend="midi"),
+        MusicalEvent(79, 2.0, 0.84, note_id="m2", velocity=80, source_backend="midi"),
+        MusicalEvent(81, 3.0, 0.84, note_id="m3", velocity=80, source_backend="midi"),
+    ]
+    mixed_out, _dec, _ = quantize_notation(mixed, METER, config=QuantizerConfig(), settings=V2)
+    held = next(e for e in mixed_out if e.note_id == "inner")
+    moving = [e for e in mixed_out if e.note_id != "inner"]
+    assert round(held.duration_beats, 4) >= 3.9
+    assert all(e.duration_beats <= 1.0 + 1e-9 for e in moving)
+    assert all(e.musical_voice != held.musical_voice for e in moving)
+
+
 def test_default_engine_fills_triplet_articulation_leftover():
     from fractions import Fraction
 
@@ -232,6 +272,10 @@ def test_overlapping_unisons_keep_two_attacks(tmp_path):
     assert len(ingested.performance.notes) == 2
     assert all(round(e.duration_beats, 4) >= 1.75 for e in v2)
     assert {row["release_reason"] for row in dec2} <= {"overlapping_repeat", "phrase_end", "no_line"}
+    voices = {e.musical_voice for e in v2}
+    printed = {e.voice for e in v2}
+    assert len(voices) == 2
+    assert len(printed) == 2
 
 
 def test_held_voice_on_same_staff_is_not_clipped(tmp_path):
@@ -245,6 +289,8 @@ def test_held_voice_on_same_staff_is_not_clipped(tmp_path):
     assert round(held.duration_beats, 4) == 4.0
     assert [round(e.start_beat, 4) for e in moving] == [0.0, 1.0, 2.0, 3.0]
     assert all(e.duration_beats <= 1.0 + 1e-9 for e in moving)
+    assert held.hand == moving[0].hand
+    assert all(e.musical_voice != held.musical_voice for e in moving)
 
 
 def test_mixed_tuplets_triplet_articulation_fills_on_default_and_v2(tmp_path):

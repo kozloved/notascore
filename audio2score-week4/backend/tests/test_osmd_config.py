@@ -27,10 +27,22 @@ def test_osmd_config_matches_sheet_result():
         elif key == "alignRests":
             assert "alignRests: 2" in jsx
     rules = cfg["engravingRules"]
-    assert rules["PageLeftMargin"] == 8
+    numeric = {
+        "PageLeftMargin": 10,
+        "PageRightMargin": 10,
+        "PageTopMargin": 10,
+        "PageBottomMargin": 10,
+        "StaffDistance": 4.0,
+        "BetweenStaffDistance": 2.8,
+        "MinimumDistanceBetweenSystems": 3.2,
+        "SystemDistance": 3.2,
+        "MeasureNumberLabelOffset": 1.5,
+        "MeasureNumberLabelXOffset": 0.4,
+    }
+    for key, value in numeric.items():
+        assert rules[key] == value
+        assert re.search(rf"{key}\s*=\s*{value}\b", jsx)
     assert rules["MetronomeMarksDrawn"] is True
-    assert rules["MeasureNumberLabelOffset"] == 1.5
-    assert "MeasureNumberLabelOffset = 1.5" in jsx
     assert rules["RenderMeasureNumbersOnlyAtSystemStart"] is True
     assert "drawMeasureNumbersOnlyAtSystemStart: true" in jsx
     assert "osmd.zoom = 0.75" in jsx

@@ -298,7 +298,11 @@ export async function getNotationSettings(id: string): Promise<NotationSettingsP
 
 export async function saveNotationSettings(
   id: string,
-  body: Partial<NotationSettings> & { reset?: boolean; revision?: number }
+  body: Partial<NotationSettings> & {
+    reset?: boolean;
+    apply_current_readable?: boolean;
+    revision?: number;
+  }
 ): Promise<NotationSettingsPayload> {
   const response = await apiFetch(`${API_URL}/jobs/${id}/notation-settings`, {
     method: "POST",
