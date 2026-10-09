@@ -22,11 +22,13 @@ from mir.notation_settings import (
     NotationSettings,
 )
 from mir.performance_cli import convert
+from mir.notation_regen import editor_model_from_events
 from mir.performance_score import quantize_notation
 from mir.quantizer import QuantizerConfig
 from mir.swing import apply_playback_timing
 from mir.types import Hand, MusicalEvent
 from notation_engine.playback import playback_duration_beats
+from score_edits import ALLOWED_ARTICULATIONS, validate_notes
 from tests.test_notation_revision_safety import _fail_if_transcribe, _job_row, isolated_db
 
 METER = MeterHypothesis("4/4", 4, 4, 4.0, 1.0, 1.0)
@@ -330,3 +332,39 @@ def test_raw_midi_stays_byte_identical_across_v3_swing_and_legacy(tmp_path):
     )
     assert source.read_bytes() == original
     assert output.with_suffix(".score.mid").is_file()
+
+
+def test_editor_model_omits_internal_ornament_marks():
+    """Internal Readable ornament tags are not editor articulations."""
+    events = [
+        MusicalEvent(
+            72,
+            0.0,
+            0.25,
+            note_id="n-orn",
+            hand=Hand.RIGHT,
+            voice=1,
+            articulation="ornament",
+            articulation_source="inferred",
+        ),
+        MusicalEvent(
+            60,
+            0.5,
+            0.5,
+            note_id="n-stac",
+            hand=Hand.RIGHT,
+            voice=1,
+            articulation="staccato",
+            articulation_source="inferred",
+        ),
+    ]
+    model = editor_model_from_events(events, tempo_bpm=120, time_signature="4/4")
+    validate_notes(model["notes"])
+    by_id = {n["id"]: n for n in model["notes"]}
+    assert by_id["n-orn"].get("articulation") is None
+    assert by_id["n-orn"].get("articulation_source") is None
+    assert by_id["n-stac"]["articulation"] == "staccato"
+    assert by_id["n-stac"]["articulation_source"] == "inferred"
+    assert all(
+        n.get("articulation") in (None, *ALLOWED_ARTICULATIONS) for n in model["notes"]
+    )
