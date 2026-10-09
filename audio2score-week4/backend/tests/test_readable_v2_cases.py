@@ -36,6 +36,36 @@ def _quantize(path: Path, settings: NotationSettings):
     return out, decisions, ingested
 
 
+def test_default_engine_fills_triplet_articulation_leftover():
+    from fractions import Fraction
+
+    from mir.performance_score import _duration, _triplet_family_articulation_fill
+
+    default = NotationSettings()
+    filled = _triplet_family_articulation_fill(
+        0.28, Fraction(4), Fraction(4) + Fraction(1, 3), Fraction(1, 3)
+    )
+    assert filled == Fraction(1, 3)
+    # Intentional short: leftover is a sixteenth or more of the slot.
+    assert (
+        _triplet_family_articulation_fill(
+            0.08, Fraction(0), None, Fraction(1, 3)
+        )
+        is None
+    )
+    spelled = _duration(
+        0.28,
+        Fraction(4),
+        Fraction(4) + Fraction(1, 3),
+        False,
+        "triplet",
+        preserve=True,
+        settings=default,
+        local_pulse=Fraction(1, 3),
+    )
+    assert spelled == Fraction(1, 3)
+
+
 def test_paired_detached_vs_short_rest_fill_uses_relative_gap():
     from fractions import Fraction
 

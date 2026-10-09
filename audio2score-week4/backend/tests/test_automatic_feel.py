@@ -706,3 +706,61 @@ def test_save_reload_regeneration_keeps_automatic_feel(tmp_path):
     xml = output.read_text(encoding="utf-8")
     assert "Swing" in _xml_words(xml)
     assert "<swing>" in xml
+
+
+def test_swing_with_even_exception_prints_even_and_keeps_playback(tmp_path):
+    source, output, report_path = _convert(tmp_path, "swing_with_even_exception")
+    detected = _detected(output)
+    assert detected["rhythmic_feel"] == "swing_eighths"
+    decisions = json.loads(report_path.read_text())["quantization_decisions"]
+    by_start = sorted({round(float(row["quantized_start"]), 4) for row in decisions})
+    assert 0.0 in by_start and 0.5 in by_start and 1.5 in by_start
+    xml = output.read_text(encoding="utf-8")
+    words = _xml_words(xml)
+    assert "Swing" in words
+    assert "even" in words
+    score = _score_onsets(output.with_suffix(".score.mid"))
+    assert score[1] == pytest.approx(1.0 / 3.0, abs=0.04)
+    even = next(t for t in score if 0.65 < t < 0.85)
+    assert even == pytest.approx(0.75, abs=0.04)
+
+
+# Synthetic held-out acceptance. These MIDI files are generated fixtures, not
+# human performances. Expected musical outcomes are asserted separately from
+# detector labels. Thresholds are not retuned here.
+_HELDOUT_SYNTHETIC = (
+    ("swing_3_to_2", "swing_eighths", True, "expressive swing"),
+    ("straight_syncopation", "straight", False, "straight syncopation"),
+    ("swing_plus_syncopation", "swing_eighths", True, "swing with tied offbeats"),
+    ("genuine_triplets", "straight", False, "genuine triplet passage"),
+    ("independent_voices", "swing_eighths", True, "independent voices"),
+    ("swing_then_straight", "mixed", True, "straight/swing transition"),
+)
+
+
+@pytest.mark.parametrize("name,feel,maps,label", _HELDOUT_SYNTHETIC)
+def test_heldout_synthetic_feel_acceptance(tmp_path, name, feel, maps, label):
+    del label
+    source, output, _report = _convert(tmp_path, name)
+    quantized, report = _quantize_fixture(source)
+    detected = report.summary["detected_interpretation"]
+    assert detected["rhythmic_feel"] == feel
+    assert bool(detected["maps_written_timing"]) is maps
+    xml = output.read_text(encoding="utf-8")
+    words = _xml_words(xml)
+    score = _score_onsets(output.with_suffix(".score.mid"))
+    if feel == "straight":
+        assert "Swing" not in words
+    else:
+        assert "Swing" in words
+    if name == "straight_syncopation":
+        starts = sorted({round(float(e.start_beat), 4) for e in quantized})
+        assert 0.5 in starts and 1.5 in starts
+        assert score[1] == pytest.approx(0.25, abs=0.05)
+    if name == "genuine_triplets":
+        assert xml.lower().count("<time-modification>") >= 6
+    if name == "independent_voices":
+        bass = [e for e in quantized if e.pitch == 48]
+        assert [round(float(e.start_beat), 4) for e in bass[:4]] == [0.0, 1.0, 2.0, 3.0]
+    if name == "swing_then_straight":
+        assert "Straight" in words

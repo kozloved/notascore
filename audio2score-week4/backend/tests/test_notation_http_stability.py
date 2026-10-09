@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.test_notation_correctness import _pointer, _prepare_http_job
-from tests.test_notation_revision_safety import _fail_if_transcribe, isolated_db
+from tests.test_notation_revision_safety import _fail_if_transcribe, _job_row, isolated_db
 from score_edits import extract_from_musicxml
 
 
@@ -906,4 +906,95 @@ def test_http_readable_v2_is_explicit_opt_in_and_persists(isolated_db, monkeypat
         assert reset.status_code == 200, reset.text
         assert reset.json()["algorithm_version"] == "performance-score-1"
         assert (isolated_db / f"{job_id}.raw.mid").read_bytes() == original
+
+
+@pytest.mark.app
+def test_http_even_exception_survives_save_reload_midi_download(isolated_db, monkeypatch):
+    """Function-level HTTP path, not a browser session.
+
+    straight exception inside swing -> save/reload -> midi_score download.
+    Deletes cached score/edited MIDI so the owned editor model is required.
+    """
+    import io
+
+    from evaluation.swing_fixtures import SWING_FIXTURES
+    from mir.performance_cli import convert
+
+    _fail_if_transcribe(monkeypatch)
+    job_id = f"even-{uuid.uuid4().hex[:12]}"
+    source = isolated_db / f"{job_id}.mid"
+    SWING_FIXTURES["swing_with_even_exception"](source)
+    original = source.read_bytes()
+    xml_path = isolated_db / f"{job_id}.musicxml"
+    convert(source, xml_path)
+    (isolated_db / f"{job_id}.raw.mid").write_bytes(original)
+    import database as db
+
+    db.create_job(_job_row(job_id, result_storage_key=str(xml_path), edit_revision=0))
+    with _client() as client:
+        settings = client.get(f"/jobs/{job_id}/notation-settings")
+        assert settings.status_code == 200
+        body = settings.json()
+        assert body["notation_settings"]["source_style"] == "auto"
+        assert body["notation_settings"]["rhythmic_feel"] == "auto"
+        detected = body.get("detected_interpretation") or {}
+        assert detected.get("rhythmic_feel") == "swing_eighths"
+
+        raw = client.get(f"/jobs/{job_id}/result?format=midi")
+        assert raw.status_code == 200
+        assert raw.content == original
+
+        first_score = client.get(f"/jobs/{job_id}/result?format=midi_score")
+        assert first_score.status_code == 200
+
+        posted = client.post(
+            f"/jobs/{job_id}/notation-settings",
+            json={"revision": 0},
+        )
+        assert posted.status_code == 200, posted.text
+        assert posted.json()["transcribed"] is False
+        assert posted.json()["detected_interpretation"]["rhythmic_feel"] == "swing_eighths"
+
+        loaded = client.get(f"/scores/{job_id}/edits")
+        assert loaded.status_code == 200
+        model = loaded.json()
+        assert any(note.get("performed_start_beat") is not None for note in model["notes"])
+        saved = client.put(
+            f"/scores/{job_id}/edits",
+            json={
+                "revision": model["revision"],
+                "notes": model["notes"],
+                "tempo_bpm": model["tempo_bpm"],
+                "time_signature": model["time_signature"],
+                "tempo_curve": model.get("tempo_curve") or [],
+            },
+        )
+        assert saved.status_code == 200, saved.text
+
+        for name in (f"{job_id}.score.mid", f"{job_id}.edited.mid"):
+            path = isolated_db / name
+            if path.exists():
+                path.unlink()
+        _rev, key = _pointer(job_id)
+        assert key
+        edited_midi = Path(key).with_name(f"{job_id}.edited.mid")
+        if edited_midi.exists():
+            edited_midi.unlink()
+
+        midi = client.get(f"/jobs/{job_id}/result?format=midi_score")
+        assert midi.status_code == 200
+        assert midi.content[:4] == b"MThd"
+        score = pretty_midi.PrettyMIDI(io.BytesIO(midi.content))
+        onsets = sorted(note.start for inst in score.instruments for note in inst.notes)
+        assert onsets[1] == pytest.approx(1.0 / 3.0, abs=0.05)
+        even = next(t for t in onsets if 0.62 < t < 0.88)
+        assert even == pytest.approx(0.75, abs=0.05)
+        later = next(t for t in onsets if 1.20 < t < 1.45)
+        assert later == pytest.approx(1.0 + 1.0 / 3.0, abs=0.05)
+        assert (isolated_db / f"{job_id}.raw.mid").read_bytes() == original
+
+        xml = client.get(f"/jobs/{job_id}/result?format=musicxml")
+        assert xml.status_code == 200
+        assert "even" in xml.text
+        assert "Swing" in xml.text
 

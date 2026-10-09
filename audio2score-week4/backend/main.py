@@ -27,6 +27,7 @@ from ownership import (
 from score_edits import (
     EditError,
     build_musicxml_and_midi,
+    events_from_editor_model,
     extract_from_musicxml,
     extract_from_performance,
     loads_edits,
@@ -986,7 +987,74 @@ def job_source(
     )
 
 
+MUSICXML_PLAYBACK_LIMITS = (
+    "MusicXML-only reconstruction cannot recover performed_* timestamps, "
+    "stream_key ownership, or triplet-exception provenance. It honors written "
+    "attacks plus direction/sound/swing, including printed even/straight "
+    "local markings. Unmarked local exceptions are sounded as the prevailing "
+    "swing and cannot be recovered exactly."
+)
+
+
+def _job_interpretation_spans(job: dict) -> list:
+    payload = _notation_settings_payload(job)
+    spans = list(payload.get("interpretation_spans") or [])
+    if spans:
+        return spans
+    decisions_raw = _read_edited_sidecar(job, f"{job['id']}.notation_decisions.json", text=True)
+    if not decisions_raw:
+        decisions_raw = _read_result_sidecar(job, f"{job['id']}.notation_decisions.json", text=True)
+    if not decisions_raw:
+        return []
+    try:
+        payload = json.loads(decisions_raw)
+    except Exception:
+        return []
+    summary = payload.get("quantization_summary") or payload.get("summary") or {}
+    return list(summary.get("interpretation_spans") or payload.get("interpretation_spans") or [])
+
+
+def _owned_score_playback_midi(job: dict) -> bytes | None:
+    """Score playback from the editor/score model plus persisted spans.
+
+    Used for NotaScore-owned jobs so MIDI download does not silently rebuild
+    from MusicXML and discard local even-exception provenance.
+    """
+    import tempfile
+
+    from notation_engine.playback import playback_score
+
+    try:
+        model = _load_edit_model(job)
+    except Exception:
+        return None
+    notes = model.get("notes") or []
+    if not notes:
+        return None
+    if all(note.get("performed_start_beat") is None for note in notes):
+        return None
+    spans = _job_interpretation_spans(job)
+    events = events_from_editor_model(model)
+    signature = str(model.get("time_signature") or "4/4")
+    tempo_bpm = float(model.get("tempo_bpm") or 120)
+    curve = model.get("tempo_curve") or [{"beat": 0.0, "bpm": tempo_bpm}]
+    points = sorted(
+        (float(point.get("beat") or 0.0), float(point.get("bpm") or tempo_bpm))
+        for point in curve
+        if point.get("bpm") is not None
+    ) or [(0.0, tempo_bpm)]
+    try:
+        playback = playback_score(events, signature, points, swing_spans=spans)
+        with tempfile.TemporaryDirectory() as tmp:
+            midi_path = Path(tmp) / "score.mid"
+            playback.write("midi", fp=str(midi_path))
+            return midi_path.read_bytes()
+    except Exception:
+        return None
+
+
 def _musicxml_to_midi_bytes(musicxml_text: str) -> bytes:
+    """Last-resort score MIDI from MusicXML. See MUSICXML_PLAYBACK_LIMITS."""
     from music21 import converter
     from mir.swing import apply_playback_timing
     from mir.types import MusicalEvent
@@ -1186,24 +1254,35 @@ def job_result(
                     **no_store,
                 },
             )
-        # Older jobs: fall back to score MIDI derived from MusicXML.
+        # Missing raw MIDI is not original performance. Do not reconstruct a
+        # swung score from MusicXML and label it as the source take.
 
     if fmt == "midi_score":
-        edited_midi = None
         if edited_key:
+            owned = _owned_score_playback_midi(job)
+            if owned:
+                return Response(
+                    content=owned,
+                    media_type="audio/midi",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{stem}.score.mid"',
+                        "X-Nota-Artifact-Scope": "published_revision",
+                        **no_store,
+                    },
+                )
             edited_midi = _load_result_artifact_bytes(
                 storage_backend, job_id, edited_key, f"{job_id}.edited.mid"
             )
-        if edited_key and edited_midi:
-            return Response(
-                content=edited_midi,
-                media_type="audio/midi",
-                headers={
-                    "Content-Disposition": f'attachment; filename="{stem}.score.mid"',
-                    "X-Nota-Artifact-Scope": "published_revision",
-                    **no_store,
-                },
-            )
+            if edited_midi:
+                return Response(
+                    content=edited_midi,
+                    media_type="audio/midi",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{stem}.score.mid"',
+                        "X-Nota-Artifact-Scope": "published_revision",
+                        **no_store,
+                    },
+                )
         score_bytes = _load_result_artifact_bytes(
             storage_backend, job_id, result_storage_key, f"{job_id}.score.mid"
         )
@@ -1217,8 +1296,19 @@ def job_result(
                     **no_store,
                 },
             )
+        owned = _owned_score_playback_midi(job)
+        if owned:
+            return Response(
+                content=owned,
+                media_type="audio/midi",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{stem}.score.mid"',
+                    "X-Nota-Artifact-Scope": "owned_score",
+                    **no_store,
+                },
+            )
 
-    # fmt == "midi_score" (or sidecars missing): derive from stored MusicXML.
+    # Last resort: MusicXML reconstruction. Cannot recover unmarked exceptions.
     try:
         xml_key = edited_key or result_storage_key
         musicxml_text = storage_backend.read_result_text(xml_key)
@@ -1230,12 +1320,17 @@ def job_result(
         ) from exc
 
     filename = f"{stem}.score.mid" if fmt == "midi_score" else f"{stem}.mid"
+    scope = "musicxml_fallback"
+    if fmt == "midi":
+        scope = "score_fallback"
+    elif edited_key:
+        scope = "published_revision"
     return Response(
         content=midi_bytes,
         media_type="audio/midi",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
-            "X-Nota-Artifact-Scope": "published_revision" if edited_key else "original",
+            "X-Nota-Artifact-Scope": scope,
             **no_store,
         },
     )
@@ -1484,6 +1579,14 @@ def score_edits_put(
                 quant_summary = json.loads(decisions_raw).get("quantization_summary")
             except Exception:
                 quant_summary = None
+        if not quant_summary:
+            settings_payload = _notation_settings_payload(job)
+            spans = list(settings_payload.get("interpretation_spans") or [])
+            if spans:
+                quant_summary = {
+                    "interpretation_spans": spans,
+                    "detected_interpretation": settings_payload.get("detected_interpretation"),
+                }
         context_raw = _read_edited_sidecar(job, f"{score_id}.interpretation_context.json", text=True)
         if not context_raw:
             context_raw = _read_result_sidecar(job, f"{score_id}.interpretation_context.json", text=True)

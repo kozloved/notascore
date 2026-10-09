@@ -28,9 +28,13 @@ from typing import Any
 from xml.etree import ElementTree as ET
 
 from mir.swing import (
+    LOCAL_EVEN_LABEL,
     InterpretationSpan,
+    cluster_even_exceptions,
     indication_for_span,
+    local_even_exceptions,
     simplest_ratio_parts,
+    span_at,
     spans_from_payload,
 )
 
@@ -193,6 +197,24 @@ def _words_text(direction: ET.Element) -> str:
     return ""
 
 
+def _direction_offset_div(direction: ET.Element) -> int:
+    offset = _child(direction, "offset")
+    raw = _text(offset)
+    if not raw:
+        return 0
+    try:
+        return int(raw)
+    except ValueError:
+        return 0
+
+
+def _has_metronome(direction: ET.Element) -> bool:
+    for dtype in _children(direction, "direction-type"):
+        if _child(dtype, "metronome") is not None:
+            return True
+    return False
+
+
 def _ensure_sound_swing(direction: ET.Element, span: InterpretationSpan) -> None:
     sound = _child(direction, "sound")
     if sound is None:
@@ -203,6 +225,51 @@ def _ensure_sound_swing(direction: ET.Element, span: InterpretationSpan) -> None
     sound.append(_swing_element(span))
 
 
+def _ensure_words(direction: ET.Element, label: str, *, beside_metronome: bool) -> None:
+    existing = None
+    for dtype in _children(direction, "direction-type"):
+        words = _child(dtype, "words")
+        if words is not None:
+            existing = words
+            break
+    if existing is None:
+        dtype = ET.Element("direction-type")
+        existing = ET.SubElement(dtype, "words")
+        insert_at = len(list(direction))
+        staff = _child(direction, "staff")
+        sound = _child(direction, "sound")
+        offset = _child(direction, "offset")
+        for index, child in enumerate(list(direction)):
+            if child is staff or child is sound or child is offset:
+                insert_at = index
+                break
+        direction.insert(insert_at, dtype)
+    existing.text = label
+    if beside_metronome:
+        # Sit to the right of ♩= n so OSMD does not stack Swing on the tempo.
+        existing.set("relative-x", "80")
+        existing.set("default-y", "18")
+    else:
+        existing.attrib.pop("relative-x", None)
+        existing.attrib.pop("default-y", None)
+
+
+def _remove_duplicate_words_directions(
+    measure: PartMeasure, *, offset_div: int, label: str
+) -> None:
+    kept_metronome = False
+    for direction in list(_children(measure.element, "direction")):
+        if _direction_offset_div(direction) != offset_div:
+            continue
+        if _has_metronome(direction):
+            kept_metronome = True
+            continue
+        words = _words_text(direction)
+        if label and words == label:
+            measure.element.remove(direction)
+    del kept_metronome
+
+
 def _insert_direction(
     measure: PartMeasure,
     span: InterpretationSpan,
@@ -211,19 +278,19 @@ def _insert_direction(
     local_beats: float,
 ) -> None:
     offset_div = int(round(max(0.0, local_beats) * measure.divisions))
+    metronome = None
+    for direction in _children(measure.element, "direction"):
+        if _has_metronome(direction) and _direction_offset_div(direction) == offset_div:
+            metronome = direction
+            break
+    if metronome is not None and label:
+        _ensure_words(metronome, label, beside_metronome=True)
+        _ensure_sound_swing(metronome, span)
+        _remove_duplicate_words_directions(measure, offset_div=offset_div, label=label)
+        return
     for direction in _children(measure.element, "direction"):
         words = _words_text(direction)
-        if label and words == label:
-            if offset_div > 0:
-                offset = _child(direction, "offset")
-                if offset is None:
-                    staff = _child(direction, "staff")
-                    offset = ET.Element("offset")
-                    offset.text = str(offset_div)
-                    insert_at = list(direction).index(staff) if staff is not None else len(list(direction))
-                    direction.insert(insert_at, offset)
-                else:
-                    offset.text = str(offset_div)
+        if label and words == label and _direction_offset_div(direction) == offset_div:
             _ensure_sound_swing(direction, span)
             return
     direction = ET.Element("direction")
@@ -233,8 +300,8 @@ def _insert_direction(
         words = ET.SubElement(dtype, "words")
         words.text = label
     else:
-        # Machine-only change (e.g. continuing swing after a pickup). Keep a
-        # direction-type so the element stays schema-shaped.
+        # Machine-only change (restore swing after a local even, or continue
+        # after a pickup). Keep a direction-type so the element stays schema-shaped.
         words = ET.SubElement(dtype, "words")
         words.text = ""
     if offset_div > 0:
@@ -248,7 +315,40 @@ def _insert_direction(
     for index, child in enumerate(list(measure.element)):
         if _local(child.tag) == "attributes":
             insert_at = index + 1
+            continue
+        if _local(child.tag) == "direction" and _has_metronome(child):
+            insert_at = index + 1
     measure.element.insert(insert_at, direction)
+
+
+def _even_restore_span(enclosing: InterpretationSpan, start_beat: float) -> InterpretationSpan:
+    return InterpretationSpan(
+        start_beat=float(start_beat),
+        end_beat=float(enclosing.end_beat),
+        feel=enclosing.feel,
+        subdivision_unit=enclosing.subdivision_unit,
+        ratio=enclosing.ratio,
+        confidence=enclosing.confidence,
+        evidence_count=enclosing.evidence_count,
+        origin="local_even_restore",
+        triplet_exceptions=enclosing.triplet_exceptions,
+        unmapped_streams=enclosing.unmapped_streams,
+        maps_written_timing=enclosing.maps_written_timing,
+    )
+
+
+def _even_span(start_beat: float, end_beat: float) -> InterpretationSpan:
+    return InterpretationSpan(
+        start_beat=float(start_beat),
+        end_beat=float(end_beat),
+        feel="straight",
+        subdivision_unit=0.5,
+        ratio=None,
+        confidence=1.0,
+        evidence_count=1,
+        origin="local_even",
+        maps_written_timing=False,
+    )
 
 
 def inject_swing_metadata(
@@ -258,8 +358,14 @@ def inject_swing_metadata(
     measure_quarter_length: float = 4.0,
     pickup_shift: float = 0.0,
     measure_map: list[dict] | None = None,
+    events=None,
 ) -> str:
-    """Add MusicXML 4 <sound><swing> at span boundaries, per part."""
+    """Add MusicXML 4 <sound><swing> at span boundaries, per part.
+
+    Local even exceptions (performed straight inside a swing span) are printed
+    as ``even`` plus ``<swing><straight/>``. Swing is restored after the figure
+    with a machine-only sound node so OSMD does not print a second Swing.
+    """
     del measure_quarter_length, pickup_shift
     if not xml or not spans:
         return xml
@@ -274,6 +380,11 @@ def inject_swing_metadata(
         if span.feel in {"swing_eighths", "swing_sixteenths", "shuffle"} and not span.maps_written_timing:
             continue
         markings.append((span, label))
+    for start, end in cluster_even_exceptions(local_even_exceptions(events or (), parsed_spans)):
+        enclosing = span_at(parsed_spans, start)
+        markings.append((_even_span(start, end), LOCAL_EVEN_LABEL))
+        if enclosing is not None and enclosing.feel in {"swing_eighths", "swing_sixteenths", "shuffle"}:
+            markings.append((_even_restore_span(enclosing, end), ""))
     if not markings:
         return xml
     try:
@@ -286,6 +397,7 @@ def inject_swing_metadata(
     by_part: dict[str, list[PartMeasure]] = {}
     for row in part_measures:
         by_part.setdefault(row.part_id, []).append(row)
+    markings.sort(key=lambda item: (float(item[0].start_beat), 0 if item[1] else 1))
     used: set[tuple] = set()
     for span, label in markings:
         start = float(span.start_beat)
@@ -403,11 +515,16 @@ def assert_swing_metadata_placement(xml: str) -> list[dict]:
 
 
 def spans_from_musicxml(xml: str) -> list[InterpretationSpan]:
-    """Read sound/swing back so XML-derived score MIDI can honor swing once."""
+    """Read sound/swing, including local even/straight, back from MusicXML.
+
+    Recoverable: sectional Swing/Straight words, ``<swing>`` ratios, local
+    ``even`` plus ``<straight/>``, and machine-only restore-swing nodes.
+    Not recoverable: performed_* timestamps, stream_key, triplet-exception
+    owners, or unmarked local exceptions. Those need the editor/score model.
+    """
     nodes = swing_sound_nodes(xml)
     if not nodes:
         return []
-    # Approximate whole-piece or sectional spans from measure order.
     spans = []
     try:
         root = ET.fromstring(xml)
@@ -422,6 +539,13 @@ def spans_from_musicxml(xml: str) -> list[InterpretationSpan]:
         target = next((row for row in part_rows if row.number == node["measure_number"]), None)
         if target is None:
             continue
+        local = 0.0
+        if node["offset"]:
+            try:
+                local = int(node["offset"]) / float(target.divisions or 1)
+            except ValueError:
+                local = 0.0
+        start = target.start_beat + max(0.0, local)
         if node["straight"]:
             feel = "straight"
             ratio = None
@@ -437,7 +561,7 @@ def spans_from_musicxml(xml: str) -> list[InterpretationSpan]:
             unit = 0.25 if feel == "swing_sixteenths" else 0.5
         spans.append(
             InterpretationSpan(
-                start_beat=target.start_beat,
+                start_beat=start,
                 end_beat=target.start_beat + target.duration_beats,
                 feel=feel,
                 subdivision_unit=unit,
@@ -450,11 +574,14 @@ def spans_from_musicxml(xml: str) -> list[InterpretationSpan]:
         )
     if not spans:
         return []
+    spans.sort(key=lambda span: (span.start_beat, span.end_beat))
     # Extend each span to the next marking / piece end.
     for index, span in enumerate(spans):
         end = part_rows[-1].start_beat + part_rows[-1].duration_beats if part_rows else span.end_beat
         if index + 1 < len(spans):
             end = spans[index + 1].start_beat
+        if end <= span.start_beat:
+            end = span.start_beat + 1e-4
         spans[index] = InterpretationSpan(
             start_beat=span.start_beat,
             end_beat=end,

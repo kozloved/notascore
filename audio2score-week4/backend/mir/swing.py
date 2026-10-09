@@ -63,6 +63,7 @@ COMPOUND_METERS = {"6/8", "9/8", "12/8"}
 SWING_FEELS = {"swing_eighths", "swing_sixteenths", "shuffle"}
 SWING_PARTICIPANTS = {"downbeat", "swing_offbeat"}
 NON_PARTICIPANTS = {"exception", "triplet", "dotted", "straight", "ambiguous"}
+LOCAL_EVEN_LABEL = "even"
 
 
 @dataclass(frozen=True)
@@ -1302,6 +1303,50 @@ def feel_user_summary(summary: dict[str, Any] | None) -> str | None:
     if feel == "swing_sixteenths":
         return "Swing 16ths detected — shown using conventional sixteenth-note notation."
     return None
+
+
+def local_even_exceptions(events, spans: Iterable[InterpretationSpan]) -> list[tuple[float, float]]:
+    """Written [start, end) of swing-offbeat notes that were performed even.
+
+    These are local notation exceptions inside a swing span, not a section
+    Straight. Print them as ``even`` so they are not hidden playback metadata.
+    """
+    parsed = spans_from_payload(spans)
+    if not parsed or not events:
+        return []
+    found: list[tuple[float, float]] = []
+    for event in events:
+        written = float(event.start_beat)
+        span = span_at(parsed, written)
+        if not _maps_span(span):
+            continue
+        stream = stream_key(event)
+        if _classify_written_for_playback(written, span, stream) != "swing_offbeat":
+            continue
+        raw_performed = getattr(event, "performed_start_beat", None)
+        if raw_performed is None:
+            continue
+        if _classify_onset(float(raw_performed), span, stream) != "straight":
+            continue
+        found.append((written, written + max(float(event.duration_beats), 1e-4)))
+    return found
+
+
+def cluster_even_exceptions(
+    exceptions: Iterable[tuple[float, float]], *, gap_beats: float = 0.75
+) -> list[tuple[float, float]]:
+    """Merge nearby even offbeats into one printed 'even' figure."""
+    ordered = sorted((float(start), float(end)) for start, end in exceptions)
+    if not ordered:
+        return []
+    clusters = [ordered[0]]
+    for start, end in ordered[1:]:
+        prev_start, prev_end = clusters[-1]
+        if start <= prev_end + float(gap_beats):
+            clusters[-1] = (prev_start, max(prev_end, end))
+        else:
+            clusters.append((start, end))
+    return clusters
 
 
 def indication_for_span(span: InterpretationSpan, *, previous_feel: str | None) -> str | None:

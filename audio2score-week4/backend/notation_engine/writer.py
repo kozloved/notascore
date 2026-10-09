@@ -724,7 +724,9 @@ class NotationWriter:
                 meta,
                 score_beat_offset=score_beat_offset - pickup_shift,
             )
-            self._apply_feel_indications(score, plan, pickup_shift=pickup_shift)
+            # Visible Swing/Straight/even words are injected into MusicXML after
+            # write so they can share the opening metronome direction. A separate
+            # music21 TextExpression at beat 0 collides with ♩= n in OSMD/PDF.
         # Re-assert planned lengths after metronome/tempo inserts — music21 may
         # widen an incomplete pickup when a mark is placed with barDuration.
         by_number = {m.number: float(m.duration_beats) for m in plan.measures}
@@ -1295,6 +1297,7 @@ class NotationWriter:
             measure_quarter_length=mql,
             pickup_shift=pickup,
             measure_map=measure_map or None,
+            events=self.last_quantized_events,
         )
 
     def _insert_tempo_text_at_beat(self, score, beat: float, text: str) -> None:

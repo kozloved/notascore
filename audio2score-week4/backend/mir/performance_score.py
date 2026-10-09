@@ -780,6 +780,16 @@ def _duration(
                 named.add(cap)
     if not named:
         named = {max(unit, round(raw / float(unit)) * unit)}
+    if family == "triplet":
+        triplet_fill = _triplet_family_articulation_fill(
+            raw,
+            onset,
+            effective_next,
+            local_pulse,
+            release_reason=release_reason,
+        )
+        if triplet_fill is not None:
+            return triplet_fill
     filled = _readable_v2_fill_small_release_gap(
         raw,
         onset,
@@ -802,6 +812,77 @@ def _duration(
             beat_length=beat_length,
         ),
     )
+
+
+def _triplet_slot_candidate(interval):
+    """Named triplet pulse for an IOI or preceding interval, or None."""
+    pulse = _triplet_local_pulse(interval)
+    if pulse is not None:
+        return pulse
+    if interval is None:
+        return None
+    value = float(interval)
+    if value <= 0:
+        return None
+    for candidate in (Fraction(1, 3), Fraction(2, 3), Fraction(1, 6), Fraction(1, 12)):
+        if abs(value - float(candidate)) <= 0.04:
+            return candidate
+    return None
+
+
+def _triplet_leftover_is_articulation(raw, leftover, slot, sixteenth=0.25) -> bool:
+    """True when leftover is a performed release, not a written rest.
+
+    leftover < 16th, leftover/slot < 1/4, leftover < sounding length.
+    Default-engine MIDI preserve otherwise spells 0.28 as a 16th plus a
+    32nd tuplet rest inside a genuine triplet group.
+    """
+    if slot <= 0 or leftover < 0 or leftover >= sixteenth:
+        return False
+    if leftover >= float(raw) - 1e-9:
+        return False
+    return leftover / slot < 0.25
+
+
+def _triplet_family_articulation_fill(
+    raw,
+    onset,
+    next_onset,
+    local_pulse,
+    *,
+    release_reason=None,
+):
+    """Fill tiny triplet leftovers on the default engine, not only readable-v2.
+
+    Does not delete legitimate rests, change onsets, or retune swing.
+    """
+    if release_reason in {
+        "independent_hold",
+        "multi_attack_hold",
+        "overlapping_repeat",
+        "pedal_tail",
+        "reattack",
+    }:
+        return None
+    if next_onset is not None:
+        ioi = Fraction(next_onset) - Fraction(onset)
+        slot = _triplet_slot_candidate(ioi)
+        if slot is not None:
+            leftover = float(slot) - float(raw)
+            if _triplet_leftover_is_articulation(raw, leftover, float(slot)):
+                written_end = Fraction(onset) + slot
+                if written_end <= Fraction(next_onset) + Fraction(1, 10**9):
+                    return slot
+    pulse = _triplet_slot_candidate(local_pulse)
+    if pulse is None:
+        return None
+    leftover = float(pulse) - float(raw)
+    if not _triplet_leftover_is_articulation(raw, leftover, float(pulse)):
+        return None
+    written_end = Fraction(onset) + pulse
+    if next_onset is not None and written_end > Fraction(next_onset) + Fraction(1, 10**9):
+        return None
+    return pulse
 
 
 def _readable_v2_fill_small_release_gap(

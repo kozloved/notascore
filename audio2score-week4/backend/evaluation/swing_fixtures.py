@@ -290,6 +290,20 @@ def fixture_short_convincing_swing(path: Path) -> str:
     return _write(path, notes)
 
 
+def fixture_swing_with_even_exception(path: Path) -> str:
+    """Synthetic 2:1 swing with one performed-even offbeat at beat 1.5."""
+    notes = []
+    for beat in range(8):
+        down = _q(beat)
+        if beat == 1:
+            off = _q(1.5)
+        else:
+            off = _q(beat + 2.0 / 3.0)
+        notes.append((72, down, off - 0.01, 84))
+        notes.append((74, off, _q(beat + 1.0) - 0.01, 78))
+    return _write(path, notes)
+
+
 def fixture_long_swung_offbeat(path: Path) -> str:
     notes = []
     notes.append((72, _q(0.0), _q(2.0 / 3.0) - 0.01, 84))
@@ -344,4 +358,5 @@ SWING_FIXTURES = {
     "short_convincing_swing": fixture_short_convincing_swing,
     "straight_then_swing_sixteenths": fixture_straight_then_swing_sixteenths,
     "long_swung_offbeat": fixture_long_swung_offbeat,
+    "swing_with_even_exception": fixture_swing_with_even_exception,
 }

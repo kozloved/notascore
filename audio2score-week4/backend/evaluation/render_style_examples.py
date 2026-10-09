@@ -14,6 +14,7 @@ from mir.performance_cli import convert
 ROOT = Path(__file__).resolve().parent
 CASES = (
     ("swing_2_to_1", "4/4"),
+    ("swing_with_even_exception", "4/4"),
     ("swing_3_to_2", "4/4"),
     ("swing_sixteenths", "4/4"),
     ("straight_syncopation", "4/4"),
