@@ -746,6 +746,63 @@
           "end": 2.0
         }
       ]
+    },
+    {
+      "name": "swing_staccato_eighth",
+      "notes": [
+        {
+          "id": "down",
+          "pitch": 72,
+          "start": 0.0,
+          "duration": 0.5,
+          "performed_start_beat": 0.0,
+          "performed_duration_beats": 0.6666666666666666,
+          "stream_key": "|right|0",
+          "track": 0,
+          "voice": 0
+        },
+        {
+          "id": "stacc",
+          "pitch": 74,
+          "start": 0.5,
+          "duration": 0.5,
+          "articulation": "staccato",
+          "performed_start_beat": 0.6666666666666666,
+          "performed_duration_beats": 0.3333333333333333,
+          "stream_key": "|right|0",
+          "track": 0,
+          "voice": 0
+        }
+      ],
+      "spans": [
+        {
+          "start_beat": 0.0,
+          "end_beat": 4.0,
+          "feel": "swing_eighths",
+          "subdivision_unit": 0.5,
+          "ratio": 2.0,
+          "maps_written_timing": true,
+          "confidence": 1.0,
+          "evidence_count": 2,
+          "origin": "inferred"
+        }
+      ],
+      "expected": [
+        {
+          "id": "down",
+          "start": 0.0,
+          "duration": 0.6666666666666666,
+          "end": 0.6666666666666666,
+          "sounding_duration": 0.6666666666666666
+        },
+        {
+          "id": "stacc",
+          "start": 0.6666666666666666,
+          "duration": 0.33333333333333337,
+          "end": 1.0,
+          "sounding_duration": 0.16666666666666669
+        }
+      ]
     }
   ]
 }

@@ -1,5 +1,5 @@
 import type { EditableNote, TempoCurvePoint } from "./score-editor";
-import { allocateSoundingLanes, applyPlaybackTiming, type SwingSpan } from "./swing-playback";
+import { allocateSoundingLanes, applyPlaybackTiming, type SwingSpan } from "./swing-playback.ts";
 
 /** Keep in sync with notation_engine.playback.STACCATO_PLAYBACK_FRACTION. */
 export const STACCATO_PLAYBACK_FRACTION = 0.5;

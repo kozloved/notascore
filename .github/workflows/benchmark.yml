@@ -28,6 +28,7 @@ jobs:
             tests/test_export_integrity.py             tests/test_readable_v2_cases.py \
             tests/test_export_evidence_structure.py \
             tests/test_readable_v2_rollout.py \
+            tests/test_readable_swing_integration.py \
             tests/test_readable_interpretation.py \
             tests/test_readable_detached_articulation.py \
             tests/test_autumn_walks_readable.py \
@@ -76,7 +77,11 @@ jobs:
             tests/test_notation_settings.py \
             tests/test_notation_evidence_meter.py \
             tests/test_export_integrity.py \
-            tests/test_export_integrity_audio.py
+            tests/test_export_integrity_audio.py \
+            tests/test_readable_swing_integration.py \
+            tests/test_automatic_feel.py \
+            tests/test_swing_playback.py \
+            tests/test_swing_playback_parity.py
       - name: MIDI benchmark subset
         run: python -m benchmark.runner --mode midi --subset ci
 

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { changeArticulation } from "./score-editor.ts";
 import { playbackDurationBeats, STACCATO_PLAYBACK_FRACTION } from "./score-midi.ts";
+import { applyPlaybackTiming } from "./swing-playback.ts";
 
 test("score playback shortens staccato to half the written value", () => {
   assert.equal(STACCATO_PLAYBACK_FRACTION, 0.5);
@@ -30,4 +31,30 @@ test("clearing inferred staccato restores full written playback", () => {
   assert.equal(cleared[0].articulation, null);
   assert.equal(cleared[0].articulation_source, "user_edit");
   assert.equal(playbackDurationBeats(cleared[0]), 1);
+});
+
+test("staccato shortens swung sounding duration without moving the mapped onset", () => {
+  const span = {
+    start_beat: 0,
+    end_beat: 4,
+    feel: "swing_eighths",
+    subdivision_unit: 0.5,
+    ratio: 2,
+    maps_written_timing: true,
+  };
+  const [sounded] = applyPlaybackTiming(
+    [
+      {
+        start: 0.5,
+        duration: 0.5,
+        articulation: "staccato",
+        performed_start_beat: 2 / 3,
+        stream_key: "|right|0",
+      },
+    ],
+    [span]
+  );
+  assert.ok(Math.abs(sounded.start - 2 / 3) < 1e-9);
+  assert.ok(Math.abs(sounded.duration - 1 / 3) < 1e-9);
+  assert.ok(Math.abs(playbackDurationBeats(sounded) - 1 / 6) < 1e-9);
 });
